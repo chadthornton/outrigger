@@ -19,9 +19,12 @@ Two conditions:
    audio in) = 6 of 8. Adding the Launchkey (3) needs 9. Recording while playing needs the FM-1's MIDI interface
    left unclaimed (MIDI over Bluetooth instead) and a small EspUsbHost patch: 2 + 3 + 2 = 7.
 
-Not done: writing to a USB stick (the stretch goal; it also needs the MIDI-skip patch, 2 + 2 + 3 = 7), and
-listening to a capture. Packet counts prove nothing was dropped, not that the samples are clean; getting a WAV
-off the board needs a device-mode export (for example through Settings › Computer from `e2da15a`).
+**Getting takes off the board: Wi-Fi works, slowly.** The board serves `GET /take.wav?s=N` (N ≤ 35 s, the PSRAM
+buffer) and the Mac saves it with `curl`. A 30 s take arrives complete and continuous, but TCP on this core
+carries only about a third of real time (64 kB/s against 176 kB/s), so it downloads in about 83 s. Fine for
+capturing takes; not enough for longer takes or live listening without a faster transport (see measurement 5).
+
+Not done: writing to a USB stick (the stretch goal; it also needs the MIDI-skip patch, 2 + 2 + 3 = 7).
 
 **Side effect for the router build:** master runs the default FIFO split, so the FM-1's audio claim always fails
 there and hub + FM-1 + Launchkey sits at 8/8. Anyone who copies the FIFO fix into the router build will push it
@@ -218,3 +221,20 @@ WAV header for N seconds followed by the audio from the moment of the request. T
   build (arduino as a component) or the lib builder.
 - Turning modem sleep off cut idle ping from 156 to 25 ms but didn't raise throughput, which fits a
   window-limited link rather than a radio one.
+
+### 6. Clean take with the take buffer frozen (`12c52c4`, flashed over Wi-Fi)
+
+- **Over-the-air update works:** `POST /update` with the board's on-screen key, 1.1 MB in 88 s (uploads are just
+  as window-limited), then the board rebooted into the new build.
+- **Take 2:** 30 s requested, 5,292,044 bytes in 82.8 s (64 kB/s). `/stats`: `ovr 0`, longest stall 6.5 s
+  (absorbed by the buffer). `check_wav.py`: 1,323,000 frames (30.00 s), peak -9.7 dBFS, rms -26.7 dBFS, 1 silent
+  10 ms block of 2,999, no second-difference spikes, no zero runs inside the sound. Chad played throughout.
+- Take 1 (old build) had `ovr 2`: spliced twice, as predicted.
+
+### Open questions
+
+- **Is TCP really window-limited?** The 5744-byte send buffer explains the numbers, but a UDP flood test would
+  settle it. Only worth doing for takes over 35 s or for live listening.
+- **Faster transports, if needed:** UDP with sequence numbers and a small Mac receiver (no window); an ESP-IDF
+  build with larger lwIP buffers; or compressing on the board (IMA ADPCM, 4:1, lossy).
+- **Clock:** the FM-1 runs about 400 ppm fast; a recorder can ignore it, a live player must resample.
