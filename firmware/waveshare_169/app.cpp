@@ -18,6 +18,9 @@
 #include <EspUsbHost.h>
 #include <Preferences.h>
 #include <esp_app_desc.h>
+#include <soc/rtc_cntl_reg.h>
+#include <soc/system_reg.h>
+#include <soc/usb_serial_jtag_reg.h>
 
 #include "board_profile.h"
 #include "boot_mode.h"
@@ -283,6 +286,28 @@ static midi_core::BootMode read_boot_mode() {
   return d.mode;
 }
 
+// Gives the USB pins to the chip's USB-Serial-JTAG device, the same steps as
+// the Arduino core's usb_switch_to_cdc_jtag(). Plain boot alone doesn't do it
+// on this board: with the host never started, the Mac still saw no device.
+// Writes the registers before and after into `out` for the screen.
+static void hand_usb_to_serial_jtag(char *out, size_t len) {
+  const uint32_t clk0 = REG_READ(SYSTEM_PERIP_CLK_EN1_REG), rst0 = REG_READ(SYSTEM_PERIP_RST_EN1_REG),
+                 rtc0 = REG_READ(RTC_CNTL_USB_CONF_REG), usj0 = REG_READ(USB_SERIAL_JTAG_CONF0_REG);
+  SET_PERI_REG_MASK(SYSTEM_PERIP_CLK_EN1_REG, SYSTEM_USB_DEVICE_CLK_EN);
+  CLEAR_PERI_REG_MASK(SYSTEM_PERIP_RST_EN1_REG, SYSTEM_USB_DEVICE_RST);
+  CLEAR_PERI_REG_MASK(RTC_CNTL_USB_CONF_REG, RTC_CNTL_SW_HW_USB_PHY_SEL | RTC_CNTL_SW_USB_PHY_SEL | RTC_CNTL_USB_PAD_ENABLE);
+  CLEAR_PERI_REG_MASK(USB_SERIAL_JTAG_CONF0_REG, USB_SERIAL_JTAG_PHY_SEL | USB_SERIAL_JTAG_PAD_PULL_OVERRIDE);
+  // Drop off the bus briefly so the computer enumerates afresh.
+  CLEAR_PERI_REG_MASK(USB_SERIAL_JTAG_CONF0_REG, USB_SERIAL_JTAG_USB_PAD_ENABLE);
+  delay(100);
+  SET_PERI_REG_MASK(USB_SERIAL_JTAG_CONF0_REG, USB_SERIAL_JTAG_USB_PAD_ENABLE);
+  snprintf(out, len, "clk %lx>%lx rst %lx>%lx\nrtc %lx>%lx usj %lx>%lx", (unsigned long)(clk0 >> 8 & 0xF),
+           (unsigned long)(REG_READ(SYSTEM_PERIP_CLK_EN1_REG) >> 8 & 0xF), (unsigned long)(rst0 >> 8 & 0xF),
+           (unsigned long)(REG_READ(SYSTEM_PERIP_RST_EN1_REG) >> 8 & 0xF), (unsigned long)rtc0,
+           (unsigned long)REG_READ(RTC_CNTL_USB_CONF_REG), (unsigned long)usj0,
+           (unsigned long)REG_READ(USB_SERIAL_JTAG_CONF0_REG));
+}
+
 void setup() {
   const midi_core::BootMode mode = read_boot_mode();
   prefs.begin("ui", false);
@@ -292,9 +317,10 @@ void setup() {
   if (mode == midi_core::BootMode::Computer) {
     // The USB host is never installed, so the port stays the chip's
     // USB-Serial-JTAG device and the computer can reset it into download mode.
-    char version[12];
-    snprintf(version, sizeof version, "%07lx", (unsigned long)FW_VERSION);
-    ui_show_computer_mode(version);
+    char regs[64], info[96];
+    hand_usb_to_serial_jtag(regs, sizeof regs);
+    snprintf(info, sizeof info, "Firmware %07lx\n%s", (unsigned long)FW_VERSION, regs);
+    ui_show_computer_mode(info);
     return;
   }
   usb.onDeviceConnected(on_connected);
