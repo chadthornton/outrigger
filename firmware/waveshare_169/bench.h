@@ -29,6 +29,9 @@ bool bench_start(BenchMode mode, uint32_t seconds);
 void bench_loop(uint32_t now_ms);
 // The mode being recorded, None when idle.
 BenchMode bench_running();
+// Wi-Fi should be off: a wifi_off run is recording, or starts soon. Waits
+// 500 ms after the request so the reply to it gets out.
+bool bench_wants_wifi_off(uint32_t now_ms);
 
 // JSON for every mode recorded so far.
 size_t bench_json(char *out, size_t len);

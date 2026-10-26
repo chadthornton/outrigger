@@ -115,6 +115,11 @@ void bench_loop(uint32_t now_ms) {
 
 BenchMode bench_running() { return start_pending ? requested : running; }
 
+bool bench_wants_wifi_off(uint32_t now_ms) {
+  if (running == BenchMode::WifiOff) return true;
+  return start_pending && requested == BenchMode::WifiOff && now_ms - requested_ms >= 500;
+}
+
 static const char *const kNames[kBenchModes] = {"none", "wifi_off", "idle", "busy"};
 const char *bench_mode_name(BenchMode m) { return kNames[static_cast<int>(m)]; }
 BenchMode bench_mode_from(const char *name) {

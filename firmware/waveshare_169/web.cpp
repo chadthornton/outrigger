@@ -601,7 +601,7 @@ void web_loop(uint32_t now) {
   bool want_on, save_tokens = false, new_creds = false, forget = false, scan = false;
   {
     Lock l;
-    want_on = settings_now.wifi && bench_running() != BenchMode::WifiOff;
+    want_on = settings_now.wifi && !bench_wants_wifi_off(now);
     std::swap(save_tokens, tokens_dirty);
     std::swap(new_creds, creds_pending);
     std::swap(forget, forget_pending);
