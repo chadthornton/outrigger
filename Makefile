@@ -3,7 +3,7 @@ SKETCH := firmware/waveshare_169
 BUILD := build/waveshare_169
 PORT ?= $(firstword $(wildcard /dev/cu.usbmodem*))
 
-.PHONY: test build flash clean
+.PHONY: test build flash spike flash-spike clean
 
 test: build/test_midi_core build/test_status
 	./build/test_midi_core
@@ -25,6 +25,16 @@ build:
 
 flash: build
 	arduino-cli upload --fqbn $(FQBN) --input-dir $(BUILD) --port $(PORT) $(SKETCH)
+
+# Audio capture spike (branch spike/audio): firmware/audio_spike, never sends MIDI.
+SPIKE_BUILD := build/audio_spike
+spike:
+	arduino-cli compile --fqbn $(FQBN) --build-property "tools.ctags.path=/opt/homebrew/bin" \
+		--build-property "compiler.cpp.extra_flags=-DESP_USB_HOST_MAX_SERIAL_PORTS=0" \
+		--library lib/EspUsbHost --output-dir $(SPIKE_BUILD) firmware/audio_spike
+
+flash-spike: spike
+	arduino-cli upload --fqbn $(FQBN) --input-dir $(SPIKE_BUILD) --port $(PORT) firmware/audio_spike
 
 clean:
 	rm -rf build
