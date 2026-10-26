@@ -230,6 +230,8 @@ WAV header for N seconds followed by the audio from the moment of the request. T
   (absorbed by the buffer). `check_wav.py`: 1,323,000 frames (30.00 s), peak -9.7 dBFS, rms -26.7 dBFS, 1 silent
   10 ms block of 2,999, no second-difference spikes, no zero runs inside the sound. Chad played throughout.
 - Take 1 (old build) had `ovr 2`: spliced twice, as predicted.
+- Chad listened to take 2 and released the board, which ended the spike. The board was left running `12c52c4`; the
+  platform-architecture smoke check reflashes master.
 
 ### Open questions
 
