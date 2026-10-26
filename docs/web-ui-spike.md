@@ -120,6 +120,17 @@ spaced. See the Recommendation for what that leaves unmeasured.
   station interface so mDNS can answer.
 - The Host check works on the hardware: a request to the hub's IP with `Host: evil.example` gets 403.
 
+### Verified on the hardware with `2f80837` (2026-10-26)
+
+- **Pairing and settings round-trip (Chad, on his phone):** the PIN banner showed on the hub; `000000` was refused;
+  the real PIN paired; text size L from the page changed the hub's screen; S on the hub's settings page changed the
+  page; Launchkey notes scrolled in the page's monitor.
+- **Writes need pairing:** `POST /api/settings` without a token returns `{"error":"pair first"}`.
+- **mDNS IPv6 fix:** `fm1hub.local` answers in 0.11–0.21 s from `curl` (was 5.0 s), and `dns-sd -G v4v6` returns
+  link-local and ULA IPv6 addresses next to `192.168.68.71`.
+- **Not re-tested:** the setup page's "Joining…" message and the "On Wi-Fi" banner (needs forgetting the network and
+  redoing the phone setup). The join itself worked on the first build.
+
 ## What the prototype does
 
 | Piece | Where |
