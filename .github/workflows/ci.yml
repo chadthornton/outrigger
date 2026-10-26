@@ -1,0 +1,63 @@
+# Every push: the Mac-style tests, then every board x app set built and staged
+# into the installer site. Nothing is published: the staged firmware is a
+# private workflow artifact. JieLi's wl82loader.bin is fetched for the tests
+# and for build_site.py's licensing scan, and never uploaded.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: tests/fixtures
+          key: fixtures-${{ hashFiles('tools/fetch_fixtures.py') }}
+      - run: make test
+
+  firmware:
+    runs-on: ubuntu-latest
+    env:
+      CTAGS_DIR: /usr/bin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: arduino/setup-arduino-cli@v2
+        with:
+          version: 1.5.1
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.arduino15
+            ~/Arduino/libraries
+          key: arduino-esp32-3.3.12-gfx-1.6.9-lvgl-9.6.0
+      - uses: actions/cache@v4
+        with:
+          path: tests/fixtures
+          key: fixtures-${{ hashFiles('tools/fetch_fixtures.py') }}
+      - name: Toolchain (pinned to what the Waveshare builds were verified with)
+        run: |
+          sudo apt-get install -y universal-ctags
+          arduino-cli core update-index --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+          arduino-cli core install esp32:esp32@3.3.12 --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+          arduino-cli lib install "GFX Library for Arduino@1.6.9" "lvgl@9.6.0"
+      - name: Build every board x app set and stage the installer site
+        shell: bash  # adds -o pipefail, so tee doesn't hide a failed make
+        run: make site 2>&1 | tee site.log
+      - name: The licensing scan really ran
+        run: |
+          test -f tests/fixtures/wl82loader.bin
+          if grep -q "no local wl82loader.bin" site.log; then echo "build_site.py skipped the chunk scan"; exit 1; fi
+          if find site/firmware -iname '*wl82*' | grep .; then exit 1; fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: site-firmware
+          path: site/firmware/
+          retention-days: 14
+          if-no-files-found: error
