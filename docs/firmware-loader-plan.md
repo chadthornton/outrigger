@@ -207,7 +207,7 @@ An update is a firmware switch where the identity stays the same:
 
 ### Library housekeeping
 
-- **Space:** the library partition holds roughly 10 to 18 packages, depending on the partition decision below.
+- **Space:** the library partition holds about 10 packages under layout (a), or about 13 under (b) (decision 5).
 - **Pinning:** keep favorites, and whatever is installed on a unit, permanently.
 - **Previous versions:** keep one previous version per installed firmware for rollback.
 - **Eviction:** when space runs out, evict the least recently used unpinned package.
@@ -366,11 +366,14 @@ package; Wi-Fi is set up from a phone.
 1. **Go-ahead** for this plan under the guarded rules.
 2. **v1 package source:** packages flashed from the Mac (recommended for v1), or straight to Wi-Fi.
 3. **First firmwares to stock:** for example stock V15, Skiff, SLOOP.
-5. **Partition layout, decided once:**
-   - **(a) Recommended:** two app slots for the Waveshare's own OTA (2 × 3 MB), a library of about 7 MB (about
-     10 packages), and backups and saves of about 3 MB.
-   - **(b)** One app slot and a library of about 10 MB (about 15 packages). With (b), the Waveshare's own updates
-     need the Mac.
+5. **Partition layout, decided once.** Today only 4 MB of the 16 MB flash is mapped (the Arduino default): two
+   1.25 MB app slots, holding the 0.96 MB firmware plus an empty spare, and an unused 1.4 MB file area. Backups
+   and saves need about 4.5 MB for two units, each with a 1 MB first-sight backup, a 1 MB latest backup, and saves.
+   - **(a) Recommended:** two 2.5 MB app slots for the Waveshare's own OTA, and a library of about 6.4 MB (about
+     10 packages).
+   - **(b)** One 3 MB app slot and a library of about 8.4 MB (about 13 packages). With (b), the Waveshare's own
+     updates need the Mac.
+   - **For scale:** the whole catalog is about 62 MB, so the library is a cache either way.
 4. **Loader blob:** OK to keep `wl82loader.bin` on the Waveshare's storage, fetched by `make setup-loader` and never
    committed. It sits in jl-uboot-tool, whose repo is MIT-licensed, but the blob is probably JieLi's own code, so
    treat its license as unclear.
