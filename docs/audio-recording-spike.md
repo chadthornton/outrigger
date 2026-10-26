@@ -13,8 +13,8 @@ Two conditions:
 
 1. **The host FIFO has to be repartitioned.** The Arduino core's prebuilt Kconfig splits the controller FIFO for
    periodic OUT, which caps IN endpoints below the FM-1's 196-byte packets, so the audio claim fails with no
-   message. `EspUsbHostConfig::fifo = {120, 48, 32}` (RX, non-periodic TX, periodic TX lines; the S3 has 200
-   usable) fixes it. A split totalling 224 lines stopped the host from starting at all.
+   message. `EspUsbHostConfig::fifo = {120, 48, 32}` (RX, non-periodic TX, periodic TX lines; 200
+   in all) fixes it. A split totalling 224 lines stopped the host from starting at all.
 2. **The audio costs a channel, so it doesn't fit beside the Launchkey today.** Hub 2 + FM-1 4 (EP0, MIDI in/out,
    audio in) = 6 of 8. Adding the Launchkey (3) needs 9. Recording while playing needs the FM-1's MIDI interface
    left unclaimed (MIDI over Bluetooth instead) and a small EspUsbHost patch: 2 + 3 + 2 = 7.
@@ -140,7 +140,8 @@ gives the RX FIFO too few lines for a 196-byte IN endpoint, and the host driver 
 (`ESP_ERR_NOT_SUPPORTED` at claim time). EspUsbHost can override the split at `begin()`.
 
 - `{128, 64, 32}` (224 lines): the host never started, no hub, `ch 0/8`. The S3 has 256 FIFO lines, but the
-  driver keeps part for the channels' endpoint info; 200 lines are usable.
+  driver keeps part for the channels' endpoint info. 224 was refused and 200 works; the exact ceiling between
+  them wasn't measured.
 - `{120, 48, 32}` (200 lines, IN packets up to 472 bytes): works.
 
 ### 4. Capture, hub + FM-1, FIFO `{120, 48, 32}` (photo of the spike screen)
