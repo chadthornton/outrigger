@@ -40,16 +40,18 @@ button.quiet{background:#232327;border-color:#34343a}
 <script>
 "use strict";
 const $ = id => document.getElementById(id);
+let apChannel = 0, nets = [];
 function bars(rssi) { return rssi > -55 ? "▂▄▆█" : rssi > -67 ? "▂▄▆" : rssi > -78 ? "▂▄" : "▂"; }
 async function scan() {
   try {
-    const nets = await (await fetch("/api/wifi/scan")).json();
+    const j = await (await fetch("/api/wifi/scan")).json();
+    apChannel = j.ap_ch;
     const best = {};
-    for (const n of nets) if (!best[n.ssid] || best[n.ssid].rssi < n.rssi) best[n.ssid] = n;
-    const sorted = Object.values(best).sort((a, b) => b.rssi - a.rssi);
+    for (const n of j.nets) if (!best[n.ssid] || best[n.ssid].rssi < n.rssi) best[n.ssid] = n;
+    nets = Object.values(best).sort((a, b) => b.rssi - a.rssi);
     const list = $("list");
-    if (!sorted.length) { list.innerHTML = "<li><span>None found yet — tap Look again.</span></li>"; return; }
-    list.replaceChildren(...sorted.map(n => {
+    if (!nets.length) { list.innerHTML = "<li><span>None found yet — tap Look again.</span></li>"; return; }
+    list.replaceChildren(...nets.map(n => {
       const li = document.createElement("li");
       li.innerHTML = "<span></span><span class=bars></span>";
       li.children[0].textContent = n.ssid + (n.open ? " (open)" : "");
@@ -60,23 +62,50 @@ async function scan() {
   } catch (e) {}
 }
 $("rescan").onclick = () => { scan(); setTimeout(scan, 4000); };
-// The hub's radio moves to your network's channel as it joins, which usually
-// drops this phone off the hotspot, so say what happens next before sending.
+
+function say(cls, html) { const m = $("msg"); m.className = cls; m.innerHTML = html; }
+const esc = t => t.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+
+// Follows the join until it works or fails. The hotspot normally sits on the
+// network's channel, so this phone stays connected and sees the result.
+async function follow(ssid) {
+  const until = Date.now() + 40000;
+  while (Date.now() < until) {
+    await new Promise(r => setTimeout(r, 1000));
+    let st;
+    try { st = await (await fetch("/api/wifi/state", { signal: AbortSignal.timeout(2500) })).json(); } catch (e) { continue; }
+    if (st.state === "joined") {
+      say("ok", `✓ The hub is on <b>${esc(ssid)}</b> at ${esc(st.ip)}.<br>Switch this phone back to ${esc(ssid)}, then open ` +
+        `<a href="http://fm1hub.local/" style="color:#5a9cff">http://fm1hub.local</a>. This hotspot closes in a minute.`);
+      $("join").disabled = false;
+      return;
+    }
+    if (st.state === "failed") {
+      say("err", `Couldn't join ${esc(ssid)}. Check the password and try again.`);
+      $("join").disabled = false;
+      return;
+    }
+  }
+  say("err", `No answer from the hub. If this phone dropped off the hotspot, look at the hub's screen: ` +
+    `it shows "On Wi-Fi" once it has joined.`);
+  $("join").disabled = false;
+}
+
 $("join").onclick = async () => {
-  const msg = $("msg");
   const ssid = $("ssid").value;
-  if (!ssid) { msg.className = "err"; msg.textContent = "Pick or type a network name."; return; }
-  msg.className = "ok";
-  msg.textContent = `Joining ${ssid}… This phone may drop off the hotspot; that's expected. ` +
-    `The hub's screen shows "On Wi-Fi" when it's done. Then switch this phone back to your Wi-Fi and open http://fm1hub.local`;
+  if (!ssid) { say("err", "Pick or type a network name."); return; }
+  const net = nets.find(n => n.ssid === ssid);
+  const moves = !net || net.ch !== apChannel;
+  say("ok", `Joining ${esc(ssid)}…` + (moves ? " This phone may drop off the hotspot while the hub moves to that network's channel; the hub's screen shows \"On Wi-Fi\" when it's done." : ""));
+  $("join").disabled = true;
   try {
     const r = await fetch("/api/wifi", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ssid, pass: $("pass").value }) });
     if (!r.ok) { const j = await r.json().catch(() => ({})); throw new Error(j.error || r.statusText); }
   } catch (e) {
-    if (e instanceof TypeError) return;  // connection dropped mid-join: expected
-    msg.className = "err"; msg.textContent = e.message;
+    if (!(e instanceof TypeError)) { say("err", esc(e.message)); $("join").disabled = false; return; }
   }
+  follow(ssid);
 };
 scan(); setTimeout(scan, 4000);
 </script>

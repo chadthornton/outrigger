@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "bench_stats.h"
+#include "hotspot_channel.h"
 #include "json_field.h"
 #include "monitor_ring.h"
 #include "pairing.h"
@@ -195,7 +196,21 @@ static void test_json() {
   EXPECT(strcmp(esc, "abcde") == 0, "escape truncates to fit");
 }
 
+// ---------- hotspot_channel ----------
+static void test_hotspot_channel() {
+  const ScanEntry nets[] = {
+      {"Neighbour", -40, 1}, {"scooterbot", -60, 11}, {"scooterbot", -75, 6}, {"", -30, 3}, {"Odd", -20, 36}};
+  EXPECT(pick_hotspot_channel(nets, 5, "scooterbot") == 11, "saved network's strongest instance");
+  EXPECT(pick_hotspot_channel(nets, 5, nullptr) == 1, "strongest named 2.4 GHz network");
+  EXPECT(pick_hotspot_channel(nets, 5, "") == 1, "empty preference ignored");
+  EXPECT(pick_hotspot_channel(nets, 5, "Gone") == 1, "unseen preference falls back");
+  EXPECT(pick_hotspot_channel(nets, 0, "x") == kDefaultHotspotChannel, "nothing found");
+  const ScanEntry hidden[] = {{"", -30, 3}, {nullptr, -30, 4}};
+  EXPECT(pick_hotspot_channel(hidden, 2, nullptr) == kDefaultHotspotChannel, "hidden networks ignored");
+}
+
 int main() {
+  test_hotspot_channel();
   test_json();
   test_summary();
   test_jitter();

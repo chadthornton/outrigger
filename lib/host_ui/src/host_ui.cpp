@@ -57,6 +57,8 @@ static lv_obj_t *usb_label, *problem_box, *problem_1, *problem_2;
 static lv_obj_t *chain_screen, *settings_screen, *preview_label;
 static lv_obj_t *size_buttons, *face_buttons, *wifi_buttons, *net_label, *net_label2;
 static lv_obj_t *banner, *banner_1, *banner_2;
+static lv_obj_t *setup_card, *setup_qr, *setup_1, *setup_2;
+static char setup_shown[64], setup_dismissed[64];
 
 // ---------- LVGL glue ----------
 static uint32_t tick_ms() { return millis(); }
@@ -338,6 +340,69 @@ static void build_banner() {
   lv_obj_add_flag(banner, LV_OBJ_FLAG_HIDDEN);
 }
 
+// ---------- Wi-Fi setup card (QR code to join the hotspot), above every screen ----------
+static void dismiss_setup(lv_event_t *) {
+  strlcpy(setup_dismissed, setup_shown, sizeof setup_dismissed);
+  lv_obj_add_flag(setup_card, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void build_setup_card() {
+  int side, top;
+  safe_padding(&side, &top);
+  setup_card = lv_obj_create(lv_layer_top());
+  lv_obj_remove_flag(setup_card, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(setup_card, lv_pct(100), lv_pct(100));
+  lv_obj_set_style_bg_color(setup_card, c(0x000000), 0);
+  lv_obj_set_style_bg_opa(setup_card, LV_OPA_COVER, 0);
+  lv_obj_set_style_border_width(setup_card, 0, 0);
+  lv_obj_set_style_radius(setup_card, 0, 0);
+  lv_obj_set_style_pad_hor(setup_card, side, 0);
+  lv_obj_set_style_pad_ver(setup_card, top, 0);
+  lv_obj_set_style_pad_row(setup_card, 6, 0);
+  lv_obj_set_flex_flow(setup_card, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_flex_align(setup_card, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_add_event_cb(setup_card, dismiss_setup, LV_EVENT_CLICKED, nullptr);
+
+  lv_obj_t *t = lv_label_create(setup_card);
+  lv_obj_set_style_text_font(t, &lv_font_montserrat_16, 0);
+  lv_obj_set_style_text_color(t, c(kWhite), 0);
+  lv_label_set_text(t, "Wi-Fi setup: scan with phone");
+  const int qr = (board->width < board->height ? board->width : board->height) * 58 / 100;
+  setup_qr = lv_qrcode_create(setup_card);
+  lv_qrcode_set_size(setup_qr, qr);
+  lv_qrcode_set_dark_color(setup_qr, c(0x000000));
+  lv_qrcode_set_light_color(setup_qr, c(0xFFFFFF));
+  lv_obj_set_style_border_color(setup_qr, c(0xFFFFFF), 0);
+  lv_obj_set_style_border_width(setup_qr, 6, 0);  // the quiet zone scanners need
+  lv_obj_remove_flag(setup_qr, LV_OBJ_FLAG_CLICKABLE);
+  setup_1 = lv_label_create(setup_card);
+  lv_obj_set_style_text_font(setup_1, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_text_color(setup_1, c(kWhite), 0);
+  setup_2 = lv_label_create(setup_card);
+  lv_obj_set_style_text_font(setup_2, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_text_color(setup_2, c(kGrey), 0);
+  lv_obj_t *hint = lv_label_create(setup_card);
+  lv_obj_set_style_text_font(hint, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(hint, c(kGrey), 0);
+  lv_label_set_text(hint, "tap to hide");
+  lv_obj_add_flag(setup_card, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void update_setup_card(const UiFrame &f) {
+  if (!f.setup_qr[0] || strcmp(f.setup_qr, setup_dismissed) == 0) {
+    lv_obj_add_flag(setup_card, LV_OBJ_FLAG_HIDDEN);
+    if (!f.setup_qr[0]) setup_dismissed[0] = 0;
+    return;
+  }
+  if (strcmp(f.setup_qr, setup_shown) != 0) {
+    strlcpy(setup_shown, f.setup_qr, sizeof setup_shown);
+    lv_qrcode_update(setup_qr, setup_shown, strlen(setup_shown));
+  }
+  set_text(setup_1, f.net_line);
+  set_text(setup_2, f.net_line2);
+  lv_obj_remove_flag(setup_card, LV_OBJ_FLAG_HIDDEN);
+}
+
 static void check_only(lv_obj_t *bm, uint32_t selected) {
   lv_buttonmatrix_clear_button_ctrl_all(bm, LV_BUTTONMATRIX_CTRL_CHECKED);
   lv_buttonmatrix_set_button_ctrl(bm, selected, LV_BUTTONMATRIX_CTRL_CHECKED);
@@ -395,6 +460,7 @@ bool ui_begin(const BoardProfile &b, const UiSettings &s, UiSettingsChanged on_c
 
   build_chain_screen();
   build_settings_screen();
+  build_setup_card();
   build_banner();
   lv_screen_load(chain_screen);
   return true;
@@ -454,6 +520,7 @@ void ui_update(const UiFrame &f) {
 
   set_text(net_label, f.net_line);
   set_text(net_label2, f.net_line2);
+  update_setup_card(f);
   if (f.banner1[0]) {
     set_text(banner_1, f.banner1);
     set_text(banner_2, f.banner2);

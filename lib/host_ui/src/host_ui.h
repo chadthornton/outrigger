@@ -37,6 +37,10 @@ struct UiFrame {
   char net_line2[48];
   char banner1[24];    // shown over any screen while set, e.g. "Pair browser"
   char banner2[24];    // e.g. the PIN
+  // While set, a full-screen Wi-Fi setup card with this as a QR code (a
+  // "WIFI:..." join string), net_line and net_line2 below it. A tap hides it
+  // until the text changes.
+  char setup_qr[64];
 };
 
 using UiSettingsChanged = void (*)(const UiSettings &);

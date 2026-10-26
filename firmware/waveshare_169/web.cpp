@@ -12,6 +12,7 @@
 #include <utility>
 
 #include "bench.h"
+#include "hotspot_channel.h"
 #include "json_field.h"
 #include "pairing.h"
 #include "request_guard.h"
@@ -49,8 +50,14 @@ static bool tokens_dirty = false;
 static char creds_ssid[33], creds_pass[65];
 static bool creds_pending = false, forget_pending = false;
 
-static char scan_json[1024] = "[]";
+static char scan_json[1200] = "{\"ap_ch\":0,\"nets\":[]}";
 static bool scan_wanted = false;
+
+// Progress of a join the setup page asked for, which the page polls.
+enum class JoinState : uint8_t { Idle, Joining, Joined, Failed };
+static JoinState join_state = JoinState::Idle;
+static char join_ssid[33] = "";
+static bool join_same_channel = false;
 
 static UiFrame *frame_copy;   // latest published frame, in PSRAM
 static uint32_t frame_seq = 0;
@@ -61,12 +68,26 @@ static web_core::MonitorRing<256> ring;  // USB task -> server task, lock-free
 static Preferences wifi_prefs, web_prefs;
 static httpd_handle_t server = nullptr;
 static DNSServer dns;
-static bool mdns_on = false, joining_from_setup = false, join_failed = false;
+static bool mdns_on = false, joining_from_setup = false;
 static uint32_t join_at = 0;        // when to start a join the page asked for, 0 = none
 static uint32_t joined_banner_until = 0;
+static uint32_t retry_saved_at = 0;  // hotspot open for a saved network that didn't answer: retry then
+
+// The last scan, for picking the hotspot's channel and joining without a scan.
+struct Seen {
+  char ssid[33];
+  int8_t rssi;
+  uint8_t channel;
+  uint8_t bssid[6];
+  bool open;
+};
+static Seen seen[24];
+static int seen_count = 0;
+static uint8_t hotspot_channel = 0;
 static uint32_t connect_started = 0, online_since = 0, last_drain = 0;
 static volatile bool drain_queued = false;
 static char saved_ssid[33], saved_pass[65];
+static char trial_ssid[33], trial_pass[65];  // from the setup page; saved once they work
 
 // ---------- Request helpers (server task) ----------
 static bool header(httpd_req_t *req, const char *name, char *out, size_t len) {
@@ -311,6 +332,19 @@ static esp_err_t on_wifi_scan(httpd_req_t *req) {
   return send_json(req, buf);
 }
 
+static esp_err_t on_wifi_state(httpd_req_t *req) {
+  if (!guard(req)) return ESP_OK;
+  static const char *const kStates[] = {"idle", "joining", "joined", "failed"};
+  char out[160], ssid[70];
+  {
+    Lock l;
+    json_escape(join_ssid, ssid, sizeof ssid);
+    snprintf(out, sizeof out, "{\"state\":\"%s\",\"ssid\":\"%s\",\"ip\":\"%s\",\"same_channel\":%s}",
+             kStates[static_cast<int>(join_state)], ssid, own_ip, join_same_channel ? "true" : "false");
+  }
+  return send_json(req, out);
+}
+
 // Joining a network: from the setup hotspot (its password is on the device's
 // screen), or from the LAN with a paired token.
 static esp_err_t on_wifi_join(httpd_req_t *req) {
@@ -326,6 +360,8 @@ static esp_err_t on_wifi_join(httpd_req_t *req) {
     memcpy(creds_ssid, ssid, sizeof creds_ssid);
     memcpy(creds_pass, pass, sizeof creds_pass);
     creds_pending = true;
+    join_state = JoinState::Joining;
+    memcpy(join_ssid, ssid, sizeof join_ssid);
   }
   return send_json(req, "{\"ok\":true,\"next\":\"http://fm1hub.local/\"}");
 }
@@ -485,6 +521,7 @@ static void start_server() {
   add("/api/pair/start", HTTP_POST, on_pair_start);
   add("/api/pair", HTTP_POST, on_pair);
   add("/api/wifi/scan", HTTP_GET, on_wifi_scan);
+  add("/api/wifi/state", HTTP_GET, on_wifi_state);
   add("/api/wifi", HTTP_POST, on_wifi_join);
   add("/api/wifi/forget", HTTP_POST, on_wifi_forget);
   add("/api/bench", HTTP_GET, on_bench);
@@ -519,14 +556,60 @@ static void set_ips() {
   }
 }
 
-static void start_hotspot() {
+// The scan list and the hotspot's channel, as JSON for the setup page.
+static void publish_scan() {
+  char buf[sizeof scan_json], name[70];
+  size_t k = snprintf(buf, sizeof buf, "{\"ap_ch\":%u,\"nets\":[", hotspot_channel);
+  for (int i = 0; i < seen_count && k + 100 < sizeof buf; ++i) {
+    json_escape(seen[i].ssid, name, sizeof name);
+    k += snprintf(buf + k, sizeof buf - k, "%s{\"ssid\":\"%s\",\"rssi\":%d,\"ch\":%u,\"open\":%s}", i ? "," : "",
+                  name, seen[i].rssi, seen[i].channel, seen[i].open ? "true" : "false");
+  }
+  snprintf(buf + k, sizeof buf - k, "]}");
+  Lock l;
+  memcpy(scan_json, buf, sizeof scan_json);
+}
+
+// Keeps the results of a finished scan.
+static void remember_scan(int found) {
+  seen_count = 0;
+  for (int i = 0; i < found && seen_count < (int)(sizeof seen / sizeof seen[0]); ++i) {
+    if (WiFi.SSID(i).length() == 0) continue;
+    Seen &n = seen[seen_count++];
+    strlcpy(n.ssid, WiFi.SSID(i).c_str(), sizeof n.ssid);
+    n.rssi = WiFi.RSSI(i);
+    n.channel = WiFi.channel(i);
+    memcpy(n.bssid, WiFi.BSSID(i), sizeof n.bssid);
+    n.open = WiFi.encryptionType(i) == WIFI_AUTH_OPEN;
+  }
+  WiFi.scanDelete();
+}
+
+static const Seen *find_seen(const char *ssid) {
+  const Seen *best = nullptr;
+  for (int i = 0; i < seen_count; ++i)
+    if (strcmp(seen[i].ssid, ssid) == 0 && (!best || seen[i].rssi > best->rssi)) best = &seen[i];
+  return best;
+}
+
+// The hotspot starts on the channel of the network Chad will most likely pick
+// (the saved one, else the strongest), so joining it doesn't move the radio
+// and drop the phone. Scanning first blocks the loop ~2 s; USB routing runs on
+// its own task and is unaffected.
+static void start_hotspot(uint32_t now) {
   if (ap_on) return;
   snprintf(ap_pass, sizeof ap_pass, "%08lu", static_cast<unsigned long>(esp_random() % 100000000));
-  WiFi.mode(saved_ssid[0] ? WIFI_AP_STA : WIFI_AP);
-  WiFi.softAP(kSetupSsid, ap_pass);
+  WiFi.mode(WIFI_AP_STA);
+  WiFi.disconnect();  // a station still retrying hops channels and drags the hotspot along
+  remember_scan(WiFi.scanNetworks(false));
+  web_core::ScanEntry entries[sizeof seen / sizeof seen[0]];
+  for (int i = 0; i < seen_count; ++i) entries[i] = {seen[i].ssid, seen[i].rssi, seen[i].channel};
+  hotspot_channel = web_core::pick_hotspot_channel(entries, seen_count, saved_ssid);
+  publish_scan();
+  WiFi.softAP(kSetupSsid, ap_pass, hotspot_channel);
   dns.start(53, "*", WiFi.softAPIP());
   ap_on = true;
-  WiFi.scanNetworks(true);
+  retry_saved_at = saved_ssid[0] ? now + 120000 : 0;
   set_ips();
 }
 
@@ -539,11 +622,16 @@ static void stop_hotspot() {
   set_ips();
 }
 
+// Joins without scanning when the network was seen: a scan hops every channel.
 static void join(const char *ssid, const char *pass) {
   WiFi.enableIPv6(true);  // link-local only: lets mDNS answer the AAAA query macOS sends first
-  WiFi.begin(ssid, pass);
+  const Seen *n = find_seen(ssid);
+  if (n) WiFi.begin(ssid, pass, n->channel, n->bssid);
+  else WiFi.begin(ssid, pass);
   connect_started = millis();
   net = Net::Connecting;
+  Lock l;
+  join_same_channel = n && n->channel == hotspot_channel;
 }
 
 static void wifi_on() {
@@ -554,7 +642,7 @@ static void wifi_on() {
     join(saved_ssid, saved_pass);
   } else {
     net = Net::Connecting;
-    start_hotspot();
+    start_hotspot(millis());
   }
   start_server();
 }
@@ -571,21 +659,17 @@ static void wifi_off() {
   set_ips();
 }
 
+// A rescan the setup page asked for ("Look again").
 static void collect_scan() {
   const int found = WiFi.scanComplete();
   if (found < 0) return;
-  char buf[sizeof scan_json], name[70];
-  size_t k = snprintf(buf, sizeof buf, "[");
-  for (int i = 0; i < found && k + 100 < sizeof buf; ++i) {
-    if (WiFi.SSID(i).length() == 0) continue;
-    json_escape(WiFi.SSID(i).c_str(), name, sizeof name);
-    k += snprintf(buf + k, sizeof buf - k, "%s{\"ssid\":\"%s\",\"rssi\":%d,\"open\":%s}", k > 1 ? "," : "", name,
-                  WiFi.RSSI(i), WiFi.encryptionType(i) == WIFI_AUTH_OPEN ? "true" : "false");
-  }
-  snprintf(buf + k, sizeof buf - k, "]");
-  WiFi.scanDelete();
+  remember_scan(found);
+  publish_scan();
+}
+
+static void set_join_state(JoinState st) {
   Lock l;
-  memcpy(scan_json, buf, sizeof scan_json);
+  join_state = st;
 }
 
 void web_begin(const UiSettings &settings) {
@@ -625,29 +709,27 @@ void web_loop(uint32_t now) {
   if (new_creds) {
     {
       Lock l;
-      memcpy(saved_ssid, creds_ssid, sizeof saved_ssid);
-      memcpy(saved_pass, creds_pass, sizeof saved_pass);
+      memcpy(trial_ssid, creds_ssid, sizeof trial_ssid);
+      memcpy(trial_pass, creds_pass, sizeof trial_pass);
     }
-    wifi_prefs.putString("ssid", saved_ssid);
-    wifi_prefs.putString("pass", saved_pass);
-    // Joining moves the radio, and the hotspot with it, to the network's
-    // channel, which drops the phone. Wait so the page's reply gets out first.
+    // If the network is on another channel than the hotspot, joining moves the
+    // radio and drops the phone. Wait so the page's reply gets out first.
     join_at = now + 1500;
   }
   if (join_at && (int32_t)(now - join_at) >= 0) {
     join_at = 0;
     if (ap_on) WiFi.mode(WIFI_AP_STA);
     joining_from_setup = ap_on;
-    join_failed = false;
     WiFi.disconnect();
-    join(saved_ssid, saved_pass);
+    join(trial_ssid, trial_pass);
   }
   if (forget) {
     wifi_prefs.remove("ssid");
     wifi_prefs.remove("pass");
     saved_ssid[0] = saved_pass[0] = 0;
     WiFi.disconnect();
-    start_hotspot();
+    set_join_state(JoinState::Idle);
+    start_hotspot(now);
   }
   if (ap_on) {
     dns.processNextRequest();
@@ -659,8 +741,17 @@ void web_loop(uint32_t now) {
   if (connected && net != Net::Online) {
     net = Net::Online;
     online_since = now;
-    join_failed = false;
-    if (joining_from_setup) joined_banner_until = now + 10000;
+    if (joining_from_setup) {
+      joined_banner_until = now + 10000;
+      set_join_state(JoinState::Joined);
+    }
+    if (trial_ssid[0] && WiFi.SSID() == trial_ssid) {  // they work: keep them
+      memcpy(saved_ssid, trial_ssid, sizeof saved_ssid);
+      memcpy(saved_pass, trial_pass, sizeof saved_pass);
+      wifi_prefs.putString("ssid", saved_ssid);
+      wifi_prefs.putString("pass", saved_pass);
+      trial_ssid[0] = trial_pass[0] = 0;
+    }
     if (!mdns_on && MDNS.begin(kHostname)) {
       MDNS.addService("http", "tcp", 80);
       mdns_on = true;
@@ -673,15 +764,36 @@ void web_loop(uint32_t now) {
     mdns_on = false;
     set_ips();
   }
-  // Keep the hotspot a little after joining, so the phone can show the new address.
-  if (connected && ap_on && joining_from_setup && now - online_since > 30000) {
-    joining_from_setup = false;
-    stop_hotspot();
+
+  if (ap_on) {
+    if (connected) {
+      // Joined from the setup page: keep the hotspot a minute so the phone can
+      // show the result and the new address; a background retry closes it now.
+      if (!joining_from_setup || now - online_since > 60000) {
+        joining_from_setup = false;
+        stop_hotspot();
+      }
+    } else if (net == Net::Connecting && connect_started && now - connect_started > 15000 &&
+               (joining_from_setup || retry_saved_at == 0)) {
+      // A join that didn't work. Stop the station retrying: its channel hops
+      // would keep dragging the hotspot (and the phone) around.
+      WiFi.disconnect();
+      connect_started = 0;
+      if (joining_from_setup) set_join_state(JoinState::Failed);
+      joining_from_setup = false;
+      if (saved_ssid[0]) retry_saved_at = now + 120000;
+    } else if (retry_saved_at && (int32_t)(now - retry_saved_at) >= 0 && saved_ssid[0] && !joining_from_setup) {
+      // The saved network may be back (a router reboot). Retry it in the
+      // background, but not while a phone is on the hotspot.
+      retry_saved_at = now + 120000;
+      if (WiFi.softAPgetStationNum() == 0) {
+        join(saved_ssid, saved_pass);
+        retry_saved_at = 0;  // the failure branch above re-arms it
+      }
+    }
+  } else if (!connected && saved_ssid[0] && connect_started && now - connect_started > 20000) {
+    start_hotspot(now);  // a saved network that doesn't answer: open the hotspot
   }
-  if (connected && ap_on && !joining_from_setup && saved_ssid[0]) stop_hotspot();
-  // A saved network that doesn't answer: open the hotspot too, keep trying.
-  if (!connected && !ap_on && now - connect_started > 20000) start_hotspot();
-  if (!connected && joining_from_setup && !join_failed && now - connect_started > 20000) join_failed = true;
   static uint32_t last_ips = 0;
   if (connected && now - last_ips > 5000) {  // refresh RSSI
     last_ips = now;
@@ -730,8 +842,10 @@ void web_frame(UiFrame &f) {
         break;
     }
     if (ap_on && net != Net::Online) {
+      snprintf(f.setup_qr, sizeof f.setup_qr, "WIFI:T:WPA;S:%s;P:%s;;", kSetupSsid, ap_pass);
       snprintf(f.net_line, sizeof f.net_line, "Join %s", kSetupSsid);
-      if (join_failed) snprintf(f.net_line2, sizeof f.net_line2, "pw %s  (%.12s failed)", ap_pass, saved_ssid);
+      if (join_state == JoinState::Failed)
+        snprintf(f.net_line2, sizeof f.net_line2, "pw %s  (%.12s failed)", ap_pass, join_ssid);
       else snprintf(f.net_line2, sizeof f.net_line2, "password %s", ap_pass);
     }
     if (!f.banner1[0] && (int32_t)(millis() - joined_banner_until) < 0) {
