@@ -49,6 +49,8 @@ Mac directly, hold BOOT, tap RST, release BOOT, then `make flash`.
 
 ## Milestones
 
-1. Done: FM-1 MIDI shown on the Waveshare screen through the hub.
-2. Launchkey and FM-1 on the hub together (check the channel budget).
-3. Launchkey → FM-1 routing, SysEx blocked toward the FM-1, written test-first.
+1. Done 2026-10-26: FM-1 MIDI shown on the Waveshare screen through the hub.
+2. Done 2026-10-26: Launchkey and FM-1 on the hub together (8/8 host channels once CDC claiming is off).
+3. Done 2026-10-26: Launchkey → FM-1 routing, all system messages blocked toward the FM-1, played by hand.
+
+Running on the board: `cb4ee7b` (channel fix). `13b99a5` adds drop-reason letters on screen and is not flashed yet.
