@@ -20,8 +20,10 @@ make build    # compile the Waveshare firmware
 make flash    # flash; PORT=/dev/cu.usbmodemXXXX to pick the port
 ```
 
-Toolchain: `arduino-cli` (Homebrew), ESP32 core 3.3.12, libraries EspUsbHost 2.10.1 and GFX Library for Arduino
-1.6.9. Arduino's bundled ctags is x86-only on Apple Silicon, so the Makefile points at Homebrew's universal-ctags and
+Toolchain: `arduino-cli` (Homebrew), ESP32 core 3.3.12, GFX Library for Arduino 1.6.9, and a vendored copy of
+EspUsbHost 2.10.1 (MIT) in `lib/EspUsbHost`. The one patch makes `ESP_USB_HOST_MAX_SERIAL_PORTS` overridable; the
+Makefile sets it to 0 so the library never claims a device's CDC serial port. Skiff's serial port otherwise costs
+2 of the ESP32-S3's 8 host channels, and with it the hub + FM-1 + Launchkey need 10. Arduino's bundled ctags is x86-only on Apple Silicon, so the Makefile points at Homebrew's universal-ctags and
 the sketch keeps its code in `app.cpp`, which skips prototype generation.
 
 ## Flashing
@@ -37,13 +39,18 @@ Mac directly, hold BOOT, tap RST, release BOOT, then `make flash`.
   outer chip comes up; the inner chip's port shows connected but is never enabled. The **USB-C** downstream ports
   are on the outer chip and work. The **USB-A** ports are on the inner chip and don't.
 - **ESP32-S3 host channels:** 8 in total. Each hub costs 2, each MIDI device about 3 (EP0 + bulk IN + bulk OUT).
+  Hub + FM-1 + Launchkey is exactly 8 once CDC claiming is off, so a third device won't fit. The top screen line
+  shows the estimate as `N/8`. A device over budget enumerates (its name appears) but delivers no MIDI.
 - **FM-1 on Skiff firmware** enumerates as `1209:0001` "Felucca" (MIDI plus a CDC serial port) and sends its keys
   and knobs as USB MIDI.
-- **Safety:** the firmware never sends MIDI. Routing to the FM-1 must drop all SysEx so it can never deliver an
-  install or ROM-boot command (stock UBOOT key is `F0 22 24 35 7D F7`).
+- **Safety:** the firmware sends the FM-1 only channel messages forwarded from a controller.
+  `midi_core::Router` drops every system message, SysEx included, so a controller can never deliver an install or
+  ROM-boot command (stock UBOOT key is `F0 22 24 35 7D F7`). The tests cover this.
 
 ## Milestones
 
-1. Done: FM-1 MIDI shown on the Waveshare screen through the hub.
-2. Launchkey and FM-1 on the hub together (check the channel budget).
-3. Launchkey → FM-1 routing, SysEx blocked toward the FM-1, written test-first.
+1. Done 2026-10-26: FM-1 MIDI shown on the Waveshare screen through the hub.
+2. Done 2026-10-26: Launchkey and FM-1 on the hub together (8/8 host channels once CDC claiming is off).
+3. Done 2026-10-26: Launchkey → FM-1 routing, all system messages blocked toward the FM-1, played by hand.
+
+Running on the board: `cb4ee7b` (channel fix). `13b99a5` adds drop-reason letters on screen and is not flashed yet.

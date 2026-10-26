@@ -61,4 +61,61 @@ void format_message(uint8_t status, uint8_t data1, uint8_t data2,
   snprintf(out, kLineLen, "SYS %02X", status);
 }
 
+Role device_role(uint16_t vid, uint16_t pid) {
+  if (vid == 0x4C4A && pid == 0xC755) return Role::Target;  // FM-1, stock firmware
+  if (vid == 0x1209 && pid == 0x0001) return Role::Target;  // FM-1, Felucca/Skiff
+  return Role::Controller;
+}
+
+bool route_to_target(uint8_t cable, uint8_t code_index, uint8_t status, uint8_t data1,
+                     uint8_t data2, uint8_t packet[4]) {
+  if (cable != 0) return false;
+  if (status < 0x80 || status >= 0xF0) return false;
+  // For channel messages the code index equals the status's high nibble; any
+  // other pairing is padding, a SysEx fragment or a single stray byte.
+  if (code_index != status >> 4) return false;
+
+  const uint8_t type = status & 0xF0;
+  const bool two_bytes = type == 0xC0 || type == 0xD0;
+  packet[0] = type >> 4;  // cable 0, code index = message type
+  packet[1] = status;
+  packet[2] = data1 & 0x7F;
+  packet[3] = two_bytes ? 0 : data2 & 0x7F;
+  return true;
+}
+
+void Router::device_connected(uint8_t address, uint16_t vid, uint16_t pid) {
+  if (address == 0 || address > kMaxAddress) return;
+  known_[address] = true;
+  role_[address] = device_role(vid, pid);
+  if (role_[address] == Role::Target) target_ = address;
+}
+
+void Router::device_disconnected(uint8_t address) {
+  if (address == 0 || address > kMaxAddress) return;
+  known_[address] = false;
+  if (target_ == address) target_ = 0;
+}
+
+bool Router::is_target(uint8_t address) const {
+  return target_ != 0 && address == target_;
+}
+
+uint8_t Router::route(uint8_t source, uint8_t cable, uint8_t code_index, uint8_t status,
+                      uint8_t data1, uint8_t data2, uint8_t packet[4], char *why) const {
+  char reason = 0;
+  if (target_ == 0) reason = 'n';
+  else if (source == 0 || source > kMaxAddress || !known_[source]) reason = 'u';
+  else if (role_[source] != Role::Controller) reason = 't';
+  else if (cable != 0) reason = 'c';
+  else if (status < 0x80 || status >= 0xF0) reason = 's';
+  else if (code_index != status >> 4) reason = 'k';
+  else if (!route_to_target(cable, code_index, status, data1, data2, packet)) reason = 's';
+  if (reason) {
+    if (why) *why = reason;
+    return 0;
+  }
+  return target_;
+}
+
 }  // namespace midi_core

@@ -81,7 +81,136 @@ static void test_line_log() {
   }
 }
 
+static void expect_packet(bool ok, const uint8_t *got, bool want_ok,
+                          const uint8_t (&want)[4], const char *what) {
+  if (ok != want_ok || (want_ok && memcmp(got, want, 4) != 0)) {
+    printf("FAIL %s: ok=%d packet=%02X %02X %02X %02X\n", what, ok, got[0], got[1],
+           got[2], got[3]);
+    ++failures;
+  }
+}
+
+static bool route(uint8_t cable, uint8_t status, uint8_t d1, uint8_t d2, uint8_t out[4],
+                  int cin = -1) {
+  memset(out, 0xAA, 4);
+  return route_to_target(cable, cin < 0 ? status >> 4 : cin, status, d1, d2, out);
+}
+
+static void test_route_channel_voice() {
+  uint8_t p[4];
+  expect_packet(route(0, 0x90, 60, 100, p), p, true, {0x09, 0x90, 60, 100}, "note on");
+  expect_packet(route(0, 0x83, 60, 0, p), p, true, {0x08, 0x83, 60, 0}, "note off ch4");
+  expect_packet(route(0, 0xA0, 60, 30, p), p, true, {0x0A, 0xA0, 60, 30}, "poly pressure");
+  expect_packet(route(0, 0xB0, 74, 63, p), p, true, {0x0B, 0xB0, 74, 63}, "cc");
+  expect_packet(route(0, 0xC0, 10, 99, p), p, true, {0x0C, 0xC0, 10, 0}, "program change, 2 bytes");
+  expect_packet(route(0, 0xD0, 90, 99, p), p, true, {0x0D, 0xD0, 90, 0}, "channel pressure, 2 bytes");
+  expect_packet(route(0, 0xE0, 0, 64, p), p, true, {0x0E, 0xE0, 0, 64}, "pitch bend");
+  expect_packet(route(0, 0x90, 0xBC, 0xFF, p), p, true, {0x09, 0x90, 0x3C, 0x7F},
+                "data bytes masked to 7 bits");
+}
+
+// The FM-1 must never receive SysEx (the stock ROM-boot key and Skiff's
+// installer both arrive that way), so every system message is dropped.
+static void test_route_blocks_system_messages() {
+  uint8_t p[4];
+  const uint8_t none[4] = {};
+  for (int status = 0xF0; status <= 0xFF; ++status)
+    expect_packet(route(0, status, 0x22, 0x24, p), p, false, none, "system message dropped");
+  expect_packet(route(0, 0xF0, 0x22, 0x24, p), p, false, none, "UBOOT key start");
+  expect_packet(route(0, 0xF7, 0, 0, p), p, false, none, "sysex end");
+}
+
+static void test_route_drops_other_input() {
+  uint8_t p[4];
+  const uint8_t none[4] = {};
+  expect_packet(route(1, 0x90, 60, 100, p), p, false, none, "cable 1 (DAW port) dropped");
+  expect_packet(route(0, 0x3C, 100, 0, p), p, false, none, "data byte as status dropped");
+  expect_packet(route(0, 0x00, 0, 0, p), p, false, none, "zero status dropped");
+  expect_packet(route(0, 0x90, 0, 0, p, 0xF), p, false, none, "single-byte packet dropped");
+  expect_packet(route(0, 0x90, 60, 100, p, 0x4), p, false, none, "sysex-continue CIN dropped");
+  expect_packet(route(0, 0x90, 60, 100, p, 0x0), p, false, none, "padding CIN dropped");
+}
+
+static void test_router() {
+  Router r;
+  uint8_t p[4];
+  const uint8_t kLaunchkey = 3, kFm1 = 2;
+  if (r.route(kLaunchkey, 0, 0x9, 0x90, 60, 100, p) != 0) {
+    printf("FAIL router sends before anything is known\n"); ++failures;
+  }
+  r.device_connected(kLaunchkey, 0x1235, 0x0142);
+  if (r.route(kLaunchkey, 0, 0x9, 0x90, 60, 100, p) != 0) {
+    printf("FAIL router sends with no FM-1 connected\n"); ++failures;
+  }
+  r.device_connected(kFm1, 0x1209, 0x0001);
+  if (r.route(kLaunchkey, 0, 0x9, 0x90, 60, 100, p) != kFm1) {
+    printf("FAIL controller note not routed to the FM-1\n"); ++failures;
+  }
+  if (r.route(kFm1, 0, 0x9, 0x90, 60, 100, p) != 0) {
+    printf("FAIL FM-1 routed back to itself\n"); ++failures;
+  }
+  if (r.route(9, 0, 0x9, 0x90, 60, 100, p) != 0) {
+    printf("FAIL unknown source address routed\n"); ++failures;
+  }
+  if (r.route(kLaunchkey, 0, 0x4, 0xF0, 0x22, 0x24, p) != 0) {
+    printf("FAIL SysEx routed through the router\n"); ++failures;
+  }
+  char why = 0;
+  struct { uint8_t src, cable, cin, status; char want; } cases[] = {
+      {9, 0, 0x9, 0x90, 'u'},          {kFm1, 0, 0x9, 0x90, 't'},
+      {kLaunchkey, 1, 0x9, 0x90, 'c'}, {kLaunchkey, 0, 0x8, 0x90, 'k'},
+      {kLaunchkey, 0, 0xF, 0xF8, 's'}, {kLaunchkey, 0, 0x4, 0xF0, 's'},
+  };
+  for (auto &k : cases) {
+    why = 0;
+    if (r.route(k.src, k.cable, k.cin, k.status, 60, 100, p, &why) != 0 || why != k.want) {
+      printf("FAIL drop reason: want '%c' got '%c'\n", k.want, why ? why : '0');
+      ++failures;
+    }
+  }
+  if (!r.is_target(kFm1) || r.is_target(kLaunchkey)) {
+    printf("FAIL is_target\n"); ++failures;
+  }
+  r.device_disconnected(kFm1);
+  why = 0;
+  if (r.route(kLaunchkey, 0, 0x9, 0x90, 60, 100, p, &why) != 0 || why != 'n') {
+    printf("FAIL router sends after the FM-1 left\n"); ++failures;
+  }
+  r.device_disconnected(kLaunchkey);
+  r.device_connected(kFm1, 0x1209, 0x0001);
+  if (r.route(kLaunchkey, 0, 0x9, 0x90, 60, 100, p) != 0) {
+    printf("FAIL departed controller still routed\n"); ++failures;
+  }
+  Router edge;
+  edge.device_connected(0xFF, 0x1209, 0x0001);  // "any address" must never be a target
+  edge.device_connected(200, 0x1209, 0x0001);
+  edge.device_connected(4, 0x1235, 0x0142);
+  if (edge.route(4, 0, 0x9, 0x90, 60, 100, p) != 0) {
+    printf("FAIL out-of-range address became the target\n"); ++failures;
+  }
+}
+
+static void test_device_roles() {
+  if (device_role(0x4C4A, 0xC755) != Role::Target) {
+    printf("FAIL stock FM-1 is the target\n"); ++failures;
+  }
+  if (device_role(0x1209, 0x0001) != Role::Target) {
+    printf("FAIL Felucca/Skiff FM-1 is the target\n"); ++failures;
+  }
+  if (device_role(0x1235, 0x0142) != Role::Controller) {
+    printf("FAIL Launchkey is a controller\n"); ++failures;
+  }
+  if (device_role(0x05E3, 0x0610) != Role::Controller) {
+    printf("FAIL unknown devices default to controller\n"); ++failures;
+  }
+}
+
 int main() {
+  test_route_channel_voice();
+  test_route_blocks_system_messages();
+  test_route_drops_other_input();
+  test_device_roles();
+  test_router();
   test_note_names();
   test_channel_messages();
   test_system_messages();

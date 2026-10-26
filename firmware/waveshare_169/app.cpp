@@ -1,9 +1,15 @@
-// Milestone 1: USB MIDI monitor on the Waveshare ESP32-S3-Touch-LCD-1.69.
+// USB MIDI host on the Waveshare ESP32-S3-Touch-LCD-1.69.
 //
-// The board's USB-C port runs as a USB host (EspUsbHost). Whatever USB-MIDI
-// device is attached, directly or through a hub, has its incoming messages
-// shown on the screen. This sketch only listens: it never sends MIDI, so it
-// cannot put an FM-1 into its ROM bootloader.
+// The board's USB-C port runs as a USB host (EspUsbHost), normally through a
+// powered hub. Every incoming MIDI message is shown on the screen, and channel
+// messages from any controller (e.g. a Launchkey) are forwarded to the FM-1.
+// midi_core::route_to_target() decides what is forwarded; it never passes
+// SysEx or any other system message, so a controller cannot put the FM-1 into
+// its ROM bootloader or a firmware installer.
+//
+// Log prefixes: '>' forwarded to the FM-1, '!' forwarding failed in USB,
+// ' ' from the FM-1 itself, or a letter naming why a message was dropped
+// (see midi_core::Router::route).
 //
 // Because the USB port is the host, the Mac loses this board's serial port
 // once the sketch runs. To reflash, hold BOOT, tap RST, release BOOT.
@@ -40,7 +46,6 @@ static portMUX_TYPE shared_lock = portMUX_INITIALIZER_UNLOCKED;
 static midi_core::LineLog<kLogRows> midi_log;
 static char device_line[2][midi_core::kLineLen] = {"No USB device", ""};
 static uint32_t device_changes = 0;
-static uint32_t message_count = 0;
 
 static void set_device_lines(const char *a, const char *b) {
   taskENTER_CRITICAL(&shared_lock);
@@ -51,6 +56,10 @@ static void set_device_lines(const char *a, const char *b) {
 }
 
 static int device_count = 0;
+
+// Routing state. Every EspUsbHost callback runs on the USB client task, so
+// the router is only ever touched from that one task.
+static midi_core::Router router;
 
 // Hubs seen so far, polled from loop() so the screen shows what each hub port
 // is doing. Written by the USB task, read by loop().
@@ -69,6 +78,7 @@ static void on_connected(const EspUsbHostDeviceInfo &d) {
   char ids[midi_core::kLineLen];
   snprintf(ids, sizeof ids, "+%04X:%04X p%02X", d.vid, d.pid, d.portId);
   push_log(ids);
+  router.device_connected(d.address, d.vid, d.pid);
   if (d.isHub) {
     for (int i = 0; i < kMaxHubs; ++i)
       if (hub_addresses[i] == 0) { hub_addresses[i] = d.address; break; }
@@ -82,6 +92,7 @@ static void on_disconnected(const EspUsbHostDeviceInfo &d) {
   char ids[midi_core::kLineLen];
   snprintf(ids, sizeof ids, "-%04X:%04X p%02X", d.vid, d.pid, d.portId);
   push_log(ids);
+  router.device_disconnected(d.address);
   for (int i = 0; i < kMaxHubs; ++i)
     if (hub_addresses[i] == d.address) hub_addresses[i] = 0;
   char count[midi_core::kLineLen];
@@ -90,30 +101,46 @@ static void on_disconnected(const EspUsbHostDeviceInfo &d) {
 }
 
 static void on_midi(const EspUsbHostMidiMessage &m) {
+  // Code index 0 and 1 are reserved: padding and cable events, not MIDI.
+  if (m.codeIndex <= 1) return;
+
+  char mark = ' ';
+  if (!router.is_target(m.address)) {
+    uint8_t packet[4];
+    char why = 'x';
+    const uint8_t dest =
+        router.route(m.address, m.cable, m.codeIndex, m.status, m.data1, m.data2, packet, &why);
+    // midiSend() only submits the transfer, so it is safe on the USB task.
+    mark = dest == 0 ? why : usb.midiSend(packet, sizeof packet, dest) ? '>' : '!';
+  }
+  char text[midi_core::kLineLen];
+  midi_core::format_message(m.status, m.data1, m.data2, m.raw, m.length, text);
   char line[midi_core::kLineLen];
-  midi_core::format_message(m.status, m.data1, m.data2, m.raw, m.length, line);
-  taskENTER_CRITICAL(&shared_lock);
-  midi_log.push(line);
-  ++message_count;
-  taskEXIT_CRITICAL(&shared_lock);
+  snprintf(line, sizeof line, "%c%s", mark, text);
+  push_log(line);
 }
 
 static void draw_row(int row, const char *text, uint16_t color) {
   const int y = row * kCharH;
+  const bool edge_row = row == 0 || row == LCD_HEIGHT / kCharH - 1;
+  const int inset = edge_row ? 24 : 8;
+  char clipped[midi_core::kLineLen];
+  strlcpy(clipped, text, (LCD_WIDTH - inset) / 12 + 1);  // 12 px per character
   gfx->fillRect(0, y, LCD_WIDTH, kCharH, RGB565_BLACK);
-  gfx->setCursor(0, y);
+  gfx->setCursor(inset, y);
   gfx->setTextColor(color);
-  gfx->print(text);
+  gfx->print(clipped);
 }
 
 void setup() {
   gfx->begin();
   gfx->fillScreen(RGB565_BLACK);
   gfx->setTextSize(2);
+  gfx->setTextWrap(false);
   pinMode(LCD_BL, OUTPUT);
   digitalWrite(LCD_BL, HIGH);
 
-  draw_row(0, "USB MIDI monitor", RGB565_CYAN);
+  draw_row(0, "USB MIDI host", RGB565_CYAN);
   draw_row(1, "Starting USB host", RGB565_WHITE);
 
   usb.onDeviceConnected(on_connected);
@@ -133,7 +160,10 @@ void setup() {
 // 'C' device connected, 'E' connected and enabled by the hub.
 static void draw_hub_status() {
   char line[midi_core::kLineLen] = "";
-  size_t pos = 0;
+  // Estimated USB host channels in use out of the ESP32-S3's 8; a device whose
+  // endpoints don't fit enumerates but never delivers MIDI.
+  size_t pos = snprintf(line, sizeof line, "%u/8 ",
+                        static_cast<unsigned>(usb.estimatedHcdChannelCount()));
   for (int i = 0; i < kMaxHubs; ++i) {
     const uint8_t addr = hub_addresses[i];
     if (addr == 0) continue;
@@ -148,7 +178,7 @@ static void draw_hub_status() {
     line[pos++] = ' ';
     line[pos] = '\0';
   }
-  if (pos == 0) snprintf(line, sizeof line, "%s", usb.lastErrorName());
+
   draw_row(0, line, RGB565_CYAN);
 }
 
