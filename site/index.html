@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>usb-midi-host installer</title>
+<script type="module" src="vendor/esp-web-tools-10.4.0/install-button.js"></script>
+<style>
+  :root {
+    --bg: #fafaf8; --fg: #1d1d1b; --muted: #66665f; --card: #ffffff; --line: #e2e2dc;
+    --accent: #1d6b2c; --accent-fg: #ffffff; --warn-bg: #fff4e0; --warn-line: #f0c070;
+    color-scheme: light dark;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121211; --fg: #ecece6; --muted: #a0a098; --card: #1c1c1a; --line: #33332f;
+      --accent: #22dd44; --accent-fg: #0b1a0e; --warn-bg: #2a1d08; --warn-line: #6a4a10;
+    }
+  }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+         font: 16px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 640px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 1.7rem; margin: 0 0 4px; }
+  h2 { font-size: 1.1rem; margin: 32px 0 8px; }
+  p, li { color: var(--fg); }
+  .lede { color: var(--muted); margin-top: 0; }
+  .board { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px 20px; margin: 16px 0; }
+  .board h3 { margin: 0 0 4px; font-size: 1rem; }
+  .board p { margin: 0 0 12px; color: var(--muted); font-size: .92rem; }
+  esp-web-install-button { --esp-tools-button-color: var(--accent); --esp-tools-button-text-color: var(--accent-fg);
+                           --esp-tools-button-border-radius: 8px; }
+  .note { background: var(--warn-bg); border: 1px solid var(--warn-line); border-radius: 8px; padding: 10px 14px; font-size: .95rem; }
+  ol { padding-left: 1.3em; }
+  li { margin: 6px 0; }
+  kbd { border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; font: inherit; font-size: .9em; }
+  footer { margin-top: 48px; color: var(--muted); font-size: .85rem; }
+  a { color: inherit; }
+</style>
+</head>
+<body>
+<main>
+  <h1>usb-midi-host</h1>
+  <p class="lede">Turn a Waveshare ESP32-S3 touch board into a computer-free USB MIDI host. Plug a keyboard and a synth into a
+    powered hub and play.</p>
+
+  <h2>You need</h2>
+  <ul>
+    <li>A supported board (below) and a USB-C cable that carries data, not just power.</li>
+    <li>Chrome or Edge on a desktop or laptop. Safari, Firefox and phones can't talk to USB serial devices.</li>
+  </ul>
+
+  <h2>Install</h2>
+  <ol>
+    <li><strong>Already running usb-midi-host?</strong> Tap the screen to open Settings, tap <strong>Computer</strong>, then tap
+      again to restart. The screen says <em>Computer mode</em>.</li>
+    <li>Plug the board straight into this computer (not through the hub).</li>
+    <li>Click <strong>Install</strong> below and pick the port that appears (often named <em>USB JTAG/serial debug unit</em>).</li>
+    <li>Leave <strong>Erase device</strong> unticked. That keeps your settings.</li>
+    <li>When it finishes, the board restarts as a MIDI host. Move it back to the hub.</li>
+  </ol>
+  <p class="note">No port shows up, or the install can't connect? Hold <kbd>BOOT</kbd>, tap <kbd>RST</kbd>, let go of
+    <kbd>BOOT</kbd>, then click Install again. That forces the chip into its download mode, which always works. You'll need it
+    the first time if the board is running something that doesn't offer Computer mode.</p>
+
+  <h2>Boards</h2>
+  <div class="board">
+    <h3>Waveshare ESP32-S3-Touch-LCD-1.69</h3>
+    <p>240×280 touch screen, 16 MB flash. Its USB-C port becomes the MIDI host.</p>
+    <esp-web-install-button manifest="firmware/waveshare-esp32-s3-touch-lcd-1.69/manifest.json">
+      <span slot="unsupported">This browser can't flash boards. Open this page in Chrome or Edge on a computer.</span>
+      <span slot="not-allowed">Flashing needs a secure page: open this over https:// or from localhost.</span>
+    </esp-web-install-button>
+  </div>
+
+  <footer>
+    Installs with <a href="https://github.com/esphome/esp-web-tools">ESP Web Tools</a> 10.4.0 (Apache-2.0), served from this
+    site. The firmware includes LVGL (MIT) and EspUsbHost (MIT).
+  </footer>
+</main>
+</body>
+</html>

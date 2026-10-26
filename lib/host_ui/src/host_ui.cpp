@@ -41,7 +41,7 @@ static uint32_t level_hex(Level l) {
 // ---------- State ----------
 static const BoardProfile *board;
 static UiSettings settings;
-static UiSettingsChanged on_settings_changed;
+static UiHooks hooks;
 
 static lv_style_t plain, title_style, detail_style;
 
@@ -56,6 +56,8 @@ static lv_obj_t *controller_labels[midi_core::kMaxDevices];
 static lv_obj_t *usb_label, *problem_box, *problem_1, *problem_2;
 static lv_obj_t *chain_screen, *settings_screen, *preview_label;
 static lv_obj_t *size_buttons, *face_buttons;
+static lv_obj_t *computer_label;
+static lv_timer_t *computer_disarm;
 
 // ---------- LVGL glue ----------
 static uint32_t tick_ms() { return millis(); }
@@ -239,7 +241,7 @@ static void settings_changed(lv_event_t *e) {
   else settings.typeface = static_cast<uint8_t>(picked);
   apply_fonts();
   update_preview();
-  if (on_settings_changed) on_settings_changed(settings);
+  if (hooks.settings_changed) hooks.settings_changed(settings);
 }
 
 static lv_obj_t *choice(lv_obj_t *parent, const char *const *map, uint32_t selected) {
@@ -261,6 +263,38 @@ static lv_obj_t *heading(lv_obj_t *parent, const char *text) {
   lv_obj_set_style_text_color(l, c(kGrey), 0);
   lv_label_set_text(l, text);
   return l;
+}
+
+// Restarting stops MIDI, so the first tap only arms the button; a second tap
+// within a few seconds restarts.
+static const char kComputerIdle[] = LV_SYMBOL_USB " Computer";
+static const char kComputerArmed[] = "Tap to restart";
+
+static void disarm_computer(lv_timer_t *) {
+  lv_label_set_text(computer_label, kComputerIdle);
+  computer_disarm = nullptr;
+}
+
+static void computer_tapped(lv_event_t *) {
+  if (!computer_disarm) {
+    lv_label_set_text(computer_label, kComputerArmed);
+    computer_disarm = lv_timer_create(disarm_computer, 3000, nullptr);
+    lv_timer_set_repeat_count(computer_disarm, 1);
+    return;
+  }
+  if (hooks.connect_computer) hooks.connect_computer();
+}
+
+static lv_obj_t *wide_button(lv_obj_t *parent, const char *text, lv_event_cb_t on_click, lv_obj_t **label_out) {
+  lv_obj_t *b = lv_button_create(parent);
+  lv_obj_set_flex_grow(b, 1);
+  lv_obj_t *l = lv_label_create(b);
+  lv_obj_set_style_text_font(l, &lv_font_montserrat_16, 0);
+  lv_label_set_text(l, text);
+  lv_obj_center(l);
+  lv_obj_add_event_cb(b, on_click, LV_EVENT_CLICKED, nullptr);
+  if (label_out) *label_out = l;
+  return b;
 }
 
 static void build_settings_screen() {
@@ -290,22 +324,64 @@ static void build_settings_screen() {
   lv_label_set_text(preview_label, "Launchkey > FM-1");
   update_preview();
 
-  lv_obj_t *done = lv_button_create(settings_screen);
-  lv_obj_set_width(done, lv_pct(100));
-  lv_obj_t *dl = lv_label_create(done);
-  lv_obj_set_style_text_font(dl, &lv_font_montserrat_16, 0);
-  lv_label_set_text(dl, "Done");
-  lv_obj_center(dl);
-  lv_obj_add_event_cb(done, back_to_chain, LV_EVENT_CLICKED, nullptr);
+  lv_obj_t *buttons = box(settings_screen);
+  lv_obj_set_width(buttons, lv_pct(100));
+  lv_obj_set_height(buttons, LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(buttons, LV_FLEX_FLOW_ROW);
+  lv_obj_set_style_pad_column(buttons, 8, 0);
+  lv_obj_t *computer = wide_button(buttons, kComputerIdle, computer_tapped, &computer_label);
+  lv_obj_set_style_bg_color(computer, c(kDim), 0);
+  wide_button(buttons, "Done", back_to_chain, nullptr);
+}
+
+// ---------- Computer-mode screen ----------
+static void back_to_host_tapped(lv_event_t *) {
+  if (hooks.back_to_host) hooks.back_to_host();
+}
+
+static lv_obj_t *build_computer_screen() {
+  lv_obj_t *scr = lv_obj_create(nullptr);
+  lv_obj_set_style_bg_color(scr, c(0x000000), 0);
+  int side, top;
+  safe_padding(&side, &top);
+  lv_obj_set_style_pad_hor(scr, side, 0);
+  lv_obj_set_style_pad_ver(scr, top, 0);
+  lv_obj_set_flex_flow(scr, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_style_pad_row(scr, 10, 0);
+
+  lv_obj_t *t = lv_label_create(scr);
+  lv_obj_set_style_text_font(t, &lv_font_montserrat_20, 0);
+  lv_obj_set_style_text_color(t, c(kYellow), 0);
+  lv_label_set_text(t, LV_SYMBOL_USB " Computer mode");
+
+  lv_obj_t *body = lv_label_create(scr);
+  lv_obj_set_width(body, lv_pct(100));
+  lv_label_set_long_mode(body, LV_LABEL_LONG_MODE_WRAP);
+  lv_obj_set_style_text_font(body, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_text_color(body, c(kWhite), 0);
+  lv_label_set_text(body,
+                    "MIDI is off. Plug this board straight into a computer and open the installer in Chrome "
+                    "or Edge.\n\nAfter an update it goes back to MIDI by itself.");
+
+  lv_obj_t *spacer = box(scr);
+  lv_obj_set_width(spacer, lv_pct(100));
+  lv_obj_set_flex_grow(spacer, 1);
+
+  lv_obj_t *row = box(scr);
+  lv_obj_set_width(row, lv_pct(100));
+  lv_obj_set_height(row, LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+  wide_button(row, "Back to MIDI", back_to_host_tapped, nullptr);
+  return scr;
 }
 
 // ---------- Public API ----------
-bool ui_begin(const BoardProfile &b, const UiSettings &s, UiSettingsChanged on_change) {
+bool ui_begin(const BoardProfile &b, const UiSettings &s, const UiHooks &h) {
   board = &b;
   settings = s;
   if (settings.text_size > 2) settings.text_size = 1;
   if (settings.typeface > 1) settings.typeface = 0;
-  on_settings_changed = on_change;
+  hooks = h;
 
   if (!board_display_begin()) return false;
   lv_init();
@@ -341,6 +417,8 @@ bool ui_begin(const BoardProfile &b, const UiSettings &s, UiSettingsChanged on_c
   lv_screen_load(chain_screen);
   return true;
 }
+
+void ui_show_computer_mode() { lv_screen_load(build_computer_screen()); }
 
 void ui_tick() { lv_timer_handler(); }
 

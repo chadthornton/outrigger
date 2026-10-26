@@ -10,13 +10,17 @@
 // it and runs the settings page. Board specifics live in board_*.cpp.
 //
 // Because the USB port is the host, the Mac loses this board's serial port
-// once the sketch runs. To reflash, hold BOOT, tap RST, release BOOT.
+// once the host starts. Settings > Computer restarts with the host off, which
+// leaves the port as the ESP32-S3's built-in USB-Serial-JTAG device, so a
+// computer can flash it without BOOT+RST (see boot_mode.h).
 
 #include <Arduino.h>
 #include <EspUsbHost.h>
 #include <Preferences.h>
+#include <esp_app_desc.h>
 
 #include "board_profile.h"
+#include "boot_mode.h"
 #include "host_ui.h"
 #include "midi_core.h"
 #include "status.h"
@@ -25,6 +29,7 @@ extern const BoardProfile kBoard;
 
 EspUsbHost usb;
 static Preferences prefs;
+static bool host_running = false;
 
 // ---------- State shared between the USB task and loop() ----------
 // Every EspUsbHost callback runs on the USB client task; loop() copies what it
@@ -240,20 +245,68 @@ static void save_settings(const UiSettings &s) {
   prefs.putUChar("typeface", s.typeface);
 }
 
+// ---------- Boot mode ----------
+// Namespace "boot", key "computer": the build ID that asked to start in
+// computer mode. Kept in NVS because moving the cable usually cuts power.
+static const char *this_build() {
+  static char id[17] = "";
+  if (!id[0]) esp_app_get_elf_sha256(id, sizeof id);
+  return id;
+}
+
+static void connect_computer() {
+  Preferences boot;
+  boot.begin("boot", false);
+  boot.putString("computer", this_build());
+  boot.end();
+  esp_restart();
+}
+
+static void back_to_host() {
+  Preferences boot;
+  boot.begin("boot", false);
+  boot.remove("computer");
+  boot.end();
+  esp_restart();
+}
+
+static midi_core::BootMode read_boot_mode() {
+  Preferences boot;
+  boot.begin("boot", false);
+  const String requested = boot.getString("computer", "");
+  const midi_core::BootDecision d = midi_core::decide_boot_mode(requested.c_str(), this_build());
+  if (d.clear_request) boot.remove("computer");
+  boot.end();
+  return d.mode;
+}
+
 void setup() {
+  const midi_core::BootMode mode = read_boot_mode();
   prefs.begin("ui", false);
   const UiSettings settings = {prefs.getUChar("text_size", 1), prefs.getUChar("typeface", 0)};
-  ui_begin(kBoard, settings, save_settings);
+  ui_begin(kBoard, settings, {save_settings, connect_computer, back_to_host});
 
+  if (mode == midi_core::BootMode::Computer) {
+    // The USB host is never installed, so the port stays the chip's
+    // USB-Serial-JTAG device and the computer can reset it into download mode.
+    ui_show_computer_mode();
+    return;
+  }
   usb.onDeviceConnected(on_connected);
   usb.onDeviceDisconnected(on_disconnected);
   usb.onMidiMessage(on_midi);
   usb.begin();
+  host_running = true;
 }
 
 void loop() {
   static uint32_t last_poll = 0, last_frame = 0, framed_changes = UINT32_MAX;
   static UiFrame frame;
+  if (!host_running) {  // computer mode: only the UI runs
+    ui_tick();
+    delay(5);
+    return;
+  }
   const uint32_t now = millis();
   if (now - last_poll > 1000) {
     last_poll = now;
