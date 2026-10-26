@@ -30,11 +30,32 @@ Role device_role(uint16_t vid, uint16_t pid);
 
 // Decides whether a message from a controller goes to the target and, if so,
 // writes the 4-byte USB-MIDI packet to send (cable 0). Only channel voice
-// messages (0x80-0xEF) from the controller's first cable pass. Every system
-// message, SysEx included, is dropped: the FM-1's ROM-boot key and firmware
-// installers arrive as SysEx, and nothing a controller sends should reach them.
-bool route_to_target(uint8_t cable, uint8_t status, uint8_t data1, uint8_t data2,
-                     uint8_t packet[4]);
+// messages (0x80-0xEF) from the controller's first cable pass, and only when
+// the packet's code index matches the status byte. Every system message,
+// SysEx included, is dropped: the FM-1's ROM-boot key and firmware installers
+// arrive as SysEx, and nothing a controller sends should reach them.
+bool route_to_target(uint8_t cable, uint8_t code_index, uint8_t status, uint8_t data1,
+                     uint8_t data2, uint8_t packet[4]);
+
+// Tracks which USB address is the FM-1 and which are controllers, and decides
+// where each incoming message goes. Call it from one task only (the USB task).
+class Router {
+ public:
+  void device_connected(uint8_t address, uint16_t vid, uint16_t pid);
+  void device_disconnected(uint8_t address);
+  bool is_target(uint8_t address) const;
+  // Returns the address to send packet to, or 0 to send nothing. Never returns
+  // an address that isn't a connected FM-1, so a caller can't fall through to
+  // a library's "any device" default.
+  uint8_t route(uint8_t source, uint8_t cable, uint8_t code_index, uint8_t status,
+                uint8_t data1, uint8_t data2, uint8_t packet[4]) const;
+
+ private:
+  static constexpr int kMaxAddress = 127;  // USB device addresses are 1-127
+  bool known_[kMaxAddress + 1] = {};
+  Role role_[kMaxAddress + 1] = {};
+  uint8_t target_ = 0;  // 0 = no FM-1 connected
+};
 
 // Single-producer, single-consumer ring of formatted lines. When full, the
 // oldest line is dropped so the display always shows the latest activity.

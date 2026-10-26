@@ -90,9 +90,10 @@ static void expect_packet(bool ok, const uint8_t *got, bool want_ok,
   }
 }
 
-static bool route(uint8_t cable, uint8_t status, uint8_t d1, uint8_t d2, uint8_t out[4]) {
+static bool route(uint8_t cable, uint8_t status, uint8_t d1, uint8_t d2, uint8_t out[4],
+                  int cin = -1) {
   memset(out, 0xAA, 4);
-  return route_to_target(cable, status, d1, d2, out);
+  return route_to_target(cable, cin < 0 ? status >> 4 : cin, status, d1, d2, out);
 }
 
 static void test_route_channel_voice() {
@@ -125,6 +126,54 @@ static void test_route_drops_other_input() {
   expect_packet(route(1, 0x90, 60, 100, p), p, false, none, "cable 1 (DAW port) dropped");
   expect_packet(route(0, 0x3C, 100, 0, p), p, false, none, "data byte as status dropped");
   expect_packet(route(0, 0x00, 0, 0, p), p, false, none, "zero status dropped");
+  expect_packet(route(0, 0x90, 0, 0, p, 0xF), p, false, none, "single-byte packet dropped");
+  expect_packet(route(0, 0x90, 60, 100, p, 0x4), p, false, none, "sysex-continue CIN dropped");
+  expect_packet(route(0, 0x90, 60, 100, p, 0x0), p, false, none, "padding CIN dropped");
+}
+
+static void test_router() {
+  Router r;
+  uint8_t p[4];
+  const uint8_t kLaunchkey = 3, kFm1 = 2;
+  if (r.route(kLaunchkey, 0, 0x9, 0x90, 60, 100, p) != 0) {
+    printf("FAIL router sends before anything is known\n"); ++failures;
+  }
+  r.device_connected(kLaunchkey, 0x1235, 0x0142);
+  if (r.route(kLaunchkey, 0, 0x9, 0x90, 60, 100, p) != 0) {
+    printf("FAIL router sends with no FM-1 connected\n"); ++failures;
+  }
+  r.device_connected(kFm1, 0x1209, 0x0001);
+  if (r.route(kLaunchkey, 0, 0x9, 0x90, 60, 100, p) != kFm1) {
+    printf("FAIL controller note not routed to the FM-1\n"); ++failures;
+  }
+  if (r.route(kFm1, 0, 0x9, 0x90, 60, 100, p) != 0) {
+    printf("FAIL FM-1 routed back to itself\n"); ++failures;
+  }
+  if (r.route(9, 0, 0x9, 0x90, 60, 100, p) != 0) {
+    printf("FAIL unknown source address routed\n"); ++failures;
+  }
+  if (r.route(kLaunchkey, 0, 0x4, 0xF0, 0x22, 0x24, p) != 0) {
+    printf("FAIL SysEx routed through the router\n"); ++failures;
+  }
+  if (!r.is_target(kFm1) || r.is_target(kLaunchkey)) {
+    printf("FAIL is_target\n"); ++failures;
+  }
+  r.device_disconnected(kFm1);
+  if (r.route(kLaunchkey, 0, 0x9, 0x90, 60, 100, p) != 0) {
+    printf("FAIL router sends after the FM-1 left\n"); ++failures;
+  }
+  r.device_disconnected(kLaunchkey);
+  r.device_connected(kFm1, 0x1209, 0x0001);
+  if (r.route(kLaunchkey, 0, 0x9, 0x90, 60, 100, p) != 0) {
+    printf("FAIL departed controller still routed\n"); ++failures;
+  }
+  Router edge;
+  edge.device_connected(0xFF, 0x1209, 0x0001);  // "any address" must never be a target
+  edge.device_connected(200, 0x1209, 0x0001);
+  edge.device_connected(4, 0x1235, 0x0142);
+  if (edge.route(4, 0, 0x9, 0x90, 60, 100, p) != 0) {
+    printf("FAIL out-of-range address became the target\n"); ++failures;
+  }
 }
 
 static void test_device_roles() {
@@ -147,6 +196,7 @@ int main() {
   test_route_blocks_system_messages();
   test_route_drops_other_input();
   test_device_roles();
+  test_router();
   test_note_names();
   test_channel_messages();
   test_system_messages();
