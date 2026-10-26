@@ -98,7 +98,7 @@ the Felucca-family installers, and The Firmware Hub. It's documented in
 | `fm1_loader` core | `lib/fm1_loader/` (plain C++, Mac-tested) | `.fwsc` and UFW parsing, flash layout constants, address guard, sector-diff planner, and the install state machine. The state machine runs against an abstract "ROM device" interface. |
 | ROM-boot transport | firmware | The jl-uboot-tool command set (MIT, `jltech/uboot.py`) sent as raw SCSI commands through EspUsbHost's `mscCommand()`. That function is private today; the vendored copy gets a second one-line patch to make it public. |
 | Loader blob | device storage, **not in git** | `wl82loader.bin` is JieLi's, and its redistribution status is unclear. `make setup-loader` fetches it from jl-uboot-tool at the pinned commit, checks the SHA-256, and puts it in the storage image. |
-| Storage | new partition table on the 16 MB flash | About a 3 MB app slot plus about 12 MB of LittleFS. That holds the loader blob, about 15–18 packages (609–718 KB each, median 610 KB), and 1 MiB per backed-up unit. All 102 catalog packages would need about 62 MB, so v2 caches and fetches on demand. |
+| Storage | new partition table on the 16 MB flash | Three areas. A **library** partition holds packages and the loader blob, and is rebuilt from the Mac. A separate **backups** partition is never overwritten by library updates. `make pull-backups` reads it back to the Mac with `esptool read_flash` in download mode, so every backup also lives off-device. The partition change resets the NVS settings once. Sizes: about a 3 MB app slot, about 12 MB library, That holds the loader blob, about 15–18 packages (609–718 KB each, median 610 KB), and 1 MiB per backed-up unit. All 102 catalog packages would need about 62 MB, so v2 caches and fetches on demand. |
 | UI | new "Firmware" page, reached from Settings | The FM-1's current identity and version, the stored packages, and the backups. Then a confirm screen, staged progress (Enter boot, Identify, Backup, Write N of M, Verify, Restart), and a result. |
 
 **Install state machine:**
@@ -117,13 +117,34 @@ the Felucca-family installers, and The Firmware Hub. It's documented in
 
 Every step has a failure exit.
 
+**Resume entry.** If the Waveshare starts up, or its USB stack restarts, and finds `4C4A:8057` already attached, it
+skips steps 1–3 and goes straight to Identify:
+- **Why:** this is the case after a host crash mid-write. The FM-1 is on its battery, still in ROM boot, with a
+  half-written app, and the SysEx key can no longer work.
+- **Backup:** resuming reuses the stored, verified backup for that unit and refuses if there isn't one.
+- **Durability:** the backup is fully written and fsync'd before the first erase.
+
+That is what makes "run it again" true.
+
+**Byte-exact port.** The ROM-boot sequence is ported from the proven Python and checked against it, not
+re-derived:
+- **Source:** the Unbricker's `upload_loader()` and `write_and_verify()`, and jl-uboot-tool's `jltech/uboot.py`.
+- **What must match:**
+  - The loader goes up in 512-byte blocks to `0x1C02000`.
+  - The MengLi cipher is applied under the same condition.
+  - The jump uses argument 1, then flash-ID and chip-key reads.
+  - Erase, write and read use the same command layouts.
+- **How it's checked:** golden vectors, the exact command bytes and payloads, are generated from the Python running
+  against its own mock device (`mock_device`, `synthetic_flash`). The C++ state machine must emit the identical
+  sequence against the same mock.
+
 **Licenses (from `catalog.json`, 2026-10-26):**
 - **Fine to cache:** 93 packages are GPL-3.0, 8 are MPL-2.0, and stock V15 is Apache-2.0 (mirrored from
   m-vave/fm1_open).
 - **Not to be redistributed:** stock V16, Baud Girl and Groove OS. The Waveshare can still install a copy Chad
   downloads himself, but the repo and any bundled library never carry them.
 
-**How packages get onto the Waveshare in v1:** a folder on the Mac is built into a LittleFS image, which I flash. In
+**How packages get onto the Waveshare in v1:** a folder on the Mac is built into a LittleFS image, which I flash into the library partition only, so the backups partition is untouched. In
 v2, the Waveshare fetches from `thefirmwarehub.com/catalog.json` over Wi-Fi, checks each SHA-256, and caches the
 package; Wi-Fi is set up from a phone.
 
@@ -137,6 +158,9 @@ package; Wi-Fi is set up from a phone.
 - **Diff planner:** identical image gives 0 sectors. A one-byte change gives 1 sector. Nothing is planned outside
   the app area.
 - **State machine against a mock ROM device with NOR semantics:**
+  - **Golden-vector match:** the exact command sequence matches the Python reference.
+  - **Resume:** the host restarts mid-write, then resumes from "`4C4A:8057` already attached" using the stored
+    backup. With no stored backup it refuses.
   - **Normal runs:** a clean install, and a no-op when the image is already installed.
   - **Identity failures:** wrong chip key, wrong flash ID.
   - **Write failures:** a read-back mismatch that clears on retry, and one that persists.
@@ -146,11 +170,21 @@ package; Wi-Fi is set up from a phone.
 1. **Read-only.**
    - Steps: enter ROM boot, identify, upload the loader, read the IDs, take a full backup, then reset the FM-1
      without writing anything.
-   - Check: compare the backup with the recovery project's 2026-10-25 dump. Only the expected areas should differ.
+   - **Pass:** compared with the recovery project's 2026-10-25 dump, the boot head (`0x0–0x3FFF`), Bluetooth data and
+     factory voices (`0xE9000–0xFBFFF`) are byte-identical. The app and settings areas are expected to differ,
+     because the unit now runs Skiff, not the V15 restored that day.
+   - **Also answers two questions:**
+     - Does Skiff accept the ROM-boot key `…7D F7`? That's reported for Felucca-family firmware but unverified for
+       Skiff. The fallback is the OCT− + OCT+ 5 s hold, which is also only reported.
+     - Does EspUsbHost's automatic mass-storage probing (inquiry, capacity) leave the ROM device usable? The Linux and
+       Windows tools coexist with OS probing, which suggests yes. Before this checkpoint, read what the library sends
+       on attach.
 2. **No-op install.** Install the firmware that's already on the unit. The plan must show 0 sectors to write.
 3. **Real install.**
    - Steps: switch Skiff to SLOOP (same family), then back.
    - Precaution: the Transporter is wired and ready beforehand.
+   - Honesty note: writing a third-party package through ROM boot has only been mock-tested so far (SLOOP 2.8.1 with
+     the Unbricker). This is the first real run.
 4. **Family change.** Stock V15 ↔ Skiff, including the settings warning.
 
 **Review:** `code-review` at high effort before merge, one round.
