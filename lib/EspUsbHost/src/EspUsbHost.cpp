@@ -9158,6 +9158,11 @@ void EspUsbHost::parseConfigDescriptor(DeviceState &device, const usb_config_des
            configDesc->bMaxPower * 2);
 
   const uint8_t *p = reinterpret_cast<const uint8_t *>(configDesc);
+  // usb-midi-host patch: the sketch plans this device's claims before any is made.
+  if (claimPlanner_)
+  {
+    claimPlanner_(device.info, device.isHub, p, configDesc->wTotalLength);
+  }
   for (int i = 0; i < configDesc->wTotalLength;)
   {
     const uint8_t length = p[i];
@@ -9502,6 +9507,12 @@ void EspUsbHost::handleDescriptor(uint8_t descriptorType, const uint8_t *data)
         isMscInterface ||
         isVendorSerialInterface)
     {
+      // usb-midi-host patch: the sketch's filter may veto the claim.
+      if (claimFilter_ && !claimFilter_(device->info.address, currentInterfaceNumber_))
+      {
+        ESP_LOGI(TAG, "Interface %u left unclaimed by the claim filter", currentInterfaceNumber_);
+        break;
+      }
       currentClaimResult_ = usb_host_interface_claim(clientHandle_, device->handle, currentInterfaceNumber_, intf->bAlternateSetting);
       currentInterfaceClaimed_ = currentClaimResult_ == ESP_OK;
       for (uint8_t i = 0; i < device->interfaceInfoCount; i++)

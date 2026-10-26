@@ -91,6 +91,16 @@ static void test_out_of_channels() {
   EXPECT(v.router == Level::Ok && v.target == Level::Ok, "the working pair still routes");
 }
 
+// When the resource broker turned a device down, its reason is the problem.
+static void test_broker_reason_wins() {
+  DeviceView lk = device(3, "Launchkey", Role::Controller, 0x12, false);
+  strcpy(lk.why1, "LAU off: room kept for FM-1");
+  strcpy(lk.why2, "Plug in the FM-1 first");
+  ChainView v = evaluate(hub_with({lk}));
+  EXPECT(v.has_problem && strcmp(v.problem.line1, "LAU off: room kept for FM-1") == 0, "broker line 1");
+  EXPECT(strcmp(v.problem.line2, "Plug in the FM-1 first") == 0, "broker line 2");
+}
+
 static void test_no_fm1() {
   ChainView v = evaluate(hub_with({device(3, "Launchkey", Role::Controller, 0x12, true)}));
   EXPECT(v.has_problem && v.target == Level::Warn, "missing FM-1 warns");
@@ -126,6 +136,7 @@ int main() {
   test_nothing_answering();
   test_port_that_wont_start();
   test_out_of_channels();
+  test_broker_reason_wins();
   test_no_fm1();
   test_no_controller_is_not_an_error();
   test_empty_hub();

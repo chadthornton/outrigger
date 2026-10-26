@@ -61,8 +61,12 @@ ChainView evaluate(const HostSnapshot &s) {
     snprintf(buf, sizeof buf, "Port %d: device won't start.", stuck_port + 1);
     set_problem(v, buf, "Move it to a USB-C port.");
   } else if (unopened) {
-    snprintf(buf, sizeof buf, "%s: MIDI not opened.", unopened->name);
-    set_problem(v, buf, s.channels_used >= 8 ? "USB full: FM-1 + 1 controller." : "It may not be class-compliant.");
+    if (unopened->why1[0]) {
+      set_problem(v, unopened->why1, unopened->why2);
+    } else {
+      snprintf(buf, sizeof buf, "%s: MIDI not opened.", unopened->name);
+      set_problem(v, buf, s.channels_used >= 8 ? "USB full: FM-1 + 1 controller." : "It may not be class-compliant.");
+    }
     if (unopened->role == Role::Target) v.target = Level::Bad;
   } else if (anything && s.device_count == 0) {
     set_problem(v, "No devices on the hub.", "Use the hub's USB-C ports.");

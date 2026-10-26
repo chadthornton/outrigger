@@ -24,6 +24,9 @@ struct DeviceView {
   Role role;
   bool is_midi;     // has a MIDI interface (claimed or not)
   bool midi_open;   // its MIDI interface got USB channels and works
+  // Why the resource broker left it unclaimed (platform::Reason), or empty.
+  char why1[kProblemLen];
+  char why2[kProblemLen];
 };
 
 struct HostSnapshot {
