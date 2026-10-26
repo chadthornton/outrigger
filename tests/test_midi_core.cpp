@@ -155,11 +155,25 @@ static void test_router() {
   if (r.route(kLaunchkey, 0, 0x4, 0xF0, 0x22, 0x24, p) != 0) {
     printf("FAIL SysEx routed through the router\n"); ++failures;
   }
+  char why = 0;
+  struct { uint8_t src, cable, cin, status; char want; } cases[] = {
+      {9, 0, 0x9, 0x90, 'u'},          {kFm1, 0, 0x9, 0x90, 't'},
+      {kLaunchkey, 1, 0x9, 0x90, 'c'}, {kLaunchkey, 0, 0x8, 0x90, 'k'},
+      {kLaunchkey, 0, 0xF, 0xF8, 's'}, {kLaunchkey, 0, 0x4, 0xF0, 's'},
+  };
+  for (auto &k : cases) {
+    why = 0;
+    if (r.route(k.src, k.cable, k.cin, k.status, 60, 100, p, &why) != 0 || why != k.want) {
+      printf("FAIL drop reason: want '%c' got '%c'\n", k.want, why ? why : '0');
+      ++failures;
+    }
+  }
   if (!r.is_target(kFm1) || r.is_target(kLaunchkey)) {
     printf("FAIL is_target\n"); ++failures;
   }
   r.device_disconnected(kFm1);
-  if (r.route(kLaunchkey, 0, 0x9, 0x90, 60, 100, p) != 0) {
+  why = 0;
+  if (r.route(kLaunchkey, 0, 0x9, 0x90, 60, 100, p, &why) != 0 || why != 'n') {
     printf("FAIL router sends after the FM-1 left\n"); ++failures;
   }
   r.device_disconnected(kLaunchkey);

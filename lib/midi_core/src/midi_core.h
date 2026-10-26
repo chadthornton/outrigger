@@ -47,8 +47,11 @@ class Router {
   // Returns the address to send packet to, or 0 to send nothing. Never returns
   // an address that isn't a connected FM-1, so a caller can't fall through to
   // a library's "any device" default.
+  // When it returns 0 and why is non-null, *why names the reason for the screen:
+  // 'n' no FM-1 connected, 'u' unknown source, 't' source is the FM-1,
+  // 'c' cable other than 0, 'k' code index doesn't match, 's' system message.
   uint8_t route(uint8_t source, uint8_t cable, uint8_t code_index, uint8_t status,
-                uint8_t data1, uint8_t data2, uint8_t packet[4]) const;
+                uint8_t data1, uint8_t data2, uint8_t packet[4], char *why = nullptr) const;
 
  private:
   static constexpr int kMaxAddress = 127;  // USB device addresses are 1-127

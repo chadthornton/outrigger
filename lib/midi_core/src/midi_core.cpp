@@ -102,11 +102,19 @@ bool Router::is_target(uint8_t address) const {
 }
 
 uint8_t Router::route(uint8_t source, uint8_t cable, uint8_t code_index, uint8_t status,
-                      uint8_t data1, uint8_t data2, uint8_t packet[4]) const {
-  if (target_ == 0) return 0;
-  if (source == 0 || source > kMaxAddress || !known_[source]) return 0;
-  if (role_[source] != Role::Controller) return 0;
-  if (!route_to_target(cable, code_index, status, data1, data2, packet)) return 0;
+                      uint8_t data1, uint8_t data2, uint8_t packet[4], char *why) const {
+  char reason = 0;
+  if (target_ == 0) reason = 'n';
+  else if (source == 0 || source > kMaxAddress || !known_[source]) reason = 'u';
+  else if (role_[source] != Role::Controller) reason = 't';
+  else if (cable != 0) reason = 'c';
+  else if (status < 0x80 || status >= 0xF0) reason = 's';
+  else if (code_index != status >> 4) reason = 'k';
+  else if (!route_to_target(cable, code_index, status, data1, data2, packet)) reason = 's';
+  if (reason) {
+    if (why) *why = reason;
+    return 0;
+  }
   return target_;
 }
 

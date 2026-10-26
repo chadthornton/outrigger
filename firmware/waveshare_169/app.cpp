@@ -7,9 +7,9 @@
 // SysEx or any other system message, so a controller cannot put the FM-1 into
 // its ROM bootloader or a firmware installer.
 //
-// Log prefixes: '>' forwarded to the FM-1, 'x' from a controller but not
-// forwarded (filtered, or no FM-1 attached), '!' forwarding failed in USB,
-// ' ' from the FM-1 itself.
+// Log prefixes: '>' forwarded to the FM-1, '!' forwarding failed in USB,
+// ' ' from the FM-1 itself, or a letter naming why a message was dropped
+// (see midi_core::Router::route).
 //
 // Because the USB port is the host, the Mac loses this board's serial port
 // once the sketch runs. To reflash, hold BOOT, tap RST, release BOOT.
@@ -107,10 +107,11 @@ static void on_midi(const EspUsbHostMidiMessage &m) {
   char mark = ' ';
   if (!router.is_target(m.address)) {
     uint8_t packet[4];
+    char why = 'x';
     const uint8_t dest =
-        router.route(m.address, m.cable, m.codeIndex, m.status, m.data1, m.data2, packet);
+        router.route(m.address, m.cable, m.codeIndex, m.status, m.data1, m.data2, packet, &why);
     // midiSend() only submits the transfer, so it is safe on the USB task.
-    mark = dest == 0 ? 'x' : usb.midiSend(packet, sizeof packet, dest) ? '>' : '!';
+    mark = dest == 0 ? why : usb.midiSend(packet, sizeof packet, dest) ? '>' : '!';
   }
   char text[midi_core::kLineLen];
   midi_core::format_message(m.status, m.data1, m.data2, m.raw, m.length, text);
