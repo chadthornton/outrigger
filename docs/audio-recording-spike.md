@@ -56,6 +56,19 @@ The ESP32-S3 host controller has 8 channels. ESP-IDF allocates one per open pipe
 | Hub + FM-1 (MIDI + audio) + USB stick | 2 + 4 + 3 = 9 | no |
 | Hub + FM-1 (audio only, MIDI unclaimed) + USB stick | 2 + 2 + 3 = 7 | yes, needs a library patch to skip the MIDI interface |
 
+**What the audio interface costs on its own: 1 channel.** Skiff's audio streaming alt 1 declares one endpoint
+(`bNumEndpoints` 1, EP `0x84` iso IN). There is no feedback endpoint: explicit feedback belongs to asynchronous
+*playback* (OUT) streams, and the FM-1 has no USB audio output. The audio control interface (IF0) has no
+endpoints and is driven over EP0. So an FM-1 used for audio only costs EP0 + iso IN = **2**.
+
+**Recording while playing, with the FM-1's MIDI moved to Bluetooth:** hub 2 + Launchkey 3 + FM-1 audio 2 =
+**7 of 8**. That needs EspUsbHost to leave the FM-1's MIDI streaming interface unclaimed, and today it can't:
+the enumeration code (`EspUsbHost.cpp`, the claim decision around line 9430) claims the first MIDI streaming
+interface of every device unconditionally, and there is no filter hook or config macro to skip it. A vendored
+patch is small: a callback such as `bool (*claimFilter)(const EspUsbHostDeviceInfo &, uint8_t ifClass,
+uint8_t ifSubClass)` checked next to `isMidiInterface`, or a compile-time VID:PID to skip, in the same style as
+the existing `ESP_USB_HOST_MAX_SERIAL_PORTS` patch. The same patch makes the USB-stick row below fit.
+
 Storage without the hub's channels: PSRAM (8 MB, about 47 s at 176.4 kB/s), or an SD card on a board that has a TF
 slot (the 1.47" Waveshare; the 1.69" has none). Flash is too small and slow to be a recorder.
 
