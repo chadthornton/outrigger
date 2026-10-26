@@ -10,6 +10,8 @@
 // Windows alternate between a frozen screen and a screen redrawn at 20 fps,
 // to see whether drawing starves the USB client task.
 //
+// stream.cpp also serves the audio over Wi-Fi as a WAV (GET /take.wav?s=N).
+//
 // It never sends MIDI: there is no midiSend() call in this sketch.
 
 #include <Arduino.h>
@@ -17,6 +19,8 @@
 #include <EspUsbHost.h>
 #include <esp_timer.h>
 #include <math.h>
+
+#include "stream.h"
 
 EspUsbHost usb;
 
@@ -29,10 +33,7 @@ static Arduino_Canvas *gfx = new Arduino_Canvas(240, 280, panel);
 // ---------- Capture state (written on the USB client task) ----------
 constexpr uint32_t kRate = 44100;
 constexpr uint32_t kWindowMs = 10000;
-constexpr size_t kBufBytes = (kRate * kWindowMs / 1000 + kRate) * 4;  // a window plus 1 s of slack
-
 static portMUX_TYPE cap_lock = portMUX_INITIALIZER_UNLOCKED;
-static uint8_t *pcm = nullptr;
 
 struct WindowStats {
   uint32_t packets = 0, bytes = 0, odd_packets = 0;
@@ -84,13 +85,13 @@ static void on_audio(const EspUsbHostAudioData &a) {
     ++w.packets;
     if (a.length != 176 && a.length != 180) ++w.odd_packets;
     if (peak) ++w.nonzero_packets;
-    if (w.bytes + a.length <= kBufBytes) memcpy(pcm + w.bytes, a.data, a.length);
     w.bytes += a.length;
     if (peak > w.peak) w.peak = peak;
     w.sum_sq += sum_sq;
     w.samples += n;
   }
   taskEXIT_CRITICAL(&cap_lock);
+  stream_push(a.data, a.length);
 }
 
 // ---------- Facts shown on screen ----------
@@ -179,6 +180,10 @@ static void draw(uint32_t now, bool recording, bool frozen) {
   taskEXIT_CRITICAL(&cap_lock);
   snprintf(buf, sizeof buf, "pkts total %lu", static_cast<unsigned long>(total));
   line(buf, 0xC618, 6);
+  stream_status(buf, sizeof buf);
+  line(buf, 0xF81F, 6);
+  stream_stats(buf, sizeof buf);
+  line(buf, 0xF81F, 6);
   if (recording) {
     const float pk = to_db(w.peak);
     const float rms = w.samples ? to_db(sqrt(static_cast<double>(w.sum_sq) / w.samples)) : -99;
@@ -191,7 +196,7 @@ static void draw(uint32_t now, bool recording, bool frozen) {
   }
   y += 2;
   line("win scr  pkts/ms  frames odd gap pk rms", 0x07FF, 6);
-  for (int i = 0; i < result_count; ++i) {
+  for (int i = result_count > 6 ? result_count - 6 : 0; i < result_count; ++i) {
     const WindowResult &r = results[i];
     snprintf(buf, sizeof buf, "%c %5lu/%5lu %6lu %lu %2lu %3.0f %3.0f", r.live_screen ? 'L' : 'F',
              static_cast<unsigned long>(r.packets), static_cast<unsigned long>(r.elapsed_ms),
@@ -246,8 +251,7 @@ void setup() {
   pinMode(LCD_BL, OUTPUT);
   digitalWrite(LCD_BL, HIGH);
 
-  pcm = static_cast<uint8_t *>(ps_malloc(kBufBytes));
-  if (!pcm) strlcpy(status_line, "PSRAM alloc failed", sizeof status_line);
+  stream_begin();
 
   usb.onDeviceConnected(on_connected);
   usb.onDeviceDisconnected(on_disconnected);
@@ -276,7 +280,7 @@ void loop() {
 
   switch (phase) {
     case Phase::Waiting:
-      if (pcm && fm1_address && usb.audioInputReady(fm1_address)) {
+      if (fm1_address && usb.audioInputReady(fm1_address)) {
         phase = Phase::Starting;
         phase_at = now;
       }
