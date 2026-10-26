@@ -1,6 +1,7 @@
 # Plan: on-device FM-1 firmware loader (guarded)
 
-Status: **approved by Chad, 2026-10-26** ("let's proceed"). Nothing below is built yet. Decisions:
+Status: **approved by Chad, 2026-10-26** ("let's proceed"). Session 1 (the Mac-tested core) is built; see "Session 1:
+done" below. Decisions:
 - **Save states:** the defaults (decision 0).
 - **v1 packages:** from the Mac.
 - **First firmwares:** stock V15, Skiff, SLOOP.
@@ -9,16 +10,38 @@ Status: **approved by Chad, 2026-10-26** ("let's proceed"). Nothing below is bui
   The storage back end stays abstract, so a microSD card (the 1.47" Waveshare has a TF slot) can replace internal
   flash in session 2 without touching the core.
 
-**Next: session 1, Mac only, no hardware.** Build `lib/fm1_loader/` test-first:
-- `.fwsc` and UFW parsing;
-- the flash-layout address guard;
-- the sector-diff planner;
-- the shared sector store model;
-- units and save states;
-- the install state machine with its resume entry, against a mock ROM device.
+**Session 1: done (2026-10-26), Mac only, no hardware.** `lib/fm1_loader/`, tested by `make test`:
+- `.fwsc` and UFW parsing (`package.*`), checked against fm1_unbrick.py's output for stock V15, Skiff 1.4 and
+  SLOOP 2.8.1, and against damaged copies.
+- The address guard (`layout.*`): one gate with three rights (app, save restore, settings erase).
+- The shared sector store, units, save states and the default restore rules (`store.*`, `library.*`).
+- The ROM-boot client (`rom.*`) and the install state machine with its resume entry (`installer.*`).
+- **Golden vectors** (`make golden`, `tools/gen_golden.py`): the Unbricker's own code and jl-uboot-tool's classes run
+  against the Unbricker's CDB-level `MockScsi`. The C++ state machine, against a C++ port of that mock, reproduces
+  every SCSI command (CDB, direction, length, payload hash) and the final flash of eight scenarios: install, no-op,
+  a retry that clears, one that doesn't, wrong chip key, wrong flash ID, backup reads that disagree, and resume.
+- **Fixtures** (`make fixtures`): the three packages and `wl82loader.bin`, pinned by SHA-256, gitignored.
 
-The state machine's output must match golden command vectors generated from the proven Python, Quixotic7's
-Unbricker and jl-uboot-tool. Then `code-review` at high effort.
+What session 1 settled or changed:
+- **Reset is `0xFC0C` with argument 1** (jl-uboot-tool's `reset` = `run_app`), not `0xFC02`, which is the V1
+  loader's reset. The wl82 runs the V2 loader. The Unbricker itself never resets; it has the user power-cycle.
+  Whether `0xFC0C` really restarts the FM-1 into its firmware is a checkpoint 1 question.
+- **Per-sector writes:** the Unbricker erases and rewrites the whole app area. The loader uses the Unbricker's own
+  erase, write and read functions per differing 4 KiB sector, with one retry per sector.
+- **No retained-RAM read:** the Unbricker reads 512 bytes of RAM (`FD07`) before uploading the loader, for crash
+  diagnosis. The loader leaves it out.
+- **The loader is uploaded as is:** the wl82 ROM unscrambles MengLi itself, so jl-uboot-tool's scramble condition is
+  false for this chip (ported and tested both ways).
+- **Stock V15's data map stays unknown.** Its store is the whole VM `0x93000–0xE8FFF`, with factory data in
+  `0x93000` and an update record at `0xE8F00`, but which sectors hold what isn't mapped. So stock saves stay
+  disabled, and a switch to stock keeps the data in place with the layout warning. It never erases `0x93000`.
+  Mapping it needs a stock unit's dumps before and after changing settings (checkpoint 4).
+- **Resume** reads the unit's sector, requires its stored verified backup and an unfinished install recorded before
+  the first erase, then reads the flash once and finishes that install. It never resets the FM-1 on a failure.
+
+**Next: session 2.** The ROM-boot transport over EspUsbHost's `mscCommand()` (made public in the vendored copy),
+a LittleFS (or microSD) back end for `Storage`, the loader blob on device storage, then hardware checkpoint 1
+(read-only) with Chad.
 
 **Measurement for later:** packages are encrypted with a scramble that depends on flash address, so identical code
 at a shifted address shows up as different bytes. Decrypting before sharing sectors and compressing may save far
@@ -320,7 +343,7 @@ stored once, under its hash, and each package, backup or save is a list of secto
 7. **Backup**, or reuse a verified one
 8. **Plan diff**
 9. **Write and verify**
-10. **Reset** (`0xFC02`)
+10. **Reset** (`0xFC0C`, argument 1: jl-uboot-tool's `reset`)
 11. **Wait for the FM-1 to come back as MIDI**
 12. **Done**
 
@@ -394,6 +417,11 @@ package; Wi-Fi is set up from a phone.
      - Does EspUsbHost's automatic mass-storage probing (inquiry, capacity) leave the ROM device usable? The Linux and
        Windows tools coexist with OS probing, which suggests yes. Before this checkpoint, read what the library sends
        on attach.
+     - What does inquiry report once the loader runs? If it still says `UBOOT1.00`, a resume after a Waveshare
+       crash would upload the loader again into a running loader (the mock then refuses, and the loader stops,
+       leaving the FM-1 in ROM boot). The Unbricker's own branch suggests the name changes.
+     - What does the loader report as its USB buffer size (`0xFC14`)? The mock says 512.
+     - Does `0xFC0C` with argument 1 restart the FM-1 into its firmware?
 2. **No-op install.** Install the firmware that's already on the unit. The plan must show 0 sectors to write.
 3. **Real install.**
    - Steps: switch Skiff to SLOOP (same family), then back.
