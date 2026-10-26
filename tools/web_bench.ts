@@ -17,12 +17,14 @@ const host = process.argv[2] ?? "fm1hub.local";
 const seconds = Number(process.argv[3] ?? 60);
 const outDir = process.argv[4] ?? "build/bench";
 const base = `http://${host}`;
-const modes = ["wifi_off", "idle", "busy", "wifi_off"];
+// Bun sends the URL host as Host, so an IP works too only if we name the hub.
+const headers = { Host: "fm1hub.local" };
+const modes = process.env.MODES ? process.env.MODES.split(",") : ["wifi_off", "idle", "busy", "wifi_off"];
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 async function reachable(): Promise<boolean> {
   try {
-    const r = await fetch(`${base}/api/status`, { signal: AbortSignal.timeout(2000) });
+    const r = await fetch(`${base}/api/status`, { headers, signal: AbortSignal.timeout(2000) });
     return r.ok;
   } catch {
     return false;
@@ -33,7 +35,7 @@ async function waitIdle(maxMs: number) {
   const until = Date.now() + maxMs;
   while (Date.now() < until) {
     try {
-      const s = await (await fetch(`${base}/api/status`, { signal: AbortSignal.timeout(2000) })).json();
+      const s = await (await fetch(`${base}/api/status`, { headers, signal: AbortSignal.timeout(2000) })).json();
       if (s.bench === "none") return;
     } catch {}
     await sleep(1000);
@@ -44,7 +46,7 @@ async function waitIdle(maxMs: number) {
 function load(stop: { done: boolean }) {
   const counts = { http: 0, ws: 0, errors: 0 };
   const sockets = [...Array(4)].map(() => {
-    const ws = new WebSocket(`ws://${host}/ws`);
+    const ws = new WebSocket(`ws://${host}/ws`, { headers } as any);
     ws.onmessage = () => counts.ws++;
     ws.onerror = () => counts.errors++;
     return ws;
@@ -52,7 +54,7 @@ function load(stop: { done: boolean }) {
   const loops = [...Array(4)].map(async (_, i) => {
     while (!stop.done) {
       try {
-        const r = await fetch(`${base}${i % 2 ? "/api/status" : "/"}`, { signal: AbortSignal.timeout(3000) });
+        const r = await fetch(`${base}${i % 2 ? "/api/status" : "/"}`, { headers, signal: AbortSignal.timeout(3000) });
         await r.arrayBuffer();
         counts.http++;
       } catch {
@@ -70,7 +72,7 @@ const total = modes.length * (seconds + 15);
 let elapsed = 0;
 
 for (const [i, mode] of modes.entries()) {
-  const r = await fetch(`${base}/api/bench/start?mode=${mode}&s=${seconds}`, { method: "POST" });
+  const r = await fetch(`${base}/api/bench/start?mode=${mode}&s=${seconds}`, { method: "POST", headers });
   if (!r.ok) throw new Error(`start ${mode}: ${await r.text()}`);
   console.log(`run ${i + 1}/${modes.length}: ${mode} for ${seconds} s`);
   const stop = { done: false };
@@ -88,10 +90,10 @@ for (const [i, mode] of modes.entries()) {
   }
   await waitIdle(60000);
   // Keep each wifi_off run's results: the second overwrites the first on the hub.
-  const results = await (await fetch(`${base}/api/bench`)).json();
+  const results = await (await fetch(`${base}/api/bench`, { headers })).json();
   writeFileSync(`${outDir}/run${i + 1}_${mode}.json`, JSON.stringify({ ...results[mode], load: loadStats[`run${i + 1}_${mode}`] }, null, 2));
   for (const [kind, name] of [[0, "forward"], [1, "note_gaps"], [2, "clock_gaps"]] as const) {
-    const raw = await (await fetch(`${base}/api/bench/raw?mode=${mode}&kind=${kind}`)).text();
+    const raw = await (await fetch(`${base}/api/bench/raw?mode=${mode}&kind=${kind}`, { headers })).text();
     writeFileSync(`${outDir}/run${i + 1}_${mode}_${name}.json`, raw);
   }
   const f = results[mode]?.forward;

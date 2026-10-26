@@ -1,0 +1,27 @@
+{
+  "seconds": 45,
+  "send_failures": 0,
+  "heap_min_internal": 88180,
+  "heap_min_block": 47092,
+  "forward": {
+    "n": 547,
+    "min": 289,
+    "p50": 322,
+    "p90": 335,
+    "p99": 486,
+    "max": 577,
+    "overflow": 0
+  },
+  "note_gaps": {
+    "n": 273,
+    "median": 123373,
+    "p99_dev": 681493,
+    "max_dev": 4108286
+  },
+  "clock_gaps": {
+    "n": 0,
+    "median": 0,
+    "p99_dev": 0,
+    "max_dev": 0
+  }
+}

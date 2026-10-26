@@ -1,0 +1,33 @@
+{
+  "seconds": 45,
+  "send_failures": 0,
+  "heap_min_internal": 70964,
+  "heap_min_block": 32756,
+  "forward": {
+    "n": 625,
+    "min": 241,
+    "p50": 354,
+    "p90": 599,
+    "p99": 649,
+    "max": 709,
+    "overflow": 0
+  },
+  "note_gaps": {
+    "n": 312,
+    "median": 123359,
+    "p99_dev": 615992,
+    "max_dev": 807566
+  },
+  "clock_gaps": {
+    "n": 0,
+    "median": 0,
+    "p99_dev": 0,
+    "max_dev": 0
+  },
+  "load": {
+    "http": 1232,
+    "ws": 2292,
+    "errors": 1,
+    "seconds": 45
+  }
+}

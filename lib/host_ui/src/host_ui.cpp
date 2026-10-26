@@ -327,6 +327,9 @@ static void build_banner() {
   lv_obj_set_style_radius(banner, 10, 0);
   lv_obj_set_style_pad_all(banner, 10, 0);
   banner_1 = lv_label_create(banner);
+  lv_obj_set_width(banner_1, lv_pct(100));
+  lv_label_set_long_mode(banner_1, LV_LABEL_LONG_MODE_WRAP);
+  lv_obj_set_style_text_align(banner_1, LV_TEXT_ALIGN_CENTER, 0);
   lv_obj_set_style_text_font(banner_1, &lv_font_montserrat_16, 0);
   lv_obj_set_style_text_color(banner_1, c(kWhite), 0);
   banner_2 = lv_label_create(banner);

@@ -61,7 +61,9 @@ static web_core::MonitorRing<256> ring;  // USB task -> server task, lock-free
 static Preferences wifi_prefs, web_prefs;
 static httpd_handle_t server = nullptr;
 static DNSServer dns;
-static bool mdns_on = false, joining_from_setup = false;
+static bool mdns_on = false, joining_from_setup = false, join_failed = false;
+static uint32_t join_at = 0;        // when to start a join the page asked for, 0 = none
+static uint32_t joined_banner_until = 0;
 static uint32_t connect_started = 0, online_since = 0, last_drain = 0;
 static volatile bool drain_queued = false;
 static char saved_ssid[33], saved_pass[65];
@@ -538,6 +540,7 @@ static void stop_hotspot() {
 }
 
 static void join(const char *ssid, const char *pass) {
+  WiFi.enableIPv6(true);  // link-local only: lets mDNS answer the AAAA query macOS sends first
   WiFi.begin(ssid, pass);
   connect_started = millis();
   net = Net::Connecting;
@@ -627,8 +630,15 @@ void web_loop(uint32_t now) {
     }
     wifi_prefs.putString("ssid", saved_ssid);
     wifi_prefs.putString("pass", saved_pass);
+    // Joining moves the radio, and the hotspot with it, to the network's
+    // channel, which drops the phone. Wait so the page's reply gets out first.
+    join_at = now + 1500;
+  }
+  if (join_at && (int32_t)(now - join_at) >= 0) {
+    join_at = 0;
     if (ap_on) WiFi.mode(WIFI_AP_STA);
     joining_from_setup = ap_on;
+    join_failed = false;
     WiFi.disconnect();
     join(saved_ssid, saved_pass);
   }
@@ -649,6 +659,8 @@ void web_loop(uint32_t now) {
   if (connected && net != Net::Online) {
     net = Net::Online;
     online_since = now;
+    join_failed = false;
+    if (joining_from_setup) joined_banner_until = now + 10000;
     if (!mdns_on && MDNS.begin(kHostname)) {
       MDNS.addService("http", "tcp", 80);
       mdns_on = true;
@@ -669,6 +681,7 @@ void web_loop(uint32_t now) {
   if (connected && ap_on && !joining_from_setup && saved_ssid[0]) stop_hotspot();
   // A saved network that doesn't answer: open the hotspot too, keep trying.
   if (!connected && !ap_on && now - connect_started > 20000) start_hotspot();
+  if (!connected && joining_from_setup && !join_failed && now - connect_started > 20000) join_failed = true;
   static uint32_t last_ips = 0;
   if (connected && now - last_ips > 5000) {  // refresh RSSI
     last_ips = now;
@@ -716,9 +729,14 @@ void web_frame(UiFrame &f) {
         snprintf(f.net_line, sizeof f.net_line, saved_ssid[0] ? "Joining %s" : "No network saved", saved_ssid);
         break;
     }
-    if (ap_on) {
+    if (ap_on && net != Net::Online) {
       snprintf(f.net_line, sizeof f.net_line, "Join %s", kSetupSsid);
-      snprintf(f.net_line2, sizeof f.net_line2, "password %s", ap_pass);
+      if (join_failed) snprintf(f.net_line2, sizeof f.net_line2, "pw %s  (%.12s failed)", ap_pass, saved_ssid);
+      else snprintf(f.net_line2, sizeof f.net_line2, "password %s", ap_pass);
+    }
+    if (!f.banner1[0] && (int32_t)(millis() - joined_banner_until) < 0) {
+      snprintf(f.banner1, sizeof f.banner1, "On Wi-Fi: %s", kMdnsName);
+      strlcpy(f.banner2, "Joined", sizeof f.banner2);
     }
     if (frame_copy) {
       *frame_copy = f;
