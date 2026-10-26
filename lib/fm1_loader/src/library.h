@@ -93,6 +93,7 @@ class Library {
                            const Hash *expected_sha256 = nullptr);
   bool package(const std::string &id, PackageInfo &out);
   std::vector<std::string> package_ids();
+  // Refused while a unit has it installed or an unfinished install needs it.
   bool remove_package(const std::string &id);
   // What an app area with these sector hashes is (identity empty if unknown).
   Firmware identify_app(const std::vector<Hash> &app);

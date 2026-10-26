@@ -42,6 +42,7 @@ const char *failure_text(Failure f) {
     case Failure::StorageFailed: return "the Waveshare's storage failed";
     case Failure::PackageMissing: return "package missing or damaged in the library";
     case Failure::NeedsFreshStartOk: return "the new firmware needs a fresh start: confirm it";
+    case Failure::NeedsLayoutChangeOk: return "old settings may crash the new firmware: confirm it";
     case Failure::RestoreRefused: return "save state doesn't match this unit and firmware";
     case Failure::GuardRefused: return "refused: outside the allowed flash areas";
     case Failure::NoBackupForResume: return "no stored backup of this unit";
@@ -65,6 +66,7 @@ void Installer::reset_state(const InstallOptions &opts) {
   mismatch_ = false;
   flash_.clear();
   unit_ = Unit();
+  current_ = Firmware();
   decision_ = DataDecision();
   app_ops_.clear();
   data_ops_.clear();
@@ -105,6 +107,9 @@ bool Installer::step() {
     case Step::Confirm: {
       PackageInfo p;
       if (!opts_.confirmed) return fail(Failure::NotConfirmed), false;
+      // Before the key: once in ROM boot, only a running loader can reset the FM-1.
+      if (hex(sha256(blob_.data(), blob_.size())) != kLoaderSha256)
+        return fail(Failure::LoaderBlobBad), false;
       if (!lib_.package(package_id_, p)) return fail(Failure::PackageMissing), false;
       for (const Hash &h : p.app)
         if (!lib_.sectors().has(h)) return fail(Failure::PackageMissing), false;
@@ -142,7 +147,9 @@ bool Installer::step() {
 void Installer::do_identify() {
   std::string vendor, product, revision;
   if (!rom_.inquiry(vendor, product, revision)) return fail(Failure::NoRomDevice);
-  if (vendor != "WL82") return fail(Failure::NotWl82);
+  std::string upper = vendor;
+  for (char &c : upper) c = char(c >= 'a' && c <= 'z' ? c - 32 : c);
+  if (upper != "WL82") return fail(Failure::NotWl82);  // vendor.upper(), as fm1_unbrick.py
   if (product == "UBOOT1.00") {
     step_ = Step::UploadLoader;
     return;
@@ -222,10 +229,13 @@ void Installer::do_backup() {
   // Autosave the running firmware's data: the rollback point and the state to
   // come back to.
   std::vector<Hash> app(flash_.begin() + kAppStart / kSector, flash_.begin() + kAppEnd / kSector);
-  Firmware current = lib_.identify_app(app);
-  if (current.known() && family_info(current.family).saves_enabled) {
-    SaveState s = capture_save(unit_.id, current, flash_);
-    if (!lib_.add_save(unit_, s)) return fail(Failure::StorageFailed, true);
+  current_ = lib_.identify_app(app);
+  if (current_.known() && family_info(current_.family).saves_enabled) {
+    SaveState s = capture_save(unit_.id, current_, flash_);
+    std::vector<SaveState> saves = lib_.saves_of(unit_.id);
+    bool same = !saves.empty() && saves.back().identity == s.identity &&
+                saves.back().app_sha256 == s.app_sha256 && saves.back().sectors == s.sectors;
+    if (!same && !lib_.add_save(unit_, s)) return fail(Failure::StorageFailed, true);
   }
   step_ = Step::Plan;
 }
@@ -270,10 +280,12 @@ void Installer::do_plan() {
     decision_.action = unit_.pending.action;
     decision_.save_id = unit_.pending.save_id;
   } else {
-    std::vector<Hash> app(flash_.begin() + kAppStart / kSector, flash_.begin() + kAppEnd / kSector);
-    decision_ = decide_data(unit_.id, lib_.identify_app(app), target, lib_.saves_of(unit_.id));
+    decision_ = decide_data(unit_.id, current_, target, lib_.saves_of(unit_.id));
     if (decision_.action == DataAction::FreshStart && !opts_.fresh_start_ok)
       return fail(Failure::NeedsFreshStartOk, true);
+    // Safety rule 6: a family change that keeps the old data needs the user's OK too.
+    if (decision_.action == DataAction::Keep && decision_.layout_warning && !opts_.layout_change_ok)
+      return fail(Failure::NeedsLayoutChangeOk, true);
   }
   app_ops_ = plan_app(flash_, target);
   data_ops_.clear();
@@ -291,6 +303,7 @@ void Installer::do_plan() {
   total_ = uint32_t(app_ops_.size() + data_ops_.size());
   index_ = 0;
   if (total_ == 0) {  // already installed: nothing to write
+    danger_ = false;
     if (!resume_) {
       unit_.installed_package = package_id_;
       lib_.put_unit(unit_);

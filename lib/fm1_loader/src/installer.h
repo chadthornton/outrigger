@@ -56,6 +56,7 @@ enum class Failure {
   StorageFailed,       // the Waveshare's storage couldn't record the backup or plan
   PackageMissing,      // the package isn't in the library, or a sector of it is gone
   NeedsFreshStartOk,   // the new firmware starts fresh and the user hasn't agreed
+  NeedsLayoutChangeOk, // the family changes but the data stays (stock): not agreed
   RestoreRefused,      // the chosen save doesn't belong to this unit and firmware
   GuardRefused,        // a planned erase/write is outside what its right allows
   NoBackupForResume,   // resume: this unit has no stored verified backup
@@ -68,6 +69,7 @@ const char *failure_text(Failure f);
 struct InstallOptions {
   bool confirmed = false;       // the 2-second hold on the confirm screen
   bool fresh_start_ok = false;  // the user agreed to erase data for a clean start
+  bool layout_change_ok = false;  // the user saw the data-layout warning and went on
   std::string unit_name;        // for a unit seen for the first time
   uint32_t rom_timeout_ms = 10000;
   uint32_t midi_timeout_ms = 15000;
@@ -112,7 +114,7 @@ class Installer {
   RomClient rom_;
   LoaderHost &host_;
   Library &lib_;
-  const std::vector<uint8_t> &blob_;
+  const std::vector<uint8_t> blob_;  // a copy: 24 KB, and no dangling reference
   InstallOptions opts_;
   bool resume_ = false;
   std::string package_id_;
@@ -126,6 +128,7 @@ class Installer {
   bool mismatch_ = false;
   FlashHashes flash_;
   Unit unit_;
+  Firmware current_;
   DataDecision decision_;
   std::vector<SectorOp> app_ops_, data_ops_;
   uint32_t done_ = 0, total_ = 0;

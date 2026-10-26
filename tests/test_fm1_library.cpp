@@ -118,6 +118,25 @@ static void test_packages() {
         PackageError::StoreFailed);
 }
 
+static void test_remove_package() {
+  MemoryStorage st;
+  Library lib(st);
+  load(lib, "skiff-1.4", "skiff-1.4.fwsc");
+  load(lib, "sloop-2.8.1", "sloop-2.8.1.fwsc");
+  Unit u;
+  u.id = "0123456789abcdef";
+  u.installed_package = "skiff-1.4";
+  u.has_pending = true;
+  u.pending.package_id = "sloop-2.8.1";
+  CHECK(lib.put_unit(u));
+  CHECK(!lib.remove_package("skiff-1.4"));    // installed on a unit
+  CHECK(!lib.remove_package("sloop-2.8.1"));  // an unfinished install needs it
+  u.has_pending = false;
+  CHECK(lib.put_unit(u));
+  CHECK(lib.remove_package("sloop-2.8.1"));
+  CHECK_EQ(lib.package_ids().size(), size_t(1));
+}
+
 static void test_unit_ids() {
   std::vector<uint8_t> ff(kSector, 0xFF), zero(kSector, 0), a(kSector), b(kSector);
   fill(a, 0, kSector, 1);
@@ -370,6 +389,7 @@ int main() {
   test_manifest();
   test_packages();
   test_unit_ids();
+  test_remove_package();
   test_backups();
   test_diff_planner();
   test_capture_save();

@@ -66,10 +66,11 @@ struct Rig {
     add(lib, "skiff-1.4", "skiff-1.4.fwsc");
     add(lib, "sloop-2.8.1", "sloop-2.8.1.fwsc");
   }
-  void install(const char *id, bool fresh_ok = true) {
+  void install(const char *id, bool fresh_ok = true, bool layout_ok = false) {
     InstallOptions o;
     o.confirmed = true;
     o.fresh_start_ok = fresh_ok;
+    o.layout_change_ok = layout_ok;
     inst.start_install(id, o);
     inst.run();
   }
@@ -254,7 +255,7 @@ static void test_loader_blob_checked_first() {
   inst.start_install("skiff-1.4", o);
   inst.run();
   CHECK(inst.failure() == Failure::LoaderBlobBad);
-  CHECK_EQ(rom.log.size(), size_t(1));  // the inquiry only: no FB06 sent
+  CHECK(host.keys == 0 && rom.log.empty());  // found before the key, so the FM-1 never leaves its firmware
   CHECK(!loader_needs_host_scramble(true, true));
   CHECK(loader_needs_host_scramble(false, true));
   CHECK(loader_needs_host_scramble(true, false));
@@ -439,6 +440,46 @@ static void test_blank_unit_sector() {
   CHECK(r.rom.was_reset && r.rom.lowest_touched < 0);
 }
 
+static void test_stock_needs_layout_ok() {
+  Image f = base_flash(skiff());
+  memset(f.data() + 0x97000, 0x41, kSector);  // Skiff data, which stock would read as its own
+  Rig r(f);
+  add(r.lib, "stock-v15", "FM-1_015.fwsc");
+  r.install("stock-v15");
+  CHECK(r.inst.failure() == Failure::NeedsLayoutChangeOk);
+  CHECK(r.inst.decision().stock_unmapped);
+  CHECK(r.rom.was_reset && r.rom.lowest_touched < 0);
+  r.rom.was_reset = false;
+  r.rom.loader_running = false;
+  r.install("stock-v15", true, true);
+  CHECK(r.inst.current() == Step::Done);
+  CHECK(r.rom.flash[0x97000] == 0x41 && r.rom.flash[0x93000] == 0xFF);  // data kept as it was
+  CHECK(memcmp(r.rom.flash.data() + kAppStart, pkg("FM-1_015.fwsc").app.data(), kAppLen) == 0);
+}
+
+static void test_resume_with_nothing_left() {
+  // The host died after the last verified sector, before the record was cleared.
+  Rig r(base_flash(skiff()));
+  leave_pending(r, base_flash(sloop()));
+  r.inst.start_resume();
+  r.inst.run();
+  CHECK(r.inst.current() == Step::Done);
+  CHECK_EQ(r.inst.sectors_total(), uint32_t(0));
+  CHECK(!r.inst.danger());
+  Unit u;
+  CHECK(r.lib.unit(r.inst.unit().id, u) && !u.has_pending);
+}
+
+static void test_autosave_not_repeated() {
+  Rig r(base_flash(skiff()));
+  r.install("skiff-1.4");
+  r.rom.was_reset = false;
+  r.rom.loader_running = false;
+  r.install("skiff-1.4");
+  CHECK(r.inst.current() == Step::Done);
+  CHECK_EQ(r.lib.saves_of(r.inst.unit().id).size(), size_t(1));
+}
+
 static void test_midi_not_back() {
   Rig r(base_flash(sloop()));
   r.host.midi_ok = false;
@@ -468,6 +509,9 @@ int main() {
   test_two_units();
   test_blank_unit_sector();
   test_midi_not_back();
+  test_stock_needs_layout_ok();
+  test_resume_with_nothing_left();
+  test_autosave_not_repeated();
   if (failures) {
     printf("%d failure(s)\n", failures);
     return 1;

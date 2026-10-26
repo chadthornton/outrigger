@@ -107,6 +107,12 @@ std::vector<std::string> Library::package_ids() {
 }
 
 bool Library::remove_package(const std::string &id) {
+  // A package a unit runs, or one an unfinished install needs, stays.
+  for (const std::string &uid : unit_ids()) {
+    Unit u;
+    if (!unit(uid, u)) return false;
+    if (u.installed_package == id || (u.has_pending && u.pending.package_id == id)) return false;
+  }
   return storage_.remove("m/pkg/" + id) && storage_.sync();
 }
 
