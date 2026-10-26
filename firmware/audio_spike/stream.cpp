@@ -2,9 +2,10 @@
 //
 // The USB audio callback pushes every packet into a PSRAM ring. A task serves
 // GET /take.wav?s=N on port 80: a WAV header sized for N seconds (default 30),
-// then the audio from the moment of the request, read from the ring. Wi-Fi
-// stalls only cost ring space; if a reader falls a whole ring behind it skips
-// ahead and counts an overrun.
+// then the audio from the moment of the request. While a take runs, the ring
+// stops filling at the take's end, so nothing the reader still needs is ever
+// overwritten: a slow link makes the download slower, never the audio
+// discontinuous. N is capped at what the ring holds. GET /stats: counters.
 //
 // Joins the network the web-UI spike saved in NVS ("wifi" namespace), so there
 // is no setup page. Hostname fm1audio(.local). POST /update with the .bin as the
@@ -21,20 +22,21 @@
 #include <Preferences.h>
 #include <WiFi.h>
 
-constexpr size_t kRingBytes = 4 * 1024 * 1024;  // about 23 s at 176.4 kB/s
+static size_t ring_bytes = 6 * 1024 * 1024;  // about 35 s at 176.4 kB/s (4 MB if 6 won't fit)
 constexpr uint32_t kRate = 44100;
 constexpr uint32_t kBytesPerSec = kRate * 4;
 
 static uint8_t *ring = nullptr;
 static portMUX_TYPE ring_lock = portMUX_INITIALIZER_UNLOCKED;
-static uint64_t written = 0;  // total bytes pushed, under ring_lock
+static uint64_t written = 0;   // total bytes pushed, under ring_lock
+static uint64_t take_end = 0;  // nonzero while a take runs: pushes stop here, under ring_lock
 
 static char ssid[33], pass[65];
 static char update_key[17];
 static WiFiServer server(80);
 
 struct StreamStats {
-  uint32_t takes = 0, overruns = 0, max_stall_ms = 0;
+  uint32_t takes = 0, overruns = 0, max_stall_ms = 0, dropped_after_end = 0, take_ms = 0, take_secs = 0;
   uint64_t sent = 0;
   bool client = false;
   uint32_t last_kbps = 0;
@@ -51,9 +53,15 @@ static uint64_t written_now() {
 void stream_push(const uint8_t *data, size_t len) {
   if (!ring) return;
   taskENTER_CRITICAL(&ring_lock);
-  const size_t at = written % kRingBytes;
+  const size_t at = written % ring_bytes;
+  if (take_end && written + len > take_end) {
+    const uint64_t room = take_end > written ? take_end - written : 0;
+    if (room < len) ++stats.dropped_after_end;
+    len = room;
+  }
   taskEXIT_CRITICAL(&ring_lock);
-  const size_t first = min(len, kRingBytes - at);
+  if (!len) return;
+  const size_t first = min(len, ring_bytes - at);
   memcpy(ring + at, data, first);
   if (first < len) memcpy(ring, data + first, len - first);
   taskENTER_CRITICAL(&ring_lock);
@@ -139,13 +147,23 @@ static void serve(WiFiClient &c) {
     else c.print("HTTP/1.0 403 Forbidden\r\n\r\nX-Key header missing or wrong (it is on the board's screen)\n");
     return;
   }
+  if (line.startsWith("GET /stats")) {
+    char buf[256];
+    stream_stats(buf, sizeof buf);
+    c.printf("HTTP/1.0 200 OK\r\nContent-Type: text/plain\r\n\r\n%s\nring %u bytes, max take %u s\n"
+             "last take: %lu s of audio sent in %lu ms\n",
+             buf, static_cast<unsigned>(ring_bytes), static_cast<unsigned>(ring_bytes / kBytesPerSec),
+             static_cast<unsigned long>(stats.take_secs), static_cast<unsigned long>(stats.take_ms));
+    return;
+  }
   if (!line.startsWith("GET /take.wav")) {
-    c.print("HTTP/1.0 404 Not Found\r\nContent-Type: text/plain\r\n\r\nGET /take.wav?s=30\n");
+    c.print("HTTP/1.0 404 Not Found\r\nContent-Type: text/plain\r\n\r\nGET /take.wav?s=30, GET /stats\n");
     return;
   }
   uint32_t secs = 30;
   const int q = line.indexOf("s=");
   if (q > 0) secs = constrain(line.substring(q + 2).toInt(), 1, 3600);
+  secs = min<uint32_t>(secs, (ring_bytes - 64 * 1024) / kBytesPerSec);
   const uint32_t data_bytes = secs * kBytesPerSec;
 
   c.setNoDelay(true);
@@ -157,24 +175,25 @@ static void serve(WiFiClient &c) {
 
   ++stats.takes;
   stats.client = true;
-  uint64_t pos = written_now() & ~uint64_t{3};
+  stats.max_stall_ms = 0;
+  stats.take_secs = secs;
+  taskENTER_CRITICAL(&ring_lock);
+  uint64_t pos = written & ~uint64_t{3};
+  take_end = pos + data_bytes;
+  taskEXIT_CRITICAL(&ring_lock);
   uint32_t left = data_bytes;
   const uint32_t started = millis();
   uint32_t last_progress = started;
   while (left && c.connected()) {
     uint64_t avail = written_now() - pos;
-    if (avail > kRingBytes - 64 * 1024) {  // a whole ring behind: skip to fresh data
-      ++stats.overruns;
-      pos = (written_now() - 64 * 1024) & ~uint64_t{3};
-      avail = written_now() - pos;
-    }
+    if (avail > ring_bytes) ++stats.overruns;  // can't happen while take_end holds; counted if it does
     if (avail == 0) {
       delay(5);
       continue;
     }
     size_t n = min<uint64_t>(min<uint64_t>(avail, 16384), left);
-    const size_t at = pos % kRingBytes;
-    n = min(n, kRingBytes - at);
+    const size_t at = pos % ring_bytes;
+    n = min(n, ring_bytes - at);
     const size_t sent = c.write(ring + at, n);
     const uint32_t now = millis();
     if (sent == 0) {
@@ -189,6 +208,10 @@ static void serve(WiFiClient &c) {
     stats.sent += sent;
     if (now > started) stats.last_kbps = static_cast<uint32_t>((data_bytes - left) * 8ULL / (now - started));
   }
+  stats.take_ms = millis() - started;
+  taskENTER_CRITICAL(&ring_lock);
+  take_end = 0;
+  taskEXIT_CRITICAL(&ring_lock);
   stats.client = false;
 }
 
@@ -216,7 +239,11 @@ static void stream_task(void *) {
 }
 
 bool stream_begin() {
-  ring = static_cast<uint8_t *>(ps_malloc(kRingBytes));
+  ring = static_cast<uint8_t *>(ps_malloc(ring_bytes));
+  if (!ring) {
+    ring_bytes = 4 * 1024 * 1024;
+    ring = static_cast<uint8_t *>(ps_malloc(ring_bytes));
+  }
   Preferences p;
   p.begin("wifi", true);
   strlcpy(ssid, p.getString("ssid", "").c_str(), sizeof ssid);
