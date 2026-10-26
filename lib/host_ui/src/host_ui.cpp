@@ -42,6 +42,7 @@ static uint32_t level_hex(Level l) {
 static const BoardProfile *board;
 static UiSettings settings;
 static UiHooks hooks;
+static const char *firmware = "";
 
 static lv_style_t plain, title_style, detail_style;
 
@@ -312,6 +313,13 @@ static void build_settings_screen() {
   lv_obj_set_style_text_color(t, c(kWhite), 0);
   lv_label_set_text(t, "Settings");
 
+  lv_obj_t *ver = lv_label_create(settings_screen);
+  lv_obj_add_flag(ver, LV_OBJ_FLAG_FLOATING);
+  lv_obj_set_style_text_font(ver, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(ver, c(kGrey), 0);
+  lv_label_set_text(ver, firmware);
+  lv_obj_align(ver, LV_ALIGN_TOP_RIGHT, 0, 4);
+
   static const char *const kSizes[] = {"S", "M", "L", ""};
   static const char *const kFaces[] = {"Sans", "Pixel", ""};
   heading(settings_screen, "Text size");
@@ -381,12 +389,13 @@ static lv_obj_t *build_computer_screen(const char *info) {
 }
 
 // ---------- Public API ----------
-bool ui_begin(const BoardProfile &b, const UiSettings &s, const UiHooks &h) {
+bool ui_begin(const BoardProfile &b, const UiSettings &s, const UiHooks &h, const char *fw) {
   board = &b;
   settings = s;
   if (settings.text_size > 2) settings.text_size = 1;
   if (settings.typeface > 1) settings.typeface = 0;
   hooks = h;
+  firmware = fw;
 
   if (!board_display_begin()) return false;
   lv_init();

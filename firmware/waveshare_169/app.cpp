@@ -312,7 +312,9 @@ void setup() {
   const midi_core::BootMode mode = read_boot_mode();
   prefs.begin("ui", false);
   const UiSettings settings = {prefs.getUChar("text_size", 1), prefs.getUChar("typeface", 0)};
-  ui_begin(kBoard, settings, {save_settings, connect_computer, back_to_host});
+  static char firmware[12];
+  snprintf(firmware, sizeof firmware, "v %07lx", (unsigned long)FW_VERSION);
+  ui_begin(kBoard, settings, {save_settings, connect_computer, back_to_host}, firmware);
 
   if (mode == midi_core::BootMode::Computer) {
     // The USB host is never installed, so the port stays the chip's
