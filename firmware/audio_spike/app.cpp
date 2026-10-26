@@ -254,10 +254,14 @@ void setup() {
   usb.onAudioData(on_audio);
   // The core's precompiled Kconfig picks the periodic-OUT FIFO bias, which caps
   // IN endpoints at 152 bytes; the FM-1's iso IN is 196, so its claim fails with
-  // ESP_ERR_NOT_SUPPORTED. 128 RX lines allow 504-byte IN packets. 224 of 256 lines.
+  // ESP_ERR_NOT_SUPPORTED. 120 RX lines allow 472-byte IN packets. The S3 gives
+  // 200 usable lines (256 minus the channels' endpoint-info area); 224 was refused.
   EspUsbHostConfig config;
-  config.fifo = {128, 64, 32};
-  usb.begin(config);
+  config.fifo = {120, 48, 32};
+  if (!usb.begin(config)) {
+    snprintf(status_line, sizeof status_line, "fifo cfg refused: %s", usb.lastErrorName());
+    usb.begin();
+  }
 }
 
 void loop() {
