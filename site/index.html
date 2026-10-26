@@ -29,6 +29,9 @@
   .board p { margin: 0 0 12px; color: var(--muted); font-size: .92rem; }
   esp-web-install-button { --esp-tools-button-color: var(--accent); --esp-tools-button-text-color: var(--accent-fg);
                            --esp-tools-button-border-radius: 8px; }
+  esp-web-install-button { display: inline-block; margin: 0 8px 8px 0; }
+  esp-web-install-button button { background: var(--accent); color: var(--accent-fg); border: 0; border-radius: 8px;
+                                  padding: 10px 16px; font: inherit; font-weight: 600; cursor: pointer; }
   .note { background: var(--warn-bg); border: 1px solid var(--warn-line); border-radius: 8px; padding: 10px 14px; font-size: .95rem; }
   ol { padding-left: 1.3em; }
   li { margin: 6px 0; }
@@ -67,7 +70,20 @@
   <div class="board">
     <h3>Waveshare ESP32-S3-Touch-LCD-1.69</h3>
     <p>240×280 touch screen, 16 MB flash. Its USB-C port becomes the MIDI host.</p>
-    <esp-web-install-button manifest="firmware/waveshare-esp32-s3-touch-lcd-1.69/manifest.json">
+    <p>Pick what it carries. <strong>MIDI Hub</strong> plays the FM-1 from a USB keyboard. The other sets add apps as they
+      are finished; today they install the same hub.</p>
+    <esp-web-install-button manifest="firmware/waveshare-esp32-s3-touch-lcd-1.69/hub/manifest.json">
+      <button slot="activate">Install MIDI Hub</button>
+      <span slot="unsupported">This browser can't flash boards. Open this page in Chrome or Edge on a computer.</span>
+      <span slot="not-allowed">Flashing needs a secure page: open this over https:// or from localhost.</span>
+    </esp-web-install-button>
+    <esp-web-install-button manifest="firmware/waveshare-esp32-s3-touch-lcd-1.69/hub-loader/manifest.json">
+      <button slot="activate">Install Hub + Loader</button>
+      <span slot="unsupported">This browser can't flash boards. Open this page in Chrome or Edge on a computer.</span>
+      <span slot="not-allowed">Flashing needs a secure page: open this over https:// or from localhost.</span>
+    </esp-web-install-button>
+    <esp-web-install-button manifest="firmware/waveshare-esp32-s3-touch-lcd-1.69/everything/manifest.json">
+      <button slot="activate">Install Everything</button>
       <span slot="unsupported">This browser can't flash boards. Open this page in Chrome or Edge on a computer.</span>
       <span slot="not-allowed">Flashing needs a secure page: open this over https:// or from localhost.</span>
     </esp-web-install-button>

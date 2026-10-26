@@ -22,11 +22,17 @@
 #include <soc/system_reg.h>
 #include <soc/usb_serial_jtag_reg.h>
 
+#include "apps.h"
 #include "board_profile.h"
 #include "boot_mode.h"
 #include "host_ui.h"
 #include "midi_core.h"
 #include "status.h"
+#if APP_LOADER
+// Not called yet: including it makes the hub-loader app set compile
+// lib/fm1_loader for the ESP32-S3 (docs/architecture.md, "App sets and builds").
+#include "installer.h"
+#endif
 
 extern const BoardProfile kBoard;
 
@@ -311,15 +317,16 @@ void setup() {
   const midi_core::BootMode mode = read_boot_mode();
   prefs.begin("ui", false);
   const UiSettings settings = {prefs.getUChar("text_size", 1), prefs.getUChar("typeface", 0)};
-  static char firmware[16];
-  snprintf(firmware, sizeof firmware, "v %07lx%s", (unsigned long)FW_VERSION, FW_DIRTY ? "+" : "");
+  static char firmware[24];
+  snprintf(firmware, sizeof firmware, "v %07lx%s %s", (unsigned long)FW_VERSION, FW_DIRTY ? "+" : "",
+           platform::kAppSetLabel);
   ui_begin(kBoard, settings, {save_settings, connect_computer, back_to_host}, firmware);
 
   if (mode == midi_core::BootMode::Computer) {
     // The USB host is never installed; the port goes to the chip's
     // USB-Serial-JTAG device so the computer can reset it into download mode.
     hand_usb_to_serial_jtag();
-    char info[24];
+    char info[40];
     snprintf(info, sizeof info, "Firmware %s", firmware + 2);
     ui_show_computer_mode(info);
     return;

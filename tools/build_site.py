@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Stage firmware into site/ for the ESP Web Tools installer.
 
-    tools/build_site.py <board-id> <arduino build dir> <boot_app0.bin> <version>
+    tools/build_site.py <board sketch> <app set> <arduino build dir> <boot_app0.bin> <version>
 
-Writes site/firmware/<board-id>/{bootloader,partitions,boot_app0,app}.bin and
-site/firmware/<board-id>/manifest.json.
+Writes site/firmware/<board-id>/<app set>/{bootloader,partitions,boot_app0,app}.bin
+and its manifest.json. The board is named by its sketch (waveshare_169), the
+app set by the Makefile's APPS= (docs/architecture.md, "App sets and builds").
 
 Why four parts and not one merged image: the ESP Web Tools docs merge so that
 esptool can patch flash mode/size into the bootloader header. Arduino already
@@ -47,6 +48,14 @@ BOARDS = {
         "chip": "ESP32-S3",
         "flash_bytes": 16 * 1024 * 1024,
     },
+}
+
+
+# Installer names for the Makefile's app sets.
+APP_SETS = {
+    "hub": "MIDI Hub",
+    "hub-loader": "MIDI Hub + Firmware Loader",
+    "everything": "Everything",
 }
 
 
@@ -109,10 +118,15 @@ def check_licensing(files):
 
 
 def main():
-    if len(sys.argv) != 5:
+    if len(sys.argv) != 6:
         fail(__doc__.strip().splitlines()[2].strip())
-    board_id, build_dir, boot_app0, version = sys.argv[1:]
-    board = BOARDS.get(board_id) or fail(f"unknown board {board_id}; known: {', '.join(BOARDS)}")
+    sketch, app_set, build_dir, boot_app0, version = sys.argv[1:]
+    board_id = next((k for k, b in BOARDS.items() if b["sketch"] == sketch), None)
+    if board_id is None:
+        fail(f"unknown board {sketch}; known: {', '.join(b['sketch'] for b in BOARDS.values())}")
+    board = BOARDS[board_id]
+    if app_set not in APP_SETS:
+        fail(f"unknown app set {app_set}; known: {', '.join(APP_SETS)}")
     build_dir = Path(build_dir)
 
     parts = {}
@@ -123,14 +137,18 @@ def main():
         parts[offset] = path.read_bytes()
     check_layout(parts, board)
 
-    out = SITE / "firmware" / board_id
+    out = SITE / "firmware" / board_id / app_set
+    # Builds before app sets were staged flat in the board folder; don't keep serving them.
+    for stale in (SITE / "firmware" / board_id).glob("*"):
+        if stale.is_file():
+            stale.unlink()
     shutil.rmtree(out, ignore_errors=True)
     out.mkdir(parents=True)
     for offset, name, _ in PARTS:
         (out / name).write_bytes(parts[offset])
 
     manifest = {
-        "name": board["name"],
+        "name": f"{board['name']}: {APP_SETS[app_set]}",
         "version": version,
         # Without this, ESP Web Tools erases the whole chip on every install of
         # firmware that doesn't speak Improv. With it, the user gets an "Erase
@@ -151,7 +169,7 @@ def main():
         shutil.rmtree(out)  # never leave a refused build where `make serve` would serve it
         raise
     total = sum(len(d) for d in parts.values())
-    print(f"site/firmware/{board_id}: {version}, {total} bytes in {len(PARTS)} parts"
+    print(f"site/firmware/{board_id}/{app_set}: {version}, {total} bytes in {len(PARTS)} parts"
           f"{'' if scanned_blob else ' (no local wl82loader.bin: checked names and SHA only)'}")
 
 
