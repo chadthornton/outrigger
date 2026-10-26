@@ -23,6 +23,19 @@ void format_message(uint8_t status, uint8_t data1, uint8_t data2,
 // Writes a note name such as "C4" or "F#-1" (MIDI note 60 = C4).
 void note_name(uint8_t note, char out[5]);
 
+// Which side of the routing a USB device sits on. The FM-1 (stock or a
+// Felucca-based firmware) is the target; every other MIDI device is a controller.
+enum class Role { Controller, Target };
+Role device_role(uint16_t vid, uint16_t pid);
+
+// Decides whether a message from a controller goes to the target and, if so,
+// writes the 4-byte USB-MIDI packet to send (cable 0). Only channel voice
+// messages (0x80-0xEF) from the controller's first cable pass. Every system
+// message, SysEx included, is dropped: the FM-1's ROM-boot key and firmware
+// installers arrive as SysEx, and nothing a controller sends should reach them.
+bool route_to_target(uint8_t cable, uint8_t status, uint8_t data1, uint8_t data2,
+                     uint8_t packet[4]);
+
 // Single-producer, single-consumer ring of formatted lines. When full, the
 // oldest line is dropped so the display always shows the latest activity.
 template <size_t N>

@@ -61,4 +61,24 @@ void format_message(uint8_t status, uint8_t data1, uint8_t data2,
   snprintf(out, kLineLen, "SYS %02X", status);
 }
 
+Role device_role(uint16_t vid, uint16_t pid) {
+  if (vid == 0x4C4A && pid == 0xC755) return Role::Target;  // FM-1, stock firmware
+  if (vid == 0x1209 && pid == 0x0001) return Role::Target;  // FM-1, Felucca/Skiff
+  return Role::Controller;
+}
+
+bool route_to_target(uint8_t cable, uint8_t status, uint8_t data1, uint8_t data2,
+                     uint8_t packet[4]) {
+  if (cable != 0) return false;
+  if (status < 0x80 || status >= 0xF0) return false;
+
+  const uint8_t type = status & 0xF0;
+  const bool two_bytes = type == 0xC0 || type == 0xD0;
+  packet[0] = type >> 4;  // cable 0, code index = message type
+  packet[1] = status;
+  packet[2] = data1 & 0x7F;
+  packet[3] = two_bytes ? 0 : data2 & 0x7F;
+  return true;
+}
+
 }  // namespace midi_core

@@ -1,9 +1,14 @@
-// Milestone 1: USB MIDI monitor on the Waveshare ESP32-S3-Touch-LCD-1.69.
+// USB MIDI host on the Waveshare ESP32-S3-Touch-LCD-1.69.
 //
-// The board's USB-C port runs as a USB host (EspUsbHost). Whatever USB-MIDI
-// device is attached, directly or through a hub, has its incoming messages
-// shown on the screen. This sketch only listens: it never sends MIDI, so it
-// cannot put an FM-1 into its ROM bootloader.
+// The board's USB-C port runs as a USB host (EspUsbHost), normally through a
+// powered hub. Every incoming MIDI message is shown on the screen, and channel
+// messages from any controller (e.g. a Launchkey) are forwarded to the FM-1.
+// midi_core::route_to_target() decides what is forwarded; it never passes
+// SysEx or any other system message, so a controller cannot put the FM-1 into
+// its ROM bootloader or a firmware installer.
+//
+// Log prefixes: '>' forwarded to the FM-1, 'x' from a controller but not
+// forwarded, ' ' from the FM-1 itself.
 //
 // Because the USB port is the host, the Mac loses this board's serial port
 // once the sketch runs. To reflash, hold BOOT, tap RST, release BOOT.
@@ -52,6 +57,11 @@ static void set_device_lines(const char *a, const char *b) {
 
 static int device_count = 0;
 
+// Routing state, touched only on the USB client task.
+static midi_core::Role roles[128];
+static bool role_known[128] = {};
+static uint8_t target_address = 0;  // 0 = no FM-1 connected
+
 // Hubs seen so far, polled from loop() so the screen shows what each hub port
 // is doing. Written by the USB task, read by loop().
 constexpr int kMaxHubs = 2;
@@ -69,6 +79,11 @@ static void on_connected(const EspUsbHostDeviceInfo &d) {
   char ids[midi_core::kLineLen];
   snprintf(ids, sizeof ids, "+%04X:%04X p%02X", d.vid, d.pid, d.portId);
   push_log(ids);
+  if (d.address < 128) {
+    roles[d.address] = midi_core::device_role(d.vid, d.pid);
+    role_known[d.address] = true;
+    if (roles[d.address] == midi_core::Role::Target) target_address = d.address;
+  }
   if (d.isHub) {
     for (int i = 0; i < kMaxHubs; ++i)
       if (hub_addresses[i] == 0) { hub_addresses[i] = d.address; break; }
@@ -82,6 +97,8 @@ static void on_disconnected(const EspUsbHostDeviceInfo &d) {
   char ids[midi_core::kLineLen];
   snprintf(ids, sizeof ids, "-%04X:%04X p%02X", d.vid, d.pid, d.portId);
   push_log(ids);
+  if (d.address < 128) role_known[d.address] = false;
+  if (d.address == target_address) target_address = 0;
   for (int i = 0; i < kMaxHubs; ++i)
     if (hub_addresses[i] == d.address) hub_addresses[i] = 0;
   char count[midi_core::kLineLen];
@@ -89,19 +106,40 @@ static void on_disconnected(const EspUsbHostDeviceInfo &d) {
   set_device_lines("Disconnected", count);
 }
 
+// Forwards a controller's message to the FM-1. Returns true if it was sent.
+// Unknown sources and the FM-1 itself are never forwarded, and the explicit
+// target address keeps midiSend() from picking "any" MIDI device.
+static bool forward(const EspUsbHostMidiMessage &m) {
+  const uint8_t dest = target_address;
+  if (dest == 0 || dest == ESP_USB_HOST_ANY_ADDRESS) return false;
+  if (m.address >= 128 || !role_known[m.address]) return false;
+  if (roles[m.address] != midi_core::Role::Controller) return false;
+  uint8_t packet[4];
+  if (!midi_core::route_to_target(m.cable, m.status, m.data1, m.data2, packet)) return false;
+  // midiSend() only submits the transfer, so it is safe on the USB task.
+  return usb.midiSend(packet, sizeof packet, dest);
+}
+
 static void on_midi(const EspUsbHostMidiMessage &m) {
+  const bool from_target = m.address == target_address && target_address != 0;
+  const char mark = from_target ? ' ' : forward(m) ? '>' : 'x';
+  char text[midi_core::kLineLen];
+  midi_core::format_message(m.status, m.data1, m.data2, m.raw, m.length, text);
   char line[midi_core::kLineLen];
-  midi_core::format_message(m.status, m.data1, m.data2, m.raw, m.length, line);
+  snprintf(line, sizeof line, "%c%s", mark, text);
   taskENTER_CRITICAL(&shared_lock);
   midi_log.push(line);
   ++message_count;
   taskEXIT_CRITICAL(&shared_lock);
 }
 
+// The panel's corners are rounded, so text is inset, more on the first and
+// last rows where the curve cuts deepest.
 static void draw_row(int row, const char *text, uint16_t color) {
   const int y = row * kCharH;
+  const bool edge_row = row == 0 || row == LCD_HEIGHT / kCharH - 1;
   gfx->fillRect(0, y, LCD_WIDTH, kCharH, RGB565_BLACK);
-  gfx->setCursor(0, y);
+  gfx->setCursor(edge_row ? 24 : 8, y);
   gfx->setTextColor(color);
   gfx->print(text);
 }
@@ -110,10 +148,11 @@ void setup() {
   gfx->begin();
   gfx->fillScreen(RGB565_BLACK);
   gfx->setTextSize(2);
+  gfx->setTextWrap(false);
   pinMode(LCD_BL, OUTPUT);
   digitalWrite(LCD_BL, HIGH);
 
-  draw_row(0, "USB MIDI monitor", RGB565_CYAN);
+  draw_row(0, "USB MIDI host", RGB565_CYAN);
   draw_row(1, "Starting USB host", RGB565_WHITE);
 
   usb.onDeviceConnected(on_connected);
