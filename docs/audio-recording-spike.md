@@ -5,7 +5,27 @@ store it?
 
 ## Verdict
 
-Pending measurement (see [Measurements](#measurements)).
+**Feasible.** The Waveshare captures the FM-1's USB audio (16-bit stereo, 44.1 kHz) into PSRAM with no lost
+packets: 3 windows of 10 s, packets received = milliseconds elapsed (within the 8-packet transfer granularity),
+peaks of -10 to -12 dBFS while playing. Redrawing the screen at 20 fps made no difference.
+
+Two conditions:
+
+1. **The host FIFO has to be repartitioned.** The Arduino core's prebuilt Kconfig splits the controller FIFO for
+   periodic OUT, which caps IN endpoints below the FM-1's 196-byte packets, so the audio claim fails with no
+   message. `EspUsbHostConfig::fifo = {120, 48, 32}` (RX, non-periodic TX, periodic TX lines; the S3 has 200
+   usable) fixes it. A split totalling 224 lines stopped the host from starting at all.
+2. **The audio costs a channel, so it doesn't fit beside the Launchkey today.** Hub 2 + FM-1 4 (EP0, MIDI in/out,
+   audio in) = 6 of 8. Adding the Launchkey (3) needs 9. Recording while playing needs the FM-1's MIDI interface
+   left unclaimed (MIDI over Bluetooth instead) and a small EspUsbHost patch: 2 + 3 + 2 = 7.
+
+Not done: writing to a USB stick (the stretch goal; it also needs the MIDI-skip patch, 2 + 2 + 3 = 7), and
+listening to a capture. Packet counts prove nothing was dropped, not that the samples are clean; getting a WAV
+off the board needs a device-mode export (for example through Settings › Computer from `e2da15a`).
+
+**Side effect for the router build:** master runs the default FIFO split, so the FM-1's audio claim always fails
+there and hub + FM-1 + Launchkey sits at 8/8. Anyone who copies the FIFO fix into the router build will push it
+to 9, and enumeration order will decide whether the Launchkey or the FM-1's audio loses.
 
 ## What the FM-1 sends (research, 2026-10-26)
 
@@ -103,7 +123,51 @@ no audio streams
 - The FM-1's interface entries read `C C - F - -`: audio control and MIDI claimed, the audio streaming alt 1
   **tried and failed**, the CDC pair skipped (claiming disabled). Its audio pipe never opened, so it costs 3
   channels here and the library lists no audio streams.
-- **This settles the README's 8/8 anomaly:** with the Launchkey in, the channels ran out and the FM-1's audio
-  claim failed silently. The rig only worked because the audio pipe was the one that lost.
+- At the time I read this as channels running out. Measurement 2 showed it wasn't: the claim also fails at 5/8
+  with the Launchkey out. The cause is the FIFO split (measurement 3).
 - The Launchkey also shows two failed claims, but it holds 3 channels (EP0 + MIDI in/out), as before.
 - The spike firmware does no routing, so the Launchkey cannot play the FM-1 while it runs.
+
+### 2. Hub + FM-1 only, default FIFO
+
+`ch 5/8`, the FM-1 still `CC-F--`, no audio streams. Three channels were free, so the failure is not the
+channel budget.
+
+### 3. Cause: the FIFO split
+
+The arduino-esp32 3.3.12 S3 libraries are built with `CONFIG_USB_HOST_HW_BUFFER_BIAS_PERIODIC_OUT=y`. That bias
+gives the RX FIFO too few lines for a 196-byte IN endpoint, and the host driver refuses to open the pipe
+(`ESP_ERR_NOT_SUPPORTED` at claim time). EspUsbHost can override the split at `begin()`.
+
+- `{128, 64, 32}` (224 lines): the host never started, no hub, `ch 0/8`. The S3 has 256 FIFO lines, but the
+  driver keeps part for the channels' endpoint info; 200 lines are usable.
+- `{120, 48, 32}` (200 lines, IN packets up to 472 bytes): works.
+
+### 4. Capture, hub + FM-1, FIFO `{120, 48, 32}` (photo of the spike screen)
+
+```
+AUDIO SPIKE  ch 6/8
+05E3:0610 ch2 -      USB2.1 Hub
+1209:0001 ch4 CC-C-- Felucca
+as if2 alt1 IN 2ch 16b mp196 ok 44100/48000
+capturing 44.1k 16b stereo
+win scr  pkts/ms      frames odd gap  pk rms
+F        9992/10000   440869 319  7  -11 -28
+L       10024/10022   442263 309  8  -10 -27
+F       10000/10001   441186 306  7  -12 -33
+```
+
+F = screen frozen during the window, L = redrawn at 20 fps. Pk and rms in dBFS.
+
+- **No dropouts.** One iso packet arrives per 1 ms USB frame; the counts match the elapsed milliseconds within
+  ±8, which is one 8-packet transfer falling either side of a window's edge. The first window's -8 includes the
+  stream starting.
+- **Clock:** 44.12 frames per packet in every window, so the FM-1's clock runs about 400 ppm fast against the
+  ESP32's USB frame clock. Skiff's endpoint is asynchronous and sends one frame more or less now and then
+  (`odd` ≈ 310 per 10 s are 43- or 46-frame packets), which is the device keeping its own rate, not loss. A
+  recorder just stores what arrives; the WAV header says 44100.
+- **Gap:** 7–8 ms is the library delivering 8 packets per transfer. The 4 queued transfers cover 32 ms, and
+  nothing came close.
+- **Screen load:** the live window is no worse than the frozen ones.
+- **Data rate:** 176.5 kB/s. PSRAM (8 MB) holds about 45 s; a 10 s window uses 1.76 MB.
+- **Level:** -10 to -12 dBFS peaks while Chad played, so the audio is real, not silence packets.
