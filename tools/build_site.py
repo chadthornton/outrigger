@@ -71,6 +71,8 @@ def check_layout(parts, board):
         fail(f"unexpected partition table: {sorted(table)}")
     nvs_off, nvs_size = table["nvs"]
     app_off, app_size = table["app0"]
+    if table.get("otadata", (None,))[0] != 0xE000:
+        fail("otadata is not at 0xe000; the manifest writes boot_app0 there")
     if app_off != 0x10000:
         fail(f"app0 at {app_off:#x}, manifest writes the app at 0x10000")
     if len(parts[0x10000]) > app_size:

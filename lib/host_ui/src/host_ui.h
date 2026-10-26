@@ -45,7 +45,7 @@ struct UiHooks {
 // firmware: the running build's commit, shown on the settings page.
 bool ui_begin(const BoardProfile &board, const UiSettings &settings, const UiHooks &hooks, const char *firmware);
 // Shows the computer-mode screen instead of the chain (USB host not running).
-// info: the running firmware's commit (so an update can be confirmed) and USB details.
+// info: the running firmware's commit, so an update can be confirmed.
 void ui_show_computer_mode(const char *info);
 // Refreshes the chain screen; cheap when nothing changed.
 void ui_update(const UiFrame &frame);

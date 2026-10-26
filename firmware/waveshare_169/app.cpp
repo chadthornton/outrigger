@@ -10,8 +10,8 @@
 // it and runs the settings page. Board specifics live in board_*.cpp.
 //
 // Because the USB port is the host, the Mac loses this board's serial port
-// once the host starts. Settings > Computer restarts with the host off, which
-// leaves the port as the ESP32-S3's built-in USB-Serial-JTAG device, so a
+// once the host starts. Settings > Computer restarts with the host off and
+// hands the port to the ESP32-S3's built-in USB-Serial-JTAG device, so a
 // computer can flash it without BOOT+RST (see boot_mode.h).
 
 #include <Arduino.h>
@@ -34,6 +34,9 @@ EspUsbHost usb;
 static Preferences prefs;
 #ifndef FW_VERSION
 #define FW_VERSION 0  // set by the Makefile to the commit
+#endif
+#ifndef FW_DIRTY
+#define FW_DIRTY 0    // 1 when built with uncommitted changes
 #endif
 static bool host_running = false;
 
@@ -254,6 +257,8 @@ static void save_settings(const UiSettings &s) {
 // ---------- Boot mode ----------
 // Namespace "boot", key "computer": the build ID that asked to start in
 // computer mode. Kept in NVS because moving the cable usually cuts power.
+// The ID is the ELF SHA-256 prefix IDF keeps in the app (9 hex characters,
+// CONFIG_APP_RETRIEVE_LEN_ELF_SHA).
 static const char *this_build() {
   static char id[17] = "";
   if (!id[0]) esp_app_get_elf_sha256(id, sizeof id);
@@ -288,11 +293,10 @@ static midi_core::BootMode read_boot_mode() {
 
 // Gives the USB pins to the chip's USB-Serial-JTAG device, the same steps as
 // the Arduino core's usb_switch_to_cdc_jtag(). Plain boot alone doesn't do it
-// on this board: with the host never started, the Mac still saw no device.
-// Writes the registers before and after into `out` for the screen.
-static void hand_usb_to_serial_jtag(char *out, size_t len) {
-  const uint32_t clk0 = REG_READ(SYSTEM_PERIP_CLK_EN1_REG), rst0 = REG_READ(SYSTEM_PERIP_RST_EN1_REG),
-                 rtc0 = REG_READ(RTC_CNTL_USB_CONF_REG), usj0 = REG_READ(USB_SERIAL_JTAG_CONF0_REG);
+// on this board: with the host never started, the Mac still saw no device,
+// even after a power cycle (verified 2026-10-26). Which of these steps is the
+// one that matters wasn't pinned down.
+static void hand_usb_to_serial_jtag() {
   SET_PERI_REG_MASK(SYSTEM_PERIP_CLK_EN1_REG, SYSTEM_USB_DEVICE_CLK_EN);
   CLEAR_PERI_REG_MASK(SYSTEM_PERIP_RST_EN1_REG, SYSTEM_USB_DEVICE_RST);
   CLEAR_PERI_REG_MASK(RTC_CNTL_USB_CONF_REG, RTC_CNTL_SW_HW_USB_PHY_SEL | RTC_CNTL_SW_USB_PHY_SEL | RTC_CNTL_USB_PAD_ENABLE);
@@ -301,27 +305,22 @@ static void hand_usb_to_serial_jtag(char *out, size_t len) {
   CLEAR_PERI_REG_MASK(USB_SERIAL_JTAG_CONF0_REG, USB_SERIAL_JTAG_USB_PAD_ENABLE);
   delay(100);
   SET_PERI_REG_MASK(USB_SERIAL_JTAG_CONF0_REG, USB_SERIAL_JTAG_USB_PAD_ENABLE);
-  snprintf(out, len, "clk %lx>%lx rst %lx>%lx\nrtc %lx>%lx usj %lx>%lx", (unsigned long)(clk0 >> 8 & 0xF),
-           (unsigned long)(REG_READ(SYSTEM_PERIP_CLK_EN1_REG) >> 8 & 0xF), (unsigned long)(rst0 >> 8 & 0xF),
-           (unsigned long)(REG_READ(SYSTEM_PERIP_RST_EN1_REG) >> 8 & 0xF), (unsigned long)rtc0,
-           (unsigned long)REG_READ(RTC_CNTL_USB_CONF_REG), (unsigned long)usj0,
-           (unsigned long)REG_READ(USB_SERIAL_JTAG_CONF0_REG));
 }
 
 void setup() {
   const midi_core::BootMode mode = read_boot_mode();
   prefs.begin("ui", false);
   const UiSettings settings = {prefs.getUChar("text_size", 1), prefs.getUChar("typeface", 0)};
-  static char firmware[12];
-  snprintf(firmware, sizeof firmware, "v %07lx", (unsigned long)FW_VERSION);
+  static char firmware[16];
+  snprintf(firmware, sizeof firmware, "v %07lx%s", (unsigned long)FW_VERSION, FW_DIRTY ? "+" : "");
   ui_begin(kBoard, settings, {save_settings, connect_computer, back_to_host}, firmware);
 
   if (mode == midi_core::BootMode::Computer) {
-    // The USB host is never installed, so the port stays the chip's
-    // USB-Serial-JTAG device and the computer can reset it into download mode.
-    char regs[64], info[96];
-    hand_usb_to_serial_jtag(regs, sizeof regs);
-    snprintf(info, sizeof info, "Firmware %07lx\n%s", (unsigned long)FW_VERSION, regs);
+    // The USB host is never installed; the port goes to the chip's
+    // USB-Serial-JTAG device so the computer can reset it into download mode.
+    hand_usb_to_serial_jtag();
+    char info[24];
+    snprintf(info, sizeof info, "Firmware %s", firmware + 2);
     ui_show_computer_mode(info);
     return;
   }

@@ -228,7 +228,15 @@ static void build_chain_screen() {
 }
 
 // ---------- Settings screen ----------
-static void back_to_chain(lv_event_t *) { lv_screen_load(chain_screen); }
+static void disarm_computer(lv_timer_t *);
+
+static void back_to_chain(lv_event_t *) {
+  if (computer_disarm) {  // leaving Settings cancels a half-done Computer tap
+    lv_timer_delete(computer_disarm);
+    disarm_computer(nullptr);
+  }
+  lv_screen_load(chain_screen);
+}
 
 static void update_preview() {
   lv_obj_set_style_text_font(preview_label, font_for(settings.typeface, settings.text_size * 2 + board->font_boost + 3), 0);
