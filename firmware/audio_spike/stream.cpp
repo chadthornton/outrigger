@@ -7,11 +7,13 @@
 // ahead and counts an overrun.
 //
 // Joins the network the web-UI spike saved in NVS ("wifi" namespace), so there
-// is no setup page. Hostname fm1audio(.local).
+// is no setup page. Hostname fm1audio(.local). POST /update?key=fm1spike with the
+// .bin as the body reflashes it over Wi-Fi, so a fix doesn't need BOOT+RST.
 
 #include "stream.h"
 
 #include <Arduino.h>
+#include <Update.h>
 #include <ESPmDNS.h>
 #include <Preferences.h>
 #include <WiFi.h>
@@ -74,12 +76,49 @@ static void wav_header(uint8_t h[44], uint32_t data_bytes) {
   put_le(h + 40, data_bytes, 4);
 }
 
+static uint32_t content_length = 0;
+
+// Body: the raw app .bin (curl --data-binary). Writes the other OTA slot, then reboots.
+static void update(WiFiClient &c) {
+  if (!content_length || !Update.begin(content_length)) {
+    c.printf("HTTP/1.0 400 Bad Request\r\n\r\nbegin failed: %s\n", Update.errorString());
+    return;
+  }
+  static uint8_t buf[4096];
+  uint32_t got = 0, last = millis();
+  while (got < content_length && millis() - last < 10000) {
+    const int n = c.read(buf, min<uint32_t>(sizeof buf, content_length - got));
+    if (n <= 0) {
+      delay(1);
+      continue;
+    }
+    last = millis();
+    if (Update.write(buf, n) != static_cast<size_t>(n)) break;
+    got += n;
+  }
+  if (got == content_length && Update.end(true)) {
+    c.print("HTTP/1.0 200 OK\r\n\r\nupdated, rebooting\n");
+    c.flush();
+    delay(300);
+    ESP.restart();
+  }
+  Update.abort();
+  c.printf("HTTP/1.0 500 Error\r\n\r\nupdate failed at %lu of %lu: %s\n", static_cast<unsigned long>(got),
+           static_cast<unsigned long>(content_length), Update.errorString());
+}
+
 static void serve(WiFiClient &c) {
-  // Request line only; headers are read and ignored.
+  // Request line, then headers; only Content-Length matters.
   String line = c.readStringUntil('\n');
+  content_length = 0;
   while (c.connected()) {
     String h = c.readStringUntil('\n');
     if (h.length() <= 1) break;
+    if (h.startsWith("Content-Length:") || h.startsWith("content-length:")) content_length = h.substring(15).toInt();
+  }
+  if (line.startsWith("POST /update?key=fm1spike")) {
+    update(c);
+    return;
   }
   if (!line.startsWith("GET /take.wav")) {
     c.print("HTTP/1.0 404 Not Found\r\nContent-Type: text/plain\r\n\r\nGET /take.wav?s=30\n");
@@ -114,7 +153,7 @@ static void serve(WiFiClient &c) {
       delay(5);
       continue;
     }
-    size_t n = min<uint64_t>(min<uint64_t>(avail, 4096), left);
+    size_t n = min<uint64_t>(min<uint64_t>(avail, 16384), left);
     const size_t at = pos % kRingBytes;
     n = min(n, kRingBytes - at);
     const size_t sent = c.write(ring + at, n);
@@ -141,6 +180,9 @@ static void stream_task(void *) {
   WiFi.enableIPv6(true);  // link-local: mDNS answers the AAAA query macOS sends first
   WiFi.begin(ssid, pass);
   while (WiFi.status() != WL_CONNECTED) delay(200);
+  // Modem sleep (the default) halves throughput here: 96 kB/s and 21-337 ms pings
+  // against the 176 kB/s the audio needs.
+  WiFi.setSleep(false);
   MDNS.begin("fm1audio");
   MDNS.addService("http", "tcp", 80);
   server.begin();
