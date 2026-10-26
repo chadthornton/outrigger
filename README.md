@@ -9,7 +9,8 @@ from a Novation Launchkey Mini MK4 37 with both on the hub, power and MIDI on on
 | Path | What |
 |---|---|
 | `lib/midi_core/` | Board-independent MIDI logic (formatting, line log). No Arduino headers. |
-| `tests/` | Mac-side tests for `midi_core`: `make test` |
+| `tests/` | Mac-side tests for `midi_core` and `fm1_loader`: `make test`. `tests/golden/` holds the loader's golden vectors. |
+| `lib/fm1_loader/` | FM-1 firmware loader core (no Arduino headers): packages, address guard, sector store, units and save states, ROM-boot install state machine. Plan: `docs/firmware-loader-plan.md`. |
 | `lib/host_ui/` | The LVGL screens (signal chain, settings), laid out from a `BoardProfile`, not fixed pixels. |
 | `firmware/config/lv_conf.h` | LVGL configuration (fonts, clib malloc so big buffers can use PSRAM). |
 | `site/`, `tools/build_site.py` | Browser installer (ESP Web Tools) and the script that stages firmware into it. |
@@ -22,7 +23,9 @@ change. Check the board's schematic for a USB-C port wired to the ESP32-S3's nat
 ## Commands
 
 ```
-make test     # midi_core unit tests on the Mac
+make test     # midi_core and fm1_loader tests on the Mac (fetches fixtures once)
+make fixtures # FM-1 packages and wl82loader.bin for the tests, pinned by SHA-256 (gitignored)
+make golden   # regenerate tests/golden/ from the Unbricker and jl-uboot-tool (Python venv in build/)
 make build    # compile the Waveshare firmware
 make flash    # flash; PORT=/dev/cu.usbmodemXXXX to pick the port
 make serve    # web installer on http://localhost:8088

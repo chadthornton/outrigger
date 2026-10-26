@@ -7,12 +7,37 @@ SITE_PORT ?= 8088
 # Shown on the computer-mode screen, and makes every commit a distinct build.
 FW_VERSION := 0x$(shell git rev-parse --short=7 HEAD)
 
-.PHONY: test build flash site serve clean
+.PHONY: test build flash site serve clean fixtures golden
 
-test: build/test_midi_core build/test_status build/test_boot_mode
+FM1_SRC := $(wildcard lib/fm1_loader/src/*.cpp)
+FM1_HDR := $(wildcard lib/fm1_loader/src/*.h) $(wildcard tests/support/*.h)
+FM1_TESTS := build/test_fm1_package build/test_fm1_library build/test_fm1_installer
+
+test: build/test_midi_core build/test_status build/test_boot_mode $(FM1_TESTS) fixtures
 	./build/test_midi_core
 	./build/test_status
 	./build/test_boot_mode
+	for t in $(FM1_TESTS); do ./$$t || exit 1; done
+
+build/test_fm1_%: tests/test_fm1_%.cpp $(FM1_SRC) $(FM1_HDR) $(wildcard tests/support/*.cpp)
+	mkdir -p build
+	c++ -std=c++17 -Wall -Wextra -Werror -Ilib/fm1_loader/src -Itests -o $@ $< $(FM1_SRC) $(wildcard tests/support/*.cpp)
+
+# Packages and the loader blob for the fm1_loader tests, pinned by SHA-256 and
+# kept out of git (tests/fixtures/).
+fixtures:
+	python3 -I tools/fetch_fixtures.py tests/fixtures
+
+# Regenerates tests/golden/ from the Unbricker and jl-uboot-tool (Python), then
+# shows any difference from the committed vectors. Only needed when the
+# reference changes; make test reads the committed files.
+GOLDEN_PY := build/golden-venv/bin/python
+$(GOLDEN_PY):
+	python3 -m venv build/golden-venv
+	$(GOLDEN_PY) -m pip install -q crcmod==1.7 pyyaml
+golden: $(GOLDEN_PY) fixtures
+	$(GOLDEN_PY) tools/gen_golden.py tests/golden
+	git diff --stat --exit-code -- tests/golden
 
 build/test_midi_core: tests/test_midi_core.cpp lib/midi_core/src/midi_core.cpp lib/midi_core/src/midi_core.h
 	mkdir -p build
