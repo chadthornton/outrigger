@@ -26,6 +26,8 @@ enum class PackageError {
   BadIdentity,       // identity isn't FM-1_NNN
   BlankApp,          // the app area is all 0xFF or all 0x00
   HashMismatch,      // the file isn't the one recorded in the library
+  BadId,             // library id isn't 1-64 of [A-Za-z0-9._-]
+  StoreFailed,       // the library's storage refused the write
 };
 const char *package_error_text(PackageError e);
 

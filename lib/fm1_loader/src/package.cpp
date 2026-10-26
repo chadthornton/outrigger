@@ -31,6 +31,8 @@ const char *package_error_text(PackageError e) {
     case PackageError::BadIdentity: return "identity isn't FM-1_NNN";
     case PackageError::BlankApp: return "app area is blank";
     case PackageError::HashMismatch: return "file hash doesn't match the library";
+    case PackageError::BadId: return "bad library id";
+    case PackageError::StoreFailed: return "storage write failed";
   }
   return "?";
 }
