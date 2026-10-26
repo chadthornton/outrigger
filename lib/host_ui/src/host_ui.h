@@ -34,10 +34,19 @@ struct UiFrame {
   uint32_t sent, blocked;
 };
 
-using UiSettingsChanged = void (*)(const UiSettings &);
+// What the app does when the user acts. Any hook may be null.
+struct UiHooks {
+  void (*settings_changed)(const UiSettings &);
+  void (*connect_computer)();  // settings page: restart with the USB host off
+  void (*back_to_host)();      // computer screen: restart as the MIDI host
+};
 
-// Sets up LVGL, the display and touch, and builds both screens.
-bool ui_begin(const BoardProfile &board, const UiSettings &settings, UiSettingsChanged on_change);
+// Sets up LVGL, the display and touch, and builds the screens.
+// firmware: the running build's commit, shown on the settings page.
+bool ui_begin(const BoardProfile &board, const UiSettings &settings, const UiHooks &hooks, const char *firmware);
+// Shows the computer-mode screen instead of the chain (USB host not running).
+// info: the running firmware's commit, so an update can be confirmed.
+void ui_show_computer_mode(const char *info);
 // Refreshes the chain screen; cheap when nothing changed.
 void ui_update(const UiFrame &frame);
 // Runs LVGL; call often (every few ms).

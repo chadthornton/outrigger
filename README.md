@@ -13,6 +13,7 @@ from a Novation Launchkey Mini MK4 37 with both on the hub, power and MIDI on on
 | `lib/fm1_loader/` | FM-1 firmware loader core (no Arduino headers): packages, address guard, sector store, units and save states, ROM-boot install state machine. Plan: `docs/firmware-loader-plan.md`. |
 | `lib/host_ui/` | The LVGL screens (signal chain, settings), laid out from a `BoardProfile`, not fixed pixels. |
 | `firmware/config/lv_conf.h` | LVGL configuration (fonts, clib malloc so big buffers can use PSRAM). |
+| `site/`, `tools/build_site.py` | Browser installer (ESP Web Tools) and the script that stages firmware into it. |
 | `firmware/waveshare_169/` | Arduino sketch for the Waveshare board: `app.cpp` (USB host, routing, gathers the frame) and `board_waveshare_169.cpp` (board profile, display and touch drivers). Code stays out of the `.ino` (see below). |
 
 To add a board: copy the sketch folder, write a new `board_*.cpp` with its `BoardProfile` (size, shape, corner
@@ -27,6 +28,7 @@ make fixtures # FM-1 packages and wl82loader.bin for the tests, pinned by SHA-25
 make golden   # regenerate tests/golden/ from the Unbricker and jl-uboot-tool (Python venv in build/)
 make build    # compile the Waveshare firmware
 make flash    # flash; PORT=/dev/cu.usbmodemXXXX to pick the port
+make serve    # web installer on http://localhost:8088
 ```
 
 Toolchain: `arduino-cli` (Homebrew), ESP32 core 3.3.12, GFX Library for Arduino 1.6.9 (display driver), LVGL 9.6.0
@@ -38,8 +40,38 @@ the sketch keeps its code in `app.cpp`, which skips prototype generation.
 
 ## Flashing
 
-Once the firmware runs, the board's only USB port is a host, so the Mac can't reset it. To reflash: connect it to the
-Mac directly, hold BOOT, tap RST, release BOOT, then `make flash`.
+Once the firmware runs, the board's only USB port is a host, so the Mac can't reset it. Two ways in:
+
+- **Computer mode (no buttons):** on the board, Settings > **Computer**, tap again within 3 s. It restarts with the USB
+  host off and hands the port to the ESP32-S3's built-in USB-Serial-JTAG device (`303a:1001`), so `make flash` or the web
+  installer can reset it into download mode themselves. The request is kept in NVS (namespace `boot`) with the build's
+  ELF SHA, so it survives moving the cable. The first boot of a *different* build clears it and runs the host again;
+  "Back to MIDI" clears it by hand. Logic in `lib/midi_core/src/boot_mode.h`, tests in `make test`.
+- **Buttons (always works):** connect it to the Mac directly, hold BOOT, tap RST, release BOOT, then `make flash`.
+  After a BOOT+RST flash, an RTS reset drops the chip back into download mode; tap RST (or use esptool's
+  `--after watchdog-reset`) to start the firmware.
+
+## Web installer
+
+`site/` is a static page that flashes the firmware from Chrome or Edge with
+[ESP Web Tools](https://github.com/esphome/esp-web-tools) 10.4.0 (Apache-2.0, vendored in `site/vendor/`, no CDN).
+
+```
+make site     # build, then stage the firmware into site/firmware/<board>/ with its manifest.json
+make serve    # same, then serve on http://localhost:8088 (Web Serial needs https or localhost)
+```
+
+- **Four parts, not a merged image.** The manifest writes bootloader @0x0, partitions @0x8000, boot_app0 @0xe000 and the
+  app @0x10000, exactly what `make flash` writes. A merged image from 0x0 would also overwrite NVS (0x9000-0xDFFF), and
+  Arduino's `.merged.bin` is padded to 16 MB, so it would wipe every partition. `tools/build_site.py` refuses parts that
+  overlap NVS or overflow app0.
+- **No erase by default.** ESP Web Tools erases the whole chip for firmware without Improv unless the manifest sets
+  `new_install_prompt_erase`; ours does, so the user sees an "Erase device" box that starts unticked.
+- **Adding a board:** add it to `BOARDS` in `tools/build_site.py`, a `make site` line, and a card in `site/index.html`.
+- **Licensing:** our code, LVGL (MIT) and the vendored EspUsbHost (MIT) ship as binaries. JieLi's `wl82loader.bin` must
+  never be in a published build: `build_site.py` refuses a file with its name or SHA-256, or containing a 1 KiB piece of
+  it (when `tests/fixtures/wl82loader.bin` or `$WL82_BLOB` is present), and deletes the staged firmware if so.
+- Not published anywhere yet. GitHub Pages (or any host) needs Chad's go-ahead.
 
 ## Hardware findings (2026-10-26)
 

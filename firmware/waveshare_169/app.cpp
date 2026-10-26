@@ -10,13 +10,20 @@
 // it and runs the settings page. Board specifics live in board_*.cpp.
 //
 // Because the USB port is the host, the Mac loses this board's serial port
-// once the sketch runs. To reflash, hold BOOT, tap RST, release BOOT.
+// once the host starts. Settings > Computer restarts with the host off and
+// hands the port to the ESP32-S3's built-in USB-Serial-JTAG device, so a
+// computer can flash it without BOOT+RST (see boot_mode.h).
 
 #include <Arduino.h>
 #include <EspUsbHost.h>
 #include <Preferences.h>
+#include <esp_app_desc.h>
+#include <soc/rtc_cntl_reg.h>
+#include <soc/system_reg.h>
+#include <soc/usb_serial_jtag_reg.h>
 
 #include "board_profile.h"
+#include "boot_mode.h"
 #include "host_ui.h"
 #include "midi_core.h"
 #include "status.h"
@@ -25,6 +32,13 @@ extern const BoardProfile kBoard;
 
 EspUsbHost usb;
 static Preferences prefs;
+#ifndef FW_VERSION
+#define FW_VERSION 0  // set by the Makefile to the commit
+#endif
+#ifndef FW_DIRTY
+#define FW_DIRTY 0    // 1 when built with uncommitted changes
+#endif
+static bool host_running = false;
 
 // ---------- State shared between the USB task and loop() ----------
 // Every EspUsbHost callback runs on the USB client task; loop() copies what it
@@ -240,20 +254,91 @@ static void save_settings(const UiSettings &s) {
   prefs.putUChar("typeface", s.typeface);
 }
 
+// ---------- Boot mode ----------
+// Namespace "boot", key "computer": the build ID that asked to start in
+// computer mode. Kept in NVS because moving the cable usually cuts power.
+// The ID is the ELF SHA-256 prefix IDF keeps in the app (9 hex characters,
+// CONFIG_APP_RETRIEVE_LEN_ELF_SHA).
+static const char *this_build() {
+  static char id[17] = "";
+  if (!id[0]) esp_app_get_elf_sha256(id, sizeof id);
+  return id;
+}
+
+static void connect_computer() {
+  Preferences boot;
+  boot.begin("boot", false);
+  boot.putString("computer", this_build());
+  boot.end();
+  esp_restart();
+}
+
+static void back_to_host() {
+  Preferences boot;
+  boot.begin("boot", false);
+  boot.remove("computer");
+  boot.end();
+  esp_restart();
+}
+
+static midi_core::BootMode read_boot_mode() {
+  Preferences boot;
+  boot.begin("boot", false);
+  const String requested = boot.getString("computer", "");
+  const midi_core::BootDecision d = midi_core::decide_boot_mode(requested.c_str(), this_build());
+  if (d.clear_request) boot.remove("computer");
+  boot.end();
+  return d.mode;
+}
+
+// Gives the USB pins to the chip's USB-Serial-JTAG device, the same steps as
+// the Arduino core's usb_switch_to_cdc_jtag(). Plain boot alone doesn't do it
+// on this board: with the host never started, the Mac still saw no device,
+// even after a power cycle (verified 2026-10-26). Which of these steps is the
+// one that matters wasn't pinned down.
+static void hand_usb_to_serial_jtag() {
+  SET_PERI_REG_MASK(SYSTEM_PERIP_CLK_EN1_REG, SYSTEM_USB_DEVICE_CLK_EN);
+  CLEAR_PERI_REG_MASK(SYSTEM_PERIP_RST_EN1_REG, SYSTEM_USB_DEVICE_RST);
+  CLEAR_PERI_REG_MASK(RTC_CNTL_USB_CONF_REG, RTC_CNTL_SW_HW_USB_PHY_SEL | RTC_CNTL_SW_USB_PHY_SEL | RTC_CNTL_USB_PAD_ENABLE);
+  CLEAR_PERI_REG_MASK(USB_SERIAL_JTAG_CONF0_REG, USB_SERIAL_JTAG_PHY_SEL | USB_SERIAL_JTAG_PAD_PULL_OVERRIDE);
+  // Drop off the bus briefly so the computer enumerates afresh.
+  CLEAR_PERI_REG_MASK(USB_SERIAL_JTAG_CONF0_REG, USB_SERIAL_JTAG_USB_PAD_ENABLE);
+  delay(100);
+  SET_PERI_REG_MASK(USB_SERIAL_JTAG_CONF0_REG, USB_SERIAL_JTAG_USB_PAD_ENABLE);
+}
+
 void setup() {
+  const midi_core::BootMode mode = read_boot_mode();
   prefs.begin("ui", false);
   const UiSettings settings = {prefs.getUChar("text_size", 1), prefs.getUChar("typeface", 0)};
-  ui_begin(kBoard, settings, save_settings);
+  static char firmware[16];
+  snprintf(firmware, sizeof firmware, "v %07lx%s", (unsigned long)FW_VERSION, FW_DIRTY ? "+" : "");
+  ui_begin(kBoard, settings, {save_settings, connect_computer, back_to_host}, firmware);
 
+  if (mode == midi_core::BootMode::Computer) {
+    // The USB host is never installed; the port goes to the chip's
+    // USB-Serial-JTAG device so the computer can reset it into download mode.
+    hand_usb_to_serial_jtag();
+    char info[24];
+    snprintf(info, sizeof info, "Firmware %s", firmware + 2);
+    ui_show_computer_mode(info);
+    return;
+  }
   usb.onDeviceConnected(on_connected);
   usb.onDeviceDisconnected(on_disconnected);
   usb.onMidiMessage(on_midi);
   usb.begin();
+  host_running = true;
 }
 
 void loop() {
   static uint32_t last_poll = 0, last_frame = 0, framed_changes = UINT32_MAX;
   static UiFrame frame;
+  if (!host_running) {  // computer mode: only the UI runs
+    ui_tick();
+    delay(5);
+    return;
+  }
   const uint32_t now = millis();
   if (now - last_poll > 1000) {
     last_poll = now;
