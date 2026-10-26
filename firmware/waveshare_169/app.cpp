@@ -159,7 +159,10 @@ void setup() {
 // 'C' device connected, 'E' connected and enabled by the hub.
 static void draw_hub_status() {
   char line[midi_core::kLineLen] = "";
-  size_t pos = 0;
+  // Estimated USB host channels in use out of the ESP32-S3's 8; a device whose
+  // endpoints don't fit enumerates but never delivers MIDI.
+  size_t pos = snprintf(line, sizeof line, "%u/8 ",
+                        static_cast<unsigned>(usb.estimatedHcdChannelCount()));
   for (int i = 0; i < kMaxHubs; ++i) {
     const uint8_t addr = hub_addresses[i];
     if (addr == 0) continue;
@@ -174,7 +177,7 @@ static void draw_hub_status() {
     line[pos++] = ' ';
     line[pos] = '\0';
   }
-  if (pos == 0) snprintf(line, sizeof line, "%s", usb.lastErrorName());
+
   draw_row(0, line, RGB565_CYAN);
 }
 

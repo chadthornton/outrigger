@@ -13,7 +13,9 @@ build/test_midi_core: tests/test_midi_core.cpp lib/midi_core/src/midi_core.cpp l
 	c++ -std=c++17 -Wall -Wextra -Werror -Ilib/midi_core/src -o $@ tests/test_midi_core.cpp lib/midi_core/src/midi_core.cpp
 
 build:
-	arduino-cli compile --fqbn $(FQBN) --build-property "tools.ctags.path=/opt/homebrew/bin" --library lib/midi_core --output-dir $(BUILD) $(SKETCH)
+	arduino-cli compile --fqbn $(FQBN) --build-property "tools.ctags.path=/opt/homebrew/bin" \
+		--build-property "compiler.cpp.extra_flags=-DESP_USB_HOST_MAX_SERIAL_PORTS=0" \
+		--library lib/midi_core --library lib/EspUsbHost --output-dir $(BUILD) $(SKETCH)
 
 flash: build
 	arduino-cli upload --fqbn $(FQBN) --input-dir $(BUILD) --port $(PORT) $(SKETCH)
