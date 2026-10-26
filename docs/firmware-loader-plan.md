@@ -140,8 +140,9 @@ stores data in its own places. Felucca's own source gives the Felucca-family map
 3. **Install:** write the new app area, as before.
 4. **Pick the data the new firmware starts with:**
    - **Same identity and same app hash** as a saved state: restore it. That's your songs and presets back.
-   - **Same identity, different version:** offer the newest save with a warning that preset formats can change.
-     Default to a fresh start and keep the save.
+   - **Same firmware, newer version (an update):** keep the data in place, as the official installers do, which
+     write only the app area. The autosave from step 2 is the rollback point.
+   - **Same identity, an older save being brought back** (rollback): restore the save made just before the update.
    - **No saved state:** erase that family's data ranges for a clean start, after confirming. This also prevents the
      data-layout crashes seen between firmware families.
 5. **Restart the FM-1.**
@@ -158,6 +159,91 @@ The address guard (safety rule 1) gains one more allowed writer:
 - **Who:** the save-state restore may write a family's data ranges (from the table above).
 - **What it writes:** only bytes that came from a save of the same unit and the same firmware identity.
 - **Never:** the update staging range, the boot head, Bluetooth data and factory voices.
+
+## Keeping firmwares current
+
+The ecosystem moves fast: the catalog was refreshed today and lists 102 firmwares. The Waveshare treats
+[The Firmware Hub](https://thefirmwarehub.com/)'s `catalog.json` as its source of truth.
+
+**What the catalog gives** (checked 2026-10-26). Each entry has:
+- `id`, `name`, `author`, `version`, `date`, and a `beta` flag;
+- `pkg` (the download path), `size` and `sha256`;
+- `ident`, a pattern for the identity string the firmware reports, e.g. `FM-1_97[0-689]`;
+- `lic`, `repo`, `release`, and provenance fields (`provCheck`, `relCheck`).
+
+The top level has `updated` and `stock`. The stock V15 package comes with its Apache-2.0 notice.
+
+**One catch:** only the latest version of each firmware is listed. Older versions aren't guaranteed to stay
+downloadable, so rollback relies on the Waveshare keeping the previous package locally.
+
+### Checking for updates (v2, Wi-Fi)
+
+1. **Fetch the catalog:**
+   - **When:** on demand from the Firmware page, and at most once a day in the background.
+   - **Only when changed:** the request uses `If-Modified-Since`, so an unchanged catalog costs one request.
+2. **Compare against what the Waveshare knows:**
+   - **Installed:** each known FM-1's installed identity and app hash are matched against the `ident` patterns, which
+     finds that unit's catalog entry.
+   - **Updates:** a newer `version` or `date` for a firmware in the library or on a unit shows as "Update".
+   - **New:** catalog entries added since the last check show as "New", using `added`.
+3. **Badges:** the chain screen shows a small "2 updates" badge. Nothing ever downloads or installs on its own.
+
+### Downloading a package
+
+1. **Fetch** `https://thefirmwarehub.com/<pkg>` over HTTPS into a temporary file.
+2. **Verify the size and SHA-256** against the catalog. A mismatch discards the file.
+3. **Run the package checks** (safety rule 4): `.fwsc` parse, UFW CRCs, `flash.bin` reaches `0x93000`, and the
+   identity matches the entry's `ident`.
+4. **Add it to the library,** and record its source, version, license and hash.
+
+### Updating a firmware on an FM-1
+
+An update is a firmware switch where the identity stays the same:
+1. **Autosave** the unit's data, tagged with the old version: the rollback point.
+2. **Write the new app area.**
+3. **Keep the data in place** and restart. Updates within a firmware are meant to keep songs and presets, and the
+   Felucca loader itself never touches user data.
+4. **Rollback** is one tap: reinstall the previous package, kept locally, and restore the pre-update autosave.
+
+### Library housekeeping
+
+- **Space:** the library partition holds roughly 10 to 18 packages, depending on the partition decision below.
+- **Pinning:** keep favorites, and whatever is installed on a unit, permanently.
+- **Previous versions:** keep one previous version per installed firmware for rollback.
+- **Eviction:** when space runs out, evict the least recently used unpinned package.
+- **Betas:** hidden unless "Show betas" is on.
+
+### Trust, stated plainly
+
+- **What the SHA-256 proves:** the download matches the catalog. It doesn't prove the catalog is trustworthy. The
+  Firmware Hub is a third party.
+- **Mitigations:**
+  - HTTPS only.
+  - Each firmware's author, repo, license and provenance fields are shown before installing.
+  - The ROM-boot path never touches the boot head, so a bad app can always be overwritten. The exception: a bad
+    app that also ignores the ROM-boot key needs the Transporter.
+- **Not redistributable:** stock V16, Baud Girl and Groove OS. These can only arrive from the Mac, from a copy Chad
+  downloaded himself.
+
+### Getting onto Wi-Fi
+
+- **Setup:** from the phone, not the 1.69" screen. The Waveshare opens a setup hotspot with a small captive page,
+  where Chad picks the network and enters the password.
+- **Storage:** credentials go in NVS.
+- **Use:** Wi-Fi is on only while checking or downloading. Routing never depends on it.
+
+### Without Wi-Fi (v1)
+
+- **Building the library:** `make library` builds the library partition on the Mac from a list of catalog IDs. It uses
+  the same download and verify steps, run on the Mac.
+- **Flashing it:** in download mode, the library partition is flashed alone, so backups and saves are untouched.
+- **Own copies:** packages Chad downloaded himself go in the same way.
+
+### The Waveshare's own updates
+
+The Waveshare's firmware can also update itself over Wi-Fi from this repo's GitHub releases. That needs two app
+slots (OTA) in the partition table. Changing the partition table later wipes the library and the backups, so it's
+decided up front (decision 5 below).
 
 ## Design
 
@@ -272,12 +358,19 @@ package; Wi-Fi is set up from a phone.
 
 ## Decisions for Chad
 
-0. **Save-state behavior:** auto-restore when the identity and app hash match, and fresh start (save kept) on a
-   version change. Both are defaults; the alternative is to ask every time.
+0. **Save-state behavior** (defaults; the alternative is to ask every time):
+   - **Switching back to a firmware you've saved:** restore the save automatically.
+   - **Updating a firmware:** keep the data in place.
+   - **Switching families:** start fresh, keeping the saves.
 
 1. **Go-ahead** for this plan under the guarded rules.
 2. **v1 package source:** packages flashed from the Mac (recommended for v1), or straight to Wi-Fi.
 3. **First firmwares to stock:** for example stock V15, Skiff, SLOOP.
+5. **Partition layout, decided once:**
+   - **(a) Recommended:** two app slots for the Waveshare's own OTA (2 × 3 MB), a library of about 7 MB (about
+     10 packages), and backups and saves of about 3 MB.
+   - **(b)** One app slot and a library of about 10 MB (about 15 packages). With (b), the Waveshare's own updates
+     need the Mac.
 4. **Loader blob:** OK to keep `wl82loader.bin` on the Waveshare's storage, fetched by `make setup-loader` and never
    committed. It sits in jl-uboot-tool, whose repo is MIT-licensed, but the blob is probably JieLi's own code, so
    treat its license as unclear.
