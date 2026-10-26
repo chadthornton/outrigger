@@ -270,6 +270,44 @@ static void test_rom_boot_outside_load_asks_for_load_mode() {
   EXPECT(b.channels_used() == 0 && b.plan(2) == nullptr, "every device enumerates again");
 }
 
+// The ROM-boot device left before the host restarted: no reason to go to Load.
+static void test_rom_boot_gone_cancels_load() {
+  Broker b(Mode::Play);
+  b.attach(rom_boot(3));
+  EXPECT(b.wanted_mode() == Mode::Load, "asks for Load");
+  b.detach(3);
+  EXPECT(b.wanted_mode() == Mode::Play, "and stops asking once it's gone");
+}
+
+// The host's hub driver opens a hub's interrupt pipe whatever the broker says,
+// so the broker must count it, never refuse it.
+static void test_hub_is_always_counted() {
+  Broker b(Mode::Play);
+  b.attach(hub(1));     // 2
+  b.attach(stick(2));   // EP0 only in Play: 3
+  b.attach(keyboard(3));  // EP0 only: 4
+  // EP0 makes 5; the FM-1's 3 would still fit, and the hub's interrupt IN
+  // crosses into them. It is opened anyway, so it must be counted.
+  const DevicePlan &h = b.attach(hub(4));
+  EXPECT(claimed(h, 0) && h.channels == 2, "second hub: EP0 + interrupt IN");
+  EXPECT(b.channels_used() == 6, "counted");
+}
+
+// An audio control interface with an interrupt endpoint costs a channel too,
+// and may not take the FM-1's share any more than MIDI may.
+static void test_audio_control_respects_fm1_share() {
+  Broker b(Mode::Play);
+  b.attach(hub(1));
+  DeviceDesc x = device(2, 0x1235, 0x0200, "AUD");
+  add(x, 1, 1, 0, 1);  // audio control with an interrupt endpoint
+  add(x, 1, 3, 0, 2);
+  const DevicePlan p = b.attach(x);
+  EXPECT(claimed(p, 1), "MIDI fits beside the FM-1's share");
+  EXPECT(!claimed(p, 0) && refusal(p, 0) == Refusal::KeptForFm1, "AC's endpoint would eat into it");
+  const DevicePlan &fm1 = b.attach(skiff(3));
+  EXPECT(claimed(fm1, 1) && b.channels_used() == 8, "FM-1 still fits");
+}
+
 static void test_one_fm1_at_a_time() {
   Broker b(Mode::Play);
   b.attach(hub(1));
@@ -377,6 +415,9 @@ int main() {
   test_stick_unused_in_play();
   test_load_mode_turns_routing_off();
   test_rom_boot_outside_load_asks_for_load_mode();
+  test_rom_boot_gone_cancels_load();
+  test_hub_is_always_counted();
+  test_audio_control_respects_fm1_share();
   test_one_fm1_at_a_time();
   test_one_owner_per_mode();
   test_detach_frees_channels();

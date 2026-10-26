@@ -115,6 +115,8 @@ class Broker {
 
   // Plans a device that has just enumerated. Its EP0 costs a channel whatever
   // is decided; a device whose EP0 doesn't fit is refused whole and not counted.
+  // The returned reference is valid until the next attach(), detach() or
+  // set_mode(); copy the plan to keep it.
   const DevicePlan &attach(const DeviceDesc &device);
   void detach(uint8_t address);
 

@@ -208,7 +208,8 @@ const DevicePlan &Broker::attach(const DeviceDesc &d) {
     if (is_fm1(kind) && fm1_attached && c.refusal != Refusal::Unused) c = refuse(Refusal::OneFm1);
     if (c.claim) {
       const unsigned cost = d.interfaces[i].endpoints;
-      if (used + cost + reserve > kHostChannels)
+      // The host's hub driver opens a hub's pipe whatever is decided: count it.
+      if (kind != Kind::Hub && used + cost + reserve > kHostChannels)
         c = refuse(used + cost <= kHostChannels ? Refusal::KeptForFm1 : Refusal::NoChannels);
       else
         used += cost;
@@ -228,8 +229,10 @@ const DevicePlan &Broker::attach(const DeviceDesc &d) {
     Claim c = audio_app != App::None ? use(audio_app) : kUnused;
     if (c.claim) {
       const unsigned cost = d.interfaces[i].endpoints;
-      if (used + cost > kHostChannels) c = refuse(Refusal::NoChannels);
-      else used += cost;
+      if (used + cost + reserve > kHostChannels)
+        c = refuse(used + cost <= kHostChannels ? Refusal::KeptForFm1 : Refusal::NoChannels);
+      else
+        used += cost;
     }
     p.interfaces[i] = c;
   }
@@ -267,6 +270,10 @@ const DevicePlan &Broker::attach(const DeviceDesc &d) {
 void Broker::detach(uint8_t address) {
   for (Slot &s : slots_)
     if (s.used && s.plan.address == address) s = Slot{};
+  // Only an FM-1 still waiting in ROM boot keeps asking for Load mode.
+  wanted_ = mode_;
+  for (const Slot &s : slots_)
+    if (s.used && s.plan.kind == Kind::Fm1RomBoot && s.plan.refusal == Refusal::NotInMode) wanted_ = Mode::Load;
 }
 
 const DevicePlan *Broker::plan(uint8_t address) const {

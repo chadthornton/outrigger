@@ -138,6 +138,10 @@ def main():
     check_layout(parts, board)
 
     out = SITE / "firmware" / board_id / app_set
+    # Builds before app sets were staged flat in the board folder; don't keep serving them.
+    for stale in (SITE / "firmware" / board_id).glob("*"):
+        if stale.is_file():
+            stale.unlink()
     shutil.rmtree(out, ignore_errors=True)
     out.mkdir(parents=True)
     for offset, name, _ in PARTS:
