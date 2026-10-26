@@ -139,7 +139,15 @@ static void gather_devices() {
                  st[k].maxPacketSize, st[k].startable ? "ok" : "fmt",
                  static_cast<unsigned long>(st[k].sampleRateCount ? st[k].sampleRates[0] : st[k].sampleRate),
                  static_cast<unsigned long>(st[k].sampleRateCount > 1 ? st[k].sampleRates[1] : 0));
-      if (ns == 0) strlcpy(fm1_line[1], "no audio streams", 48);
+      if (ns == 0) {
+        strlcpy(fm1_line[1], "no audio streams", 48);
+        for (size_t k = 0; k < ni; ++k)
+          if (itfs[k].claimAttempted && !itfs[k].claimed) {
+            snprintf(fm1_line[2], 48, "if%u alt%u claim: %s", itfs[k].number, itfs[k].alternate,
+                     esp_err_to_name(itfs[k].claimResult));
+            break;
+          }
+      }
     }
   }
 }
@@ -244,7 +252,12 @@ void setup() {
   usb.onDeviceConnected(on_connected);
   usb.onDeviceDisconnected(on_disconnected);
   usb.onAudioData(on_audio);
-  usb.begin();
+  // The core's precompiled Kconfig picks the periodic-OUT FIFO bias, which caps
+  // IN endpoints at 152 bytes; the FM-1's iso IN is 196, so its claim fails with
+  // ESP_ERR_NOT_SUPPORTED. 128 RX lines allow 504-byte IN packets. 224 of 256 lines.
+  EspUsbHostConfig config;
+  config.fifo = {128, 64, 32};
+  usb.begin(config);
 }
 
 void loop() {
