@@ -43,8 +43,9 @@ Mac directly, hold BOOT, tap RST, release BOOT, then `make flash`.
   shows the estimate as `N/8`. A device over budget enumerates (its name appears) but delivers no MIDI.
 - **FM-1 on Skiff firmware** enumerates as `1209:0001` "Felucca" (MIDI plus a CDC serial port) and sends its keys
   and knobs as USB MIDI.
-- **Safety:** the firmware never sends MIDI. Routing to the FM-1 must drop all SysEx so it can never deliver an
-  install or ROM-boot command (stock UBOOT key is `F0 22 24 35 7D F7`).
+- **Safety:** the firmware sends the FM-1 only channel messages forwarded from a controller.
+  `midi_core::Router` drops every system message, SysEx included, so a controller can never deliver an install or
+  ROM-boot command (stock UBOOT key is `F0 22 24 35 7D F7`). The tests cover this.
 
 ## Milestones
 
