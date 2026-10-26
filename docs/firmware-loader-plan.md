@@ -5,7 +5,10 @@ Status: **draft for Chad's go-ahead**, 2026-10-26. Nothing below is built yet.
 ## Goal
 
 The Waveshare holds a library of FM-1 firmwares and installs one onto a **working** FM-1 plugged into the hub, with
-no computer involved. It also keeps a verified backup of every FM-1 it has touched.
+no computer involved. It also does two more things:
+- **Save states:** it keeps each firmware's songs and presets per FM-1, so switching back to a firmware brings your
+  work back.
+- **More than one FM-1:** it tells your FM-1s apart from the start, so one Waveshare serves both of Chad's units.
 
 **Not in scope for v1:**
 - **Reviving a dead FM-1:** that needs the USB_KEY power-on pulses, which can't pass through a hub. The XIAO
@@ -91,6 +94,71 @@ the Felucca-family installers, and The Firmware Hub. It's documented in
    - **Mitigation:** the screen says so before the write starts. The FM-1 runs on its battery, so a hub power blip
      alone doesn't reset it.
 
+## Units and save states
+
+### Telling FM-1s apart
+
+In normal MIDI mode the two FM-1s look identical: same VID:PID, same name, no USB serial number. During ROM boot the
+Waveshare reads the whole flash, including the per-unit Bluetooth data at `0xE9000`, which no installer ever writes.
+- **Unit ID:** a hash of that sector.
+- **Naming:** the first time a unit is seen, the Waveshare asks for a name (A / B, or a short label picked on screen).
+  A sticker on each FM-1 that matches helps.
+- **Per unit:** everything is keyed by the unit ID: its baseline backup, its save states, its installed-firmware
+  history.
+- **One at a time:** the loader works on one FM-1 at a time. With two attached, the screen asks you to unplug one. Two
+  FM-1s alone on the hub would fit the 8 USB channels, but the loader keeps it simple.
+- **During routing:** the units still can't be told apart in normal MIDI mode, so the chain screen shows the name
+  of the unit last identified on that hub port. It marks the name as a guess until the next ROM-boot visit confirms
+  it.
+
+### What a save state is
+
+A save state is one firmware's user data, taken from one unit. It's saved per firmware family, because each family
+stores data in its own places. Felucca's own source gives the Felucca-family map (verified:
+`firmware/src/storage.c`, `firmware/loader/ldr_core.c`):
+
+| Range | Holds | In a save state? |
+|---|---|---|
+| `0x97000–0x9EFFF` | Projects / songs | Yes |
+| `0xA0000–0xDBFFF` | User sample slots | Yes |
+| `0xDC000–0xDFFFF` | User preset banks | Yes |
+| `0xE0000–0xE4FFF` | Update staging: update loader and record | **Never.** Restoring a stale update record could start an update. |
+| `0xE5000–0xE6FFF` | Autosave A/B | Yes |
+| `0xE7000–0xE7FFF` | Voice bank | Yes |
+| `0xFC000–0xFEFFF` | Settings / globals | Yes |
+
+- **Stock V15:** keeps its settings store in `0x93000–0xE8FFF`, with its own update record at `0xE8F00`. Its exact
+  map gets worked out in session 1, from the stock firmware and the Unbricker's notes, before stock save states are
+  enabled. Until then, stock installs keep or erase data but never save or restore it.
+- **Size:** most of these sectors are blank (`0xFF`), so a save stores only the non-blank 4 KiB sectors and their
+  addresses. A typical save is tens of KB. The worst case, with full sample slots, is about 360 KB.
+
+### Switching firmware, with save states
+
+1. **Identify:** enter ROM boot and identify the unit, as before.
+2. **Autosave:** save the current firmware's data as a state for (unit, firmware identity, app hash), and fsync it.
+3. **Install:** write the new app area, as before.
+4. **Pick the data the new firmware starts with:**
+   - **Same identity and same app hash** as a saved state: restore it. That's your songs and presets back.
+   - **Same identity, different version:** offer the newest save with a warning that preset formats can change.
+     Default to a fresh start and keep the save.
+   - **No saved state:** erase that family's data ranges for a clean start, after confirming. This also prevents the
+     data-layout crashes seen between firmware families.
+5. **Restart the FM-1.**
+
+**Manual saves.** "Save now" works without changing firmware: ROM boot, read, restart. It takes about 30 s, and the
+FM-1 restarts.
+
+**Later option.** Felucca-family firmware has its own backup protocol over USB-MIDI (`fm1backup.js`, commands 65/66/67,
+used by Melodee). It could make quick saves without a restart. It's unverified, so it isn't planned yet.
+
+### Rule changes this needs
+
+The address guard (safety rule 1) gains one more allowed writer:
+- **Who:** the save-state restore may write a family's data ranges (from the table above).
+- **What it writes:** only bytes that came from a save of the same unit and the same firmware identity.
+- **Never:** the update staging range, the boot head, Bluetooth data and factory voices.
+
 ## Design
 
 | Part | Where | What |
@@ -98,6 +166,7 @@ the Felucca-family installers, and The Firmware Hub. It's documented in
 | `fm1_loader` core | `lib/fm1_loader/` (plain C++, Mac-tested) | `.fwsc` and UFW parsing, flash layout constants, address guard, sector-diff planner, and the install state machine. The state machine runs against an abstract "ROM device" interface. |
 | ROM-boot transport | firmware | The jl-uboot-tool command set (MIT, `jltech/uboot.py`) sent as raw SCSI commands through EspUsbHost's `mscCommand()`. That function is private today; the vendored copy gets a second one-line patch to make it public. |
 | Loader blob | device storage, **not in git** | `wl82loader.bin` is JieLi's, and its redistribution status is unclear. `make setup-loader` fetches it from jl-uboot-tool at the pinned commit, checks the SHA-256, and puts it in the storage image. |
+| Units and saves | backups partition | Per unit: name, baseline full backup (first sight, kept forever), latest full backup, and save states (non-blank sectors plus a manifest of unit ID, firmware identity, app hash, time and label). |
 | Storage | new partition table on the 16 MB flash | Three areas. A **library** partition holds packages and the loader blob, and is rebuilt from the Mac. A separate **backups** partition is never overwritten by library updates. `make pull-backups` reads it back to the Mac with `esptool read_flash` in download mode, so every backup also lives off-device. The partition change resets the NVS settings once. Sizes: about a 3 MB app slot, about 12 MB library, That holds the loader blob, about 15–18 packages (609–718 KB each, median 610 KB), and 1 MiB per backed-up unit. All 102 catalog packages would need about 62 MB, so v2 caches and fetches on demand. |
 | UI | new "Firmware" page, reached from Settings | The FM-1's current identity and version, the stored packages, and the backups. Then a confirm screen, staged progress (Enter boot, Identify, Backup, Write N of M, Verify, Restart), and a result. |
 
@@ -159,6 +228,12 @@ package; Wi-Fi is set up from a phone.
   the app area.
 - **State machine against a mock ROM device with NOR semantics:**
   - **Golden-vector match:** the exact command sequence matches the Python reference.
+  - **Save states:**
+    - A save/restore round trip is byte-exact.
+    - The update staging range is never saved or restored.
+    - Restore is refused for a different unit or a different identity.
+    - A version mismatch defaults to a fresh start.
+    - Two units are keyed separately.
   - **Resume:** the host restarts mid-write, then resumes from "`4C4A:8057` already attached" using the stored
     backup. With no stored backup it refuses.
   - **Normal runs:** a clean install, and a no-op when the image is already installed.
@@ -186,10 +261,19 @@ package; Wi-Fi is set up from a phone.
    - Honesty note: writing a third-party package through ROM boot has only been mock-tested so far (SLOOP 2.8.1 with
      the Unbricker). This is the first real run.
 4. **Family change.** Stock V15 ↔ Skiff, including the settings warning.
+5. **Save states.**
+   - Make a Skiff project.
+   - Switch to SLOOP, which starts fresh.
+   - Switch back to Skiff, which restores the save.
+   - Check the project is there.
+6. **Second unit.** Plug in the other FM-1. It gets its own ID and name, and its own baseline backup and saves.
 
 **Review:** `code-review` at high effort before merge, one round.
 
 ## Decisions for Chad
+
+0. **Save-state behavior:** auto-restore when the identity and app hash match, and fresh start (save kept) on a
+   version change. Both are defaults; the alternative is to ask every time.
 
 1. **Go-ahead** for this plan under the guarded rules.
 2. **v1 package source:** packages flashed from the Mac (recommended for v1), or straight to Wi-Fi.
@@ -199,6 +283,8 @@ package; Wi-Fi is set up from a phone.
    treat its license as unclear.
 
 ## Rough size
+
+Save states and units add about one session.
 
 - **Core and Mac tests:** about one session.
 - **Transport and storage:** one session.
