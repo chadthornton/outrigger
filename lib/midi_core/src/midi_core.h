@@ -1,0 +1,55 @@
+// Board-independent MIDI logic: formatting messages for a small display and a
+// fixed-size log that the USB callback fills and the UI loop drains.
+// Plain C++ with no Arduino or ESP-IDF headers, so tests/ builds it on the Mac.
+#pragma once
+
+#include <stddef.h>
+#include <stdint.h>
+
+namespace midi_core {
+
+// Longest line format_message() produces, plus the terminator. Sized for a
+// 240 px wide screen at 12 px per character (20 columns).
+constexpr size_t kLineLen = 21;
+
+// Writes a short, human-readable description of one MIDI message into out,
+// for example "01 ON  C4  v100" or "01 CC  74 = 63". Channel numbers are 1-based.
+// raw/raw_len are the message bytes (used for SysEx and other system messages);
+// they may be null when status/data1/data2 say everything.
+void format_message(uint8_t status, uint8_t data1, uint8_t data2,
+                    const uint8_t *raw, size_t raw_len,
+                    char out[kLineLen]);
+
+// Writes a note name such as "C4" or "F#-1" (MIDI note 60 = C4).
+void note_name(uint8_t note, char out[5]);
+
+// Single-producer, single-consumer ring of formatted lines. When full, the
+// oldest line is dropped so the display always shows the latest activity.
+template <size_t N>
+class LineLog {
+ public:
+  void push(const char *line) {
+    size_t i = 0;
+    for (; i + 1 < kLineLen && line[i]; ++i) lines_[head_][i] = line[i];
+    lines_[head_][i] = '\0';
+    head_ = (head_ + 1) % N;
+    if (count_ < N) ++count_;
+    ++total_;
+  }
+  size_t count() const { return count_; }
+  // Total lines ever pushed, so a UI can tell whether anything changed.
+  uint32_t total() const { return total_; }
+  // age 0 is the newest line.
+  const char *newest(size_t age) const {
+    if (age >= count_) return "";
+    return lines_[(head_ + N - 1 - age) % N];
+  }
+
+ private:
+  char lines_[N][kLineLen] = {};
+  size_t head_ = 0;
+  size_t count_ = 0;
+  uint32_t total_ = 0;
+};
+
+}  // namespace midi_core
