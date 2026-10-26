@@ -165,8 +165,8 @@ def resume(jl, scsi, target_app):
     dev, why = identify(jl, scsi)
     if dev is None:
         return why
-    fu.read_flash(dev, UNIT_SECTOR, SECTOR, None)
-    current = fu.read_flash(dev, fu.FW_START, fu.FW_LEN, None)
+    fu.read_flash(dev, UNIT_SECTOR, SECTOR, None)     # which unit: its stored backup
+    current = fu.read_flash(dev, 0, fu.FLASH_SIZE, None)[fu.FW_START:fu.FW_END]
     if not write_app(dev, current, target_app):
         return "write-failed"
     dev.ldr.run_app(RESET_ARG)

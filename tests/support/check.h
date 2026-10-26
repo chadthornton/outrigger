@@ -57,3 +57,19 @@ inline std::vector<std::string> lines_of(const std::string &text) {
   }
   return out;
 }
+
+// Deterministic bytes, as tools/gen_golden.py synth() and the Unbricker's
+// synthetic_flash() make them: SHA-256(seed + 4-byte little-endian counter)...
+#include "crypto.h"
+inline std::vector<uint8_t> synth(const std::string &seed, size_t n) {
+  std::vector<uint8_t> out;
+  for (uint32_t counter = 0; out.size() < n; ++counter) {
+    std::string in = seed;
+    for (int i = 0; i < 4; ++i) in += char(counter >> (8 * i));
+    fm1_loader::Hash h =
+        fm1_loader::sha256(reinterpret_cast<const uint8_t *>(in.data()), in.size());
+    out.insert(out.end(), h.begin(), h.end());
+  }
+  out.resize(n);
+  return out;
+}

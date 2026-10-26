@@ -7,7 +7,7 @@ PORT ?= $(firstword $(wildcard /dev/cu.usbmodem*))
 
 FM1_SRC := $(wildcard lib/fm1_loader/src/*.cpp)
 FM1_HDR := $(wildcard lib/fm1_loader/src/*.h) $(wildcard tests/support/*.h)
-FM1_TESTS := build/test_fm1_package build/test_fm1_library
+FM1_TESTS := build/test_fm1_package build/test_fm1_library build/test_fm1_installer
 
 test: build/test_midi_core build/test_status $(FM1_TESTS) fixtures
 	./build/test_midi_core

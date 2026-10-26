@@ -17,18 +17,6 @@ static std::string sha_hex(const std::string &s) {
   return hex(sha256(reinterpret_cast<const uint8_t *>(s.data()), s.size()));
 }
 
-static std::vector<uint8_t> synth(const std::string &seed, size_t n) {
-  std::vector<uint8_t> out;
-  for (uint32_t counter = 0; out.size() < n; ++counter) {
-    std::string in = seed;
-    for (int i = 0; i < 4; ++i) in += char(counter >> (8 * i));
-    Hash h = sha256(reinterpret_cast<const uint8_t *>(in.data()), in.size());
-    out.insert(out.end(), h.begin(), h.end());
-  }
-  out.resize(n);
-  return out;
-}
-
 // key -> value from "name value" lines of tests/golden/crypto.txt
 static std::map<std::string, std::string> crypto_golden() {
   std::map<std::string, std::string> out;
