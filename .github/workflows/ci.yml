@@ -20,7 +20,7 @@ jobs:
         with:
           path: tests/fixtures
           key: fixtures-${{ hashFiles('tools/fetch_fixtures.py') }}
-      - run: make test
+      - run: make test TEST_CXX=clang++
 
   firmware:
     runs-on: ubuntu-latest

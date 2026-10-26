@@ -18,6 +18,9 @@ APP_LIBS_hub-loader := --library lib/fm1_loader
 APP_LIBS_everything := --library lib/fm1_loader
 SKETCH := firmware/$(BOARD)
 BUILD := build/$(BOARD)/$(APPS)
+# Mac tests use the Mac's clang; CI sets clang++ too (GCC's -Wformat-truncation
+# objects to the deliberate cut-off of screen lines).
+TEST_CXX ?= c++
 SITE_PORT ?= 8088
 # Shown on the computer-mode screen, and makes every commit a distinct build.
 FW_VERSION := 0x$(shell git rev-parse --short=7 HEAD)
@@ -38,7 +41,7 @@ test: build/test_midi_core build/test_status build/test_boot_mode build/test_bro
 
 build/test_fm1_%: tests/test_fm1_%.cpp $(FM1_SRC) $(FM1_HDR) $(wildcard tests/support/*.cpp)
 	mkdir -p build
-	c++ -std=c++17 -Wall -Wextra -Werror -Ilib/fm1_loader/src -Itests -o $@ $< $(FM1_SRC) $(wildcard tests/support/*.cpp)
+	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -Ilib/fm1_loader/src -Itests -o $@ $< $(FM1_SRC) $(wildcard tests/support/*.cpp)
 
 # Packages and the loader blob for the fm1_loader tests, pinned by SHA-256 and
 # kept out of git (tests/fixtures/).
@@ -58,19 +61,19 @@ golden: $(GOLDEN_PY) fixtures
 
 build/test_midi_core: tests/test_midi_core.cpp lib/midi_core/src/midi_core.cpp lib/midi_core/src/midi_core.h
 	mkdir -p build
-	c++ -std=c++17 -Wall -Wextra -Werror -Ilib/midi_core/src -o $@ tests/test_midi_core.cpp lib/midi_core/src/midi_core.cpp
+	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -Ilib/midi_core/src -o $@ tests/test_midi_core.cpp lib/midi_core/src/midi_core.cpp
 
 build/test_status: tests/test_status.cpp lib/midi_core/src/status.cpp lib/midi_core/src/status.h lib/midi_core/src/midi_core.h
 	mkdir -p build
-	c++ -std=c++17 -Wall -Wextra -Werror -Ilib/midi_core/src -o $@ tests/test_status.cpp lib/midi_core/src/status.cpp lib/midi_core/src/midi_core.cpp
+	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -Ilib/midi_core/src -o $@ tests/test_status.cpp lib/midi_core/src/status.cpp lib/midi_core/src/midi_core.cpp
 
 build/test_boot_mode: tests/test_boot_mode.cpp lib/midi_core/src/boot_mode.cpp lib/midi_core/src/boot_mode.h
 	mkdir -p build
-	c++ -std=c++17 -Wall -Wextra -Werror -Ilib/midi_core/src -o $@ tests/test_boot_mode.cpp lib/midi_core/src/boot_mode.cpp
+	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -Ilib/midi_core/src -o $@ tests/test_boot_mode.cpp lib/midi_core/src/boot_mode.cpp
 
 build/test_broker: tests/test_broker.cpp lib/platform/src/broker.cpp lib/platform/src/broker.h lib/midi_core/src/midi_core.cpp lib/midi_core/src/midi_core.h
 	mkdir -p build
-	c++ -std=c++17 -Wall -Wextra -Werror -Ilib/platform/src -Ilib/midi_core/src -o $@ tests/test_broker.cpp lib/platform/src/broker.cpp lib/midi_core/src/midi_core.cpp
+	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -Ilib/platform/src -Ilib/midi_core/src -o $@ tests/test_broker.cpp lib/platform/src/broker.cpp lib/midi_core/src/midi_core.cpp
 
 build:
 	$(if $(filter $(APPS),$(APP_SETS)),,$(error APPS=$(APPS); known: $(APP_SETS)))
