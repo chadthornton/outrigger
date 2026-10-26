@@ -3,11 +3,27 @@ SKETCH := firmware/waveshare_169
 BUILD := build/waveshare_169
 PORT ?= $(firstword $(wildcard /dev/cu.usbmodem*))
 
-.PHONY: test build flash clean
+.PHONY: test build flash clean fixtures golden
 
 test: build/test_midi_core build/test_status
 	./build/test_midi_core
 	./build/test_status
+
+# Packages and the loader blob for the fm1_loader tests, pinned by SHA-256 and
+# kept out of git (tests/fixtures/).
+fixtures:
+	python3 -I tools/fetch_fixtures.py tests/fixtures
+
+# Regenerates tests/golden/ from the Unbricker and jl-uboot-tool (Python), then
+# shows any difference from the committed vectors. Only needed when the
+# reference changes; make test reads the committed files.
+GOLDEN_PY := build/golden-venv/bin/python
+$(GOLDEN_PY):
+	python3 -m venv build/golden-venv
+	$(GOLDEN_PY) -m pip install -q crcmod==1.7 pyyaml
+golden: $(GOLDEN_PY) fixtures
+	$(GOLDEN_PY) tools/gen_golden.py tests/golden
+	git diff --stat --exit-code -- tests/golden
 
 build/test_midi_core: tests/test_midi_core.cpp lib/midi_core/src/midi_core.cpp lib/midi_core/src/midi_core.h
 	mkdir -p build
