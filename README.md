@@ -10,7 +10,13 @@ from a Novation Launchkey Mini MK4 37 with both on the hub, power and MIDI on on
 |---|---|
 | `lib/midi_core/` | Board-independent MIDI logic (formatting, line log). No Arduino headers. |
 | `tests/` | Mac-side tests for `midi_core`: `make test` |
-| `firmware/waveshare_169/` | Arduino sketch for the Waveshare board. Code is in `app.cpp`, not the `.ino` (see below). |
+| `lib/host_ui/` | The LVGL screens (signal chain, settings), laid out from a `BoardProfile`, not fixed pixels. |
+| `firmware/config/lv_conf.h` | LVGL configuration (fonts, clib malloc so big buffers can use PSRAM). |
+| `firmware/waveshare_169/` | Arduino sketch for the Waveshare board: `app.cpp` (USB host, routing, gathers the frame) and `board_waveshare_169.cpp` (board profile, display and touch drivers). Code stays out of the `.ino` (see below). |
+
+To add a board: copy the sketch folder, write a new `board_*.cpp` with its `BoardProfile` (size, shape, corner
+radius, font boost) and the three driver hooks in `lib/host_ui/src/board_profile.h`. `app.cpp` and `host_ui` don't
+change. Check the board's schematic for a USB-C port wired to the ESP32-S3's native USB (GPIO19/20).
 
 ## Commands
 
@@ -20,7 +26,8 @@ make build    # compile the Waveshare firmware
 make flash    # flash; PORT=/dev/cu.usbmodemXXXX to pick the port
 ```
 
-Toolchain: `arduino-cli` (Homebrew), ESP32 core 3.3.12, GFX Library for Arduino 1.6.9, and a vendored copy of
+Toolchain: `arduino-cli` (Homebrew), ESP32 core 3.3.12, GFX Library for Arduino 1.6.9 (display driver), LVGL 9.6.0
+(UI), and a vendored copy of
 EspUsbHost 2.10.1 (MIT) in `lib/EspUsbHost`. The one patch makes `ESP_USB_HOST_MAX_SERIAL_PORTS` overridable; the
 Makefile sets it to 0 so the library never claims a device's CDC serial port. Skiff's serial port otherwise costs
 2 of the ESP32-S3's 8 host channels, and with it the hub + FM-1 + Launchkey need 10. Arduino's bundled ctags is x86-only on Apple Silicon, so the Makefile points at Homebrew's universal-ctags and
