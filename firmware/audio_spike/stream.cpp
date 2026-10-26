@@ -7,8 +7,11 @@
 // ahead and counts an overrun.
 //
 // Joins the network the web-UI spike saved in NVS ("wifi" namespace), so there
-// is no setup page. Hostname fm1audio(.local). POST /update?key=fm1spike with the
-// .bin as the body reflashes it over Wi-Fi, so a fix doesn't need BOOT+RST.
+// is no setup page. Hostname fm1audio(.local). POST /update with the .bin as the
+// body and an X-Key header reflashes it over Wi-Fi, so a fix doesn't need
+// BOOT+RST. The key is random per board (kept in NVS) and shown on screen: only
+// someone who can see the board can reflash it. Images are not signed; this is
+// a spike for a home network.
 
 #include "stream.h"
 
@@ -27,6 +30,7 @@ static portMUX_TYPE ring_lock = portMUX_INITIALIZER_UNLOCKED;
 static uint64_t written = 0;  // total bytes pushed, under ring_lock
 
 static char ssid[33], pass[65];
+static char update_key[17];
 static WiFiServer server(80);
 
 struct StreamStats {
@@ -77,6 +81,13 @@ static void wav_header(uint8_t h[44], uint32_t data_bytes) {
 }
 
 static uint32_t content_length = 0;
+static char request_key[17];
+
+static bool key_matches() {
+  uint8_t diff = strlen(request_key) != strlen(update_key);
+  for (size_t i = 0; i < sizeof update_key; ++i) diff |= request_key[i] ^ update_key[i];
+  return diff == 0 && update_key[0];
+}
 
 // Body: the raw app .bin (curl --data-binary). Writes the other OTA slot, then reboots.
 static void update(WiFiClient &c) {
@@ -111,13 +122,21 @@ static void serve(WiFiClient &c) {
   // Request line, then headers; only Content-Length matters.
   String line = c.readStringUntil('\n');
   content_length = 0;
+  memset(request_key, 0, sizeof request_key);
   while (c.connected()) {
     String h = c.readStringUntil('\n');
     if (h.length() <= 1) break;
+    h.trim();
     if (h.startsWith("Content-Length:") || h.startsWith("content-length:")) content_length = h.substring(15).toInt();
+    if (h.startsWith("X-Key:") || h.startsWith("x-key:")) {
+      String k = h.substring(6);
+      k.trim();
+      strlcpy(request_key, k.c_str(), sizeof request_key);
+    }
   }
-  if (line.startsWith("POST /update?key=fm1spike")) {
-    update(c);
+  if (line.startsWith("POST /update")) {
+    if (key_matches()) update(c);
+    else c.print("HTTP/1.0 403 Forbidden\r\n\r\nX-Key header missing or wrong (it is on the board's screen)\n");
     return;
   }
   if (!line.startsWith("GET /take.wav")) {
@@ -203,6 +222,14 @@ bool stream_begin() {
   strlcpy(ssid, p.getString("ssid", "").c_str(), sizeof ssid);
   strlcpy(pass, p.getString("pass", "").c_str(), sizeof pass);
   p.end();
+  Preferences k;
+  k.begin("spike", false);
+  strlcpy(update_key, k.getString("key", "").c_str(), sizeof update_key);
+  if (strlen(update_key) != 16) {
+    for (int i = 0; i < 8; ++i) snprintf(update_key + 2 * i, 3, "%02x", static_cast<unsigned>(esp_random() & 0xFF));
+    k.putString("key", update_key);
+  }
+  k.end();
   if (!ring || !ssid[0]) return false;
   // Core 0 with the Wi-Fi stack; the USB client task and loop() stay free.
   xTaskCreatePinnedToCore(stream_task, "wav", 6144, nullptr, 3, nullptr, 0);
@@ -217,7 +244,8 @@ void stream_status(char *out, size_t len) {
   } else if (WiFi.status() != WL_CONNECTED) {
     snprintf(out, len, "wifi: joining %.16s", ssid);
   } else {
-    snprintf(out, len, "%s %s", WiFi.localIP().toString().c_str(), stats.client ? "SENDING" : "idle");
+    snprintf(out, len, "%s %s k:%s", WiFi.localIP().toString().c_str(), stats.client ? "TX" : "idle",
+             update_key);
   }
 }
 
