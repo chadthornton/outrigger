@@ -15,9 +15,12 @@ What it costs, and what has to be decided first:
    default 1.25 MB slot. The loader plan's decision 5 (recovery app + ~3 MB main app + ~12 MB sector store) already
    leaves room; the web panel is one more reason to make that call before either feature merges.
 2. **Server: `esp_http_server`**, as decided below. Nothing in the spike hit a limit of it.
-3. **Not measured:** whether Wi-Fi delays the moment the hub *notices* an incoming note (USB interrupt to the client
-   task). The forward timer starts after that. Measuring it needs evenly spaced input (a held Launchkey arpeggio,
-   ~4 minutes); Chad chose to skip it for now. If it ever matters, pinning the USB tasks to core 1 (Wi-Fi lives on
+3. **Not measured directly:** whether Wi-Fi delays the moment the hub *notices* an incoming note (USB interrupt to
+   the client task); the forward timer starts after that. It is the same path the OUT completion that *ends* the
+   timer travels (interrupt, EspUsbHost task, client task), so the measured numbers already include one pass of the
+   scheduling delay Wi-Fi could add, and the unmeasured part is a second pass of the same kind. That reasoning
+   suggests a similar ~0.3 ms worst case; it isn't proof. Measuring it needs evenly spaced input (a held Launchkey
+   arpeggio, ~4 minutes); Chad chose to skip it. If it ever matters, pinning the USB tasks to core 1 (Wi-Fi lives on
    core 0) is the lever.
 
 ## Decisions (made before building)
@@ -35,13 +38,13 @@ What it costs, and what has to be decided first:
 
 ### Cost against the current build
 
-| | master (`2461e85`) | spike | change |
+| | master (`2461e85`) | spike (`ff03eb8`) | change |
 |---|---|---|---|
 | App size | 1,005,892 B | 1,604,191 B | +598,299 B (+59%) |
 | Static RAM | 43,632 B | 83,996 B | +40,364 B |
 | Page, gzipped | – | 4,961 B (index) + 1,796 B (setup) | from 13.2 KB + 3.6 KB |
-| Free internal DMA-capable heap, lowest seen | 132,556 B (Wi-Fi off) | 88,180 B (Wi-Fi idle), 70,964 B (busy) | |
-| Largest free internal block, lowest seen | 51,188 B | 47,092 B (idle), 32,756 B (busy) | |
+| Free internal DMA-capable heap, lowest seen (spike build `d8b9349`) | – | 132,556 B Wi-Fi off; 88,180 B idle; 70,964 B busy | |
+| Largest free internal block, lowest seen (same) | – | 51,188 B Wi-Fi off; 47,092 B idle; 32,756 B busy | |
 
 The heap matters because `midiSend()` allocates each MIDI OUT transfer from DMA-capable internal RAM, which Wi-Fi
 competes for. 32 KB of largest free block under load is ample for 64-byte transfers, and no send failed.
@@ -78,7 +81,7 @@ default is safe.
 
 **Setup.** Waveshare on the powered hub with the FM-1 (Felucca) and Launchkey Mini MK4 37, 8/8 USB channels, hub
 on Wi-Fi (`scooterbot`, -57 dBm). Chad played the Launchkey by hand; every note-on/off was forwarded to the FM-1.
-One firmware build throughout; only the mode changed (`tools/web_bench.ts`, 45 s per mode).
+One firmware build throughout (`d8b9349`); only the mode changed (`tools/web_bench.ts`, 45 s per mode).
 
 **What the timer covers.** From `on_midi()` entry (the controller's IN transfer, dispatched on the USB client task)
 to completion of the OUT transfer to the FM-1, via a one-function hook added to the vendored EspUsbHost
@@ -86,7 +89,7 @@ to completion of the OUT transfer to the FM-1, via a one-function hook added to 
 
 **Modes.** *wifi_off*: Wi-Fi radio and driver stopped for the run. *idle*: joined, server up, nobody connected.
 *busy*: the Mac ran 4 WebSocket monitors plus 4 back-to-back fetch loops (page and status JSON), 1,232 HTTP
-responses and 2,292 WS frames in 45 s, far beyond what a person causes. The last mode repeats wifi_off to show
+responses and 2,292 WS frames in 45 s (1 request timed out), far beyond what a person causes. The last mode repeats wifi_off to show
 nothing drifted.
 
 | Mode | Notes | min | median | p90 | p99 | max | Failed sends |
@@ -108,13 +111,13 @@ spaced. See the Recommendation for what that leaves unmeasured.
 
 - **Setup page gave no confirmation, though the join worked.** The ESP32-S3 has one radio: joining the home network
   moves it, and the hotspot, to the router's channel, which drops the phone before the reply arrives. Also the
-  settings screen kept showing the hotspot for 30 s after joining. Fixed after the run: the page says what will
+  settings screen kept showing the hotspot for 30 s after joining. Changed in `ff03eb8`: the page says what will
   happen *before* sending and treats a dropped connection as expected; the hub waits 1.5 s before joining so the
   reply gets out; the screen shows an "On Wi-Fi: fm1hub.local" banner for 10 s and switches to the address at once;
   a failed join shows on the screen next to the hotspot password.
 - **`fm1hub.local` took 5 s from `curl` on the Mac** (IPv4 alone: instant). macOS asks mDNS for an IPv6 address
-  first and the hub had none. Browsers race both, so pages were fine. Fixed by enabling link-local IPv6 on the
-  station interface, so mDNS can answer.
+  first and the hub had none. Browsers race both, so pages were fine. `ff03eb8` enables link-local IPv6 on the
+  station interface so mDNS can answer.
 - The Host check works on the hardware: a request to the hub's IP with `Host: evil.example` gets 403.
 
 ## What the prototype does
@@ -173,7 +176,7 @@ loader kind on every read route, with a Mac-side test like the address guard's.
 
 ## Follow-ups
 
-- Verify on hardware: the join confirmation and IPv6 fix above (flashed after the run; see the branch log).
+- **Pairing and tokens are auth (guarded tier):** a high-effort `code-review` round before any of this merges.
 - Remove the open bench routes before anything merges, or put them behind pairing.
 - A QR code on the device for the setup hotspot (`LV_USE_QRCODE`, ~10 KB) so the phone joins by camera.
 - WebSocket Origin is checked after the 101 handshake (core 3.3.12 builds without the pre-handshake hook); a refused
