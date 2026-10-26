@@ -5,9 +5,18 @@ PORT ?= $(firstword $(wildcard /dev/cu.usbmodem*))
 
 .PHONY: test build flash clean fixtures golden
 
-test: build/test_midi_core build/test_status
+FM1_SRC := $(wildcard lib/fm1_loader/src/*.cpp)
+FM1_HDR := $(wildcard lib/fm1_loader/src/*.h) $(wildcard tests/support/*.h)
+FM1_TESTS := build/test_fm1_package
+
+test: build/test_midi_core build/test_status $(FM1_TESTS) fixtures
 	./build/test_midi_core
 	./build/test_status
+	for t in $(FM1_TESTS); do ./$$t || exit 1; done
+
+build/test_fm1_%: tests/test_fm1_%.cpp $(FM1_SRC) $(FM1_HDR) $(wildcard tests/support/*.cpp)
+	mkdir -p build
+	c++ -std=c++17 -Wall -Wextra -Werror -Ilib/fm1_loader/src -Itests -o $@ $< $(FM1_SRC) $(wildcard tests/support/*.cpp)
 
 # Packages and the loader blob for the fm1_loader tests, pinned by SHA-256 and
 # kept out of git (tests/fixtures/).
