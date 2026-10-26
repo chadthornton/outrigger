@@ -29,6 +29,9 @@ extern const BoardProfile kBoard;
 
 EspUsbHost usb;
 static Preferences prefs;
+#ifndef FW_VERSION
+#define FW_VERSION 0  // set by the Makefile to the commit
+#endif
 static bool host_running = false;
 
 // ---------- State shared between the USB task and loop() ----------
@@ -289,7 +292,9 @@ void setup() {
   if (mode == midi_core::BootMode::Computer) {
     // The USB host is never installed, so the port stays the chip's
     // USB-Serial-JTAG device and the computer can reset it into download mode.
-    ui_show_computer_mode();
+    char version[12];
+    snprintf(version, sizeof version, "%07lx", (unsigned long)FW_VERSION);
+    ui_show_computer_mode(version);
     return;
   }
   usb.onDeviceConnected(on_connected);

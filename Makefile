@@ -4,6 +4,8 @@ BUILD := build/waveshare_169
 PORT ?= $(firstword $(wildcard /dev/cu.usbmodem*))
 ESP32_CORE := $(HOME)/Library/Arduino15/packages/esp32/hardware/esp32/3.3.12
 SITE_PORT ?= 8088
+# Shown on the computer-mode screen, and makes every commit a distinct build.
+FW_VERSION := 0x$(shell git rev-parse --short=7 HEAD)
 
 .PHONY: test build flash site serve clean
 
@@ -26,7 +28,7 @@ build/test_boot_mode: tests/test_boot_mode.cpp lib/midi_core/src/boot_mode.cpp l
 
 build:
 	arduino-cli compile --fqbn $(FQBN) --build-property "tools.ctags.path=/opt/homebrew/bin" \
-		--build-property "compiler.cpp.extra_flags=-DESP_USB_HOST_MAX_SERIAL_PORTS=0 -DLV_CONF_INCLUDE_SIMPLE -I$(CURDIR)/firmware/config" \
+		--build-property "compiler.cpp.extra_flags=-DFW_VERSION=$(FW_VERSION) -DESP_USB_HOST_MAX_SERIAL_PORTS=0 -DLV_CONF_INCLUDE_SIMPLE -I$(CURDIR)/firmware/config" \
 		--build-property "compiler.c.extra_flags=-DLV_CONF_INCLUDE_SIMPLE -I$(CURDIR)/firmware/config" \
 		--library lib/midi_core --library lib/EspUsbHost --library lib/host_ui --output-dir $(BUILD) $(SKETCH)
 

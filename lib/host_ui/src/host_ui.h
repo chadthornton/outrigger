@@ -44,7 +44,8 @@ struct UiHooks {
 // Sets up LVGL, the display and touch, and builds the screens.
 bool ui_begin(const BoardProfile &board, const UiSettings &settings, const UiHooks &hooks);
 // Shows the computer-mode screen instead of the chain (USB host not running).
-void ui_show_computer_mode();
+// version: the running firmware's commit, shown so an update can be confirmed.
+void ui_show_computer_mode(const char *version);
 // Refreshes the chain screen; cheap when nothing changed.
 void ui_update(const UiFrame &frame);
 // Runs LVGL; call often (every few ms).

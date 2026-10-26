@@ -339,7 +339,7 @@ static void back_to_host_tapped(lv_event_t *) {
   if (hooks.back_to_host) hooks.back_to_host();
 }
 
-static lv_obj_t *build_computer_screen() {
+static lv_obj_t *build_computer_screen(const char *version) {
   lv_obj_t *scr = lv_obj_create(nullptr);
   lv_obj_set_style_bg_color(scr, c(0x000000), 0);
   int side, top;
@@ -362,6 +362,11 @@ static lv_obj_t *build_computer_screen() {
   lv_label_set_text(body,
                     "MIDI is off. Plug this board straight into a computer and open the installer in Chrome "
                     "or Edge.\n\nAfter an update it goes back to MIDI by itself.");
+
+  lv_obj_t *ver = lv_label_create(scr);
+  lv_obj_set_style_text_font(ver, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_text_color(ver, c(kGrey), 0);
+  lv_label_set_text_fmt(ver, "Firmware %s", version);
 
   lv_obj_t *spacer = box(scr);
   lv_obj_set_width(spacer, lv_pct(100));
@@ -418,7 +423,7 @@ bool ui_begin(const BoardProfile &b, const UiSettings &s, const UiHooks &h) {
   return true;
 }
 
-void ui_show_computer_mode() { lv_screen_load(build_computer_screen()); }
+void ui_show_computer_mode(const char *version) { lv_screen_load(build_computer_screen(version)); }
 
 void ui_tick() { lv_timer_handler(); }
 
