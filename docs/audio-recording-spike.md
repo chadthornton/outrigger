@@ -206,7 +206,12 @@ WAV header for N seconds followed by the audio from the moment of the request. T
   differences and zero runs).
 - **It can't keep up.** TCP delivers a third to a half of real time. The PSRAM ring hides that for short takes,
   but a 30 s take at 62 kB/s ends about 55 s behind, past the 23 s ring, so the reader must have skipped ahead
-  at least once (the `ovr` counter on screen).
+  at least once (the `ovr` counter on screen). So **take1.wav is spliced**, probably near 13 s and 25 s;
+  `check_wav.py` can't see a splice that lands in quiet or similar material. Any jump in it is the Wi-Fi ring
+  overrunning, not lost USB audio.
+- Fix (`firmware/audio_spike/stream.cpp`): while a take runs, the ring stops filling at the take's end, so the
+  reader can never be overwritten. Takes are capped at the ring (6 MB, about 35 s); a slow link only makes the
+  download slower.
 - **Cause (likely):** the core's lwIP is built with `CONFIG_LWIP_TCP_SND_BUF_DEFAULT=5744` (4 segments).
   One connection can then carry at most 5744 bytes per round trip: 117 kB/s at the 49 ms measured under load,
   and the ping spread makes it worse. The prebuilt Arduino libraries fix that size; raising it needs an ESP-IDF
