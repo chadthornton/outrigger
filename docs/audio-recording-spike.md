@@ -172,3 +172,20 @@ F = screen frozen during the window, L = redrawn at 20 fps. Pk and rms in dBFS.
 - **Screen load:** the live window is no worse than the frozen ones.
 - **Data rate:** 176.5 kB/s. PSRAM (8 MB) holds about 45 s; a 10 s window uses 1.76 MB.
 - **Level:** -10 to -12 dBFS peaks while Chad played, so the audio is real, not silence packets.
+
+## Next option: stream to a laptop over Wi-Fi (not tested)
+
+Wi-Fi sidesteps both storage problems: it uses no USB host channels (unlike a stick) and no PSRAM ceiling.
+
+- **Bandwidth:** 16-bit stereo 44.1 kHz is 1.41 Mbit/s. The ESP32-S3's 2.4 GHz radio typically sustains several
+  times that over TCP on a home network; not measured on this board.
+- **Latency doesn't matter for recording.** The web-UI spike measured Wi-Fi adding about 0.3 ms to MIDI
+  forwarding, but that is a different question. A recorder can keep a PSRAM ring of a few seconds between the
+  USB callback and the socket, so Wi-Fi stalls cost nothing as long as the average keeps up.
+- **Simplest shape:** an HTTP endpoint that serves an endless WAV (`GET /take.wav`), so the laptop records with
+  `curl http://<board>.local/take.wav -o take.wav`, or with a browser button. No laptop app needed. It also
+  answers the open question above: listening to a capture.
+- **Live monitoring is harder:** it needs a receiver with its own jitter buffer (tens of ms), and the FM-1's clock
+  runs about 400 ppm fast against the laptop's audio clock, so a live player must resample or drop frames.
+- **Costs:** the Wi-Fi stack and server need the `huge_app` partition (spike/web-ui, about 598 KB more), and the
+  FIFO split above.
