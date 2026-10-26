@@ -32,11 +32,12 @@ FM1_SRC := $(wildcard lib/fm1_loader/src/*.cpp)
 FM1_HDR := $(wildcard lib/fm1_loader/src/*.h) $(wildcard tests/support/*.h)
 FM1_TESTS := build/test_fm1_package build/test_fm1_library build/test_fm1_installer
 
-test: build/test_midi_core build/test_status build/test_boot_mode build/test_broker $(FM1_TESTS) fixtures
+test: build/test_midi_core build/test_status build/test_boot_mode build/test_broker build/test_describe $(FM1_TESTS) fixtures
 	./build/test_midi_core
 	./build/test_status
 	./build/test_boot_mode
 	./build/test_broker
+	./build/test_describe
 	for t in $(FM1_TESTS); do ./$$t || exit 1; done
 
 build/test_fm1_%: tests/test_fm1_%.cpp $(FM1_SRC) $(FM1_HDR) $(wildcard tests/support/*.cpp)
@@ -74,6 +75,10 @@ build/test_boot_mode: tests/test_boot_mode.cpp lib/midi_core/src/boot_mode.cpp l
 build/test_broker: tests/test_broker.cpp lib/platform/src/broker.cpp lib/platform/src/broker.h lib/midi_core/src/midi_core.cpp lib/midi_core/src/midi_core.h
 	mkdir -p build
 	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -Ilib/platform/src -Ilib/midi_core/src -o $@ tests/test_broker.cpp lib/platform/src/broker.cpp lib/midi_core/src/midi_core.cpp
+
+build/test_describe: tests/test_describe.cpp lib/platform/src/describe.cpp lib/platform/src/describe.h lib/platform/src/broker.cpp lib/platform/src/broker.h lib/midi_core/src/midi_core.cpp
+	mkdir -p build
+	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -Ilib/platform/src -Ilib/midi_core/src -o $@ tests/test_describe.cpp lib/platform/src/describe.cpp lib/platform/src/broker.cpp lib/midi_core/src/midi_core.cpp
 
 build:
 	$(if $(filter $(APPS),$(APP_SETS)),,$(error APPS=$(APPS); known: $(APP_SETS)))
