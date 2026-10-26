@@ -173,7 +173,7 @@ F = screen frozen during the window, L = redrawn at 20 fps. Pk and rms in dBFS.
 - **Data rate:** 176.5 kB/s. PSRAM (8 MB) holds about 45 s; a 10 s window uses 1.76 MB.
 - **Level:** -10 to -12 dBFS peaks while Chad played, so the audio is real, not silence packets.
 
-## Next option: stream to a laptop over Wi-Fi (not tested)
+## Wi-Fi streaming to a laptop (tested 2026-10-26)
 
 Wi-Fi sidesteps both storage problems: it uses no USB host channels (unlike a stick) and no PSRAM ceiling.
 
@@ -189,3 +189,27 @@ Wi-Fi sidesteps both storage problems: it uses no USB host channels (unlike a st
   runs about 400 ppm fast against the laptop's audio clock, so a live player must resample or drop frames.
 - **Costs:** the Wi-Fi stack and server need the `huge_app` partition (spike/web-ui, about 598 KB more), and the
   FIFO split above.
+
+### 5. Wi-Fi WAV stream, measured
+
+`firmware/audio_spike/stream.cpp`: a 4 MB PSRAM ring fed by the USB callback, and `GET /take.wav?s=N` serving a
+WAV header for N seconds followed by the audio from the moment of the request. The Mac records with
+`curl http://<board>/take.wav?s=30 -o take.wav`. Board on the hub with the FM-1, on Chad's home Wi-Fi.
+
+| Build | Ping (idle / under load) | Throughput | Needed |
+|---|---|---|---|
+| modem sleep on (default), 4 KB sends | 21–337 ms, avg 156 | 96 kB/s (5 s take in 9.2 s) | 176.4 kB/s |
+| modem sleep off, 16 KB sends | avg 25 / avg 49, max 128 ms | 20–92 kB/s; a 30 s take in 85 s (62 kB/s) | 176.4 kB/s |
+
+- **The stream works end to end:** valid 16-bit stereo 44.1 kHz WAVs, the first byte in 77–116 ms, a 30 s take
+  with -11.9 dBFS peaks while Chad played, no clicks and no zero runs inside the sound (`check_wav.py`, second
+  differences and zero runs).
+- **It can't keep up.** TCP delivers a third to a half of real time. The PSRAM ring hides that for short takes,
+  but a 30 s take at 62 kB/s ends about 55 s behind, past the 23 s ring, so the reader must have skipped ahead
+  at least once (the `ovr` counter on screen).
+- **Cause (likely):** the core's lwIP is built with `CONFIG_LWIP_TCP_SND_BUF_DEFAULT=5744` (4 segments).
+  One connection can then carry at most 5744 bytes per round trip: 117 kB/s at the 49 ms measured under load,
+  and the ping spread makes it worse. The prebuilt Arduino libraries fix that size; raising it needs an ESP-IDF
+  build (arduino as a component) or the lib builder.
+- Turning modem sleep off cut idle ping from 156 to 25 ms but didn't raise throughput, which fits a
+  window-limited link rather than a radio one.
