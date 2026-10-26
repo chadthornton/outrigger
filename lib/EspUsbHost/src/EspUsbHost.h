@@ -3084,6 +3084,9 @@ public:
   void onCcidCardRemoved(CcidSlotChangeCallback callback);
 
   bool midiSend(const uint8_t *data, size_t length, uint8_t address = ESP_USB_HOST_ANY_ADDRESS);
+  // usb-midi-host patch: called on the USB client task when a midiSend()
+  // transfer completes (ok = sent), for latency measurement. nullptr = off.
+  static void (*midiSendCompleteHook)(bool ok);
   bool midiSendNoteOn(uint8_t channel, uint8_t note, uint8_t velocity, uint8_t address = ESP_USB_HOST_ANY_ADDRESS);
   bool midiSendNoteOff(uint8_t channel, uint8_t note, uint8_t velocity, uint8_t address = ESP_USB_HOST_ANY_ADDRESS);
   bool midiSendControlChange(uint8_t channel, uint8_t control, uint8_t value, uint8_t address = ESP_USB_HOST_ANY_ADDRESS);
@@ -3765,6 +3768,7 @@ private:
   static void hidReportDescriptorTransferCallback(usb_transfer_t *transfer);
   static void outputTransferCallback(usb_transfer_t *transfer);
   static void serialOutTransferCallback(usb_transfer_t *transfer);
+  static void midiOutTransferCallback(usb_transfer_t *transfer);
   static void vendorOutTransferCallback(usb_transfer_t *transfer);
   static void vendorInTransferCallback(usb_transfer_t *transfer);
 

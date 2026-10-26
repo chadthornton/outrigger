@@ -55,7 +55,8 @@ static lv_obj_t *controller_dots[midi_core::kMaxDevices];
 static lv_obj_t *controller_labels[midi_core::kMaxDevices];
 static lv_obj_t *usb_label, *problem_box, *problem_1, *problem_2;
 static lv_obj_t *chain_screen, *settings_screen, *preview_label;
-static lv_obj_t *size_buttons, *face_buttons;
+static lv_obj_t *size_buttons, *face_buttons, *wifi_buttons, *net_label, *net_label2;
+static lv_obj_t *banner, *banner_1, *banner_2;
 
 // ---------- LVGL glue ----------
 static uint32_t tick_ms() { return millis(); }
@@ -236,7 +237,8 @@ static void settings_changed(lv_event_t *e) {
   const uint32_t picked = lv_buttonmatrix_get_selected_button(bm);
   if (picked == LV_BUTTONMATRIX_BUTTON_NONE) return;
   if (bm == size_buttons) settings.text_size = static_cast<uint8_t>(picked);
-  else settings.typeface = static_cast<uint8_t>(picked);
+  else if (bm == face_buttons) settings.typeface = static_cast<uint8_t>(picked);
+  else settings.wifi = static_cast<uint8_t>(picked);
   apply_fonts();
   update_preview();
   if (on_settings_changed) on_settings_changed(settings);
@@ -285,6 +287,18 @@ static void build_settings_screen() {
   heading(settings_screen, "Typeface");
   face_buttons = choice(settings_screen, kFaces, settings.typeface);
 
+  static const char *const kWifi[] = {"Off", "On", ""};
+  heading(settings_screen, "Wi-Fi (web page)");
+  wifi_buttons = choice(settings_screen, kWifi, settings.wifi);
+  net_label = lv_label_create(settings_screen);
+  lv_obj_set_style_text_font(net_label, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_text_color(net_label, c(kWhite), 0);
+  lv_label_set_text(net_label, "");
+  net_label2 = lv_label_create(settings_screen);
+  lv_obj_set_style_text_font(net_label2, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_text_color(net_label2, c(kGrey), 0);
+  lv_label_set_text(net_label2, "");
+
   preview_label = lv_label_create(settings_screen);
   lv_obj_set_style_text_color(preview_label, c(kYellow), 0);
   lv_label_set_text(preview_label, "Launchkey > FM-1");
@@ -299,12 +313,52 @@ static void build_settings_screen() {
   lv_obj_add_event_cb(done, back_to_chain, LV_EVENT_CLICKED, nullptr);
 }
 
+// ---------- Banner (pairing PIN), above every screen ----------
+static void build_banner() {
+  banner = lv_obj_create(lv_layer_top());
+  lv_obj_remove_flag(banner, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(banner, lv_pct(80), LV_SIZE_CONTENT);
+  lv_obj_center(banner);
+  lv_obj_set_flex_flow(banner, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_flex_align(banner, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_bg_color(banner, c(0x10203A), 0);
+  lv_obj_set_style_border_color(banner, c(0x3A6AB0), 0);
+  lv_obj_set_style_border_width(banner, 2, 0);
+  lv_obj_set_style_radius(banner, 10, 0);
+  lv_obj_set_style_pad_all(banner, 10, 0);
+  banner_1 = lv_label_create(banner);
+  lv_obj_set_style_text_font(banner_1, &lv_font_montserrat_16, 0);
+  lv_obj_set_style_text_color(banner_1, c(kWhite), 0);
+  banner_2 = lv_label_create(banner);
+  lv_obj_set_style_text_font(banner_2, &lv_font_montserrat_28, 0);
+  lv_obj_set_style_text_color(banner_2, c(kYellow), 0);
+  lv_obj_add_flag(banner, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void check_only(lv_obj_t *bm, uint32_t selected) {
+  lv_buttonmatrix_clear_button_ctrl_all(bm, LV_BUTTONMATRIX_CTRL_CHECKED);
+  lv_buttonmatrix_set_button_ctrl(bm, selected, LV_BUTTONMATRIX_CTRL_CHECKED);
+}
+
+void ui_set_settings(const UiSettings &s) {
+  settings = s;
+  if (settings.text_size > 2) settings.text_size = 1;
+  if (settings.typeface > 1) settings.typeface = 0;
+  if (settings.wifi > 1) settings.wifi = 1;
+  check_only(size_buttons, settings.text_size);
+  check_only(face_buttons, settings.typeface);
+  check_only(wifi_buttons, settings.wifi);
+  apply_fonts();
+  update_preview();
+}
+
 // ---------- Public API ----------
 bool ui_begin(const BoardProfile &b, const UiSettings &s, UiSettingsChanged on_change) {
   board = &b;
   settings = s;
   if (settings.text_size > 2) settings.text_size = 1;
   if (settings.typeface > 1) settings.typeface = 0;
+  if (settings.wifi > 1) settings.wifi = 1;
   on_settings_changed = on_change;
 
   if (!board_display_begin()) return false;
@@ -338,6 +392,7 @@ bool ui_begin(const BoardProfile &b, const UiSettings &s, UiSettingsChanged on_c
 
   build_chain_screen();
   build_settings_screen();
+  build_banner();
   lv_screen_load(chain_screen);
   return true;
 }
@@ -393,6 +448,16 @@ void ui_update(const UiFrame &f) {
   snprintf(buf, sizeof buf, "USB %u/8", f.snapshot.channels_used);
   set_text(usb_label, buf);
   set_colour(usb_label, f.snapshot.channels_used >= 8 ? kYellow : kGrey);
+
+  set_text(net_label, f.net_line);
+  set_text(net_label2, f.net_line2);
+  if (f.banner1[0]) {
+    set_text(banner_1, f.banner1);
+    set_text(banner_2, f.banner2);
+    lv_obj_remove_flag(banner, LV_OBJ_FLAG_HIDDEN);
+  } else {
+    lv_obj_add_flag(banner, LV_OBJ_FLAG_HIDDEN);
+  }
 
   if (v.has_problem) {
     lv_obj_remove_flag(problem_box, LV_OBJ_FLAG_HIDDEN);

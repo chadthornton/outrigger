@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>FM-1 Hub setup</title>
+<style>
+:root{color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:#0b0b0c;color:#f2f2f2;font:16px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:max(20px,env(safe-area-inset-top)) 18px 32px}
+main{max-width:460px;margin:0 auto}
+h1{font-size:22px;margin:0 0 4px}
+p{color:#9a9a9a;margin:0 0 16px}
+ul{list-style:none;margin:0 0 14px;padding:0;border:1px solid #26262a;border-radius:12px;overflow:hidden}
+li{padding:12px 14px;border-bottom:1px solid #26262a;display:flex;gap:10px;cursor:pointer;background:#151517}
+li:last-child{border-bottom:0}
+li.sel{background:#1d3d6b}
+li span:first-child{flex:1;overflow-wrap:anywhere}
+li .bars{color:#8a8a8a;font-size:13px}
+input,button{font:inherit;width:100%;border-radius:10px;padding:11px 12px;margin:0 0 10px;color:#f2f2f2}
+input{background:#0e0e10;border:1px solid #34343a}
+button{background:#1d3d6b;border:1px solid #2b5596;cursor:pointer}
+button.quiet{background:#232327;border-color:#34343a}
+#msg{min-height:1.5em}
+.err{color:#ff4a4a}
+.ok{color:#22dd44}
+</style>
+</head>
+<body>
+<main>
+<h1>Put the hub on your Wi-Fi</h1>
+<p>Pick your home network. Afterwards the hub's page is at <b>http://fm1hub.local</b> from any device on that network.</p>
+<ul id="list"><li><span>Looking for networks…</span></li></ul>
+<button class="quiet" id="rescan">Look again</button>
+<input id="ssid" placeholder="Network name" autocapitalize="off" autocorrect="off">
+<input id="pass" type="password" placeholder="Password" autocomplete="current-password">
+<button id="join">Join</button>
+<div id="msg"></div>
+</main>
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+function bars(rssi) { return rssi > -55 ? "▂▄▆█" : rssi > -67 ? "▂▄▆" : rssi > -78 ? "▂▄" : "▂"; }
+async function scan() {
+  try {
+    const nets = await (await fetch("/api/wifi/scan")).json();
+    const best = {};
+    for (const n of nets) if (!best[n.ssid] || best[n.ssid].rssi < n.rssi) best[n.ssid] = n;
+    const sorted = Object.values(best).sort((a, b) => b.rssi - a.rssi);
+    const list = $("list");
+    if (!sorted.length) { list.innerHTML = "<li><span>None found yet — tap Look again.</span></li>"; return; }
+    list.replaceChildren(...sorted.map(n => {
+      const li = document.createElement("li");
+      li.innerHTML = "<span></span><span class=bars></span>";
+      li.children[0].textContent = n.ssid + (n.open ? " (open)" : "");
+      li.children[1].textContent = bars(n.rssi);
+      li.onclick = () => { for (const x of list.children) x.classList.remove("sel"); li.classList.add("sel"); $("ssid").value = n.ssid; $("pass").focus(); };
+      return li;
+    }));
+  } catch (e) {}
+}
+$("rescan").onclick = () => { scan(); setTimeout(scan, 4000); };
+$("join").onclick = async () => {
+  const msg = $("msg");
+  try {
+    const r = await fetch("/api/wifi", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ssid: $("ssid").value, pass: $("pass").value }) });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || r.statusText);
+    msg.className = "ok";
+    msg.textContent = "Joining… The hub's settings screen shows its address once it's on. Then switch this phone back to your Wi-Fi and open http://fm1hub.local";
+  } catch (e) { msg.className = "err"; msg.textContent = e.message; }
+};
+scan(); setTimeout(scan, 4000);
+</script>
+</body>
+</html>

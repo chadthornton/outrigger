@@ -11,6 +11,7 @@
 struct UiSettings {
   uint8_t text_size;  // 0 small, 1 medium, 2 large
   uint8_t typeface;   // 0 sans (Montserrat), 1 pixel (Unscii)
+  uint8_t wifi;       // 0 off, 1 on (web control panel)
 };
 
 // One device's line in the controller group.
@@ -32,6 +33,10 @@ struct UiFrame {
   bool fm1_in_fresh;
   char fm1_own[48];
   uint32_t sent, blocked;
+  char net_line[48];   // settings page: address, setup hotspot, or "off"
+  char net_line2[48];
+  char banner1[24];    // shown over any screen while set, e.g. "Pair browser"
+  char banner2[24];    // e.g. the PIN
 };
 
 using UiSettingsChanged = void (*)(const UiSettings &);
@@ -42,3 +47,5 @@ bool ui_begin(const BoardProfile &board, const UiSettings &settings, UiSettingsC
 void ui_update(const UiFrame &frame);
 // Runs LVGL; call often (every few ms).
 void ui_tick();
+// Applies settings changed elsewhere (the web page); doesn't call on_change.
+void ui_set_settings(const UiSettings &settings);

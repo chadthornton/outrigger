@@ -8065,7 +8065,7 @@ bool EspUsbHost::midiSend(const uint8_t *data, size_t length, uint8_t address)
   }
   transfer->device_handle = device->handle;
   transfer->bEndpointAddress = device->midiOutEndpointAddress;
-  transfer->callback = serialOutTransferCallback;
+  transfer->callback = midiOutTransferCallback;
   transfer->context = this;
   transfer->num_bytes = length;
 
@@ -12918,6 +12918,17 @@ void EspUsbHost::outputTransferCallback(usb_transfer_t *transfer)
   }
 
   usb_host_transfer_free(transfer);
+}
+
+void (*EspUsbHost::midiSendCompleteHook)(bool ok) = nullptr;
+
+void EspUsbHost::midiOutTransferCallback(usb_transfer_t *transfer)
+{
+  if (midiSendCompleteHook)
+  {
+    midiSendCompleteHook(transfer->status == USB_TRANSFER_STATUS_COMPLETED);
+  }
+  serialOutTransferCallback(transfer);
 }
 
 void EspUsbHost::serialOutTransferCallback(usb_transfer_t *transfer)

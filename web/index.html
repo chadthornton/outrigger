@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>FM-1 Hub</title>
+<style>
+:root{--bg:#0b0b0c;--card:#151517;--line:#26262a;--text:#f2f2f2;--dim:#8a8a8a;--green:#22dd44;--orange:#ffa53a;--red:#ff4a4a;--grey:#3a3a3a;--yellow:#ffe14a;--magenta:#ff6af0;--blue:#5a9cff;color-scheme:dark}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:15px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:max(16px,env(safe-area-inset-top)) 16px 32px}
+main{max-width:720px;margin:0 auto;display:grid;gap:14px}
+header{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+h1{font-size:20px;margin:0;flex:1}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--dim);margin:0 0 10px;display:flex;gap:8px;align-items:center}
+h2 .grow{flex:1}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px}
+.pill{font-size:12px;padding:3px 9px;border-radius:99px;background:#222;color:var(--dim);white-space:nowrap}
+.pill.on{color:var(--green)}
+.pill.warn{color:var(--orange)}
+button{font:inherit;color:var(--text);background:#232327;border:1px solid #34343a;border-radius:8px;padding:6px 12px;cursor:pointer}
+button:hover{background:#2c2c31}
+button:disabled{opacity:.4;cursor:default}
+button.primary{background:#1d3d6b;border-color:#2b5596}
+.chain{display:grid;gap:0}
+.node{display:grid;grid-template-columns:16px 1fr;gap:10px}
+.rail{display:flex;flex-direction:column;align-items:center;padding-top:6px}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--grey);flex:none}
+.spine{width:2px;flex:1;background:var(--grey);margin-top:3px;min-height:14px}
+.node:last-child .spine{display:none}
+.node .body{padding-bottom:10px;min-width:0}
+.node .title{font-weight:600}
+.detail{color:var(--dim);font-family:ui-monospace,Menlo,monospace;font-size:13px;overflow-wrap:anywhere}
+.ctl{display:flex;gap:6px;align-items:center}
+.ctl .dot{width:6px;height:6px}
+.fresh{color:var(--green)}
+.problem{background:#2a1508;border:1px solid #6a3a10;border-radius:8px;padding:8px 10px;margin-top:4px}
+.problem b{color:var(--orange);display:block}
+.mon{height:260px;overflow:auto;font:12.5px/1.5 ui-monospace,Menlo,monospace;background:#0e0e10;border-radius:8px;padding:6px 8px}
+.mon div{white-space:nowrap}
+.mon .t{color:#555}
+.mon .src{color:var(--yellow)}
+.mon .fm1{color:var(--magenta)}
+.mon .drop{color:var(--orange)}
+.mon .fail{color:var(--red)}
+.seg{display:inline-flex;border:1px solid #34343a;border-radius:8px;overflow:hidden}
+.seg button{border:0;border-radius:0;border-right:1px solid #34343a;min-width:58px}
+.seg button:last-child{border-right:0}
+.seg button.sel{background:#1d3d6b}
+.row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:8px 0}
+.row label{min-width:90px;color:var(--dim)}
+.note{color:var(--dim);font-size:13px}
+.pair{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}
+input{font:inherit;color:var(--text);background:#0e0e10;border:1px solid #34343a;border-radius:8px;padding:6px 10px}
+#pin{width:9ch;letter-spacing:.2em;font-family:ui-monospace,Menlo,monospace}
+.err{color:var(--red);font-size:13px}
+label.chk{display:inline-flex;gap:5px;align-items:center;color:var(--dim);font-size:13px}
+</style>
+</head>
+<body>
+<main>
+<header>
+  <h1>FM-1 Hub</h1>
+  <span id="live" class="pill">connecting…</span>
+  <span id="pairstate" class="pill">not paired</span>
+</header>
+
+<section class="card">
+  <h2><span class="grow">Signal chain</span><span id="usb" class="pill">USB –/8</span></h2>
+  <div class="chain" id="chain"></div>
+  <div id="problem" class="problem" hidden><b id="p1"></b><span id="p2"></span></div>
+</section>
+
+<section class="card">
+  <h2><span class="grow">MIDI monitor</span>
+    <label class="chk"><input type="checkbox" id="hideclock" checked>hide clock</label>
+    <button id="pause">Pause</button><button id="clear">Clear</button></h2>
+  <div class="mon" id="mon"></div>
+  <p class="note"><span class="src">›</span> sent to the FM-1 · <span class="drop">s</span> blocked (system/SysEx) ·
+    <span class="fail">!</span> send failed · <span class="fm1">FM-1</span> sent by the FM-1 itself. Read-only: the page can't send MIDI.</p>
+</section>
+
+<section class="card">
+  <h2>Settings</h2>
+  <div class="row"><label>Text size</label><div class="seg" data-key="text_size"><button>S</button><button>M</button><button>L</button></div></div>
+  <div class="row"><label>Typeface</label><div class="seg" data-key="typeface"><button>Sans</button><button>Pixel</button></div></div>
+  <div class="row"><label>Wi-Fi</label><div class="seg" data-key="wifi"><button>Off</button><button>On</button></div>
+    <span class="note">Off closes this page; turn it back on from the hub's settings screen.</span></div>
+  <div id="pairbox">
+    <p class="note">Changing settings needs this browser paired with the hub.</p>
+    <div class="pair">
+      <button class="primary" id="pairstart">Pair this browser</button>
+      <span id="pinrow" hidden><input id="pin" inputmode="numeric" maxlength="6" placeholder="PIN" autocomplete="one-time-code"> <button id="pairsend">Pair</button></span>
+      <span id="pairmsg" class="note"></span>
+    </div>
+  </div>
+</section>
+
+<section class="card">
+  <h2>Network</h2>
+  <div class="detail" id="net">–</div>
+  <div class="row"><button id="forget" disabled>Forget this network</button><span class="note">Reopens the setup hotspot <code>fm1hub-setup</code>.</span></div>
+</section>
+</main>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const LEVEL = ["var(--grey)", "var(--green)", "var(--orange)", "var(--red)"];
+const NODES = ["Power", "Hub", "Controller", "Router", "FM-1"];
+const TITLE = ["var(--text)", "var(--text)", "var(--yellow)", "var(--text)", "var(--magenta)"];
+let token = "";
+try { token = localStorage.getItem("fm1hub-token") || ""; } catch (e) {}
+let status = null, paused = false, tags = {};
+
+// ---------- chain ----------
+const chain = $("chain");
+const nodes = NODES.map((name, i) => {
+  const el = document.createElement("div");
+  el.className = "node";
+  el.innerHTML = `<div class="rail"><div class="dot"></div><div class="spine"></div></div>
+    <div class="body"><div class="title" style="color:${TITLE[i]}">${name}</div><div class="lines"></div></div>`;
+  chain.appendChild(el);
+  return { dot: el.querySelector(".dot"), spine: el.querySelector(".spine"), title: el.querySelector(".title"), lines: el.querySelector(".lines") };
+});
+function lines(node, items) {
+  node.lines.replaceChildren(...items.map(([text, cls, dotColour]) => {
+    const d = document.createElement("div");
+    d.className = "detail" + (cls ? " " + cls : "");
+    if (dotColour) {
+      d.classList.add("ctl");
+      const dot = document.createElement("span");
+      dot.className = "dot"; dot.style.background = dotColour;
+      d.append(dot, document.createTextNode(text));
+    } else d.textContent = text;
+    return d;
+  }));
+}
+function renderStatus(s) {
+  status = s;
+  s.chain.forEach((lvl, i) => {
+    nodes[i].dot.style.background = LEVEL[lvl];
+    nodes[i].spine.style.background = i + 1 < s.first_broken ? "#1d6b2c" : "var(--grey)";
+  });
+  lines(nodes[0], [["USB-C 5V"]]);
+  lines(nodes[1], [[s.hub]]);
+  nodes[2].title.textContent = s.controllers.length > 1 ? `Controllers (${s.controllers.length})` : "Controller";
+  lines(nodes[2], s.controllers.length ? s.controllers.map(c =>
+    [`${c.tag}  ${c.detail}`, !c.open ? "" : c.fresh ? "fresh" : "", c.open ? "var(--green)" : "var(--red)"]) : [["none"]]);
+  lines(nodes[3], [[`${s.sent} passed  ${s.blocked} SysEx blocked`]]);
+  const fm1 = [[s.fm1_in, s.fm1_in_fresh ? "fresh" : ""]];
+  if (s.fm1_own && !s.problem) fm1.push([s.fm1_own]);
+  lines(nodes[4], fm1);
+  $("usb").textContent = `USB ${s.usb}/8`;
+  $("usb").className = "pill" + (s.usb >= 8 ? " warn" : "");
+  $("problem").hidden = !s.problem;
+  if (s.problem) { $("p1").textContent = s.problem[0]; $("p2").textContent = s.problem[1]; }
+  tags = {};
+  s.devices.forEach(d => tags[d.addr] = d.role === "target" ? "FM-1" : d.tag);
+  for (const seg of document.querySelectorAll(".seg"))
+    [...seg.children].forEach((b, i) => b.classList.toggle("sel", s.settings[seg.dataset.key] === i));
+  const n = s.net;
+  $("net").textContent = n.state === "online" ? `fm1hub.local · ${n.ip} · ${n.ssid} (${n.rssi} dBm)` + (n.setup ? " · setup hotspot open" : "") : n.state;
+}
+
+// ---------- MIDI monitor ----------
+const NOTE = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+function describe(st, d1, d2) {
+  const ch = (st & 15) + 1, hi = st & 0xF0;
+  const note = n => NOTE[n % 12] + (Math.floor(n / 12) - 1);
+  switch (hi) {
+    case 0x80: return `ch${ch} note off ${note(d1)}`;
+    case 0x90: return d2 ? `ch${ch} note on  ${note(d1)} v${d2}` : `ch${ch} note off ${note(d1)}`;
+    case 0xA0: return `ch${ch} poly AT ${note(d1)} ${d2}`;
+    case 0xB0: return `ch${ch} CC${d1} = ${d2}`;
+    case 0xC0: return `ch${ch} program ${d1}`;
+    case 0xD0: return `ch${ch} aftertouch ${d1}`;
+    case 0xE0: return `ch${ch} pitch ${((d2 << 7) | d1) - 8192}`;
+  }
+  const sys = { 0xF0: "SysEx", 0xF8: "clock", 0xFA: "start", 0xFB: "continue", 0xFC: "stop", 0xFE: "active sensing", 0xFF: "reset" };
+  return sys[st] || "0x" + st.toString(16);
+}
+const mon = $("mon");
+function addEvents(ev) {
+  if (paused) return;
+  const hide = $("hideclock").checked;
+  const atBottom = mon.scrollTop + mon.clientHeight >= mon.scrollHeight - 4;
+  const frag = document.createDocumentFragment();
+  for (const [t, addr, mark, st, d1, d2] of ev) {
+    if (hide && (st === 0xF8 || st === 0xFE)) continue;
+    const row = document.createElement("div");
+    const src = tags[addr] || `#${addr}`;
+    const fromFm1 = src === "FM-1";
+    const markCls = mark === ">" ? "src" : mark === "!" ? "fail" : mark === " " ? "" : "drop";
+    row.innerHTML = `<span class="t"></span> <span class="${fromFm1 ? "fm1" : "src"}"></span> <span class="${markCls}"></span> <span></span>`;
+    const s = row.children;
+    s[0].textContent = (t / 1000).toFixed(3).padStart(9);
+    s[1].textContent = src.padEnd(4);
+    s[2].textContent = mark === ">" ? "›" : mark;
+    s[3].textContent = describe(st, d1, d2);
+    frag.appendChild(row);
+  }
+  mon.appendChild(frag);
+  while (mon.childElementCount > 400) mon.firstChild.remove();
+  if (atBottom) mon.scrollTop = mon.scrollHeight;
+}
+$("pause").onclick = () => { paused = !paused; $("pause").textContent = paused ? "Resume" : "Pause"; };
+$("clear").onclick = () => mon.replaceChildren();
+
+// ---------- live connection ----------
+function connect() {
+  const ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.onopen = () => { $("live").textContent = "live"; $("live").className = "pill on"; };
+  ws.onmessage = e => {
+    const m = JSON.parse(e.data);
+    if (m.t === "status") renderStatus(m);
+    else if (m.t === "midi") addEvents(m.ev);
+  };
+  ws.onclose = () => { $("live").textContent = "reconnecting…"; $("live").className = "pill warn"; setTimeout(connect, 1500); };
+}
+fetch("/api/status").then(r => r.json()).then(renderStatus).catch(() => {});
+connect();
+
+// ---------- pairing and writes ----------
+function showPaired() {
+  $("pairstate").textContent = token ? "paired" : "not paired";
+  $("pairstate").className = "pill" + (token ? " on" : "");
+  $("pairbox").hidden = !!token;
+  for (const b of document.querySelectorAll(".seg button")) b.disabled = !token;
+  $("forget").disabled = !token;
+}
+async function post(url, body) {
+  const r = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json", "X-Fm1hub-Token": token }, body: JSON.stringify(body || {}) });
+  const j = await r.json().catch(() => ({}));
+  if (r.status === 401) { token = ""; try { localStorage.removeItem("fm1hub-token"); } catch (e) {} showPaired(); }
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+$("pairstart").onclick = async () => {
+  await post("/api/pair/start");
+  $("pinrow").hidden = false;
+  $("pairmsg").textContent = "Enter the PIN shown on the hub's screen.";
+  $("pin").value = ""; $("pin").focus();
+};
+$("pairsend").onclick = async () => {
+  try {
+    const j = await post("/api/pair", { pin: $("pin").value.replace(/\D/g, "") });
+    token = j.token;
+    try { localStorage.setItem("fm1hub-token", token); } catch (e) {}
+    $("pinrow").hidden = true; $("pairmsg").textContent = "";
+    showPaired();
+  } catch (e) { $("pairmsg").innerHTML = `<span class="err"></span>`; $("pairmsg").firstChild.textContent = e.message; }
+};
+$("pin").onkeydown = e => { if (e.key === "Enter") $("pairsend").click(); };
+for (const seg of document.querySelectorAll(".seg"))
+  [...seg.children].forEach((b, i) => b.onclick = async () => {
+    if (seg.dataset.key === "wifi" && i === 0 && !confirm("Turn Wi-Fi off? This page will disconnect.")) return;
+    try { await post("/api/settings", { [seg.dataset.key]: i }); } catch (e) { alert(e.message); }
+  });
+$("forget").onclick = async () => {
+  if (!confirm("Forget this Wi-Fi network? The hub opens its setup hotspot.")) return;
+  await post("/api/wifi/forget");
+};
+showPaired();
+</script>
+</body>
+</html>

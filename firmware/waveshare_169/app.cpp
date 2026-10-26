@@ -7,7 +7,8 @@
 // FM-1 into its ROM bootloader or a firmware installer.
 //
 // This file gathers what the host knows into a UiFrame; host_ui (LVGL) draws
-// it and runs the settings page. Board specifics live in board_*.cpp.
+// it and runs the settings page, and web.cpp serves the same frame to the web
+// page at http://fm1hub.local. Board specifics live in board_*.cpp.
 //
 // Because the USB port is the host, the Mac loses this board's serial port
 // once the sketch runs. To reflash, hold BOOT, tap RST, release BOOT.
@@ -16,10 +17,12 @@
 #include <EspUsbHost.h>
 #include <Preferences.h>
 
+#include "bench.h"
 #include "board_profile.h"
 #include "host_ui.h"
 #include "midi_core.h"
 #include "status.h"
+#include "web.h"
 
 extern const BoardProfile kBoard;
 
@@ -69,10 +72,12 @@ static void on_disconnected(const EspUsbHostDeviceInfo &d) {
 }
 
 static void on_midi(const EspUsbHostMidiMessage &m) {
+  const int64_t arrived_us = esp_timer_get_time();
   // Code index 0 and 1 are reserved: padding and cable events, not MIDI.
   if (m.codeIndex <= 1) return;
 
   const bool from_target = router.is_target(m.address);
+  if (!from_target) bench_midi_in(arrived_us, m.status, m.data2);
   char mark = ' ';
   if (!from_target) {
     uint8_t packet[4];
@@ -81,7 +86,10 @@ static void on_midi(const EspUsbHostMidiMessage &m) {
         router.route(m.address, m.cable, m.codeIndex, m.status, m.data1, m.data2, packet, &why);
     // midiSend() only submits the transfer, so it is safe on the USB task.
     mark = dest == 0 ? why : usb.midiSend(packet, sizeof packet, dest) ? '>' : '!';
+    if (mark == '>') bench_forwarded(arrived_us);
+    else if (mark == '!') bench_send_failed();
   }
+  web_monitor({static_cast<uint32_t>(arrived_us / 1000), m.address, mark, m.status, m.data1, m.data2});
   LastMessage msg{};
   midi_core::format_message(m.status, m.data1, m.data2, m.raw, m.length, msg.text);
   msg.mark = mark;
@@ -235,15 +243,24 @@ static void build_frame(UiFrame &f) {
   if (have_target) snprintf(f.fm1_own, sizeof f.fm1_own, "itself sent: %s", own.at_ms ? own.text : "-");
 }
 
-static void save_settings(const UiSettings &s) {
+static void store_settings(const UiSettings &s) {
   prefs.putUChar("text_size", s.text_size);
   prefs.putUChar("typeface", s.typeface);
+  prefs.putUChar("wifi", s.wifi);
+}
+
+// The settings page changed them.
+static void save_settings(const UiSettings &s) {
+  store_settings(s);
+  web_settings_changed(s);
 }
 
 void setup() {
   prefs.begin("ui", false);
-  const UiSettings settings = {prefs.getUChar("text_size", 1), prefs.getUChar("typeface", 0)};
+  const UiSettings settings = {prefs.getUChar("text_size", 1), prefs.getUChar("typeface", 0), prefs.getUChar("wifi", 1)};
   ui_begin(kBoard, settings, save_settings);
+  bench_begin();
+  web_begin(settings);
 
   usb.onDeviceConnected(on_connected);
   usb.onDeviceDisconnected(on_disconnected);
@@ -259,6 +276,13 @@ void loop() {
     last_poll = now;
     poll_hub_ports();
   }
+  UiSettings from_web;
+  if (web_take_settings(from_web)) {
+    ui_set_settings(from_web);
+    store_settings(from_web);
+  }
+  web_loop(now);
+  bench_loop(now);
   uint32_t c;
   taskENTER_CRITICAL(&shared_lock);
   c = changes;
@@ -269,6 +293,7 @@ void loop() {
     framed_changes = c;
     last_frame = now;
     build_frame(frame);
+    web_frame(frame);
     ui_update(frame);
   }
   ui_tick();

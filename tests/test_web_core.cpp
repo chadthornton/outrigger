@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "bench_stats.h"
+#include "json_field.h"
 #include "monitor_ring.h"
 #include "pairing.h"
 #include "request_guard.h"
@@ -170,7 +171,32 @@ static void test_ring() {
   EXPECT(n == 3 && out.data1 == 3, "drains the rest in order");
 }
 
+// ---------- json_field ----------
+static void test_json() {
+  const char *body = "{\"ssid\": \"Home \\\"5G\\\"\", \"pass\":\"a\\\\b\", \"text_size\": 2, \"neg\":-3, \"pin\":\"012345\"}";
+  char out[32];
+  long v = 0;
+  EXPECT(json_string(body, "ssid", out, sizeof out) && strcmp(out, "Home \"5G\"") == 0, "string with escaped quotes");
+  EXPECT(json_string(body, "pass", out, sizeof out) && strcmp(out, "a\\b") == 0, "escaped backslash");
+  EXPECT(json_string(body, "pin", out, sizeof out) && strcmp(out, "012345") == 0, "digits stay a string");
+  EXPECT(json_int(body, "text_size", &v) && v == 2, "int");
+  EXPECT(json_int(body, "neg", &v) && v == -3, "negative int");
+  EXPECT(!json_int(body, "ssid", &v), "string is not an int");
+  EXPECT(!json_string(body, "missing", out, sizeof out), "missing key");
+  EXPECT(!json_string(body, "size", out, sizeof out), "key must match whole (text_size is not size)");
+  char tiny[4];
+  EXPECT(!json_string(body, "ssid", tiny, sizeof tiny), "too long for buffer refused");
+  EXPECT(!json_string(nullptr, "ssid", out, sizeof out), "null body");
+
+  char esc[32];
+  json_escape("a\"b\\c\n", esc, sizeof esc);
+  EXPECT(strcmp(esc, "a\\\"b\\\\c\\u000a") == 0, "escape quote, backslash, control");
+  json_escape("abcdefghij", esc, 6);
+  EXPECT(strcmp(esc, "abcde") == 0, "escape truncates to fit");
+}
+
 int main() {
+  test_json();
   test_summary();
   test_jitter();
   test_sample_set();
