@@ -87,4 +87,23 @@ MIDI to anything (no `midiSend` call in the sketch).
 
 ## Measurements
 
-Pending.
+### 1. Hub + FM-1 + Launchkey (2026-10-26, photo of the spike screen)
+
+```
+AUDIO SPIKE  ch 8/8
+05E3:0610 ch2 -      USB2.1 Hub
+1209:0001 ch3 CC-F-- Felucca
+1235:0142 ch3 CCFF   Launchkey
+FM-1 bcd 0329  Felucca
+no audio streams
+```
+
+- `bcdDevice 0x0329` confirms the unit's Skiff build has the audio input (UAC + 48 kHz + AS-first + CDC, per
+  Skiff's `BCD_LO`).
+- The FM-1's interface entries read `C C - F - -`: audio control and MIDI claimed, the audio streaming alt 1
+  **tried and failed**, the CDC pair skipped (claiming disabled). Its audio pipe never opened, so it costs 3
+  channels here and the library lists no audio streams.
+- **This settles the README's 8/8 anomaly:** with the Launchkey in, the channels ran out and the FM-1's audio
+  claim failed silently. The rig only worked because the audio pipe was the one that lost.
+- The Launchkey also shows two failed claims, but it holds 3 channels (EP0 + MIDI in/out), as before.
+- The spike firmware does no routing, so the Launchkey cannot play the FM-1 while it runs.
