@@ -240,3 +240,55 @@ WAV header for N seconds followed by the audio from the moment of the request. T
 - **Faster transports, if needed:** UDP with sequence numbers and a small Mac receiver (no window); an ESP-IDF
   build with larger lwIP buffers; or compressing on the board (IMA ADPCM, 4:1, lossy).
 - **Clock:** the FM-1 runs about 400 ppm fast; a recorder can ignore it, a live player must resample.
+
+## Follow-up work (Chad, 2026-10-26: "come back and do lots of improvements")
+
+The spike proved capture and download work. None of it is product quality yet. Grouped by what Chad named.
+
+### Recording quality
+
+- **Prove the samples are bit-exact.** Today's checks (packet counts, `check_wav.py` clicks and zero runs, Chad
+  listening) can't prove nothing was altered. Skiff has a test-tone build (`FELUCCA_UAC_TONE=1`) and a checker
+  (`tools/uac_tone_check.py`) made for exactly this; run a take of that through the board and compare.
+- **Clock drift.** The FM-1 runs about 400 ppm fast against the ESP32's USB clock (44.12 frames per ms). The WAV
+  says 44100, so takes play about 0.04% slow and drift against a DAW's grid over long takes. Measure the real
+  rate per take and either write it into the header or resample.
+- **Levels.** Recording depends on FM-1 settings (USB LEVEL FIXED, SPEAKER EQ FLAT) that nothing checks. Show
+  peak/clip on the board's screen during a take, and guide the user to those settings.
+- **Start and end of a take.** Skiff sends silence until its buffer is primed, and takes start at the moment of
+  the request. Add arming with pre-roll from the ring (start on the first note) and trimming.
+- **Other firmware.** The spike asks for exactly 16-bit stereo 44.1 kHz. Let the library pick
+  (`audioInputStart(0, 0, 0)`) and write the negotiated format into the header, so stock V15 and other forks work.
+
+### Reliability
+
+- **FIFO split in real builds.** `{120, 48, 32}` must go into the Recorder build through the platform broker
+  (`docs/architecture.md` on `platform-architecture`). In the router build it would push hub + FM-1 + Launchkey to
+  9 channels, so it belongs to Record mode only.
+- **Channel budget for record-while-play:** needs the EspUsbHost claim-filter patch (FM-1 MIDI unclaimed, MIDI over
+  Bluetooth): 7 of 8.
+- **Untested paths:** `audioInputStop()`/restart, unplugging the FM-1 mid-take, a USB stick (MSC), hours-long soak
+  runs, and capture alongside the real LVGL UI (the spike drew with plain GFX).
+- **Takes are capped at 35 s** (the 6 MB PSRAM take buffer) until the download outruns the audio or a stick is
+  used. A long or continuous mode also needs real overrun accounting: a blocked write longer than the buffer's
+  margin could overwrite unsent audio without being counted.
+- **Wi-Fi stalls** of up to 6.5 s and ping spread from 13 to 337 ms were seen; the take buffer absorbed them.
+- **Over-the-air updates:** images aren't signed, there is no rollback (mark-valid after boot), an upload takes
+  88 s, and the key sits in a `spike` NVS namespace that the architecture doesn't reserve (use `recorder`).
+
+### Download experience
+
+- **Speed:** TCP carries about 64 kB/s against 176.4 kB/s, so a 30 s take takes 83 s to download. First confirm
+  the cause (a UDP flood test; suspected lwIP's 5744-byte send buffer). Then pick a fix:
+  - UDP with sequence numbers, plus a small Mac receiver.
+  - An ESP-IDF build with larger lwIP buffers.
+  - Compression on the board. IMA ADPCM is 4:1 and lossy, but fits. FLAC is lossless, but about 50–60% size
+    likely still exceeds 64 kB/s.
+- **Record/stop instead of a fixed length.** Today the length is set up front in the URL. Add Record and Stop
+  (screen or web page), a list of finished takes with timestamps, and a download button with progress, so it
+  works in a browser without `curl`.
+- **One web server.** Fold this into the web-UI spike's page and setup flow (`spike/web-ui`, `huge_app` partition),
+  not a second server.
+- **Name resolution:** `fm1audio.local` didn't resolve from the Mac while testing; the IP worked. Reuse web-UI's
+  mDNS fixes.
+- **Live listening** is a separate feature: it needs a jitter buffer and resampling for the 400 ppm drift.
