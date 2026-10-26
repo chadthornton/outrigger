@@ -207,7 +207,7 @@ An update is a firmware switch where the identity stays the same:
 
 ### Library housekeeping
 
-- **Space:** the library partition holds about 10 packages under layout (a), or about 13 under (b) (decision 5).
+- **Space:** the shared store holds about 24 typical packages alongside backups and saves (decision 5).
 - **Pinning:** keep favorites, and whatever is installed on a unit, permanently.
 - **Previous versions:** keep one previous version per installed firmware for rollback.
 - **Eviction:** when space runs out, evict the least recently used unpinned package.
@@ -245,6 +245,37 @@ The Waveshare's firmware can also update itself over Wi-Fi from this repo's GitH
 slots (OTA) in the partition table. Changing the partition table later wipes the library and the backups, so it's
 decided up front (decision 5 below).
 
+## Storage, measured (2026-10-26)
+
+All 103 catalog packages (60 MB) were downloaded to the Mac, and each matched its catalog SHA-256. The app areas
+were then compared in 4 KiB sectors using `tools/catalog_dedupe.py`:
+- **Before sharing:** each app area is 143 sectors (0.56 MB). All 103 together are 57.3 MB of non-blank sectors.
+- **Shared code:** about 67 sectors are shared widely, the most common by 93 packages. Stored once, that brings the
+  total to **40.7 MB** (1.41×).
+- **Per package:** the median package needs 472 KB of its own.
+- **Compression:** packages are encrypted, so zlib only shrinks them to 0.96×.
+
+Packages that fit, picking firmwares at random (300 trials, median with 10th–90th percentile):
+
+| Library budget | Stored whole | With shared sectors |
+|---|---|---|
+| 6.4 MB | 11 | 15 (13–17) |
+| 8.4 MB | 15 | 20 (18–23) |
+| 10 MB | 17 | 24 (22–27) |
+
+**Design consequence: one content-addressed sector store** for packages, backups and saves. Each 4 KiB sector is
+stored once, under its hash, and each package, backup or save is a list of sector hashes.
+- **Backups get cheap:** a unit's app area is normally identical to a library package, so it costs nothing extra.
+  The factory voices may well be identical across units (to be checked on the two FM-1s). What's left per unit is
+  its settings, data and Bluetooth sectors.
+- **Self-update needs no second app slot:**
+  - A ~0.75 MB recovery app (Wi-Fi plus a flash copier, no screen library or USB host) stays fixed.
+  - The new main app downloads into the store as an ordinary object.
+  - On reboot, the recovery app copies it over the main app. If the copy is interrupted, the recovery app still
+    boots and retries.
+  - While downloading, it temporarily evicts a few unpinned, re-downloadable packages to make about 3 MB of room.
+- **Recovery app's own updates:** they need the Mac (rare, by design).
+
 ## Design
 
 | Part | Where | What |
@@ -253,7 +284,7 @@ decided up front (decision 5 below).
 | ROM-boot transport | firmware | The jl-uboot-tool command set (MIT, `jltech/uboot.py`) sent as raw SCSI commands through EspUsbHost's `mscCommand()`. That function is private today; the vendored copy gets a second one-line patch to make it public. |
 | Loader blob | device storage, **not in git** | `wl82loader.bin` is JieLi's, and its redistribution status is unclear. `make setup-loader` fetches it from jl-uboot-tool at the pinned commit, checks the SHA-256, and puts it in the storage image. |
 | Units and saves | backups partition | Per unit: name, baseline full backup (first sight, kept forever), latest full backup, and save states (non-blank sectors plus a manifest of unit ID, firmware identity, app hash, time and label). |
-| Storage | new partition table on the 16 MB flash | Three areas. A **library** partition holds packages and the loader blob, and is rebuilt from the Mac. A separate **backups** partition is never overwritten by library updates. `make pull-backups` reads it back to the Mac with `esptool read_flash` in download mode, so every backup also lives off-device. The partition change resets the NVS settings once. Sizes: about a 3 MB app slot, about 12 MB library, That holds the loader blob, about 15–18 packages (609–718 KB each, median 610 KB), and 1 MiB per backed-up unit. All 102 catalog packages would need about 62 MB, so v2 caches and fetches on demand. |
+| Storage (superseded by "Storage, measured") | new partition table on the 16 MB flash | Three areas. A **library** partition holds packages and the loader blob, and is rebuilt from the Mac. A separate **backups** partition is never overwritten by library updates. `make pull-backups` reads it back to the Mac with `esptool read_flash` in download mode, so every backup also lives off-device. The partition change resets the NVS settings once. Sizes: about a 3 MB app slot, about 12 MB library, That holds the loader blob, about 15–18 packages (609–718 KB each, median 610 KB), and 1 MiB per backed-up unit. All 102 catalog packages would need about 62 MB, so v2 caches and fetches on demand. |
 | UI | new "Firmware" page, reached from Settings | The FM-1's current identity and version, the stored packages, and the backups. Then a confirm screen, staged progress (Enter boot, Identify, Backup, Write N of M, Verify, Restart), and a result. |
 
 **Install state machine:**
@@ -366,14 +397,13 @@ package; Wi-Fi is set up from a phone.
 1. **Go-ahead** for this plan under the guarded rules.
 2. **v1 package source:** packages flashed from the Mac (recommended for v1), or straight to Wi-Fi.
 3. **First firmwares to stock:** for example stock V15, Skiff, SLOOP.
-5. **Partition layout, decided once.** Today only 4 MB of the 16 MB flash is mapped (the Arduino default): two
-   1.25 MB app slots, holding the 0.96 MB firmware plus an empty spare, and an unused 1.4 MB file area. Backups
-   and saves need about 4.5 MB for two units, each with a 1 MB first-sight backup, a 1 MB latest backup, and saves.
-   - **(a) Recommended:** two 2.5 MB app slots for the Waveshare's own OTA, and a library of about 6.4 MB (about
-     10 packages).
-   - **(b)** One 3 MB app slot and a library of about 8.4 MB (about 13 packages). With (b), the Waveshare's own
-     updates need the Mac.
-   - **For scale:** the whole catalog is about 62 MB, so the library is a cache either way.
+5. **Partition layout, decided once.**
+   - **Recommended:** map all 16 MB (today only 4 MB is mapped), as:
+     - a ~0.75 MB recovery app;
+     - one ~3 MB main app;
+     - one ~12 MB shared sector store holding the library, backups and saves.
+   - **Room:** about 24 packages, plus backups and saves for two FM-1s, plus self-updates. That replaces the earlier
+     (a) "about 10" and (b) "about 13". See "Storage, measured" below.
 4. **Loader blob:** OK to keep `wl82loader.bin` on the Waveshare's storage, fetched by `make setup-loader` and never
    committed. It sits in jl-uboot-tool, whose repo is MIT-licensed, but the blob is probably JieLi's own code, so
    treat its license as unclear.
