@@ -50,14 +50,43 @@ static void set_device_lines(const char *a, const char *b) {
   taskEXIT_CRITICAL(&shared_lock);
 }
 
-static void on_connected(const EspUsbHostDeviceInfo &d) {
-  char ids[midi_core::kLineLen];
-  snprintf(ids, sizeof ids, "%04X:%04X p%02X", d.vid, d.pid, d.portId);
-  set_device_lines(d.product[0] ? d.product : "(no name)", ids);
+static int device_count = 0;
+
+// Hubs seen so far, polled from loop() so the screen shows what each hub port
+// is doing. Written by the USB task, read by loop().
+constexpr int kMaxHubs = 2;
+static volatile uint8_t hub_addresses[kMaxHubs] = {};
+
+// Connects and disconnects also go into the scrolling log, so every device on
+// a hub shows up, not just the most recent one.
+static void push_log(const char *line) {
+  taskENTER_CRITICAL(&shared_lock);
+  midi_log.push(line);
+  taskEXIT_CRITICAL(&shared_lock);
 }
 
-static void on_disconnected(const EspUsbHostDeviceInfo &) {
-  set_device_lines("Disconnected", "");
+static void on_connected(const EspUsbHostDeviceInfo &d) {
+  char ids[midi_core::kLineLen];
+  snprintf(ids, sizeof ids, "+%04X:%04X p%02X", d.vid, d.pid, d.portId);
+  push_log(ids);
+  if (d.isHub) {
+    for (int i = 0; i < kMaxHubs; ++i)
+      if (hub_addresses[i] == 0) { hub_addresses[i] = d.address; break; }
+  }
+  char count[midi_core::kLineLen];
+  snprintf(count, sizeof count, "%d USB device(s)", ++device_count);
+  set_device_lines(d.product[0] ? d.product : "(no name)", count);
+}
+
+static void on_disconnected(const EspUsbHostDeviceInfo &d) {
+  char ids[midi_core::kLineLen];
+  snprintf(ids, sizeof ids, "-%04X:%04X p%02X", d.vid, d.pid, d.portId);
+  push_log(ids);
+  for (int i = 0; i < kMaxHubs; ++i)
+    if (hub_addresses[i] == d.address) hub_addresses[i] = 0;
+  char count[midi_core::kLineLen];
+  snprintf(count, sizeof count, "%d USB device(s)", --device_count);
+  set_device_lines("Disconnected", count);
 }
 
 static void on_midi(const EspUsbHostMidiMessage &m) {
@@ -100,7 +129,36 @@ void setup() {
   set_device_lines("No USB device", "");
 }
 
+// One character per hub port: '.' unpowered, 'p' powered and empty,
+// 'C' device connected, 'E' connected and enabled by the hub.
+static void draw_hub_status() {
+  char line[midi_core::kLineLen] = "";
+  size_t pos = 0;
+  for (int i = 0; i < kMaxHubs; ++i) {
+    const uint8_t addr = hub_addresses[i];
+    if (addr == 0) continue;
+    pos += snprintf(line + pos, sizeof line - pos, "h%u:", addr);
+    for (uint8_t port = 1; port <= 4 && pos + 2 < sizeof line; ++port) {
+      uint16_t status = 0, change = 0;
+      char c = '?';
+      if (usb.getHubPortStatus(addr, port, status, change))
+        c = (status & 0x0002) ? 'E' : (status & 0x0001) ? 'C' : (status & 0x0100) ? 'p' : '.';
+      line[pos++] = c;
+    }
+    line[pos++] = ' ';
+    line[pos] = '\0';
+  }
+  if (pos == 0) snprintf(line, sizeof line, "%s", usb.lastErrorName());
+  draw_row(0, line, RGB565_CYAN);
+}
+
 void loop() {
+  static uint32_t last_hub_poll = 0;
+  if (millis() - last_hub_poll > 2000) {
+    last_hub_poll = millis();
+    draw_hub_status();
+  }
+
   static uint32_t drawn_device_changes = UINT32_MAX;
   static uint32_t drawn_total = UINT32_MAX;
 
