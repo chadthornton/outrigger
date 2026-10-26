@@ -1,6 +1,29 @@
 # Plan: on-device FM-1 firmware loader (guarded)
 
-Status: **draft for Chad's go-ahead**, 2026-10-26. Nothing below is built yet.
+Status: **approved by Chad, 2026-10-26** ("let's proceed"). Nothing below is built yet. Decisions:
+- **Save states:** the defaults (decision 0).
+- **v1 packages:** from the Mac.
+- **First firmwares:** stock V15, Skiff, SLOOP.
+- **Loader blob:** `wl82loader.bin` is fetched at setup and kept on device storage, never committed.
+- **Storage layout:** the measured one (decision 5): one shared sector store plus a recovery app for self-updates.
+  The storage back end stays abstract, so a microSD card (the 1.47" Waveshare has a TF slot) can replace internal
+  flash in session 2 without touching the core.
+
+**Next: session 1, Mac only, no hardware.** Build `lib/fm1_loader/` test-first:
+- `.fwsc` and UFW parsing;
+- the flash-layout address guard;
+- the sector-diff planner;
+- the shared sector store model;
+- units and save states;
+- the install state machine with its resume entry, against a mock ROM device.
+
+The state machine's output must match golden command vectors generated from the proven Python, Quixotic7's
+Unbricker and jl-uboot-tool. Then `code-review` at high effort.
+
+**Measurement for later:** packages are encrypted with a scramble that depends on flash address, so identical code
+at a shifted address shows up as different bytes. Decrypting before sharing sectors and compressing may save far
+more than the 1.41× measured on the encrypted bytes. Measure it with `tools/catalog_dedupe.py` after decryption is
+ported.
 
 ## Goal
 
