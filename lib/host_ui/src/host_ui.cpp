@@ -113,6 +113,17 @@ static lv_obj_t *box(lv_obj_t *parent) {
   return o;
 }
 
+// Pages are laid out to fit, so normally nothing scrolls, and LVGL starts a
+// scroll only when there is somewhere to scroll to: a drifting finger can't
+// eat a tap. If a page ever does overflow (a long loader line, a bigger
+// font), it scrolls rather than hiding what's below. No springy overscroll,
+// and the bar shows only while scrolling.
+static void scroll_only_if_needed(lv_obj_t *page) {
+  lv_obj_set_scroll_dir(page, LV_DIR_VER);
+  lv_obj_remove_flag(page, LV_OBJ_FLAG_SCROLL_ELASTIC);
+  lv_obj_set_scrollbar_mode(page, LV_SCROLLBAR_MODE_ACTIVE);
+}
+
 static lv_obj_t *label(lv_obj_t *parent, lv_style_t *style, uint32_t colour) {
   lv_obj_t *l = lv_label_create(parent);
   lv_obj_add_style(l, style, 0);
@@ -285,8 +296,8 @@ static void build_chain_screen() {
 }
 
 // ---------- Settings screen ----------
-// Everything here must fit without scrolling: on a scrollable page a finger
-// that drifts a few pixels starts a scroll and the tap is lost.
+// Everything here is sized to fit: while a page fits, no scroll can start,
+// so a finger that drifts a few pixels still taps (see scroll_only_if_needed).
 static constexpr int kButtonH = 44;
 static void disarm_computer(lv_timer_t *);
 
@@ -365,7 +376,7 @@ static lv_obj_t *wide_button(lv_obj_t *parent, const char *text, lv_event_cb_t o
 static void build_settings_screen() {
   settings_screen = lv_obj_create(nullptr);
   lv_obj_set_style_bg_color(settings_screen, c(0x000000), 0);
-  lv_obj_remove_flag(settings_screen, LV_OBJ_FLAG_SCROLLABLE);
+  scroll_only_if_needed(settings_screen);
   int side, top;
   safe_padding(&side, &top);
   lv_obj_set_style_pad_hor(settings_screen, side, 0);
@@ -455,7 +466,7 @@ static void close_firmware(lv_event_t *) { lv_screen_load(settings_screen); }
 static void build_firmware_screen() {
   firmware_screen = lv_obj_create(nullptr);
   lv_obj_set_style_bg_color(firmware_screen, c(0x000000), 0);
-  lv_obj_remove_flag(firmware_screen, LV_OBJ_FLAG_SCROLLABLE);  // drift would cancel the hold
+  scroll_only_if_needed(firmware_screen);
   int side, top;
   safe_padding(&side, &top);
   lv_obj_set_style_pad_hor(firmware_screen, side, 0);
@@ -536,7 +547,7 @@ static void back_to_host_tapped(lv_event_t *) {
 static lv_obj_t *build_computer_screen(const char *info) {
   lv_obj_t *scr = lv_obj_create(nullptr);
   lv_obj_set_style_bg_color(scr, c(0x000000), 0);
-  lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+  scroll_only_if_needed(scr);
   int side, top;
   safe_padding(&side, &top);
   lv_obj_set_style_pad_hor(scr, side, 0);
