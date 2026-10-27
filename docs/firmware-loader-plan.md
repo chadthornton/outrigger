@@ -39,9 +39,76 @@ What session 1 settled or changed:
 - **Resume** reads the unit's sector, requires its stored verified backup and an unfinished install recorded before
   the first erase, then reads the flash once and finishes that install. It never resets the FM-1 on a failure.
 
-**Next: session 2.** The ROM-boot transport over EspUsbHost's `mscCommand()` (made public in the vendored copy),
-a LittleFS (or microSD) back end for `Storage`, the loader blob on device storage, then hardware checkpoint 1
-(read-only) with Chad.
+**Session 2 (approved by Chad 2026-10-27: "start loader session 2 … ROM-boot transport, on-device storage,
+checkpoint 1 read-only").** Branch `loader-session2`. Nothing is written to the FM-1 in this session.
+
+1. **Partition table (decision 5, exact numbers).** One table for every app set, in `firmware/waveshare_169/partitions.csv`:
+
+   | Name | Type | Offset | Size | Why |
+   |---|---|---|---|---|
+   | `nvs` | data/nvs | `0x9000` | `0x5000` | unchanged, so settings survive |
+   | `otadata` | data/ota | `0xE000` | `0x2000` | unchanged; the installer's `boot_app0` lands here |
+   | `app0` | app/ota_0 | `0x10000` | `0x300000` (3 MB) | the main app, at the address every installer writes |
+   | `recovery` | app/ota_1 | `0x310000` | `0xC0000` (768 KB) | reserved for the recovery app; empty for now |
+   | `store` | data/littlefs | `0x3D0000` | `0xC20000` (12.1 MB) | the shared sector store |
+   | `coredump` | data/coredump | `0xFF0000` | `0x10000` | as before |
+
+   - **What changes on the board:** today's table (Arduino `default.csv`) has the same `nvs` and `otadata`, so the
+     settings survive. The old 1.25 MB `app1`, `spiffs` and `coredump` bytes now lie inside `store`.
+   - **Never auto-formatted:** `store` is mounted with format-on-fail off. An unreadable store says so on screen.
+   - **Size limit:** the build's `upload.maximum_size` becomes the 3 MB slot. `build_site.py`'s guard still holds.
+   - **A test:** the built table must keep these invariants.
+2. **Storage back end.** `PosixStorage` (in `lib/fm1_loader`):
+   - **How it works:** keys are paths under a root directory. Each write goes to a temp file, is fsync'd, then
+     renamed over the old one, so a torn write is never visible. On the device the root is LittleFS mounted at
+     `/store` through the VFS. On the Mac it's a temp directory, so the same code is tested.
+   - **Tests:** the library suite runs against both `MemoryStorage` and `PosixStorage`.
+   - **File names:** LittleFS names are at most 64 characters per path component, so a sector lives at
+     `s/<2 hex>/<62 hex>`.
+3. **Transport.**
+   - **A new raw command:** the vendored EspUsbHost gets a public `mscRawCommand(address, cdb, …)`. It makes no
+     LUN, inquiry or capacity calls, always reads the status (CSW), and returns the bytes actually received.
+   - **Recovery:** on failure it clears halted pipes only. It never sends a mass-storage reset or REQUEST SENSE,
+     which the JieLi ROM has never been shown to handle.
+   - **On attach:** EspUsbHost sends nothing beyond enumeration; every mass-storage command is on demand.
+   - **Where it runs:** a loader task, because the library refuses mass-storage calls from its own USB task, and
+     LVGL may only run in `loop()`.
+4. **Key entry, ported from the Unbricker's `softkey`:**
+   - **Identity first:** the identity query `F0 00 32 45 00 00 00 40 7F F7`, up to 3 tries with 1 s each.
+   - **Refused:** no answer, an `ota-…` identity, or anything that isn't `FM-1_NNN`.
+   - **The key:** one 8-byte USB transfer `04 F0 22 24 07 35 7D F7`, sent 3 times 20 ms apart.
+   - **Then:** wait up to 15 s for `4C4A:8057`.
+   - **Who may send it:** only the Loader, in Load mode, when the broker says it owns the FM-1's MIDI.
+5. **Read-only lock.** `RomClient` refuses erase and write unless the build defines `FM1_LOADER_WRITES=1`.
+   - **Where it's on:** only in the Mac tests. Every firmware build is locked until checkpoint 3.
+   - **Proof:** a locked test binary runs a whole install against the mock and checks that no `FB01`/`FB04` is
+     ever sent.
+   - **ROM boot at power-on:** a locked build that finds an FM-1 already in ROM boot shows it and offers a reset,
+     never a resume.
+6. **"Back up this FM-1"** (`Installer::start_backup`). The steps: confirm, key, identify, loader, IDs, the double
+   read, then record the backup and the autosave and reset the FM-1. It has its own golden scenario. Checkpoint 1
+   runs this, and it's also the plan's "Save now".
+7. **Firmware page (hub-loader build).**
+   - **Reached from:** Settings.
+   - **Shows:** the store's state, whether the loader blob checks out, the units, a "Back up FM-1" hold, progress,
+     and the result.
+   - **Hashes:** the result shows the hashes of the boot head and of `0xE9000–0xFBFFF` against the 2026-10-25 dump.
+   - **Mode switching:** entering Load mode restarts the USB host (`usb.end()`/`begin()`, or `esp_restart()` if
+     devices don't re-enumerate). Leaving it does the same.
+8. **Getting the blob onto the board.**
+   - **`make store-image`:** builds a LittleFS image of the `store` partition on the Mac with the loader blob in it.
+     It's gitignored and never staged by `make site` or CI.
+   - **`make flash-store CONFIRM=erase-store`:** flashes that image. It's for first setup only, because it erases
+     every backup in the store.
+9. **Checkpoint 1.**
+   - **Dry run first, no FM-1:** the store mounts, the blob checks out, Load mode times out cleanly, and Play comes
+     back at 8/8.
+   - **Then with Chad, read-only:** back up the FM-1 on the hub. Pass when the boot head and `0xE9000–0xFBFFF` match
+     the 2026-10-25 dump, if it's the same unit.
+   - **It answers the open questions** listed under "On hardware".
+10. **Merge:** the README gate, plus `code-review` at high effort (partition table and stored data).
+
+The firmware browser and the web install page with laptop backups follow in their own session, after this merges.
 
 **Measurement for later:** packages are encrypted with a scramble that depends on flash address, so identical code
 at a shifted address shows up as different bytes. Decrypting before sharing sectors and compressing may save far
