@@ -38,6 +38,8 @@ make build     # compile one board x app set: BOARD=waveshare_169 (default) APPS
 make build-all # every board x app set, into build/<board>/<app set>/
 make flash     # flash BOARD/APPS; PORT=/dev/cu.usbmodemXXXX to pick the port
 make serve     # web installer on http://localhost:8088
+make store-image                    # the store partition's first setup (LittleFS image with the loader blob, in build/)
+make flash-store CONFIRM=erase-store  # flash it; ERASES every backup in the store
 ```
 
 Toolchain: `arduino-cli` (Homebrew), ESP32 core 3.3.12, GFX Library for Arduino 1.6.9 (display driver), LVGL 9.6.0

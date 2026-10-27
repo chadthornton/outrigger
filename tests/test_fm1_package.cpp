@@ -21,7 +21,7 @@ static std::string sha_hex(const std::string &s) {
 static std::map<std::string, std::string> crypto_golden() {
   std::map<std::string, std::string> out;
   for (const std::string &line : lines_of(read_text("tests/golden/crypto.txt"))) {
-    size_t a = line.find(' '), b = line.find(' ', a + 1);
+    size_t b = line.rfind(' ');
     out[line.substr(0, b)] = line.substr(b + 1);
   }
   return out;

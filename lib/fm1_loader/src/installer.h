@@ -63,6 +63,7 @@ enum class Failure {
   NothingToResume,     // resume: this unit has no unfinished install
   WriteVerifyFailed,   // a sector read back wrong twice
   MidiNotBack,         // flash verified, but the FM-1 didn't come back as MIDI
+  WritesLocked,        // this build can't write the FM-1 (FM1_LOADER_WRITES off)
 };
 const char *failure_text(Failure f);
 
@@ -82,6 +83,9 @@ class Installer {
 
   void start_install(const std::string &package_id, const InstallOptions &opts);
   void start_resume(const InstallOptions &opts = InstallOptions());
+  // "Back up this FM-1": identify, the double read, record the backup and the
+  // autosave, reset. Writes nothing to the FM-1, so it runs in locked builds.
+  void start_backup(const InstallOptions &opts);
   bool step();  // false once Done or Failed
   void run();
 
@@ -91,6 +95,7 @@ class Installer {
   // retry or restore backup" and the FM-1 stays in ROM boot.
   bool danger() const { return danger_; }
   const Unit &unit() const { return unit_; }
+  const std::string &backup_id() const { return backup_id_; }  // the backup this run recorded
   const DataDecision &decision() const { return decision_; }
   uint32_t sectors_done() const { return done_; }
   uint32_t sectors_total() const { return total_; }
@@ -117,6 +122,8 @@ class Installer {
   const std::vector<uint8_t> blob_;  // a copy: 24 KB, and no dangling reference
   InstallOptions opts_;
   bool resume_ = false;
+  bool backup_only_ = false;
+  std::string backup_id_;
   std::string package_id_;
 
   Step step_ = Step::Idle;

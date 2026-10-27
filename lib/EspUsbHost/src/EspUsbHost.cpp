@@ -7077,6 +7077,156 @@ bool EspUsbHost::mscCommand(DeviceState &device,
   return ok;
 }
 
+// usb-midi-host patch: see the declaration. Bulk-Only Transport framing as in
+// mscCommand(), with the recovery cut down to clearing halts.
+bool EspUsbHost::mscRawCommand(uint8_t address,
+                               const uint8_t *cdb,
+                               uint8_t cdbLength,
+                               uint8_t *data,
+                               size_t dataLength,
+                               bool dataIn,
+                               size_t &actual,
+                               uint32_t timeoutMs)
+{
+  actual = 0;
+  if (!cdb || cdbLength == 0 || cdbLength > 16 || (dataLength > 0 && !data))
+  {
+    return false;
+  }
+  if (xTaskGetCurrentTaskHandle() == clientTaskHandle_)
+  {
+    ESP_LOGW(TAG, "mscRawCommand cannot run from USB client task");
+    return false;
+  }
+  DeviceState *found = findMscDevice(address);
+  if (!found || address == ESP_USB_HOST_ANY_ADDRESS)
+  {
+    return false;
+  }
+  DeviceState &device = *found;
+
+  EspUsbHostSyncTransferContext context;
+  context.done = xSemaphoreCreateBinary();
+  if (!context.done)
+  {
+    setLastError(ESP_ERR_NO_MEM);
+    return false;
+  }
+
+  // One bulk transfer, waited for. False on a stall, error or timeout.
+  auto transfer = [&](uint8_t endpointAddress, const uint8_t *out, uint8_t *in, size_t length, size_t &moved) -> bool
+  {
+    moved = 0;
+    const bool isIn = (endpointAddress & USB_B_ENDPOINT_ADDRESS_EP_DIR_MASK) != 0;
+    size_t transferLength = length;
+    if (isIn && device.mscInPacketSize > 0)
+    {
+      transferLength = ((length + device.mscInPacketSize - 1) / device.mscInPacketSize) * device.mscInPacketSize;
+    }
+    usb_transfer_t *t = nullptr;
+    esp_err_t err = usb_host_transfer_alloc(transferLength > 0 ? transferLength : 1, 0, &t);
+    if (err != ESP_OK)
+    {
+      setLastError(err);
+      return false;
+    }
+    if (out && length > 0)
+    {
+      memcpy(t->data_buffer, out, length);
+    }
+    context.status = USB_TRANSFER_STATUS_ERROR;
+    context.actualLength = 0;
+    t->device_handle = device.handle;
+    t->bEndpointAddress = endpointAddress;
+    t->callback = syncTransferCallback;
+    t->context = &context;
+    t->num_bytes = transferLength;
+    if (isIn)
+    {
+      espUsbHostCacheSyncBeforeInTransfer(t);
+    }
+    err = usb_host_transfer_submit(t);
+    if (err != ESP_OK)
+    {
+      setLastError(err);
+      usb_host_transfer_free(t);
+      return false;
+    }
+    if (xSemaphoreTake(context.done, pdMS_TO_TICKS(timeoutMs)) != pdTRUE)
+    {
+      usb_host_endpoint_halt(device.handle, endpointAddress);
+      usb_host_endpoint_flush(device.handle, endpointAddress);
+      xSemaphoreTake(context.done, portMAX_DELAY);  // the flushed transfer's callback
+      usb_host_endpoint_clear(device.handle, endpointAddress);
+      usb_host_transfer_free(t);
+      setLastError(ESP_ERR_TIMEOUT);
+      return false;
+    }
+    moved = context.actualLength;
+    const bool ok = context.status == USB_TRANSFER_STATUS_COMPLETED;
+    if (ok && in && length > 0)
+    {
+      memcpy(in, t->data_buffer, moved < length ? moved : length);
+    }
+    usb_host_transfer_free(t);
+    return ok;
+  };
+
+  const uint32_t tag = device.mscTag++;
+  EspUsbHostMscCbw cbw = {};
+  cbw.signature = USB_MSC_CBW_SIGNATURE;
+  cbw.tag = tag;
+  cbw.dataTransferLength = dataLength;
+  cbw.flags = dataIn ? 0x80 : 0x00;
+  cbw.lun = 0;
+  cbw.commandBlockLength = cdbLength;
+  memcpy(cbw.commandBlock, cdb, cdbLength);
+
+  size_t moved = 0;
+  bool ok = transfer(device.mscOutEndpointAddress, reinterpret_cast<const uint8_t *>(&cbw), nullptr, sizeof(cbw), moved);
+  if (!ok)
+  {
+    mscClearEndpointHalt(device, device.mscOutEndpointAddress, timeoutMs);
+    vSemaphoreDelete(context.done);
+    return false;
+  }
+  if (dataLength > 0)
+  {
+    const uint8_t endpoint = dataIn ? device.mscInEndpointAddress : device.mscOutEndpointAddress;
+    if (!transfer(endpoint, dataIn ? nullptr : data, dataIn ? data : nullptr, dataLength, moved))
+    {
+      // A stalled data phase: clear it, then the CSW still follows (BOT 6.7).
+      mscClearEndpointHalt(device, endpoint, timeoutMs);
+    }
+    actual = moved < dataLength ? moved : dataLength;
+  }
+
+  EspUsbHostMscCsw csw = {};
+  bool cswOk = transfer(device.mscInEndpointAddress, nullptr, reinterpret_cast<uint8_t *>(&csw), sizeof(csw), moved);
+  if (!cswOk)
+  {
+    // A stalled status phase is read once more after clearing the halt.
+    mscClearEndpointHalt(device, device.mscInEndpointAddress, timeoutMs);
+    csw = EspUsbHostMscCsw();
+    cswOk = transfer(device.mscInEndpointAddress, nullptr, reinterpret_cast<uint8_t *>(&csw), sizeof(csw), moved);
+  }
+  vSemaphoreDelete(context.done);
+  if (!cswOk || moved != sizeof(csw) || csw.signature != USB_MSC_CSW_SIGNATURE || csw.tag != tag)
+  {
+    ESP_LOGW(TAG, "mscRawCommand: no valid CSW (op 0x%02x)", cdb[0]);
+    mscClearEndpointHalt(device, device.mscInEndpointAddress, timeoutMs);
+    mscClearEndpointHalt(device, device.mscOutEndpointAddress, timeoutMs);
+    setLastError(ESP_FAIL);
+    return false;
+  }
+  if (csw.status != USB_MSC_CSW_STATUS_PASSED)
+  {
+    setLastError(ESP_FAIL);
+    return false;
+  }
+  return true;
+}
+
 bool EspUsbHost::mscClearEndpointHalt(DeviceState &device, uint8_t endpointAddress, uint32_t timeoutMs)
 {
   if (!device.handle || endpointAddress == 0)

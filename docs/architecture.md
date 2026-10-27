@@ -83,7 +83,7 @@ path for "why isn't this device working", not two.
 | Held for the FM-1 | `SAN off: room kept for FM-1` | `Plug in the FM-1 first` |
 | Loader running | `LAU ignored while loading` | `Routing is off until it's done` |
 | Second FM-1 | `One FM-1 at a time` | `Unplug the other FM-1` |
-| ROM boot outside Load | `FM-1 is in ROM boot` | `Restarting in Load mode` |
+| ROM boot outside Load | `FM-1 is in ROM boot` | `Switch the FM-1 off and on` (until the resume entry is wired; then `Restarting in Load mode`) |
 | Stick outside Record | `USB stick unused in Play mode` | `Record mode saves to it` |
 
 **What it needs from EspUsbHost (built, 2026-10-27).** Unpatched, the library claims the first MIDI, audio and mass-storage interface of

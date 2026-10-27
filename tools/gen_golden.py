@@ -161,6 +161,17 @@ def install(jl, scsi, target_app):
     return "done"
 
 
+def backup(jl, scsi, target_app):
+    """Back up this FM-1 ("Save now"): identify, the double read, reset. Writes nothing."""
+    dev, why = identify(jl, scsi)
+    if dev is None:
+        return why
+    a = fu.read_flash(dev, 0, fu.FLASH_SIZE, None)
+    b = fu.read_flash(dev, 0, fu.FLASH_SIZE, None)
+    dev.ldr.run_app(RESET_ARG)
+    return "done" if a == b else "backup-mismatch"
+
+
 def resume(jl, scsi, target_app):
     dev, why = identify(jl, scsi)
     if dev is None:
@@ -200,6 +211,7 @@ def scenarios(pkgs):
         ("backup_mismatch", base_flash(sloop), {"flaky_read": 2048 + 7}, install, skiff,
          "UBOOT1.00"),
         ("resume", base_flash(bytes(half)), {}, resume, skiff, "UBOOT1.00"),
+        ("backup", base_flash(skiff), {}, backup, None, "UBOOT1.00"),
     ]
 
 
@@ -241,6 +253,14 @@ def main():
         "jlenc zero64 %s" % cipher_bytes(jl_enc_cipher, bytes(64)).hex(),
         "chipkey 980f %s" % cipher_bytes(jl_crc_cipher, (0x980F).to_bytes(2, "little"))[::-1].hex(),
     ]
+    # The USB-MIDI side of the Unbricker's softkey: the identity query, an FM-1's
+    # answer to it, and the key.
+    vec += [
+        "hs_query %s" % fu.HS_QUERY.hex(),
+        "softkey %s" % fu.SOFT_KEY.hex(),
+    ]
+    for ident in ("FM-1_714", "FM-1_015", "ota-FM-1_015"):
+        vec.append("identity %s %s" % (ident, fu.identity_answer(ident).hex()))
     (out / "crypto.txt").write_text("\n".join(vec) + "\n")
 
 

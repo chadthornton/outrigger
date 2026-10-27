@@ -217,6 +217,51 @@ static void test_golden_resume() {
   CHECK(r.lib.unit(r.inst.unit().id, u) && !u.has_pending && u.installed_package == "skiff-1.4");
 }
 
+static void test_golden_backup() {
+  Image f = base_flash(skiff());
+  memset(f.data() + 0x97000, 0x21, kSector);  // a Skiff project: autosaved too
+  Rig r(f);
+  // gen_golden's backup scenario has no project data; the command stream doesn't
+  // depend on content, only the final flash hash does.
+  Rig g(base_flash(skiff()));
+  InstallOptions o;
+  o.confirmed = true;
+  g.inst.start_backup(o);
+  g.inst.run();
+  CHECK(g.inst.current() == Step::Done);
+  check_golden("backup", g, "done");
+
+  r.inst.start_backup(o);
+  r.inst.run();
+  CHECK(r.inst.current() == Step::Done);
+  CHECK(r.rom.lowest_touched < 0 && r.rom.writes == 0);  // nothing written
+  CHECK(!r.inst.backup_id().empty());
+  Unit u;
+  CHECK(r.lib.unit(r.inst.unit().id, u) && u.latest_backup == r.inst.backup_id());
+  CHECK(u.baseline_backup == r.inst.backup_id() && !u.has_pending);
+  CHECK_EQ(r.lib.saves_of(u.id).size(), size_t(1));
+  // The region hashes the checkpoint compares with the 2026-10-25 dump.
+  Hash head, factory;
+  CHECK(r.lib.region_sha256(r.inst.backup_id(), 0, kHeadEnd, head));
+  CHECK(r.lib.region_sha256(r.inst.backup_id(), kUnitSector, kFactoryEnd, factory));
+  CHECK(head == sha256(f.data(), kHeadEnd));
+  CHECK(factory == sha256(f.data() + kUnitSector, kFactoryEnd - kUnitSector));
+  CHECK(!r.lib.region_sha256(r.inst.backup_id(), 1, kHeadEnd, head));
+  // No package is needed to back up.
+  MemoryStorage empty_storage;
+  Library empty(empty_storage);
+  FakeHost host;
+  MockRom rom(base_flash(skiff()), blob());
+  Installer inst(rom, host, empty, blob());
+  inst.start_backup(o);
+  inst.run();
+  CHECK(inst.current() == Step::Done);
+  // Unconfirmed: nothing at all happens.
+  inst.start_backup(InstallOptions());
+  inst.run();
+  CHECK(inst.failure() == Failure::NotConfirmed);
+}
+
 static void test_refusals_before_the_device() {
   {
     Rig r(base_flash(sloop()));
@@ -497,6 +542,7 @@ int main() {
   test_golden_identity();
   test_golden_backup_mismatch();
   test_golden_resume();
+  test_golden_backup();
   test_refusals_before_the_device();
   test_loader_blob_checked_first();
   test_not_an_fm1();

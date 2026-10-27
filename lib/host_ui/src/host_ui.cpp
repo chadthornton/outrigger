@@ -58,6 +58,10 @@ static lv_obj_t *usb_label, *problem_box, *problem_1, *problem_2;
 static lv_obj_t *chain_screen, *settings_screen, *preview_label;
 static lv_obj_t *size_buttons, *face_buttons;
 static lv_obj_t *computer_label;
+static lv_obj_t *firmware_screen, *firmware_title, *firmware_lines[kLoaderLines], *hold_button, *hold_label,
+    *hold_bar;
+static uint32_t hold_started;  // millis() when the hold began, 0 when not held
+static bool hold_fired, hold_enabled;
 static lv_timer_t *computer_disarm;
 
 // ---------- LVGL glue ----------
@@ -128,6 +132,7 @@ static void apply_fonts() {
 
 // ---------- Chain screen ----------
 static void open_settings(lv_event_t *) { lv_screen_load(settings_screen); }
+static void open_firmware(lv_event_t *);
 
 static void build_chain_screen() {
   chain_screen = lv_obj_create(nullptr);
@@ -345,9 +350,121 @@ static void build_settings_screen() {
   lv_obj_set_height(buttons, LV_SIZE_CONTENT);
   lv_obj_set_flex_flow(buttons, LV_FLEX_FLOW_ROW);
   lv_obj_set_style_pad_column(buttons, 8, 0);
+  if (hooks.back_up_fm1) {
+    lv_obj_t *row = box(settings_screen);
+    lv_obj_set_width(row, lv_pct(100));
+    lv_obj_set_height(row, LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_move_to_index(row, lv_obj_get_index(buttons));
+    lv_obj_t *fw = wide_button(row, LV_SYMBOL_DRIVE " Firmware", open_firmware, nullptr);
+    lv_obj_set_style_bg_color(fw, c(kDim), 0);
+  }
   lv_obj_t *computer = wide_button(buttons, kComputerIdle, computer_tapped, &computer_label);
   lv_obj_set_style_bg_color(computer, c(kDim), 0);
   wide_button(buttons, "Done", back_to_chain, nullptr);
+}
+
+// ---------- Firmware screen (the Loader) ----------
+// Anything that acts on the FM-1 needs a 2-second hold, never a single tap
+// (loader safety rule 7). The bar fills while the finger stays down.
+static constexpr uint32_t kHoldMs = 2000;
+static const char kHoldIdle[] = "Hold: back up FM-1";
+
+static void hold_event(lv_event_t *e) {
+  const lv_event_code_t code = lv_event_get_code(e);
+  if (code == LV_EVENT_PRESSED) {
+    hold_started = hold_enabled ? millis() : 0;
+    hold_fired = false;
+  } else if (code == LV_EVENT_PRESSING && hold_started && !hold_fired) {
+    const uint32_t held = millis() - hold_started;
+    lv_bar_set_value(hold_bar, held >= kHoldMs ? 100 : int32_t(held * 100 / kHoldMs), LV_ANIM_OFF);
+    if (held >= kHoldMs) {
+      hold_fired = true;
+      hold_started = 0;
+      lv_label_set_text(hold_label, "Starting...");
+      if (hooks.back_up_fm1) hooks.back_up_fm1();
+    }
+  } else if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
+    hold_started = 0;
+    if (!hold_fired) lv_bar_set_value(hold_bar, 0, LV_ANIM_OFF);
+  }
+}
+
+static void close_firmware(lv_event_t *) { lv_screen_load(settings_screen); }
+
+static void build_firmware_screen() {
+  firmware_screen = lv_obj_create(nullptr);
+  lv_obj_set_style_bg_color(firmware_screen, c(0x000000), 0);
+  int side, top;
+  safe_padding(&side, &top);
+  lv_obj_set_style_pad_hor(firmware_screen, side, 0);
+  lv_obj_set_style_pad_ver(firmware_screen, top, 0);
+  lv_obj_set_flex_flow(firmware_screen, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_style_pad_row(firmware_screen, 4, 0);
+
+  firmware_title = lv_label_create(firmware_screen);
+  lv_obj_set_width(firmware_title, lv_pct(100));
+  lv_label_set_long_mode(firmware_title, LV_LABEL_LONG_MODE_WRAP);
+  lv_obj_set_style_text_font(firmware_title, &lv_font_montserrat_16, 0);
+  lv_obj_set_style_text_color(firmware_title, c(kWhite), 0);
+  lv_label_set_text(firmware_title, "Firmware");
+  for (int i = 0; i < kLoaderLines; ++i) {
+    firmware_lines[i] = lv_label_create(firmware_screen);
+    lv_obj_set_width(firmware_lines[i], lv_pct(100));
+    lv_label_set_long_mode(firmware_lines[i], LV_LABEL_LONG_MODE_CLIP);
+    lv_obj_set_style_text_font(firmware_lines[i], &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_color(firmware_lines[i], c(kGrey), 0);
+    lv_label_set_text(firmware_lines[i], "");
+  }
+
+  lv_obj_t *spacer = box(firmware_screen);
+  lv_obj_set_width(spacer, lv_pct(100));
+  lv_obj_set_flex_grow(spacer, 1);
+
+  hold_button = lv_button_create(firmware_screen);
+  lv_obj_set_width(hold_button, lv_pct(100));
+  lv_obj_set_height(hold_button, 44);
+  lv_obj_set_style_bg_color(hold_button, c(kDim), 0);
+  lv_obj_set_style_pad_all(hold_button, 0, 0);
+  hold_bar = lv_bar_create(hold_button);
+  lv_obj_set_size(hold_bar, lv_pct(100), lv_pct(100));
+  lv_obj_set_style_radius(hold_bar, 0, LV_PART_MAIN);
+  lv_obj_set_style_bg_opa(hold_bar, LV_OPA_TRANSP, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(hold_bar, c(kYellow), LV_PART_INDICATOR);
+  lv_obj_set_style_bg_opa(hold_bar, LV_OPA_50, LV_PART_INDICATOR);
+  lv_obj_remove_flag(hold_bar, LV_OBJ_FLAG_CLICKABLE);
+  lv_bar_set_range(hold_bar, 0, 100);
+  hold_label = lv_label_create(hold_button);
+  lv_obj_set_style_text_font(hold_label, &lv_font_montserrat_16, 0);
+  lv_label_set_text(hold_label, kHoldIdle);
+  lv_obj_center(hold_label);
+  lv_obj_add_event_cb(hold_button, hold_event, LV_EVENT_ALL, nullptr);
+
+  lv_obj_t *row = box(firmware_screen);
+  lv_obj_set_width(row, lv_pct(100));
+  lv_obj_set_height(row, LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+  wide_button(row, "Done", close_firmware, nullptr);
+}
+
+static void open_firmware(lv_event_t *) { lv_screen_load(firmware_screen); }
+
+void ui_update_loader(const UiLoader &l) {
+  if (!firmware_screen) return;
+  set_text(firmware_title, l.title);
+  set_colour(firmware_title, l.title_colour);
+  for (int i = 0; i < kLoaderLines; ++i) set_text(firmware_lines[i], l.lines[i]);
+  hold_enabled = l.can_back_up && !l.busy;
+  if (l.busy) {
+    char buf[24];
+    snprintf(buf, sizeof buf, "Working... %u%%", l.percent);
+    set_text(hold_label, buf);
+    lv_bar_set_value(hold_bar, l.percent, LV_ANIM_OFF);
+  } else if (!hold_started) {
+    set_text(hold_label, l.can_back_up ? kHoldIdle : "Not ready");
+    lv_bar_set_value(hold_bar, 0, LV_ANIM_OFF);
+  }
+  set_colour(hold_label, hold_enabled || l.busy ? kWhite : kGrey);
 }
 
 // ---------- Computer-mode screen ----------
@@ -435,6 +552,7 @@ bool ui_begin(const BoardProfile &b, const UiSettings &s, const UiHooks &h, cons
   apply_fonts();
 
   build_chain_screen();
+  if (hooks.back_up_fm1) build_firmware_screen();
   build_settings_screen();
   lv_screen_load(chain_screen);
   return true;

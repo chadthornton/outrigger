@@ -262,7 +262,8 @@ static void test_rom_boot_outside_load_asks_for_load_mode() {
   EXPECT(b.wanted_mode() == Mode::Load, "host must restart in Load mode");
   EXPECT(b.mode() == Mode::Play, "until it does");
   EXPECT(strcmp(rom.reason.line1, "FM-1 is in ROM boot") == 0, "screen line 1");
-  EXPECT(strcmp(rom.reason.line2, "Restarting in Load mode") == 0, "screen line 2");
+  // Until the resume entry is wired, nothing restarts the host for it: say what helps.
+  EXPECT(strcmp(rom.reason.line2, "Switch the FM-1 off and on") == 0, "screen line 2");
   EXPECT(b.owner(Fm1Part::RomBoot) == App::None, "nobody acts on it yet");
 
   b.set_mode(Mode::Load);

@@ -34,11 +34,25 @@ struct UiFrame {
   uint32_t sent, blocked;
 };
 
+// The Firmware page (the Loader's, in builds that carry it).
+constexpr int kLoaderLines = 6;
+struct UiLoader {
+  char title[40];                     // what the loader is doing, or its last result
+  uint32_t title_colour;              // 0xRRGGBB
+  char lines[kLoaderLines][40];       // store, blob, unit, hashes ...
+  uint8_t percent;                    // progress while busy
+  bool busy;                          // a job is running: the hold is off
+  bool can_back_up;                   // store and blob are ready
+};
+
 // What the app does when the user acts. Any hook may be null.
 struct UiHooks {
   void (*settings_changed)(const UiSettings &);
   void (*connect_computer)();  // settings page: restart with the USB host off
   void (*back_to_host)();      // computer screen: restart as the MIDI host
+  // Firmware page, after a 2-second hold: back up the FM-1 on the hub. Null
+  // in builds without the Loader: no Firmware page then.
+  void (*back_up_fm1)();
 };
 
 // Sets up LVGL, the display and touch, and builds the screens.
@@ -49,5 +63,7 @@ bool ui_begin(const BoardProfile &board, const UiSettings &settings, const UiHoo
 void ui_show_computer_mode(const char *info);
 // Refreshes the chain screen; cheap when nothing changed.
 void ui_update(const UiFrame &frame);
+// Refreshes the Firmware page; cheap when nothing changed.
+void ui_update_loader(const UiLoader &loader);
 // Runs LVGL; call often (every few ms).
 void ui_tick();

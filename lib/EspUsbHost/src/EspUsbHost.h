@@ -2525,6 +2525,17 @@ public:
   void setClaimPlanner(ClaimPlanner planner) { claimPlanner_ = planner; }
   void setClaimFilter(ClaimFilter filter) { claimFilter_ = filter; }
 
+  // usb-midi-host patch: one raw SCSI command to a claimed mass-storage device,
+  // for vendor protocols such as the JieLi ROM bootloader (4C4A:8057), which has
+  // only ever been driven by plain SCSI pass-through. Unlike the msc* block
+  // APIs it sends nothing of its own: no GET_MAX_LUN, inquiry or capacity, no
+  // REQUEST SENSE and no Bulk-Only reset. It always reads the status (CSW), even
+  // after a short data-in, and on failure only clears halted pipes. actual gets
+  // the data bytes moved. True when the CSW says the command passed. Not
+  // callable from the USB client task.
+  bool mscRawCommand(uint8_t address, const uint8_t *cdb, uint8_t cdbLength, uint8_t *data,
+                     size_t dataLength, bool dataIn, size_t &actual, uint32_t timeoutMs);
+
   void onDeviceConnected(DeviceCallback callback);
   void onDeviceDisconnected(DeviceCallback callback);
   void onKeyboard(KeyboardCallback callback);
