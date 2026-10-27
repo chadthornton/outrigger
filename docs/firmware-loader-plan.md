@@ -110,6 +110,42 @@ checkpoint 1 read-only").** Branch `loader-session2`. Nothing is written to the 
 
 The firmware browser and the web install page with laptop backups follow in their own session, after this merges.
 
+**Session 3 plan (draft, needs Chad's go-ahead).** Session 2 merged as `6a2fcd4`. Three things stand between it and a
+web install page:
+- **Writes are locked**, and the plan puts checkpoints 2 and 3 before any unlocked build.
+- **The Web UI** is only on `spike/web-ui`, with no radio manager on `master`.
+- **`flash-store` wipes backups**, so packages need another way onto the board.
+
+So it splits in two.
+
+- **3a. On-device firmware browser, then writes (this session, with Chad at checkpoints 2 and 3):**
+  1. **`make store-add PKG=…`:** adds packages without losing backups. It reads the `store` partition back
+     (`esptool read-flash`), mounts it with littlefs-python, and adds each `.fwsc` through the same `Library` format
+     (a Python port of `add_package`, checked against the C++ on the fixtures). It writes the image back only if the
+     store's manifests are unchanged since the read. The board must be in Computer mode.
+  2. **A Firmware browser** on the Firmware page:
+     - **What it lists:** library packages with their identity, name and version.
+     - **Marks:** which one each unit runs, and a favorite pin.
+     - **Install:** an "Install" hold, showing the plan before the hold: N sectors, and keep, restore or fresh data,
+       with the layout warning.
+     - **Locked builds:** the hold stays off ("read-only build").
+  3. **Checkpoint 2, no-op:** a build with `FM1_LOADER_WRITES=1` installs Skiff over Skiff. The plan must show
+     0 sectors, and nothing is erased.
+  4. **Checkpoint 3, real install:** Skiff → SLOOP → Skiff, with the Transporter wired and ready. This includes the
+     save states (a Skiff project survives the round trip).
+  5. **Then:** `hub-loader` ships with writes on, and the README and site say so. Code-review at high effort.
+- **3b. Web UI app and web install (its own session after 3a):**
+  - **The Web UI first:** land the Web UI as an app from `spike/web-ui`, with the radio manager, pairing, the `web`
+    and `wifi` NVS namespaces, and the 3 MB slot that's now there.
+  - **Then the pages:** firmware list and install requests, which the device still confirms with its own hold;
+    `.fm1bak`/`.fm1save` export and import; uploads of non-redistributable packages.
+  - **Catalog downloads:** need the Wi-Fi lease.
+- **Follow-up:** the store's per-sector files cost about 2× space, so pack them before the library grows past a
+  handful of packages.
+
+**Decision for Chad:** start 3a now (browser, `store-add`, then checkpoints 2 and 3 at the board), or land the Web UI
+first.
+
 **Checkpoint 1: passed, 2026-10-27** (Chad at the board; build `e848423`, read-only). On the recovered unit:
 - **Result:** "Backed up. Nothing written."
 - **Same unit:** unit `69bb070aaa87bd10`, the dump's.
