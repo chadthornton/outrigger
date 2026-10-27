@@ -149,6 +149,36 @@ So it splits in two.
        the Felucca table. This includes the
      save states (a Skiff project survives the round trip).
   5. **Then:** `hub-loader` ships with writes on, and the README and site say so. Code-review at high effort.
+- **Checkpoint 3, first attempt (2026-10-27): stopped safely.**
+  - **What happened:** Skiff → Felucca 1.6.1 stopped with "the FM-1 stopped answering" during the write phase. The
+    FM-1 restarted on its own, and wasn't reset by the board.
+  - **Then:** a key on the next attempt didn't bring up a ROM device, and the FM-1 went dark. After a power cycle, a
+    backup showed the app area byte-for-byte Skiff, so nothing had been written.
+  - **Suspects:** the FM-1's battery (erase current), or a loader or USB fault that the screen can't name.
+  - **Before retrying:**
+    - Charge the FM-1 fully.
+    - Get logs from `web-diag`, the session building read-only `/status`, `/log`, `/crash` and `/coredump` pages on
+      branch `web-diag` off `loader-session3`.
+    - Make the failure name its command, address and sector count.
+  - **Also fix:** `status.cpp`'s fallback line "It may not be class-compliant", which showed for a Launchkey whose
+    MIDI simply didn't reopen after many host restarts.
+- **Left in session 3a, in order:**
+  1. The failure detail and the status line.
+  2. Merge `web-diag` when it's ready.
+  3. Checkpoint 3: Skiff → Felucca → Skiff.
+  4. `code-review` at high effort.
+  5. The merge gate.
+  6. Merge with `hub-loader` writes on.
+  - **Then:** merge `master` (ui-polish rewrote `host_ui`; expect conflicts in the Firmware page section).
+- **Long term, in order:**
+  1. **3b:** the Web UI with install requests and laptop `.fm1bak`/`.fm1save` export and import, building on
+     `web-diag`.
+  2. **SLOOP and other Felucca 0.9 firmwares:** diff store dumps for data outside the Felucca table first.
+  3. **Store packing:** per-sector files cost about 2.6× space; 4 packages took 4.3 MB.
+  4. **The stock V15 data map.**
+  5. **Catalog downloads over Wi-Fi.**
+  6. **The recovery app and self-update.**
+
 - **3b. Web UI app and web install (its own session after 3a):**
   - **The Web UI first:** land the Web UI as an app from `spike/web-ui`, with the radio manager, pairing, the `web`
     and `wifi` NVS namespaces, and the 3 MB slot that's now there.
