@@ -10,6 +10,7 @@
 #include <atomic>
 
 #include "installer.h"
+#include "midi_core.h"
 #include "posix_storage.h"
 #include "softkey.h"
 
@@ -97,7 +98,9 @@ class UsbScsi : public ScsiTransport {
       return false;
     // jl-uboot-tool's SG_IO ignores a short answer to a 16-byte response or the
     // inquiry (the rest stays zero); flash reads must arrive whole.
-    return dir != Dir::In || actual == len || len <= 36;
+    // A flash read (FD05) must arrive whole, whatever its size.
+    if (dir != Dir::In || actual == len) return true;
+    return cdb[0] != (kReadFlash >> 8) || cdb[1] != (kReadFlash & 0xFF) ? len <= 36 : false;
   }
 };
 
@@ -124,6 +127,11 @@ class Host : public LoaderHost {
   const char *why = "";  // which check stopped the key, for the screen
   bool send_rom_boot_key() override {
     show("Asking the FM-1...", kYellow);
+    if (rom_address.load()) {  // left there by an earlier job or the FM-1's own hotkey
+      key = KeyResult::SendFailed;
+      why = "FM-1 already in ROM boot: power-cycle it";
+      return false;
+    }
     // EspUsbHost reports a device as connected before its interfaces are
     // claimed: wait until its MIDI endpoints are up and the broker gives the
     // Loader the FM-1's MIDI (only in Load mode).
@@ -289,9 +297,11 @@ void loader_begin(EspUsbHost &host, bool (*owns_fm1_midi)()) {
 }
 
 void loader_device_connected(const EspUsbHostDeviceInfo &d) {
-  if (d.vid == 0x4C4A && d.pid == 0x8057) rom_address = d.address;
-  else if ((d.vid == 0x4C4A && d.pid == 0xC755) || (d.vid == 0x1209 && d.pid == 0x0001))
-    fm1_midi_address = d.address;
+  platform::DeviceDesc desc = {};
+  desc.vid = d.vid;
+  desc.pid = d.pid;
+  if (platform::classify(desc) == platform::Kind::Fm1RomBoot) rom_address = d.address;
+  else if (midi_core::device_role(d.vid, d.pid) == midi_core::Role::Target) fm1_midi_address = d.address;
 }
 
 void loader_device_disconnected(const EspUsbHostDeviceInfo &d) {

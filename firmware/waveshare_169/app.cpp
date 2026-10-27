@@ -15,6 +15,7 @@
 // computer can flash it without BOOT+RST (see boot_mode.h).
 
 #include <Arduino.h>
+#include <atomic>
 #include <EspUsbHost.h>
 #include <Preferences.h>
 #include <esp_app_desc.h>
@@ -67,6 +68,9 @@ static midi_core::Router router;           // USB task only
 // Decides which interfaces EspUsbHost claims within the 8 host channels
 // (docs/architecture.md). USB task only; loop() reads its reasons below.
 static platform::Broker broker(platform::Mode::Play);
+// The broker lives on the USB client task; the loader task reads this copy of
+// whether the Loader owns the FM-1's MIDI (set after each attach and detach).
+static std::atomic<bool> loader_has_fm1_midi{false};
 static platform::Reason refused_why[128];  // per address, under shared_lock
 constexpr int kMaxHubs = 2;
 static volatile uint8_t hub_addresses[kMaxHubs] = {};
@@ -94,6 +98,9 @@ static void plan_claims(const EspUsbHostDeviceInfo &d, bool is_hub, const uint8_
   // A descriptor that runs past its end still plans the interfaces read so far.
   platform::describe_device(d.address, d.vid, d.pid, is_hub, tag, config, length, desc);
   const platform::DevicePlan &plan = broker.attach(desc);
+#if APP_LOADER
+  loader_has_fm1_midi = broker.owner(platform::Fm1Part::Midi) == platform::App::Loader;
+#endif
   taskENTER_CRITICAL(&shared_lock);
   if (d.address < 128) refused_why[d.address] = plan.reason;
   ++changes;
@@ -110,6 +117,9 @@ static void on_disconnected(const EspUsbHostDeviceInfo &d) {
   loader_device_disconnected(d);
 #endif
   broker.detach(d.address);
+#if APP_LOADER
+  loader_has_fm1_midi = broker.owner(platform::Fm1Part::Midi) == platform::App::Loader;
+#endif
   for (int i = 0; i < kMaxHubs; ++i)
     if (hub_addresses[i] == d.address) hub_addresses[i] = 0;
   taskENTER_CRITICAL(&shared_lock);
@@ -305,6 +315,9 @@ static void build_frame(UiFrame &f) {
 static void restart_host(platform::Mode mode) {
   usb.end();
   broker.set_mode(mode);
+#if APP_LOADER
+  loader_has_fm1_midi = false;
+#endif
   router = midi_core::Router();
   for (int i = 0; i < kMaxHubs; ++i) hub_addresses[i] = 0;
   taskENTER_CRITICAL(&shared_lock);
@@ -317,7 +330,7 @@ static void restart_host(platform::Mode mode) {
 }
 
 #if APP_LOADER
-static bool loader_owns_fm1_midi() { return broker.owner(platform::Fm1Part::Midi) == platform::App::Loader; }
+static bool loader_owns_fm1_midi() { return loader_has_fm1_midi.load(); }
 #endif
 
 static void save_settings(const UiSettings &s) {

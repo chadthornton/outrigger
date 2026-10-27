@@ -130,7 +130,7 @@ bool make_reason(Refusal refusal, Kind kind, Mode mode, const char *tag, Reason 
     case Refusal::NotInMode:
       if (kind == Kind::Fm1RomBoot) {
         n = snprintf(out.line1, kReasonLen, "FM-1 is in ROM boot");
-        l2 = "Restarting in Load mode";
+        l2 = "Switch the FM-1 off and on";  // until the resume entry is wired
       } else if (kind == Kind::Fm1 && mode == Mode::Play) {
         n = snprintf(out.line1, kReasonLen, "FM-1 audio off in Play mode");
         l2 = "Record mode turns it on";

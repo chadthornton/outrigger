@@ -124,7 +124,7 @@ store-image: $(TOOLS_PY) fixtures
 	$(TOOLS_PY) tools/store_image.py firmware/$(BOARD)/partitions.csv build/store/store.bin
 flash-store: store-image
 	$(if $(filter erase-store,$(CONFIRM)),,$(error flash-store erases every backup in the store: add CONFIRM=erase-store))
-	$(ESP32_CORE)/../../../tools/esptool_py/5.3.1/esptool --chip esp32s3 --port $(PORT) \
+	$(firstword $(wildcard $(ESP32_CORE)/../../../tools/esptool_py/*/esptool)) --chip esp32s3 --port $(PORT) \
 		write-flash $(STORE_OFFSET) build/store/store.bin
 
 # Stage the firmware into site/ for the browser installer (ESP Web Tools).
