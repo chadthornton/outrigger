@@ -51,7 +51,10 @@ bool board_touch_read(int16_t *x, int16_t *y) {
   for (uint8_t &b : buf) b = Wire.read();
   const uint8_t fingers = buf[2] & 0x0F;
   if (buf[2] == 0xFF || fingers == 0) return false;
-  *x = ((buf[3] & 0x0F) << 8) | buf[4];
-  *y = ((buf[5] & 0x0F) << 8) | buf[6];
-  return *x < kBoard.width && *y < kBoard.height;
+  // Clamp, don't drop: a press reported a pixel past the edge (the glass's
+  // bottom rim) is still a press on whatever sits there.
+  const int16_t rx = ((buf[3] & 0x0F) << 8) | buf[4], ry = ((buf[5] & 0x0F) << 8) | buf[6];
+  *x = rx < kBoard.width ? rx : kBoard.width - 1;
+  *y = ry < kBoard.height ? ry : kBoard.height - 1;
+  return true;
 }

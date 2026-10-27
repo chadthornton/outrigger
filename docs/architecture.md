@@ -146,7 +146,7 @@ migrates or clears **its own** namespace only. The core never reads another app'
 
 | Namespace | Owner | Keys | Status |
 |---|---|---|---|
-| `ui` | core (screen shell) | `text_size`, `typeface` | on `master`, no `schema` yet (treat missing as 1) |
+| `ui` | core (screen shell) | `text_size` (`typeface` from older builds is ignored) | on `master`, no `schema` yet (treat missing as 1) |
 | `boot` | core | `computer` (ELF SHA of the build that asked for Computer mode) | on `master` |
 | `wifi` | core (radio manager) | saved network | `spike/web-ui` |
 | `web` | Web UI | paired browser tokens | `spike/web-ui` |
