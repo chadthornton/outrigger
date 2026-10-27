@@ -104,6 +104,7 @@ class UsbScsi : public ScsiTransport {
  public:
   char last_failure[40] = "";  // what the USB layer said about the last failed command
   bool execute(const uint8_t *cdb, size_t cdb_len, Dir dir, uint8_t *data, size_t len) override {
+    last_failure[0] = 0;  // describes this command only
     const uint8_t address = rom_address.load();
     if (!address) {
       note(cdb, "FM-1 gone from USB", 0, len);
@@ -119,7 +120,9 @@ class UsbScsi : public ScsiTransport {
     // inquiry (the rest stays zero); flash reads must arrive whole.
     // A flash read (FD05) must arrive whole, whatever its size.
     if (dir != Dir::In || actual == len) return true;
-    return cdb[0] != (kReadFlash >> 8) || cdb[1] != (kReadFlash & 0xFF) ? len <= 36 : false;
+    if (cdb[0] != (kReadFlash >> 8) || cdb[1] != (kReadFlash & 0xFF) ? len <= 36 : false) return true;
+    note(cdb, "short read", actual, len);
+    return false;
   }
 
  private:
@@ -266,11 +269,28 @@ void report_backup(Installer &inst, const Host &host) {
 // The list the page shows (loader task only): package ids in row order.
 std::vector<std::string> item_ids;
 std::atomic<int> selected{-1}, pin_request{-1};
-// What the selected install was previewed as: the hold agrees to exactly that.
+// The selected package by id (empty: the top row), so a re-sorted list keeps it.
+std::string selected_id;
+// What the selected install was previewed as: the hold agrees to exactly that
+// package and that data decision.
+std::string previewed_id;
 DataDecision previewed;
-// An install stopped with the app area incomplete: the hold retries it (resume).
-bool resume_ready = false;
+// The last job left the FM-1 in ROM boot: stay in Load mode for the retry.
+bool in_rom_boot = false;
+// ...and stopped without a reset: the loader still runs in the FM-1's RAM.
 bool loader_left_running = false;
+
+// An install stopped part-way: the unit record says so (it survives a reboot of
+// this board), and the top row's hold retries it instead of backing up.
+bool resume_pending() {
+  Unit u;
+  return kWritesEnabled && library->unit(library->last_unit(), u) && u.has_pending;
+}
+
+int selected_index() {
+  const int sel = selected.load();
+  return sel >= 0 && sel < int(item_ids.size()) ? sel : -1;
+}
 
 constexpr uint32_t kAct = 1, kSelect = 2, kPin = 4;
 
@@ -309,6 +329,11 @@ void refresh_items() {
     it.pinned = p.pinned;
     item_ids.push_back(p.id);
   }
+  // Keep the selection on the same package when the order changes (a pin).
+  int sel = -1;
+  for (size_t i = 0; i < item_ids.size(); ++i)
+    if (item_ids[i] == selected_id) sel = int(i);
+  selected = sel;
   taskENTER_CRITICAL(&lock);
   memcpy(shown.items, items, sizeof items);
   shown.item_count = count;
@@ -326,19 +351,21 @@ void set_preview(const char *l0, const char *l1, const char *action, bool can) {
 }
 
 void refresh_preview() {
-  const int sel = selected.load();
+  const int sel = selected_index();
   const bool ready = store_ok && blob_ok;
-  if (resume_ready) {
+  previewed_id.clear();
+  if (sel < 0 && resume_pending()) {
     set_preview("An install stopped part-way.", "The FM-1 must still be in ROM boot.", "Hold: retry the install",
                 ready && kWritesEnabled);
     return;
   }
-  if (sel < 0 || sel >= int(item_ids.size())) {
+  if (sel < 0) {
     set_preview("Reads the FM-1 twice.", "Writes nothing.", "Hold: back up FM-1", ready);
     return;
   }
   const InstallPreview p = preview_install(*library, library->last_unit(), item_ids[sel]);
   previewed = p.decision;
+  previewed_id = item_ids[sel];
   char l0[40], l1[40], action[40];
   PackageInfo pkg;
   library->package(item_ids[sel], pkg);
@@ -348,7 +375,7 @@ void refresh_preview() {
     return;
   }
   if (p.app_sectors == 0) snprintf(l0, sizeof l0, "Already installed: 0 sectors");
-  else snprintf(l0, sizeof l0, "Writes %u of 143 app sectors", unsigned(p.app_sectors));
+  else snprintf(l0, sizeof l0, "Writes %u of %u app sectors", unsigned(p.app_sectors), unsigned(kAppSectors));
   switch (p.decision.action) {
     case DataAction::Keep:
       strlcpy(l1, p.decision.stock_unmapped ? "Keeps old data: may confuse stock" : "Keeps songs and settings",
@@ -404,25 +431,30 @@ void run_job() {
   InstallOptions o;
   o.confirmed = true;  // the 2-second hold on the Firmware page
   o.rom_timeout_ms = kRomWaitMs;
-  const int sel = selected.load();
-  if (resume_ready) {
+  const int sel = selected_index();
+  if (sel < 0 && resume_pending()) {
     // The FM-1 is still in ROM boot with an incomplete app: no key, straight to it.
     if (!host.wait_for_rom_device(kRomWaitMs)) {
       show("Stopped: the FM-1 isn't in ROM boot", kRed);
       if (host.why[0]) show_line(2, host.why);
+      in_rom_boot = false;  // nothing to stay in Load mode for
       return;
     }
     o.loader_running = loader_left_running;
     inst.start_resume(o);
     run(inst);
     finish(inst, host, scsi, "Install finished.");
-  } else if (sel < 0 || sel >= int(item_ids.size())) {
+  } else if (sel < 0) {
     inst.start_backup(o);
     run(inst);
     finish(inst, host, scsi, "Backed up. Nothing written.");
     if (inst.current() == Step::Done) report_backup(inst, host);
   } else {
     // The hold agreed to what the preview showed, the data decision included.
+    if (item_ids[sel] != previewed_id) {
+      show("Stopped: selection changed. Check it.", kRed);
+      return;
+    }
     o.fresh_start_ok = previewed.action == DataAction::FreshStart;
     o.layout_change_ok = previewed.layout_warning;
     inst.start_install(item_ids[sel], o);
@@ -431,9 +463,12 @@ void run_job() {
     snprintf(buf, sizeof buf, "Installed: %u sectors written", unsigned(inst.sectors_done()));
     finish(inst, host, scsi, buf);
   }
-  resume_ready = inst.danger();
-  // Stopped part-way without a reset: the loader still runs in the FM-1's RAM.
+  in_rom_boot = inst.danger();
   loader_left_running = inst.danger();
+  if (inst.danger()) {  // select the top row: its hold is now the retry
+    selected = -1;
+    selected_id.clear();
+  }
 }
 
 // The store line: free space and units, refreshed after each job.
@@ -462,6 +497,10 @@ void loader_task(void *) {
     xTaskNotifyWait(0, UINT32_MAX, &bits, portMAX_DELAY);
     CRUMB_LOADER("woken");
     if (!store_ok) continue;
+    if (bits & kSelect) {
+      const int i = selected_index();
+      selected_id = i < 0 ? std::string() : item_ids[i];
+    }
     if (bits & kPin) {
       const int i = pin_request.exchange(-1);
       if (i >= 0 && i < int(item_ids.size())) {
@@ -482,7 +521,7 @@ void loader_task(void *) {
     else run_job();
     // After an install stopped part-way, stay in Load mode: the ROM device stays
     // claimed and the loader in its RAM isn't disturbed by a re-enumeration.
-    const platform::Mode next = resume_ready ? platform::Mode::Load : platform::Mode::Play;
+    const platform::Mode next = in_rom_boot ? platform::Mode::Load : platform::Mode::Play;
     wanted = next;
     wait_until(5000, [next] { return running.load() == next; });
     refresh_store_line();
