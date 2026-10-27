@@ -214,6 +214,8 @@ bool Library::add_backup(Unit &u, const FlashHashes &flash, std::string &backup_
   next.latest_backup = backup_id;
   if (!put_unit(next)) return false;
   u = next;
+  const std::string who = u.id;
+  storage_.write("m/last", reinterpret_cast<const uint8_t *>(who.data()), who.size());
   // The previous latest goes once the new one is durable (the baseline stays).
   if (!old_latest.empty() && old_latest != u.baseline_backup && old_latest != backup_id &&
       !(u.has_pending && old_latest == u.pending.before_backup))
@@ -244,6 +246,43 @@ bool Library::region_sha256(const std::string &backup_id, uint32_t start, uint32
   }
   out = s.finish();
   return true;
+}
+
+std::string Library::last_unit() {
+  std::vector<uint8_t> data;
+  return storage_.read("m/last", data) ? std::string(data.begin(), data.end()) : std::string();
+}
+
+InstallPreview preview_install(Library &lib, const std::string &unit_id, const std::string &package_id) {
+  InstallPreview p;
+  Unit u;
+  FlashHashes flash;
+  PackageInfo target;
+  if (unit_id.empty() || !lib.unit(unit_id, u) || !lib.backup(u.latest_backup, flash)) {
+    p.problem = "back up this FM-1 first";
+    return p;
+  }
+  if (!lib.package(package_id, target)) {
+    p.problem = "package missing";
+    return p;
+  }
+  std::vector<Hash> app(flash.begin() + kAppStart / kSector, flash.begin() + kAppEnd / kSector);
+  p.current = lib.identify_app(app);
+  p.decision = decide_data(unit_id, p.current, target, lib.saves_of(unit_id));
+  p.app_sectors = uint32_t(plan_app(flash, target).size());
+  std::vector<SectorOp> data;
+  if (p.decision.action == DataAction::Restore) {
+    SaveState s;
+    if (!lib.save(p.decision.save_id, s) || !plan_restore(s, unit_id, target, flash, data)) {
+      p.problem = "save state unusable";
+      return p;
+    }
+  } else if (p.decision.action == DataAction::FreshStart) {
+    data = plan_fresh(target.family, flash);
+  }
+  p.data_sectors = uint32_t(data.size());
+  p.ok = true;
+  return p;
 }
 
 bool Library::add_save(Unit &u, SaveState &s) {

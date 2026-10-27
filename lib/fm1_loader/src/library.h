@@ -113,6 +113,8 @@ class Library {
   // SHA-256 of flash [start, end) as a backup holds it (sector-aligned).
   bool region_sha256(const std::string &backup_id, uint32_t start, uint32_t end, Hash &out);
 
+  // The unit whose backup was recorded last: the FM-1 the screen talks about.
+  std::string last_unit();
   bool add_save(Unit &u, SaveState &s);  // assigns id and seq; synced
   bool save(const std::string &id, SaveState &out);
   std::vector<SaveState> saves_of(const std::string &unit_id);
@@ -146,6 +148,18 @@ struct DataDecision {
 //   for stock, whose data map isn't known yet.
 DataDecision decide_data(const std::string &unit_id, const Firmware &current,
                          const PackageInfo &target, const std::vector<SaveState> &saves);
+
+// What installing a package on a unit would do, from the unit's latest backup:
+// shown before the hold. The install itself plans again from a fresh backup.
+struct InstallPreview {
+  bool ok = false;
+  const char *problem = "";  // when !ok
+  Firmware current;          // what the unit ran at its latest backup
+  DataDecision decision;
+  uint32_t app_sectors = 0, data_sectors = 0;
+};
+class Library;
+InstallPreview preview_install(Library &lib, const std::string &unit_id, const std::string &package_id);
 
 // App sectors that differ between the unit's flash and the package.
 std::vector<SectorOp> plan_app(const FlashHashes &flash, const PackageInfo &target);
