@@ -1,5 +1,6 @@
 #include "installer.h"
 
+#include <stdio.h>
 #include <string.h>
 
 namespace fm1_loader {
@@ -7,6 +8,12 @@ namespace fm1_loader {
 const char *const kLoaderSha256 = "d41da6126760c9d66660bcc0cac8d27d221806c5e369a8036921efe68dca5376";
 
 namespace {
+
+std::string where(const char *what, uint32_t addr, const char *then = "") {
+  char buf[64];
+  snprintf(buf, sizeof buf, "%s 0x%05X%s", what, unsigned(addr), then);
+  return buf;
+}
 
 // The wl82 ROM unscrambles MengLi itself (chips.yaml: memory-rw-mengli-crypt) and
 // the loader is MengLi (usb-loaders.yaml).
@@ -59,6 +66,7 @@ void Installer::reset_state(const InstallOptions &opts) {
   resume_ = false;
   backup_only_ = false;
   backup_id_.clear();
+  detail_.clear();
   package_id_.clear();
   step_ = Step::Idle;
   failure_ = Failure::None;
@@ -208,7 +216,10 @@ void Installer::do_read_ids() {
   uint16_t key;
   uint8_t type;
   uint32_t id;
-  if (!rom_.chip_key(key) || !rom_.online_device(type, id)) return fail(Failure::DeviceLost);
+  if (!rom_.chip_key(key) || !rom_.online_device(type, id)) {
+    detail_ = "read chip key / flash ID";
+    return fail(Failure::DeviceLost);
+  }
   if (key != kChipKey || id != kFlashId) return fail(Failure::IdentityMismatch, true);
   index_ = 0;
   pass_ = 1;
@@ -226,7 +237,10 @@ bool Installer::read_sector(uint32_t addr, uint8_t *out) {
 void Installer::do_backup() {
   std::vector<uint8_t> buf(kSector);
   uint32_t addr = index_ * kSector;
-  if (!read_sector(addr, buf.data())) return fail(Failure::DeviceLost);
+  if (!read_sector(addr, buf.data())) {
+    detail_ = where(pass_ == 1 ? "backup read 1 at" : "backup read 2 at", addr);
+    return fail(Failure::DeviceLost);
+  }
   if (pass_ == 1) {
     if (!lib_.sectors().put(buf.data(), flash_[index_])) return fail(Failure::StorageFailed, true);
   } else if (sha256(buf.data(), buf.size()) != flash_[index_]) {
@@ -269,7 +283,10 @@ void Installer::do_backup() {
 void Installer::do_resume_read() {
   std::vector<uint8_t> buf(kSector);
   if (index_ == 0 && unit_.id.empty()) {
-    if (!read_sector(kUnitSector, buf.data())) return fail(Failure::DeviceLost);
+    if (!read_sector(kUnitSector, buf.data())) {
+      detail_ = where("read unit sector", kUnitSector);
+      return fail(Failure::DeviceLost);
+    }
     std::string id = unit_id_of(buf.data());
     if (id.empty()) return fail(Failure::BlankUnitSector);
     FlashHashes stored;
@@ -279,7 +296,10 @@ void Installer::do_resume_read() {
     package_id_ = unit_.pending.package_id;
     return;
   }
-  if (!read_sector(index_ * kSector, buf.data())) return fail(Failure::DeviceLost);
+  if (!read_sector(index_ * kSector, buf.data())) {
+    detail_ = where("resume read at", index_ * kSector);
+    return fail(Failure::DeviceLost);
+  }
   flash_[index_] = sha256(buf.data(), buf.size());
   done_ = index_ + 1;
   total_ = kSectors;
@@ -353,19 +373,31 @@ void Installer::do_plan() {
 bool Installer::write_sector(const SectorOp &op) {
   std::vector<uint8_t> want(kSector), back(kSector);
   if (!lib_.sectors().get(op.want, want.data())) return fail(Failure::PackageMissing), false;
+  char progress[48];
   for (int attempt = 0; attempt < 2; ++attempt) {
+    snprintf(progress, sizeof progress, " try %d, sector %u of %u", attempt + 1, unsigned(done_ + 1),
+             unsigned(total_));
     if (!guard(op.addr, kSector, op.right, op.family)) return fail(Failure::GuardRefused), false;
     if (op.right == Right::App) danger_ = true;
-    if (!rom_.erase_sector(op.addr)) return fail(Failure::DeviceLost), false;
+    if (!rom_.erase_sector(op.addr)) {
+      detail_ = where("erase", op.addr, progress);
+      return fail(Failure::DeviceLost), false;
+    }
     for (uint32_t off = 0; off < kSector; off += chunk_) {
       if (!guard(op.addr + off, chunk_, op.right, op.family))
         return fail(Failure::GuardRefused), false;
-      if (!rom_.flash_write(op.addr + off, want.data() + off, uint16_t(chunk_)))
+      if (!rom_.flash_write(op.addr + off, want.data() + off, uint16_t(chunk_))) {
+        detail_ = where("write", op.addr + off, progress);
         return fail(Failure::DeviceLost), false;
+      }
     }
-    if (!read_sector(op.addr, back.data())) return fail(Failure::DeviceLost), false;
+    if (!read_sector(op.addr, back.data())) {
+      detail_ = where("read back", op.addr, progress);
+      return fail(Failure::DeviceLost), false;
+    }
     if (back == want) return true;
   }
+  detail_ = where("verify", op.addr, " failed twice");
   return fail(Failure::WriteVerifyFailed), false;
 }
 
