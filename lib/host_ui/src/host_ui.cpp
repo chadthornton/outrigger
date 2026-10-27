@@ -70,6 +70,9 @@ static lv_obj_t *firmware_screen, *firmware_title, *firmware_lines[kLoaderLines]
 static uint32_t hold_started;  // millis() when the hold began, 0 when not held
 static bool hold_fired, hold_enabled;
 static lv_timer_t *computer_disarm;
+#if UI_TOUCH_PROBE
+static lv_obj_t *probe_label;
+#endif
 
 // ---------- LVGL glue ----------
 static uint32_t tick_ms() { return millis(); }
@@ -601,6 +604,11 @@ bool ui_begin(const BoardProfile &b, const UiSettings &s, const UiHooks &h, cons
   lv_obj_set_style_border_width(dot, 0, 0);
   lv_obj_remove_flag(dot, LV_OBJ_FLAG_CLICKABLE);
   lv_indev_set_cursor(touch, dot);
+  probe_label = lv_label_create(lv_layer_sys());
+  lv_obj_set_style_text_font(probe_label, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_text_color(probe_label, c(kRed), 0);
+  lv_obj_align(probe_label, LV_ALIGN_CENTER, 0, 0);
+  lv_label_set_text(probe_label, "touch: -");
 #endif
 
   lv_style_init(&plain);
@@ -623,7 +631,18 @@ bool ui_begin(const BoardProfile &b, const UiSettings &s, const UiHooks &h, cons
 
 void ui_show_computer_mode(const char *info) { lv_screen_load(build_computer_screen(info)); }
 
-void ui_tick() { lv_timer_handler(); }
+void ui_tick() {
+#if UI_TOUCH_PROBE
+  // The panel's own numbers, before the board clamps them to the screen.
+  static int16_t shown_x = -1, shown_y = -1;
+  if (board_touch_raw[0] != shown_x || board_touch_raw[1] != shown_y) {
+    shown_x = board_touch_raw[0];
+    shown_y = board_touch_raw[1];
+    lv_label_set_text_fmt(probe_label, "raw %d, %d", shown_x, shown_y);
+  }
+#endif
+  lv_timer_handler();
+}
 
 void ui_update(const UiFrame &f) {
   const midi_core::ChainView &v = f.view;
@@ -631,7 +650,9 @@ void ui_update(const UiFrame &f) {
   for (int n = 0; n < kNodes; ++n) {
     set_colour(nodes[n].dot, level_hex(levels[n]), false);
     set_colour(nodes[n].line, n + 1 < v.first_broken ? kSpine : kDim, false);
-    set_colour(nodes[n].detail, levels[n] == Level::Ok ? kGrey : level_hex(levels[n]));
+    // Off is a dim dot, but its text stays readable.
+    const bool plain_text = levels[n] == Level::Ok || levels[n] == Level::Off;
+    set_colour(nodes[n].detail, plain_text ? kGrey : level_hex(levels[n]));
   }
 
   set_text(nodes[0].detail, "USB-C 5V");
@@ -659,7 +680,9 @@ void ui_update(const UiFrame &f) {
     lv_obj_add_flag(nodes[2].detail, LV_OBJ_FLAG_HIDDEN);
   }
 
-  snprintf(buf, sizeof buf, "%lu passed  %lu SysEx blocked", (unsigned long)f.sent, (unsigned long)f.blocked);
+  // The router blocks only SysEx, so "blocked" says it; the longer wording
+  // ran past the width at M.
+  snprintf(buf, sizeof buf, "%lu passed  %lu blocked", (unsigned long)f.sent, (unsigned long)f.blocked);
   set_text(nodes[3].detail, buf);
 
   set_text(nodes[4].detail, f.fm1_in);
