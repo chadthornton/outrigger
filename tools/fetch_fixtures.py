@@ -25,6 +25,9 @@ FIXTURES = [
      "0622a752e8304777c042ccea0732ba023e1413baa6dbc8724576e2ec76de02e0"),
     ("sloop-2.8.1.fwsc", "sloop", HUB + "fw/sloop-2.8.1.fwsc",
      "64c9dfa7e75312debeae01a7c96e4ad3801eaffff9c81cb76ece9c48daf0501d"),
+    # Felucca 1.6.1, the base Skiff builds on: checkpoint 3's same-layout target.
+    ("felucca-1.6.1.fwsc", "felucca", HUB + "fw/felucca-1.6.1.fwsc",
+     "dff3a38f7e5b9833e15aba322558c9485e9e422e3ff813c616c91b3584a2d909"),
     # JieLi's loader, from jl-uboot-tool at the commit the Unbricker pins.
     ("wl82loader.bin", None, JLUB_RAW + "data/loaderblobs/usb/wl82loader.bin",
      "d41da6126760c9d66660bcc0cac8d27d221806c5e369a8036921efe68dca5376"),
