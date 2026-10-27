@@ -373,10 +373,11 @@ static void build_settings_screen() {
 
   lv_obj_t *ver = lv_label_create(settings_screen);
   lv_obj_add_flag(ver, LV_OBJ_FLAG_FLOATING);
-  lv_obj_set_style_text_font(ver, &lv_font_montserrat_12, 0);
+  // 10 px: "v 1234567 hub-loader" beside the title fills the width at 12.
+  lv_obj_set_style_text_font(ver, &lv_font_montserrat_10, 0);
   lv_obj_set_style_text_color(ver, c(kGrey), 0);
   lv_label_set_text(ver, firmware);
-  lv_obj_align(ver, LV_ALIGN_TOP_RIGHT, 0, 4);
+  lv_obj_align(ver, LV_ALIGN_TOP_RIGHT, 0, 7);
 
   // Text size: three buttons sharing the width, each lettered in the size it
   // picks, so the letters are the preview.
