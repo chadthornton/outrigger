@@ -24,6 +24,7 @@
 #include <soc/usb_serial_jtag_reg.h>
 
 #include "apps.h"
+#include "crumbs.h"
 #include "board_profile.h"
 #include "boot_mode.h"
 #include "broker.h"
@@ -46,6 +47,23 @@ static Preferences prefs;
 #define FW_DIRTY 0    // 1 when built with uncommitted changes
 #endif
 static bool host_running = false;
+RTC_NOINIT_ATTR Crumbs crumbs;
+// The last abnormal reset, for the Firmware page (empty after a normal boot).
+char last_crash[3][40] = {};
+
+static void read_crumbs() {
+  const esp_reset_reason_t r = esp_reset_reason();
+  const bool abnormal = r == ESP_RST_PANIC || r == ESP_RST_INT_WDT || r == ESP_RST_TASK_WDT ||
+                        r == ESP_RST_WDT || r == ESP_RST_BROWNOUT;
+  if (abnormal && crumbs.magic == kCrumbMagic) {
+    snprintf(last_crash[0], sizeof last_crash[0], "Last reset: %s",
+             r == ESP_RST_PANIC ? "crash" : r == ESP_RST_BROWNOUT ? "brownout" : "watchdog");
+    snprintf(last_crash[1], sizeof last_crash[1], "loop:%s usb:%s", crumbs.loop, crumbs.usb);
+    snprintf(last_crash[2], sizeof last_crash[2], "loader:%s", crumbs.loader);
+  }
+  memset(&crumbs, 0, sizeof crumbs);
+  crumbs.magic = kCrumbMagic;
+}
 
 // ---------- State shared between the USB task and loop() ----------
 // Every EspUsbHost callback runs on the USB client task; loop() copies what it
@@ -76,6 +94,7 @@ constexpr int kMaxHubs = 2;
 static volatile uint8_t hub_addresses[kMaxHubs] = {};
 
 static void on_connected(const EspUsbHostDeviceInfo &d) {
+  CRUMB_USB("connected");
   router.device_connected(d.address, d.vid, d.pid);
 #if APP_LOADER
   loader_device_connected(d);
@@ -92,6 +111,7 @@ static void on_connected(const EspUsbHostDeviceInfo &d) {
 // EspUsbHost's claim planner: runs before any of the device's interfaces is
 // claimed, so the broker sees the whole device first.
 static void plan_claims(const EspUsbHostDeviceInfo &d, bool is_hub, const uint8_t *config, uint16_t length) {
+  CRUMB_USB("plan_claims");
   char tag[4];
   midi_core::make_tag(d.product, tag);
   platform::DeviceDesc desc;
@@ -112,6 +132,7 @@ static bool claim_filter(uint8_t address, uint8_t interface_number) {
 }
 
 static void on_disconnected(const EspUsbHostDeviceInfo &d) {
+  CRUMB_USB("disconnected");
   router.device_disconnected(d.address);
 #if APP_LOADER
   loader_device_disconnected(d);
@@ -132,6 +153,7 @@ static void on_disconnected(const EspUsbHostDeviceInfo &d) {
 }
 
 static void on_midi(const EspUsbHostMidiMessage &m) {
+  CRUMB_USB("midi");
   // Code index 0 and 1 are reserved: padding and cable events, not MIDI.
   if (m.codeIndex <= 1) return;
 
@@ -398,6 +420,7 @@ static void hand_usb_to_serial_jtag() {
 }
 
 void setup() {
+  read_crumbs();
   const midi_core::BootMode mode = read_boot_mode();
   prefs.begin("ui", false);
   const UiSettings settings = {prefs.getUChar("text_size", 1), prefs.getUChar("typeface", 0)};
@@ -412,6 +435,16 @@ void setup() {
 #endif
   ui_begin(kBoard, settings, hooks, firmware);
 
+  if (last_crash[0][0] && mode != midi_core::BootMode::Computer) {
+    // Safe mode after a crash or watchdog reset: no USB host (a crash loop would
+    // otherwise repeat every few seconds), the port goes to the computer so the
+    // board can be reflashed without BOOT+RST, and the screen says where it died.
+    hand_usb_to_serial_jtag();
+    char info[160];
+    snprintf(info, sizeof info, "%s\n%s\n%s\nRST to try again.", last_crash[0], last_crash[1], last_crash[2]);
+    ui_show_computer_mode(info);
+    return;
+  }
   if (mode == midi_core::BootMode::Computer) {
     // The USB host is never installed; the port goes to the chip's
     // USB-Serial-JTAG device so the computer can reset it into download mode.
@@ -421,6 +454,17 @@ void setup() {
     ui_show_computer_mode(info);
     return;
   }
+#if APP_LOADER && LOADER_DIAG
+  // Diagnostic build (make ... DIAG=1): the USB host never starts, so the port
+  // stays a serial console and a crash's reason and backtrace reach the Mac;
+  // the store, the loader task and the Firmware page run as usual.
+  hand_usb_to_serial_jtag();
+  delay(3000);
+  printf("diag: loader_begin\n");
+  loader_begin(usb, {loader_owns_fm1_midi, device_refusal});
+  printf("diag: loader_begin returned\n");
+  return;
+#endif
   usb.setClaimPlanner(plan_claims);
   usb.setClaimFilter(claim_filter);
   usb.onDeviceConnected(on_connected);
@@ -437,12 +481,22 @@ void loop() {
   static uint32_t last_poll = 0, last_frame = 0, framed_changes = UINT32_MAX;
   static UiFrame frame;
   if (!host_running) {  // computer mode: only the UI runs
+#if APP_LOADER && LOADER_DIAG
+    static uint32_t last_diag = 0;
+    if (millis() - last_diag > 500) {
+      last_diag = millis();
+      UiLoader loader;
+      loader_ui(loader);
+      ui_update_loader(loader);
+    }
+#endif
     ui_tick();
     delay(5);
     return;
   }
 #if APP_LOADER
   if (loader_wanted_mode() != broker.mode() || loader_wants_restart()) {
+    CRUMB_LOOP("restart_host");
     restart_host(loader_wanted_mode());
     loader_mode_changed(broker.mode());
   }
@@ -450,6 +504,7 @@ void loop() {
   const uint32_t now = millis();
   if (now - last_poll > 1000) {
     last_poll = now;
+    CRUMB_LOOP("poll_hub_ports");
     poll_hub_ports();
   }
   uint32_t c;
@@ -461,14 +516,18 @@ void loop() {
   if ((c != framed_changes && now - last_frame > 50) || now - last_frame > 500) {
     framed_changes = c;
     last_frame = now;
+    CRUMB_LOOP("build_frame");
     build_frame(frame);
+    CRUMB_LOOP("ui_update");
     ui_update(frame);
 #if APP_LOADER
     UiLoader loader;
     loader_ui(loader);
+    CRUMB_LOOP("ui_update_loader");
     ui_update_loader(loader);
 #endif
   }
+  CRUMB_LOOP("ui_tick");
   ui_tick();
   delay(5);
 }

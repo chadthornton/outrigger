@@ -1,10 +1,12 @@
 #include "apps.h"
+#include "crumbs.h"
 #if APP_LOADER
 
 #include "loader_app.h"
 
 #include <Arduino.h>
 #include <LittleFS.h>
+#include <esp_heap_caps.h>
 #include <freertos/queue.h>
 
 #include <algorithm>
@@ -16,6 +18,14 @@
 #include "softkey.h"
 
 using namespace fm1_loader;
+
+extern char last_crash[3][40];  // app.cpp: the last abnormal reset, if any
+
+#if LOADER_DIAG
+#define DIAG(...) printf(__VA_ARGS__)
+#else
+#define DIAG(...) do {} while (0)
+#endif
 
 namespace {
 
@@ -420,13 +430,21 @@ void refresh_store_line() {
 }
 
 void loader_task(void *) {
+  CRUMB_LOADER("start");
   if (store_ok) {
+    DIAG("diag: refresh_items\n");
+    CRUMB_LOADER("refresh_items");
     refresh_items();
+    CRUMB_LOADER("refresh_preview");
+    DIAG("diag: refresh_preview (%u items)\n", unsigned(item_ids.size()));
     refresh_preview();
+    DIAG("diag: loader task idle, stack left %u\n", unsigned(uxTaskGetStackHighWaterMark(nullptr)));
   }
   for (;;) {
     uint32_t bits = 0;
+    CRUMB_LOADER("idle");
     xTaskNotifyWait(0, UINT32_MAX, &bits, portMAX_DELAY);
+    CRUMB_LOADER("woken");
     if (!store_ok) continue;
     if (bits & kPin) {
       const int i = pin_request.exchange(-1);
@@ -460,6 +478,7 @@ void loader_task(void *) {
 
 // The store's first check: mounted, rename-over works, and how full it is.
 void open_store() {
+  DIAG("diag: mounting the store\n");
   if (!LittleFS.begin(false, kStoreMount, 5, "store")) {  // never format: it holds backups
     strlcpy(store_line, "Store unreadable: make flash-store", sizeof store_line);
     return;
@@ -474,7 +493,9 @@ void open_store() {
     strlcpy(store_line, "Store self-test failed", sizeof store_line);
     return;
   }
+  DIAG("diag: store self-test ok\n");
   refresh_store_line();
+  DIAG("diag: store line: %s\n", store_line);
   blob_ok = storage->read(kBlobKey, blob) && hex(sha256(blob.data(), blob.size())) == kLoaderSha256;
   strlcpy(blob_line, blob_ok ? "Loader blob ok" : blob.empty() ? "Loader blob missing" : "Loader blob damaged",
           sizeof blob_line);
@@ -493,6 +514,14 @@ void loader_begin(EspUsbHost &host, const LoaderCore &c) {
   const bool ready = store_ok && blob_ok;
   show(!ready ? "Not ready" : kWritesEnabled ? "Ready. Writes are on." : "Ready. Read-only build.",
        !ready ? kRed : kWritesEnabled ? kYellow : kWhite);
+  if (last_crash[0][0]) {  // the board reset abnormally: say where
+    for (int i = 0; i < 3; ++i) show_line(2 + i, last_crash[i]);
+  }
+  char mem[40];
+  snprintf(mem, sizeof mem, "Free RAM %u KB internal, %u KB PSRAM",
+           unsigned(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024),
+           unsigned(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024));
+  show_line(5, mem);
   xTaskCreatePinnedToCore(loader_task, "loader", 12288, nullptr, 2, &task, 1);
 }
 

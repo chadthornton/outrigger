@@ -16,7 +16,7 @@ APP_FLAGS_everything := -DAPP_LOADER=1 -DAPP_RECORDER=1 -DAPP_WEB_UI=1
 # WRITES=1 lets the Loader write the FM-1's flash (FM1_LOADER_WRITES, rom.h).
 # Off by default: on only for hardware checkpoints 2 and 3 until they pass.
 WRITES ?= 0
-WRITE_FLAGS := $(if $(filter 1,$(WRITES)),-DFM1_LOADER_WRITES=1)
+WRITE_FLAGS := $(if $(filter 1,$(WRITES)),-DFM1_LOADER_WRITES=1) $(if $(filter 1,$(DIAG)),-DLOADER_DIAG=1)
 APP_LIBS_hub :=
 APP_LIBS_hub-loader := --library lib/fm1_loader
 APP_LIBS_everything := --library lib/fm1_loader
