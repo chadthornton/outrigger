@@ -15,6 +15,7 @@ store meanwhile). Steps:
 Nothing else in the store changes: backups, saves and units stay as they were.
 """
 import datetime
+import os
 import hashlib
 import json
 import subprocess
@@ -26,10 +27,13 @@ import littlefs
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fm1lib  # noqa: E402
-from store_image import BLOCK, GEOMETRY, store_partition  # noqa: E402
+from store_image import BLOCK, GEOMETRY, store_partition, superblock  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 CATALOG = "https://thefirmwarehub.com/catalog.json"
+# Laptop copies of the board's store (its backups and saves), outside build/ so
+# `make clean` can't take them: the recovery project's backups folder.
+COPIES = Path(os.environ.get("FM1_STORE_COPIES", Path.home() / "Projects/TROUBLESHOOTING/FM1-firmware-recovery/backups/store"))
 
 
 class LfsStore:
@@ -93,16 +97,19 @@ def snapshot(fs, path=""):
 def main():
     args = sys.argv[1:]
     pin = "--pin" in args  # mark the added packages as favorites
-    args = [a for a in args if a != "--pin"]
-    if len(args) < 3:
+    read_only = "--list" in args  # read the store, list it, keep the copy, write nothing
+    args = [a for a in args if a not in ("--pin", "--list")]
+    if len(args) < 3 - read_only:
         sys.exit(__doc__.strip().splitlines()[2].strip())
     csv_path, port, pkgs = args[0], args[1], [Path(p) for p in args[2:]]
+    if not pkgs and not read_only:
+        sys.exit("store_add: no packages named")
     offline = port.startswith("image:")  # image:<in.bin>:<out.bin>, for testing without a board
     offset, size = store_partition(csv_path)
     names = catalog_names()
 
     stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    before = ROOT / "build" / "store" / ("from-board-%s.bin" % stamp)
+    before = COPIES / ("store-from-board-%s.bin" % stamp)
     before.parent.mkdir(parents=True, exist_ok=True)
     if offline:
         before = Path(port.split(":")[1])
@@ -110,14 +117,32 @@ def main():
         subprocess.run([esptool(), "--chip", "esp32s3", "--port", port, "read-flash", hex(offset), hex(size),
                         str(before)], check=True)
     image = before.read_bytes()
+    if not offline:
+        with open(COPIES / "SHA256SUMS", "a") as sums:
+            sums.write("%s  %s\n" % (hashlib.sha256(image).hexdigest(), before.name))
     if len(image) != size:
         sys.exit("store_add: read %d bytes, the store is %d" % (len(image), size))
     print("store_add: read the store (%d bytes), kept as %s" % (len(image), before))
 
-    fs = littlefs.LittleFS(block_count=size // BLOCK, mount=False, **GEOMETRY)
+    # Mount with the disk version the board's littlefs wrote, so writing back
+    # never upgrades the store past what the board can read.
+    sb = superblock(image)
+    if not sb:
+        sys.exit("store_add: no littlefs superblock in the store; refusing to touch it")
+    version, block_size, block_count, name_max = sb
+    if (block_size, block_count, name_max) != (BLOCK, size // BLOCK, GEOMETRY["name_max"]):
+        sys.exit("store_add: store geometry %r isn't the expected one; refusing" % (sb,))
+    print("store_add: littlefs disk version %d.%d" % (version >> 16, version & 0xFFFF))
+    fs = littlefs.LittleFS(block_count=size // BLOCK, mount=False, **dict(GEOMETRY, disk_version=version))
     fs.context.buffer[:] = image
     fs.mount()
     was = snapshot(fs)
+    if read_only:
+        for path in sorted(was):
+            print("  " + path if not path.startswith("s/") else "", end="" if path.startswith("s/") else "\n")
+        print("store_add: %d files (%d sectors); read only, nothing written"
+              % (len(was), len([k for k in was if k.startswith("s/")])))
+        return
     store = LfsStore(fs)
     added = []
     for p in pkgs:
@@ -132,7 +157,7 @@ def main():
     if changed:
         sys.exit("store_add: refusing to write back: %d existing files changed (%s...)" % (len(changed), changed[0]))
     fs.unmount()
-    after = Path(port.split(":")[2]) if offline else before.with_name("to-board-%s.bin" % stamp)
+    after = Path(port.split(":")[2]) if offline else before.with_name("store-to-board-%s.bin" % stamp)
     after.write_bytes(bytes(fs.context.buffer))
     if not offline:
         subprocess.run([esptool(), "--chip", "esp32s3", "--port", port, "write-flash", hex(offset), str(after)],

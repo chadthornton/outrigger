@@ -78,7 +78,8 @@ void show_line(int i, const char *text) {
 
 constexpr uint32_t kWhite = 0xF2F2F2, kYellow = 0xFFE14A, kGreen = 0x22DD44, kRed = 0xFF4A4A;
 
-bool wait_until(uint32_t timeout_ms, bool (*ready)()) {
+template <class Ready>
+bool wait_until(uint32_t timeout_ms, Ready ready) {
   const uint32_t start = millis();
   while (!ready()) {
     if (millis() - start > timeout_ms) return false;
@@ -440,8 +441,11 @@ void loader_task(void *) {
     wait_until(5000, [] { return running.load() == platform::Mode::Load; });
     if (running.load() != platform::Mode::Load) show("Couldn't enter Load mode", kRed);
     else run_job();
-    wanted = platform::Mode::Play;
-    wait_until(5000, [] { return running.load() == platform::Mode::Play; });
+    // After an install stopped part-way, stay in Load mode: the ROM device stays
+    // claimed and the loader in its RAM isn't disturbed by a re-enumeration.
+    const platform::Mode next = resume_ready ? platform::Mode::Load : platform::Mode::Play;
+    wanted = next;
+    wait_until(5000, [next] { return running.load() == next; });
     refresh_store_line();
     refresh_items();
     refresh_preview();

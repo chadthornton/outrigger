@@ -139,8 +139,8 @@ flash-store: store-image
 # reads the store back (kept in build/store/), adds, checks nothing else changed,
 # writes it back. Board in Computer mode. make store-add PKGS="a.fwsc b.fwsc" [PIN=1]
 store-add: $(TOOLS_PY)
-	$(if $(PKGS),,$(error PKGS="file.fwsc ..." names the packages to add))
-	$(TOOLS_PY) tools/store_add.py firmware/$(BOARD)/partitions.csv $(PORT) $(if $(PIN),--pin) $(PKGS)
+	$(if $(PKGS)$(LIST),,$(error PKGS="file.fwsc ..." names the packages to add; LIST=1 only lists))
+	$(TOOLS_PY) tools/store_add.py firmware/$(BOARD)/partitions.csv $(PORT) $(if $(PIN),--pin) $(if $(LIST),--list) $(PKGS)
 
 # Stage the firmware into site/ for the browser installer (ESP Web Tools).
 # fixtures brings wl82loader.bin, so build_site can scan for pieces of it.

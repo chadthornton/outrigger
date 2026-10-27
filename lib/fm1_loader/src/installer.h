@@ -72,8 +72,9 @@ struct InstallOptions {
   bool fresh_start_ok = false;  // the user agreed to erase data for a clean start
   bool layout_change_ok = false;  // the user saw the data-layout warning and went on
   std::string unit_name;        // for a unit seen for the first time
-  // Resume only: this board left its loader running in the FM-1 (it stopped
-  // the install itself and didn't reset), so the upload is skipped.
+  // Resume only: this board may have left its loader running in the FM-1 (it
+  // stopped the install itself and didn't reset). The resume asks the loader
+  // first and skips the upload when it answers.
   bool loader_running = false;
   uint32_t rom_timeout_ms = 10000;
   uint32_t midi_timeout_ms = 15000;

@@ -367,6 +367,24 @@ static void test_resume_with_loader_running() {
   CHECK(memcmp(r.rom.flash.data() + kAppStart, skiff().data(), kAppLen) == 0);
   for (size_t i = before; i < r.rom.log.size(); ++i) CHECK(r.rom.log[i].compare(0, 4, "fb06") != 0);
   CHECK(r.rom.violations.empty());
+  // The hint is only a hint: a loader that's gone (the FM-1 was reset back to
+  // its ROM) doesn't answer, and the upload runs as usual.
+  {
+    Rig g(base_flash(sloop()));
+    InstallOptions go;
+    go.confirmed = true;
+    go.fresh_start_ok = true;
+    g.inst.start_install("skiff-1.4", go);
+    while (g.rom.writes < 200 && g.inst.step()) {
+    }
+    g.rom.loader_running = false;  // lost: the ROM answers again
+    Installer retry(g.rom, g.host, g.lib, blob());
+    go.loader_running = true;
+    retry.start_resume(go);
+    retry.run();
+    CHECK(retry.current() == Step::Done);
+    CHECK(memcmp(g.rom.flash.data() + kAppStart, skiff().data(), kAppLen) == 0);
+  }
   // A fresh install ignores the hint: the FM-1 just entered ROM boot.
   Rig f(base_flash(sloop()));
   f.inst.start_install("skiff-1.4", o);

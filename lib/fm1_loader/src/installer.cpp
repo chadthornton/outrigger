@@ -166,8 +166,14 @@ void Installer::do_identify() {
   for (char &c : upper) c = char(c >= 'a' && c <= 'z' ? c - 32 : c);
   if (upper != "WL82") return fail(Failure::NotWl82);  // vendor.upper(), as fm1_unbrick.py
   if (resume_ && opts_.loader_running) {
-    step_ = Step::ReadIds;  // the loader commands that follow fail harmlessly if it isn't
-    return;
+    // Ask the loader itself; if it doesn't answer, the FM-1 lost it (a bus reset,
+    // say) and the upload below runs as usual.
+    uint8_t type;
+    uint32_t id;
+    if (rom_.online_device(type, id)) {
+      step_ = Step::ReadIds;
+      return;
+    }
   }
   if (product == "UBOOT1.00") {
     step_ = Step::UploadLoader;
