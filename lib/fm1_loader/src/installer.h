@@ -99,7 +99,11 @@ class Installer {
   // retry or restore backup" and the FM-1 stays in ROM boot.
   bool danger() const { return danger_; }
   const Unit &unit() const { return unit_; }
-  const std::string &backup_id() const { return backup_id_; }  // the backup this run recorded
+  const std::string &backup_id() const { return backup_id_; }
+  // Where a failure happened, for the screen and the log: the command, the
+  // flash address and how far it got ("erase 0x5A000 try 1, sector 3 of 140").
+  // Empty unless the last run failed.
+  const std::string &failure_detail() const { return detail_; }  // the backup this run recorded
   const DataDecision &decision() const { return decision_; }
   uint32_t sectors_done() const { return done_; }
   uint32_t sectors_total() const { return total_; }
@@ -128,6 +132,7 @@ class Installer {
   bool resume_ = false;
   bool backup_only_ = false;
   std::string backup_id_;
+  std::string detail_;
   std::string package_id_;
 
   Step step_ = Step::Idle;

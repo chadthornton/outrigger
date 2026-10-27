@@ -102,18 +102,30 @@ bool wait_until(uint32_t timeout_ms, Ready ready) {
 
 class UsbScsi : public ScsiTransport {
  public:
+  char last_failure[40] = "";  // what the USB layer said about the last failed command
   bool execute(const uint8_t *cdb, size_t cdb_len, Dir dir, uint8_t *data, size_t len) override {
     const uint8_t address = rom_address.load();
-    if (!address) return false;
+    if (!address) {
+      note(cdb, "FM-1 gone from USB", 0, len);
+      return false;
+    }
     size_t actual = 0;
     if (!usb->mscRawCommand(address, cdb, uint8_t(cdb_len), dir == Dir::None ? nullptr : data,
-                            dir == Dir::None ? 0 : len, dir != Dir::Out, actual, kScsiTimeoutMs))
+                            dir == Dir::None ? 0 : len, dir != Dir::Out, actual, kScsiTimeoutMs)) {
+      note(cdb, usb->lastErrorName(), actual, len);
       return false;
+    }
     // jl-uboot-tool's SG_IO ignores a short answer to a 16-byte response or the
     // inquiry (the rest stays zero); flash reads must arrive whole.
     // A flash read (FD05) must arrive whole, whatever its size.
     if (dir != Dir::In || actual == len) return true;
     return cdb[0] != (kReadFlash >> 8) || cdb[1] != (kReadFlash & 0xFF) ? len <= 36 : false;
+  }
+
+ private:
+  void note(const uint8_t *cdb, const char *why, size_t actual, size_t len) {
+    snprintf(last_failure, sizeof last_failure, "USB: %02X%02X %s %u/%u", cdb[0], cdb[1], why,
+             unsigned(actual), unsigned(len));
   }
 };
 
@@ -353,7 +365,7 @@ void refresh_preview() {
   set_preview(l0, l1, action, ready && kWritesEnabled);
 }
 
-void finish(Installer &inst, const Host &host, const char *done_title) {
+void finish(Installer &inst, const Host &host, const UsbScsi &scsi, const char *done_title) {
   if (inst.current() == Step::Done) {
     show(done_title, kGreen, 100);
     if (host.why[0]) show_line(1, host.why);  // a re-enumeration was needed: worth seeing
@@ -363,8 +375,12 @@ void finish(Installer &inst, const Host &host, const char *done_title) {
   if (inst.failure() == Failure::KeyNotSent) snprintf(buf, sizeof buf, "No ROM boot: %s", key_result_text(host.key));
   else snprintf(buf, sizeof buf, "Stopped: %s", failure_text(inst.failure()));
   show(buf, kRed);
-  if (host.why[0]) show_line(2, host.why);
-  if (!host.identity.empty()) {
+  // Line 2: which step and where; line 3: what USB said (or the FM-1's identity).
+  if (!inst.failure_detail().empty()) show_line(2, inst.failure_detail().c_str());
+  else if (host.why[0]) show_line(2, host.why);
+  if (scsi.last_failure[0]) {
+    show_line(3, scsi.last_failure);
+  } else if (!host.identity.empty()) {
     snprintf(buf, sizeof buf, "FM-1 answered %s", host.identity.c_str());
     show_line(3, buf);
   }
@@ -399,11 +415,11 @@ void run_job() {
     o.loader_running = loader_left_running;
     inst.start_resume(o);
     run(inst);
-    finish(inst, host, "Install finished.");
+    finish(inst, host, scsi, "Install finished.");
   } else if (sel < 0 || sel >= int(item_ids.size())) {
     inst.start_backup(o);
     run(inst);
-    finish(inst, host, "Backed up. Nothing written.");
+    finish(inst, host, scsi, "Backed up. Nothing written.");
     if (inst.current() == Step::Done) report_backup(inst, host);
   } else {
     // The hold agreed to what the preview showed, the data decision included.
@@ -413,7 +429,7 @@ void run_job() {
     run(inst);
     char buf[40];
     snprintf(buf, sizeof buf, "Installed: %u sectors written", unsigned(inst.sectors_done()));
-    finish(inst, host, buf);
+    finish(inst, host, scsi, buf);
   }
   resume_ready = inst.danger();
   // Stopped part-way without a reset: the loader still runs in the FM-1's RAM.

@@ -433,6 +433,26 @@ static void test_disconnect_mid_write() {
   CHECK(r.inst.danger() && !r.rom.was_reset);
   Unit u;
   CHECK(r.lib.unit(r.inst.unit().id, u) && u.has_pending);
+  // The failure names the command, the address and how far it got.
+  const std::string d = r.inst.failure_detail();
+  printf("  detail: %s\n", d.c_str());
+  CHECK(d.compare(0, 6, "erase ") == 0 || d.compare(0, 6, "write ") == 0 || d.compare(0, 5, "read ") == 0);
+  CHECK(d.find(" 0x") != std::string::npos && d.find("sector ") != std::string::npos);
+  // During the backup: the pass and the address.
+  Rig b(base_flash(sloop()));
+  b.rom.disconnect_after = 100;
+  b.install("skiff-1.4");
+  CHECK(b.inst.failure() == Failure::DeviceLost);
+  CHECK(b.inst.failure_detail().find("backup read 1") != std::string::npos);
+  // A sector that won't verify says which.
+  Rig v(base_flash(sloop()));
+  v.rom.bad_cell = long(kAppStart + first_difference() + 0x123);
+  v.install("skiff-1.4");
+  CHECK(v.inst.failure_detail().find("verify") != std::string::npos);
+  // No failure, no detail.
+  Rig ok(base_flash(skiff()));
+  ok.install("skiff-1.4");
+  CHECK(ok.inst.failure_detail().empty());
 }
 
 static void test_storage_failures() {
