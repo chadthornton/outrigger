@@ -273,18 +273,23 @@ void refresh_items() {
   if (library->unit(library->last_unit(), u) && library->backup(u.latest_backup, flash))
     running = library->identify_app(std::vector<Hash>(flash.begin() + kAppStart / kSector,
                                                       flash.begin() + kAppEnd / kSector));
+  // Built here, then copied under the lock: nothing inside a critical section
+  // may allocate (ESP-IDF aborts, and the board reboots in a loop).
+  UiLoaderItem items[kLoaderItems] = {};
+  uint8_t count = 0;
   item_ids.clear();
-  taskENTER_CRITICAL(&lock);
-  shown.item_count = 0;
   for (const PackageInfo &p : pkgs) {
-    if (shown.item_count == kLoaderItems) break;
-    UiLoaderItem &it = shown.items[shown.item_count++];
+    if (count == kLoaderItems) break;
+    UiLoaderItem &it = items[count++];
     strlcpy(it.label, label_of(p).c_str(), sizeof it.label);
     strlcpy(it.note, running.known() && running.app_sha256 == p.app_sha256 ? "running" : p.identity.c_str(),
             sizeof it.note);
     it.pinned = p.pinned;
     item_ids.push_back(p.id);
   }
+  taskENTER_CRITICAL(&lock);
+  memcpy(shown.items, items, sizeof items);
+  shown.item_count = count;
   taskEXIT_CRITICAL(&lock);
 }
 
