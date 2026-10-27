@@ -218,6 +218,20 @@ bool Library::backup(const std::string &id, FlashHashes &out) {
   return true;
 }
 
+bool Library::region_sha256(const std::string &backup_id, uint32_t start, uint32_t end, Hash &out) {
+  FlashHashes flash;
+  if (start % kSector || end % kSector || start >= end || end > kFlashSize || !backup(backup_id, flash))
+    return false;
+  Sha256 s;
+  std::vector<uint8_t> buf(kSector);
+  for (uint32_t a = start; a < end; a += kSector) {
+    if (!sectors_.get(flash[a / kSector], buf.data())) return false;
+    s.update(buf.data(), buf.size());
+  }
+  out = s.finish();
+  return true;
+}
+
 bool Library::add_save(Unit &u, SaveState &s) {
   for (const auto &sec : s.sectors)
     if (!sectors_.has(sec.second)) return false;

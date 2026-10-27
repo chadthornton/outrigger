@@ -122,12 +122,14 @@ bool RomClient::flash_read(uint32_t addr, uint8_t *out, uint16_t len) {
 }
 
 bool RomClient::erase_sector(uint32_t addr) {
+  if (!kWritesEnabled) return false;
   uint8_t args[4], resp[kResponseLen];
   be32(args, addr);
   return exec(kEraseSector, args, sizeof args, resp);
 }
 
 bool RomClient::flash_write(uint32_t addr, const uint8_t *data, uint16_t len) {
+  if (!kWritesEnabled) return false;
   uint8_t args[9], cdb[kCdbLen];
   data_args(addr, data, len, args);
   make_cdb(kWriteFlash, args, sizeof args, cdb);

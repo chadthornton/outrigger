@@ -49,6 +49,7 @@ const char *failure_text(Failure f) {
     case Failure::NothingToResume: return "no unfinished install on this unit";
     case Failure::WriteVerifyFailed: return "a sector didn't verify twice";
     case Failure::MidiNotBack: return "installed, but the FM-1 didn't come back as MIDI";
+    case Failure::WritesLocked: return "this build can't write the FM-1";
   }
   return "?";
 }
@@ -56,6 +57,8 @@ const char *failure_text(Failure f) {
 void Installer::reset_state(const InstallOptions &opts) {
   opts_ = opts;
   resume_ = false;
+  backup_only_ = false;
+  backup_id_.clear();
   package_id_.clear();
   step_ = Step::Idle;
   failure_ = Failure::None;
@@ -79,8 +82,15 @@ void Installer::start_install(const std::string &package_id, const InstallOption
   step_ = Step::Confirm;
 }
 
+void Installer::start_backup(const InstallOptions &opts) {
+  reset_state(opts);
+  backup_only_ = true;
+  step_ = Step::Confirm;
+}
+
 void Installer::start_resume(const InstallOptions &opts) {
   reset_state(opts);
+  if (!kWritesEnabled) return fail(Failure::WritesLocked);
   resume_ = true;
   danger_ = true;  // the app area may be half-written: never leave ROM boot on a failure
   step_ = Step::Identify;
@@ -110,6 +120,11 @@ bool Installer::step() {
       // Before the key: once in ROM boot, only a running loader can reset the FM-1.
       if (hex(sha256(blob_.data(), blob_.size())) != kLoaderSha256)
         return fail(Failure::LoaderBlobBad), false;
+      if (backup_only_) {
+        step_ = Step::SendKey;
+        break;
+      }
+      if (!kWritesEnabled) return fail(Failure::WritesLocked), false;
       if (!lib_.package(package_id_, p)) return fail(Failure::PackageMissing), false;
       for (const Hash &h : p.app)
         if (!lib_.sectors().has(h)) return fail(Failure::PackageMissing), false;
@@ -224,8 +239,7 @@ void Installer::do_backup() {
     unit_.id = id;
     unit_.name = opts_.unit_name;
   }
-  std::string backup_id;
-  if (!lib_.add_backup(unit_, flash_, backup_id)) return fail(Failure::StorageFailed, true);
+  if (!lib_.add_backup(unit_, flash_, backup_id_)) return fail(Failure::StorageFailed, true);
   // Autosave the running firmware's data: the rollback point and the state to
   // come back to.
   std::vector<Hash> app(flash_.begin() + kAppStart / kSector, flash_.begin() + kAppEnd / kSector);
@@ -237,7 +251,7 @@ void Installer::do_backup() {
                 saves.back().app_sha256 == s.app_sha256 && saves.back().sectors == s.sectors;
     if (!same && !lib_.add_save(unit_, s)) return fail(Failure::StorageFailed, true);
   }
-  step_ = Step::Plan;
+  step_ = backup_only_ ? Step::Reset : Step::Plan;
 }
 
 // Resume: which unit, its stored backup and unfinished install, then one read of

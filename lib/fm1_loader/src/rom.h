@@ -9,7 +9,18 @@
 
 #include <string>
 
+#ifndef FM1_LOADER_WRITES
+#define FM1_LOADER_WRITES 0
+#endif
+
 namespace fm1_loader {
+
+// The lowest-level lock on writing the FM-1's flash. Off unless the build
+// defines FM1_LOADER_WRITES=1: the Mac tests do; every firmware build stays
+// read-only until hardware checkpoint 3. Locked, RomClient refuses erase and
+// write without sending anything, and the installer refuses installs and
+// resumes before it sends the key.
+constexpr bool kWritesEnabled = FM1_LOADER_WRITES != 0;
 
 // One SCSI command with an optional data phase. The firmware implements it on
 // EspUsbHost's mass-storage path; the tests use a mock device.

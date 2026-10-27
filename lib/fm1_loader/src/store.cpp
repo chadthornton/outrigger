@@ -51,7 +51,11 @@ size_t MemoryStorage::bytes() const {
 
 namespace {
 
-std::string sector_key(const Hash &h) { return "s/" + hex(h); }
+// "s/ab/<62 hex>": LittleFS names are at most 64 bytes per path component.
+std::string sector_key(const Hash &h) {
+  const std::string x = hex(h);
+  return "s/" + x.substr(0, 2) + "/" + x.substr(2);
+}
 
 Hash compute_blank() {
   std::vector<uint8_t> ff(kSector, 0xFF);
@@ -89,7 +93,8 @@ size_t SectorStore::collect_garbage(const std::set<Hash> &referenced) {
   size_t removed = 0;
   for (const std::string &key : storage_.list("s/")) {
     Hash h;
-    if (!parse_hash(key.substr(2), h) || !referenced.count(h)) {
+    const bool named = key.size() == 2 + 2 + 1 + 62 && key[4] == '/';
+    if (!named || !parse_hash(key.substr(2, 2) + key.substr(5), h) || !referenced.count(h)) {
       storage_.remove(key);
       ++removed;
     }

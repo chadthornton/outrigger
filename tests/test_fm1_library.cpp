@@ -4,10 +4,19 @@
 
 #include "library.h"
 #include "support/check.h"
+#include "support/temp_storage.h"
 
 using namespace fm1_loader;
 
 int failures = 0;
+
+// test_fm1_library runs these on MemoryStorage, test_fm1_library_posix on the
+// file-system back end the Waveshare uses. Fault injection is MemoryStorage only.
+#ifdef TEST_POSIX_STORAGE
+using TestStorage = TempPosixStorage;
+#else
+using TestStorage = MemoryStorage;
+#endif
 
 using Image = std::vector<uint8_t>;
 
@@ -52,7 +61,7 @@ static void put_app(Library &lib, Image &img, const PackageInfo &p) {
 }
 
 static void test_sector_store() {
-  MemoryStorage st;
+  TestStorage st;
   SectorStore s(st);
   std::vector<uint8_t> a(kSector), b(kSector), ff(kSector, 0xFF), out(kSector);
   fill(a, 0, kSector, 3);
@@ -70,7 +79,7 @@ static void test_sector_store() {
   // A damaged stored sector is refused, never handed out.
   std::vector<uint8_t> bad = b;
   bad[100] ^= 1;
-  st.write("s/" + hex(hb), bad.data(), bad.size());
+  st.write("s/" + hex(hb).substr(0, 2) + "/" + hex(hb).substr(2), bad.data(), bad.size());
   CHECK(!s.get(hb, out.data()));
   CHECK_EQ(s.collect_garbage({ha}), size_t(1));
   CHECK(s.has(ha) && !s.has(hb) && s.has(SectorStore::blank()));
@@ -90,7 +99,7 @@ static void test_manifest() {
 }
 
 static void test_packages() {
-  MemoryStorage st;
+  TestStorage st;
   Library lib(st);
   PackageInfo skiff = load(lib, "skiff-1.4", "skiff-1.4.fwsc");
   size_t after_one = lib.sectors().count();
@@ -113,13 +122,15 @@ static void test_packages() {
   CHECK(lib.add_package("../x", data.data(), data.size()) == PackageError::BadId);
   Hash wrong{};
   CHECK(lib.add_package("x", data.data(), data.size(), &wrong) == PackageError::HashMismatch);
+#ifndef TEST_POSIX_STORAGE
   st.fail_writes_after = 0;
   CHECK(lib.add_package("stock", read_file("tests/fixtures/FM-1_015.fwsc").data(), 699956) ==
         PackageError::StoreFailed);
+#endif
 }
 
 static void test_remove_package() {
-  MemoryStorage st;
+  TestStorage st;
   Library lib(st);
   load(lib, "skiff-1.4", "skiff-1.4.fwsc");
   load(lib, "sloop-2.8.1", "sloop-2.8.1.fwsc");
@@ -149,7 +160,7 @@ static void test_unit_ids() {
 }
 
 static void test_backups() {
-  MemoryStorage st;
+  TestStorage st;
   Library lib(st);
   Image img = unit_image(9);
   Unit u;
@@ -182,13 +193,15 @@ static void test_backups() {
   missing[3] = sha256(nullptr, 0);
   std::string b4;
   CHECK(!lib.add_backup(u, missing, b4));
+#ifndef TEST_POSIX_STORAGE
   // A storage that can't sync can't record a backup.
   st.fail_sync = true;
   CHECK(!lib.add_backup(u, h1, b4));
+#endif
 }
 
 static void test_diff_planner() {
-  MemoryStorage st;
+  TestStorage st;
   Library lib(st);
   PackageInfo skiff = load(lib, "skiff-1.4", "skiff-1.4.fwsc");
   Image img = unit_image(9);
@@ -208,7 +221,7 @@ static void test_diff_planner() {
 }
 
 static void test_capture_save() {
-  MemoryStorage st;
+  TestStorage st;
   Library lib(st);
   Image img = unit_image(9);
   fill(img, 0x97000, kSector, 1);       // a song
@@ -290,7 +303,7 @@ static void test_decide_data() {
 }
 
 static void test_save_restore_round_trip() {
-  MemoryStorage st;
+  TestStorage st;
   Library lib(st);
   PackageInfo skiff = load(lib, "skiff-1.4", "skiff-1.4.fwsc");
   PackageInfo sloop = load(lib, "sloop-2.8.1", "sloop-2.8.1.fwsc");
@@ -342,7 +355,7 @@ static void test_save_restore_round_trip() {
 }
 
 static void test_fresh_start() {
-  MemoryStorage st;
+  TestStorage st;
   Library lib(st);
   Image img = unit_image(9);
   fill(img, 0x97000, kSector, 1);
@@ -358,7 +371,7 @@ static void test_fresh_start() {
 }
 
 static void test_two_units() {
-  MemoryStorage st;
+  TestStorage st;
   Library lib(st);
   Image a = unit_image(1), b = unit_image(2);
   Unit ua, ub;
@@ -401,6 +414,10 @@ int main() {
     printf("%d failure(s)\n", failures);
     return 1;
   }
+#ifdef TEST_POSIX_STORAGE
+  printf("all fm1_loader library tests passed (PosixStorage)\n");
+#else
   printf("all fm1_loader library tests passed\n");
+#endif
   return 0;
 }

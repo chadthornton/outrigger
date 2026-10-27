@@ -30,7 +30,8 @@ FW_DIRTY := $(if $(shell git status --porcelain --untracked-files=no),1,0)
 
 FM1_SRC := $(wildcard lib/fm1_loader/src/*.cpp)
 FM1_HDR := $(wildcard lib/fm1_loader/src/*.h) $(wildcard tests/support/*.h)
-FM1_TESTS := build/test_fm1_package build/test_fm1_library build/test_fm1_installer
+FM1_TESTS := build/test_fm1_package build/test_fm1_library build/test_fm1_installer \
+	build/test_fm1_softkey build/test_fm1_posix build/test_fm1_locked build/test_fm1_library_posix
 
 test: build/test_midi_core build/test_status build/test_boot_mode build/test_broker build/test_describe $(FM1_TESTS) fixtures
 	./build/test_midi_core
@@ -40,9 +41,20 @@ test: build/test_midi_core build/test_status build/test_boot_mode build/test_bro
 	./build/test_describe
 	for t in $(FM1_TESTS); do ./$$t || exit 1; done
 
-build/test_fm1_%: tests/test_fm1_%.cpp $(FM1_SRC) $(FM1_HDR) $(wildcard tests/support/*.cpp)
+# The Mac tests may write the mock FM-1 (FM1_LOADER_WRITES=1); test_fm1_locked
+# is built without it, as every firmware build is until hardware checkpoint 3.
+FM1_TEST_SRC := $(FM1_SRC) $(wildcard tests/support/*.cpp)
+build/test_fm1_locked: tests/test_fm1_locked.cpp $(FM1_TEST_SRC) $(FM1_HDR)
 	mkdir -p build
-	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -Ilib/fm1_loader/src -Itests -o $@ $< $(FM1_SRC) $(wildcard tests/support/*.cpp)
+	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -Ilib/fm1_loader/src -Itests -o $@ $< $(FM1_TEST_SRC)
+
+build/test_fm1_library_posix: tests/test_fm1_library.cpp $(FM1_TEST_SRC) $(FM1_HDR)
+	mkdir -p build
+	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -DFM1_LOADER_WRITES=1 -DTEST_POSIX_STORAGE -Ilib/fm1_loader/src -Itests -o $@ $< $(FM1_TEST_SRC)
+
+build/test_fm1_%: tests/test_fm1_%.cpp $(FM1_TEST_SRC) $(FM1_HDR)
+	mkdir -p build
+	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -DFM1_LOADER_WRITES=1 -Ilib/fm1_loader/src -Itests -o $@ $< $(FM1_TEST_SRC)
 
 # Packages and the loader blob for the fm1_loader tests, pinned by SHA-256 and
 # kept out of git (tests/fixtures/).

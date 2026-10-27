@@ -106,6 +106,8 @@ class Library {
   // makes it the unit's latest; the first one is also its baseline. Synced.
   bool add_backup(Unit &u, const FlashHashes &flash, std::string &backup_id);
   bool backup(const std::string &id, FlashHashes &out);
+  // SHA-256 of flash [start, end) as a backup holds it (sector-aligned).
+  bool region_sha256(const std::string &backup_id, uint32_t start, uint32_t end, Hash &out);
 
   bool add_save(Unit &u, SaveState &s);  // assigns id and seq; synced
   bool save(const std::string &id, SaveState &out);
