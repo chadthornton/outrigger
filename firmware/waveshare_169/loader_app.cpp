@@ -121,18 +121,33 @@ class Host : public LoaderHost {
  public:
   std::string identity;
   KeyResult key = KeyResult::NoAnswer;
+  const char *why = "";  // which check stopped the key, for the screen
   bool send_rom_boot_key() override {
     show("Asking the FM-1...", kYellow);
+    // EspUsbHost reports a device as connected before its interfaces are
+    // claimed: wait until its MIDI endpoints are up and the broker gives the
+    // Loader the FM-1's MIDI (only in Load mode).
     if (!wait_until(kFm1AppearMs, [] { return fm1_midi_address.load() != 0; })) {
       key = KeyResult::NoAnswer;
+      why = "no FM-1 on the hub";
       return false;
     }
-    if (!loader_owns_midi || !loader_owns_midi()) {  // only the Loader, only in Load mode
+    if (!wait_until(kFm1AppearMs, [] {
+          const uint8_t a = fm1_midi_address.load();
+          return a != 0 && usb->midiReady(a);
+        })) {
       key = KeyResult::SendFailed;
+      why = "FM-1 MIDI never ready";
+      return false;
+    }
+    if (!wait_until(2000, [] { return loader_owns_midi && loader_owns_midi(); })) {
+      key = KeyResult::SendFailed;
+      why = "broker: Loader doesn't own FM-1 MIDI";
       return false;
     }
     UsbMidiLink link;
     key = enter_rom_boot(link, identity);
+    if (key == KeyResult::SendFailed) why = "identity query not sent";
     return key == KeyResult::Sent;
   }
   bool wait_for_rom_device(uint32_t timeout_ms) override {
@@ -203,6 +218,11 @@ void run_backup() {
   if (inst.failure() == Failure::KeyNotSent) snprintf(buf, sizeof buf, "No ROM boot: %s", key_result_text(host.key));
   else snprintf(buf, sizeof buf, "Stopped: %s", failure_text(inst.failure()));
   show(buf, kRed);
+  if (inst.failure() == Failure::KeyNotSent && host.why[0]) show_line(2, host.why);
+  if (!host.identity.empty()) {
+    snprintf(buf, sizeof buf, "FM-1 answered %s", host.identity.c_str());
+    show_line(3, buf);
+  }
   if (inst.danger()) show_line(5, "FM-1 left in ROM boot: power-cycle it");
 }
 
