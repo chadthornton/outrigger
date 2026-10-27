@@ -163,7 +163,7 @@ So it splits in two.
   - **Also fix:** `status.cpp`'s fallback line "It may not be class-compliant", which showed for a Launchkey whose
     MIDI simply didn't reopen after many host restarts.
 - **Left in session 3a, in order:**
-  1. The failure detail and the status line.
+  1. ~~The failure detail and the status line.~~ Done in `605c522` (not yet flashed).
   2. Merge `web-diag` when it's ready.
   3. Checkpoint 3: Skiff → Felucca → Skiff.
   4. `code-review` at high effort.
