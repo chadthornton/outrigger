@@ -131,6 +131,18 @@ So it splits in two.
      - **Locked builds:** the hold stays off ("read-only build").
   3. **Checkpoint 2, no-op:** a build with `FM1_LOADER_WRITES=1` installs Skiff over Skiff. The plan must show
      0 sectors, and nothing is erased.
+     - **Passed 2026-10-27** (build `b81773c`, writes on). After a fresh backup, the browser marked Skiff 1.4 "running"
+       (all 143 backed-up app sectors equal the package's) and previewed 0 sectors with data kept. The install wrote
+       nothing, and the FM-1 came back on its own.
+     - **Found on the way:**
+       - **A reboot loop with packages in the store:** the loop task's 8 KB stack overflowed in LVGL's redraw. Found
+         from the core dump on the `coredump` partition (`esp-coredump`). The loop task now has 16 KB, and the page's
+         data is off its stack.
+       - **Allocation inside a critical section:** now fixed.
+       - **Crash breadcrumbs and a safe mode:** after a crash the board starts without the USB host, shows where it
+         died, and hands the port to the Mac.
+       - **store-add mounts by version:** the board had upgraded its littlefs to disk version 2.1, so store-add finds
+         the version by mounting instead of parsing.
   4. **Checkpoint 3, real install:** Skiff → Felucca 1.6.1 → Skiff, with the Transporter wired and ready.
      - **Why not SLOOP (Chad, 2026-10-27):** SLOOP is Felucca 0.9-based, and Skiff (1.6.1) over 0.9 data is the
        known brick pattern. SLOOP waits until store dumps (`tools/store_dump.py`) show where it keeps data outside
