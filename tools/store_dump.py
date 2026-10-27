@@ -13,10 +13,9 @@ import hashlib
 import sys
 from pathlib import Path
 
-import littlefs
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from store_image import BLOCK, GEOMETRY, superblock  # noqa: E402
+from store_image import mount  # noqa: E402
 
 SECTOR = 0x1000
 BLANK = b"\xff" * SECTOR
@@ -43,12 +42,10 @@ def main():
     image_path = Path(sys.argv[1])
     out = Path(sys.argv[2]) if len(sys.argv) > 2 else image_path.parent
     image = image_path.read_bytes()
-    sb = superblock(image)
-    if not sb:
-        sys.exit("store_dump: no littlefs superblock")
-    fs = littlefs.LittleFS(block_count=len(image) // BLOCK, mount=False, **dict(GEOMETRY, disk_version=sb[0]))
-    fs.context.buffer[:] = image
-    fs.mount()
+    mounted = mount(image)
+    if not mounted:
+        sys.exit("store_dump: not a littlefs store image")
+    fs = mounted[0]
 
     def sector(h):
         if h == BLANK_SHA:

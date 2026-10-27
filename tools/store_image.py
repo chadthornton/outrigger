@@ -30,22 +30,23 @@ GEOMETRY = dict(block_size=BLOCK, read_size=128, prog_size=128, block_cycles=512
                 name_max=64, disk_version=0x00020000)
 
 
-def superblock(image):
-    """(disk_version, block_size, block_count, name_max) from a littlefs image.
+def mount(image):
+    """Mounts a store image as the board's littlefs wrote it: (fs, disk_version).
 
-    The superblock lives in the metadata pair at blocks 0 and 1; the newer one
-    has the higher revision count (its first 4 bytes). In it the name entry
-    "littlefs" is followed by a 4-byte tag and the inline superblock struct
-    (version, block size, block count, name max, ...), all little-endian. The
-    last copy in the block is the newest commit. None if it can't be found.
+    littlefs refuses an image whose on-disk version is newer than the one it is
+    configured for, and one whose block count doesn't match, so the oldest
+    version that mounts is the image's own. Writing back with it never
+    upgrades the store past what the board reads. None if neither mounts.
     """
-    import struct
-    blocks = sorted((struct.unpack_from("<I", image, b * BLOCK)[0], b) for b in (0, 1))
-    for _, b in reversed(blocks):
-        blk = image[b * BLOCK:(b + 1) * BLOCK]
-        i = blk.rfind(b"littlefs")
-        if i >= 0 and i + 28 <= len(blk):
-            return struct.unpack_from("<IIII", blk, i + 12)
+    for version in (0x00020000, 0x00020001):
+        fs = littlefs.LittleFS(block_count=len(image) // BLOCK, mount=False,
+                               **dict(GEOMETRY, disk_version=version))
+        fs.context.buffer[:] = image
+        try:
+            fs.mount()
+            return fs, version
+        except Exception:
+            continue
     return None
 
 

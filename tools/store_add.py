@@ -27,7 +27,7 @@ import littlefs
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fm1lib  # noqa: E402
-from store_image import BLOCK, GEOMETRY, store_partition, superblock  # noqa: E402
+from store_image import mount, store_partition  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 CATALOG = "https://thefirmwarehub.com/catalog.json"
@@ -126,16 +126,12 @@ def main():
 
     # Mount with the disk version the board's littlefs wrote, so writing back
     # never upgrades the store past what the board can read.
-    sb = superblock(image)
-    if not sb:
-        sys.exit("store_add: no littlefs superblock in the store; refusing to touch it")
-    version, block_size, block_count, name_max = sb
-    if (block_size, block_count, name_max) != (BLOCK, size // BLOCK, GEOMETRY["name_max"]):
-        sys.exit("store_add: store geometry %r isn't the expected one; refusing" % (sb,))
+    mounted = mount(image)
+    if not mounted:
+        sys.exit("store_add: the store doesn't mount as littlefs 2.0 or 2.1 with the board's geometry; "
+                 "refusing to touch it")
+    fs, version = mounted
     print("store_add: littlefs disk version %d.%d" % (version >> 16, version & 0xFFFF))
-    fs = littlefs.LittleFS(block_count=size // BLOCK, mount=False, **dict(GEOMETRY, disk_version=version))
-    fs.context.buffer[:] = image
-    fs.mount()
     was = snapshot(fs)
     if read_only:
         for path in sorted(was):
