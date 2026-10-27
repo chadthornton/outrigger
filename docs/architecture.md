@@ -1,7 +1,7 @@
 # Architecture: one core, pluggable apps
 
-Status: **draft, 2026-10-26** (branch `platform-architecture`). The resource broker's rules are built and Mac-tested
-(`lib/platform/`, `make test`). Everything else here is the target the apps are built toward; "Not built yet" says
+Status: **2026-10-27.** The resource broker is built, Mac-tested (`lib/platform/`, `make test`) and decides the
+firmware's USB claims in Play mode (verified on the Waveshare at 8/8). Everything else here is the target the apps are built toward; "Not built yet" says
 what is missing.
 
 ## Why
@@ -86,12 +86,11 @@ path for "why isn't this device working", not two.
 | ROM boot outside Load | `FM-1 is in ROM boot` | `Restarting in Load mode` |
 | Stick outside Record | `USB stick unused in Play mode` | `Record mode saves to it` |
 
-**What it needs from EspUsbHost (not built).** The library claims the first MIDI, audio and mass-storage interface of
-every device unconditionally (`EspUsbHost.cpp`, the claim decision around line 9430), with no hook. The broker needs a
-vendored patch in the style of the existing `ESP_USB_HOST_MAX_SERIAL_PORTS` one: a claim filter,
-`bool (*claimFilter)(uint8_t address, uint8_t interfaceNumber)`, checked next to `isMidiInterface`,
-`isAudioInterface` and `isMscInterface`, and a callback when a device has enumerated but before it claims anything, so
-`attach()` can run first. The same patch lets the Recorder leave the FM-1's MIDI unclaimed.
+**What it needs from EspUsbHost (built, 2026-10-27).** Unpatched, the library claims the first MIDI, audio and mass-storage interface of
+every device unconditionally (`EspUsbHost.cpp`, the claim decision around line 9430), with no hook. The vendored
+patch adds `setClaimPlanner()` (called once per device with its raw configuration descriptor, before any claim;
+`app.cpp` parses it with `platform::describe_device()` and calls `attach()`) and `setClaimFilter()` (asked before each
+claim; `app.cpp` answers with `should_claim()`). The same hooks let the Recorder leave the FM-1's MIDI unclaimed.
 
 **Hardware questions the broker can't answer on the Mac:**
 - Does a device whose interfaces are all refused still hold its EP0 channel? The broker assumes yes (the README saw an
@@ -266,7 +265,6 @@ Launchkey plays the FM-1 through the hub) before anything lands. An app also lan
 
 | Piece | Blocked on |
 |---|---|
-| Broker wired into `app.cpp` | the EspUsbHost claim-filter patch, then a hardware check that the rig still reaches 8/8 |
 | Mode switching UI (Play ↔ Record, Load via confirm) | the broker wiring; the Recorder and Loader UIs |
 | Partition layout (decision 5) | one change, before any app stores data in the sector store |
 | Sector store on device | the loader's session 2 (`Storage` on LittleFS or microSD) |
