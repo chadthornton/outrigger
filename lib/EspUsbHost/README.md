@@ -1316,13 +1316,14 @@ Some non-compliant MSC devices stall or disconnect when they receive SCSI `SYNCH
 ```cpp
 bool getHubInfo(uint8_t hubAddress, EspUsbHostHubInfo &hub);
 bool getHubPortStatus(uint8_t hubAddress, uint8_t port,
-                      uint16_t &status, uint16_t &change);
+                      uint16_t &status, uint16_t &change,
+                      uint32_t timeoutMs = 1000);
 bool setHubPortPower(uint8_t hubAddress, uint8_t port, bool enable);
 ```
 
 USB Hub support covers detection, simple topology reporting, hub descriptor queries, port status queries, and port power on/off for PPPS-capable hubs. Use `EspUsbHostDeviceInfo::isHub` to identify hub devices. For devices behind a hub, `parentAddress` and `portId` report the hub/port path used for display.
 
-`getHubInfo()` fetches the hub descriptor and fills `EspUsbHostHubInfo` with port count, PPPS/ganged/no power switching, over-current mode, power-on-to-power-good time, and related fields. `getHubPortStatus()` returns current status and change bits for a downstream port. `setHubPortPower()` sends the hub class request to enable or disable port power.
+`getHubInfo()` fetches the hub descriptor and fills `EspUsbHostHubInfo` with port count, PPPS/ganged/no power switching, over-current mode, power-on-to-power-good time, and related fields. `getHubPortStatus()` returns current status and change bits for a downstream port, blocking up to `timeoutMs` for the hub to answer; a request that times out is abandoned and freed when it eventually completes. `setHubPortPower()` sends the hub class request to enable or disable port power.
 
 `setHubTrackingEnabled(false)` makes the library leave external hubs completely alone. Tracking a hub means opening it as a client device and keeping the handle, which is what the three calls above and the hub's own connect/disconnect events are built on; with tracking off, devices behind a hub still enumerate and work but the hub does not appear in `getDevices()` and those calls stop working. Default is on.
 

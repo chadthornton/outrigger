@@ -236,20 +236,48 @@ struct HubPorts {
 };
 static HubPorts hub;
 
-// Hub port status costs a control transfer per port, so poll it slowly.
+// Hub port status costs a control transfer per port, so poll it slowly. It runs
+// on the UI loop and blocks until the hub answers, so the wait is short: a
+// GET_STATUS takes a few ms, and the USB client task (priority 5, above this
+// loop) runs the completion as soon as it lands. A hub that misses that has
+// stopped answering; stop the sweep, forget what its ports said and leave it
+// alone for a while, so it costs one short stall per back-off, not 4 s a second.
+static constexpr uint32_t kHubStatusTimeoutMs = 50;
+static constexpr uint32_t kHubBackoffMs = 10000;
+static uint32_t hub_quiet_until = 0;
+
 static void poll_hub_ports() {
   uint8_t addr = 0;
   for (int i = 0; i < kMaxHubs && !addr; ++i) addr = hub_addresses[i];
-  if (addr != hub.address) hub = HubPorts{};
+  if (addr != hub.address) {
+    hub = HubPorts{};
+    hub_quiet_until = 0;
+  }
   hub.address = addr;
   if (!addr) return;
+  if (hub_quiet_until && static_cast<int32_t>(millis() - hub_quiet_until) < 0) return;
+  hub_quiet_until = 0;
   if (hub.count == 0) {
     EspUsbHostHubInfo info;
     hub.count = usb.getHubInfo(addr, info) ? min<uint8_t>(info.portCount, 4) : 4;
   }
   for (uint8_t p = 0; p < hub.count; ++p) {
     uint16_t status = 0, change = 0;
-    if (!usb.getHubPortStatus(addr, p + 1, status, change)) continue;
+    const uint32_t asked = millis();
+    if (!usb.getHubPortStatus(addr, p + 1, status, change, kHubStatusTimeoutMs)) {
+      // Only a timeout waits the whole budget (lastError() is shared with the
+      // USB task, so it can't tell us which failure this was).
+      if (millis() - asked < kHubStatusTimeoutMs) continue;
+      // Unknown is not stuck: drop the old states so no port ages into a
+      // "stuck" diagnosis while the hub is silent.
+      for (int q = 0; q < 4; ++q) {
+        hub.state[q] = '.';
+        hub.stuck_since[q] = 0;
+      }
+      hub_quiet_until = millis() + kHubBackoffMs;
+      if (!hub_quiet_until) hub_quiet_until = 1;
+      return;
+    }
     const char s = (status & 0x0002) ? 'E' : (status & 0x0001) ? 'C' : (status & 0x0100) ? 'p' : '.';
     if (s == 'C' && hub.state[p] != 'C') hub.stuck_since[p] = millis();
     if (s != 'C') hub.stuck_since[p] = 0;
