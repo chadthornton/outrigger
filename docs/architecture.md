@@ -115,6 +115,30 @@ claim; `app.cpp` answers with `should_claim()`). The same hooks let the Recorder
   `tools/build_site.py` refuses parts that overlap NVS or overflow the app slot. When decision 5 lands,
   `check_layout()` reads the new table and the same guard holds.
 
+#### Storage tiers: progressive enhancement with a TF card (direction, 2026-10-27)
+
+More boards Chad is buying have a TF (microSD) slot. Capacity scales with what the board has. Apps ask the core
+"how much room?" and adapt; they never assume a card.
+
+| Tier | When | Library | Backups and saves | Recordings |
+|---|---|---|---|---|
+| **Flash only** | no slot, or no card inserted | favorites in the ~12 MB shared store (~24 packages) | latest verified backup per unit, plus saves; history goes to the laptop via the Web UI | PSRAM only (~47 s); export over Wi-Fi |
+| **Card** | a FAT32 card is mounted | the whole catalog can be mirrored (~60 MB today) plus your own uploads | full history per unit on the card | straight to the card (16-bit stereo ≈ 10 MB/min) |
+
+Rules that hold in every tier:
+- **The safety copy stays in internal flash.** A card can be pulled at any moment, so each unit's latest verified
+  backup (the loader plan's rule 3) always lives in internal flash. The card is the archive, not the safety net.
+- **No install reads from the card while writing the FM-1.** The package is checked and staged whole in PSRAM
+  (about 0.6 MB of 8 MB) before the first erase, so pulling the card mid-install changes nothing.
+- **Card detection is live.** On mount, the shell shows the tier, and Settings and the Web UI show free space. On
+  removal, items stored only on the card show as "on card (not inserted)", not as errors.
+- **One store interface, two back ends.** `Storage` gets an SD back end next to the flash one. Content-addressed
+  objects work the same on both, and moving a package between them is a copy plus a manifest update.
+- **File system:** FAT32, so the card also opens on a Mac with a card reader. Backups and packages are ordinary
+  files there (`.fm1bak`, `.fm1save`, `.fwsc`), and dropping `.fwsc` files into `library/` imports them on the next
+  mount, after the same hash and package checks.
+- **Board profile:** `BoardProfile` gains a storage field: none, SDMMC 1/4-bit with pins, or SPI with pins.
+
 ### Settings store
 
 NVS, one namespace per app, each with a `schema` key (u8). An app that reads a different schema than it writes
@@ -159,6 +183,26 @@ the radio manager.
 - **The confirm-and-hold widget** (2-second hold, never a single tap) belongs to the shell. Anything that acts on the
   FM-1's flash goes through it, including requests from the Web UI.
 - **Computer mode** (`boot_mode.h`) stays a core screen: the USB host is never started, so no app runs.
+
+#### Many screens (direction, 2026-10-27)
+
+More display boards are coming, and the UI has to render well on very different screens:
+- **Displays planned:** the 1.69" (240×280, rounded), the 1.47" (172×320, no touch), 480×480 square, a 412×412
+  circle, and 800×480 landscape.
+- **Layout from the profile, never fixed pixels.** Use LVGL flex and grid, with the safe area worked out from the
+  screen's shape (rect, rounded or circle). Fonts are picked by size class: the user's text size plus the board's
+  `font_boost`.
+- **Orientation decides the chain's direction.** Tall, square and round screens stack it vertically. Landscape runs
+  it left to right (Controller → Router → FM-1), with each device's live activity under it.
+- **Input varies:**
+  - **Touch:** taps.
+  - **One or two buttons only** (1.47"): short press moves focus, long press selects, through LVGL's keypad/encoder
+    input group.
+  - **Every board:** the Web UI is the full control surface.
+- **Text never clips.** Labels size to their font's line height. Rows grow or scroll; they never cut a line in half.
+  Every page is checked at every text size on each board before merge (screenshots in the PR).
+- **Board profiles to add as boards arrive.** Each one: resolution, shape, corner radius, touch or buttons, font
+  boost, storage, and which USB port connects to the chip's native USB (required for host mode).
 
 ## Modes
 
