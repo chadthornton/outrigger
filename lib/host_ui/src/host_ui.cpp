@@ -60,7 +60,7 @@ static lv_obj_t *controller_labels[midi_core::kMaxDevices];
 static lv_obj_t *usb_label, *problem_box, *problem_1, *problem_2;
 static lv_obj_t *chain_screen, *chain_column, *settings_screen;
 static lv_obj_t *size_buttons[3];
-static lv_obj_t *computer_button, *computer_label;
+static lv_obj_t *computer_button, *computer_label, *version_label;
 // Steps the chain gave up to fit the screen (see fit_chain), and what it was
 // fitted for, so it refits only when the screen's shape changes.
 static int chain_shrink;
@@ -298,6 +298,12 @@ static void back_to_chain(lv_event_t *) {
   lv_screen_load(chain_screen);
 }
 
+static void size_version() {
+  // S 12, M 16, L 18: at 20 the hub-loader label wraps and the page overflows.
+  const int step = base_step() + 1;
+  lv_obj_set_style_text_font(version_label, font_for(step < 4 ? step : 4), 0);
+}
+
 static void show_size_choice() {
   for (int i = 0; i < 3; ++i) lv_obj_set_state(size_buttons[i], LV_STATE_CHECKED, i == settings.text_size);
 }
@@ -307,6 +313,7 @@ static void size_tapped(lv_event_t *e) {
   if (picked == settings.text_size) return;
   settings.text_size = picked;
   show_size_choice();
+  size_version();
   fitted_shape = UINT32_MAX;  // refit the chain at the new size
   fit_chain();
   if (hooks.settings_changed) hooks.settings_changed(settings);
@@ -366,18 +373,14 @@ static void build_settings_screen() {
   lv_obj_set_flex_flow(settings_screen, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_style_pad_row(settings_screen, 8, 0);
 
-  lv_obj_t *t = lv_label_create(settings_screen);
-  lv_obj_set_style_text_font(t, &lv_font_montserrat_20, 0);
-  lv_obj_set_style_text_color(t, c(kWhite), 0);
-  lv_label_set_text(t, "Settings");
-
-  lv_obj_t *ver = lv_label_create(settings_screen);
-  lv_obj_add_flag(ver, LV_OBJ_FLAG_FLOATING);
-  // 10 px: "v 1234567 hub-loader" beside the title fills the width at 12.
-  lv_obj_set_style_text_font(ver, &lv_font_montserrat_10, 0);
-  lv_obj_set_style_text_color(ver, c(kGrey), 0);
-  lv_label_set_text(ver, firmware);
-  lv_obj_align(ver, LV_ALIGN_TOP_RIGHT, 0, 7);
+  // The page's first line is the running firmware, at the chosen text size
+  // (a "Settings" title said nothing the buttons don't).
+  version_label = lv_label_create(settings_screen);
+  lv_obj_set_width(version_label, lv_pct(100));
+  lv_label_set_long_mode(version_label, LV_LABEL_LONG_MODE_WRAP);
+  lv_obj_set_style_text_color(version_label, c(kGrey), 0);
+  lv_label_set_text(version_label, firmware);
+  size_version();
 
   // Text size: three buttons sharing the width, each lettered in the size it
   // picks, so the letters are the preview.
