@@ -50,7 +50,7 @@ static const char *firmware = "";
 static lv_style_t plain, title_style, detail_style;
 
 struct Node {
-  lv_obj_t *row, *dot, *line, *title, *detail, *extra;
+  lv_obj_t *row, *rail, *content, *dot, *line, *title, *detail, *extra;
 };
 constexpr int kNodes = 5;  // Power, Hub, Controllers, Router, FM-1
 static Node nodes[kNodes];
@@ -147,28 +147,41 @@ static void set_colour(lv_obj_t *o, uint32_t hex, bool text = true) {
 
 static int base_step() { return settings.text_size * 2 + board->font_boost; }  // S=0, M=2, L=4
 
-// shrink 0 is the chosen size. When the chain doesn't fit, it gives way in
-// this order: the constant Power line goes (1), titles come down to one step
-// above the details (2, 3), then everything gets smaller (4 on).
+// Text size works like a zoom on the chain: the gaps between nodes follow the
+// text, the dots grow only a little. shrink 0 is the chosen size; when the
+// chain doesn't fit, the constant Power line goes first (1), then the gaps
+// tighten (2, 3), and only then does the text get smaller (4 on), so L keeps
+// L-sized text as long as it can.
 constexpr int kMaxShrink = 3 + 4;
 static void apply_fonts(int shrink) {
-  const int gap = shrink >= 3 ? 1 : shrink == 2 ? 2 : 3;
   const int detail = base_step() - (shrink > 3 ? shrink - 3 : 0);
-  lv_style_set_text_font(&title_style, font_for(detail + gap));
-  lv_style_set_text_font(&detail_style, font_for(detail));
+  const lv_font_t *title_font = font_for(detail + 3), *detail_font = font_for(detail);
+  lv_style_set_text_font(&title_style, title_font);
+  lv_style_set_text_font(&detail_style, detail_font);
   lv_obj_report_style_change(&title_style);
   lv_obj_report_style_change(&detail_style);
-  if (nodes[0].detail) {
-    if (shrink >= 1) lv_obj_add_flag(nodes[0].detail, LV_OBJ_FLAG_HIDDEN);
-    else lv_obj_remove_flag(nodes[0].detail, LV_OBJ_FLAG_HIDDEN);
+  if (!chain_column) return;  // fonts set before the chain exists
+  if (shrink >= 1) lv_obj_add_flag(nodes[0].detail, LV_OBJ_FLAG_HIDDEN);
+  else lv_obj_remove_flag(nodes[0].detail, LV_OBJ_FLAG_HIDDEN);
+
+  static const int kGapEighths[] = {6, 6, 3, 1};  // of a detail line: S 8, M 12, L 15 px at full
+  const int gap = lv_font_get_line_height(detail_font) * kGapEighths[shrink < 3 ? shrink : 3] / 8;
+  const int dot = 9 + (detail > 0 ? detail : 0) / 2;               // S 9, M 10, L 11
+  for (int n = 0; n < kNodes; ++n) {
+    // The gap sits inside the row, under its text, so the spine runs through it.
+    lv_obj_set_style_pad_bottom(nodes[n].content, n + 1 < kNodes ? gap : 0, 0);
+    lv_obj_set_size(nodes[n].dot, dot, dot);
+    lv_obj_set_style_pad_top(nodes[n].rail, (lv_font_get_line_height(title_font) - dot) / 2, 0);
   }
+  const int small_dot = dot * 6 / 10;
+  for (lv_obj_t *d : controller_dots) lv_obj_set_size(d, small_dot, small_dot);
 }
 
-// Rows never get less than their content (min_height), so a chain taller
-// than the screen runs off the bottom; shrink until nothing does.
+// Rows are as tall as their content, so a chain taller than the screen runs
+// off the bottom; shrink until nothing does.
 static bool chain_overflows() {
-  // Two passes: the column reads each row's minimum from the rows' children,
-  // which only take their new heights in the first pass.
+  // Two passes: rows size from their children, which only take their new
+  // heights in the first pass.
   lv_obj_update_layout(chain_screen);
   lv_obj_mark_layout_as_dirty(chain_column);
   lv_obj_update_layout(chain_screen);
@@ -205,30 +218,24 @@ static void build_chain_screen() {
   static const uint32_t kTitleColours[kNodes] = {kWhite, kWhite, kYellow, kWhite, kMagenta};
   for (int n = 0; n < kNodes; ++n) {
     Node &node = nodes[n];
-    // Each node grows to share the screen's spare height, so the chain fills
-    // it, but never gets less than its own lines (flex grow alone would give
-    // every node an equal share and clip the tall ones).
+    // Each node is as tall as its lines plus the gap (apply_fonts); the chain
+    // starts at the top and spare height stays at the bottom.
     node.row = box(column);
     lv_obj_set_width(node.row, lv_pct(100));
     lv_obj_set_height(node.row, LV_SIZE_CONTENT);
-    lv_obj_set_style_min_height(node.row, LV_SIZE_CONTENT, 0);
-    lv_obj_set_flex_grow(node.row, 1);
     lv_obj_set_flex_flow(node.row, LV_FLEX_FLOW_ROW);
     lv_obj_set_style_pad_left(node.row, 12 + 8, 0);
 
     // Rail: the dot, then the spine segment down to the next node. Floating,
-    // so its full-row height doesn't count as content: otherwise each row's
-    // minimum would ratchet up to whatever height it last grew to.
-    lv_obj_t *rail = box(node.row);
+    // so its full-row height doesn't count as the row's content.
+    lv_obj_t *rail = node.rail = box(node.row);
     lv_obj_add_flag(rail, LV_OBJ_FLAG_FLOATING);
     lv_obj_set_style_translate_x(rail, -(12 + 8), 0);
     lv_obj_set_width(rail, 12);
     lv_obj_set_height(rail, lv_pct(100));
     lv_obj_set_flex_flow(rail, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(rail, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_top(rail, 4, 0);
     node.dot = box(rail);
-    lv_obj_set_size(node.dot, 10, 10);
     lv_obj_set_style_radius(node.dot, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_opa(node.dot, LV_OPA_COVER, 0);
     node.line = box(rail);
@@ -237,11 +244,10 @@ static void build_chain_screen() {
     lv_obj_set_style_bg_opa(node.line, LV_OPA_COVER, 0);
     if (n == kNodes - 1) lv_obj_add_flag(node.line, LV_OBJ_FLAG_HIDDEN);
 
-    lv_obj_t *content = box(node.row);
+    lv_obj_t *content = node.content = box(node.row);
     lv_obj_set_flex_grow(content, 1);
     lv_obj_set_height(content, LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_style_pad_bottom(content, 4, 0);
     node.title = label(content, &title_style, kTitleColours[n]);
     lv_label_set_text(node.title, kTitles[n]);
     if (n == 2) {
@@ -254,7 +260,6 @@ static void build_chain_screen() {
         lv_obj_set_flex_align(controller_rows[i], LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
         lv_obj_set_style_pad_column(controller_rows[i], 6, 0);
         controller_dots[i] = box(controller_rows[i]);
-        lv_obj_set_size(controller_dots[i], 6, 6);
         lv_obj_set_style_radius(controller_dots[i], LV_RADIUS_CIRCLE, 0);
         lv_obj_set_style_bg_opa(controller_dots[i], LV_OPA_COVER, 0);
         controller_labels[i] = label(controller_rows[i], &detail_style, kGrey);
@@ -635,9 +640,11 @@ bool ui_begin(const BoardProfile &b, const UiSettings &s, const UiHooks &h, cons
   lv_style_set_pad_column(&plain, 0);
   lv_style_init(&title_style);
   lv_style_init(&detail_style);
+  chain_column = nullptr;
   apply_fonts(0);
 
   build_chain_screen();
+  apply_fonts(0);  // again, now the chain exists: gaps and dots
   if (hooks.back_up_fm1) build_firmware_screen();
   build_settings_screen();
   lv_screen_load(chain_screen);
