@@ -322,6 +322,36 @@ stored once, under its hash, and each package, backup or save is a list of secto
   - While downloading, it temporarily evicts a few unpinned, re-downloadable packages to make about 3 MB of room.
 - **Recovery app's own updates:** they need the Mac (rare, by design).
 
+## Laptop backups through the web page (added 2026-10-27)
+
+Chad's request is that work on a firmware should never be lost to a swap, and that device space shouldn't limit
+history. The browser the web UI already uses is the archive.
+
+**Export: "Back up this FM-1"**
+- **Starting it:** the web page asks. The device shows a confirm, because the FM-1 restarts into ROM boot.
+- **What happens:** the device reads the full 1 MiB and streams it as a browser download, one file:
+  `FM1-<unit name>_<firmware>-<version>_<date>.fm1bak`.
+- **File format:** a manifest (unit ID, firmware identity, app hash, per-range SHA-256s, tool version) plus the
+  sectors.
+- **Save states:** they export the same way as small `.fm1save` files.
+
+**Import and restore**
+- **Starting it:** drop a `.fm1bak` or `.fm1save` onto the page.
+- **Checks:** the device checks the unit ID, the hashes and the address guard before anything is written.
+- **Writing:** it still needs the on-device confirm-and-hold. The web UI may request a write but never authorize one.
+
+**What stays on the device**
+- **Always:** the latest verified backup of each unit, taken before every write, as the plan already requires. An
+  install must be able to finish or roll back with the laptop gone.
+- **Freed up:** older history, archives and rarely used packages live on the laptop. The on-device library becomes
+  "favorites, ready to go".
+
+**Firmware sources**
+- **Catalog firmwares:** the device downloads them itself over Wi-Fi. Browsers block the page from fetching
+  thefirmwarehub.com across origins.
+- **Chad's own downloads:** non-redistributable ones like V16 and Baud Girl get uploaded through the page.
+- **Never:** `wl82loader.bin` is never offered for download.
+
 ## Design
 
 | Part | Where | What |
