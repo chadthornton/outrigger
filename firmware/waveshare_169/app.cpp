@@ -25,6 +25,8 @@
 #include "apps.h"
 #include "board_profile.h"
 #include "boot_mode.h"
+#include "broker.h"
+#include "describe.h"
 #include "host_ui.h"
 #include "midi_core.h"
 #include "status.h"
@@ -64,6 +66,10 @@ static uint32_t sent_count = 0, blocked_count = 0;
 static uint32_t changes = 0;               // bumped on anything worth redrawing
 
 static midi_core::Router router;           // USB task only
+// Decides which interfaces EspUsbHost claims within the 8 host channels
+// (docs/architecture.md). USB task only; loop() reads its reasons below.
+static platform::Broker broker(platform::Mode::Play);
+static platform::Reason refused_why[128];  // per address, under shared_lock
 constexpr int kMaxHubs = 2;
 static volatile uint8_t hub_addresses[kMaxHubs] = {};
 
@@ -78,12 +84,35 @@ static void on_connected(const EspUsbHostDeviceInfo &d) {
   taskEXIT_CRITICAL(&shared_lock);
 }
 
+// EspUsbHost's claim planner: runs before any of the device's interfaces is
+// claimed, so the broker sees the whole device first.
+static void plan_claims(const EspUsbHostDeviceInfo &d, bool is_hub, const uint8_t *config, uint16_t length) {
+  char tag[4];
+  midi_core::make_tag(d.product, tag);
+  platform::DeviceDesc desc;
+  // A descriptor that runs past its end still plans the interfaces read so far.
+  platform::describe_device(d.address, d.vid, d.pid, is_hub, tag, config, length, desc);
+  const platform::DevicePlan &plan = broker.attach(desc);
+  taskENTER_CRITICAL(&shared_lock);
+  if (d.address < 128) refused_why[d.address] = plan.reason;
+  ++changes;
+  taskEXIT_CRITICAL(&shared_lock);
+}
+
+static bool claim_filter(uint8_t address, uint8_t interface_number) {
+  return broker.should_claim(address, interface_number);
+}
+
 static void on_disconnected(const EspUsbHostDeviceInfo &d) {
   router.device_disconnected(d.address);
+  broker.detach(d.address);
   for (int i = 0; i < kMaxHubs; ++i)
     if (hub_addresses[i] == d.address) hub_addresses[i] = 0;
   taskENTER_CRITICAL(&shared_lock);
-  if (d.address < 128) last_by_address[d.address] = {};
+  if (d.address < 128) {
+    last_by_address[d.address] = {};
+    refused_why[d.address] = {};
+  }
   ++changes;
   taskEXIT_CRITICAL(&shared_lock);
 }
@@ -187,6 +216,12 @@ static midi_core::HostSnapshot take_snapshot() {
         v.midi_open = v.midi_open || itfs[k].claimed;
       }
     }
+    platform::Reason why;
+    taskENTER_CRITICAL(&shared_lock);
+    why = refused_why[d.address & 0x7F];
+    taskEXIT_CRITICAL(&shared_lock);
+    strlcpy(v.why1, why.line1, sizeof v.why1);
+    strlcpy(v.why2, why.line2, sizeof v.why2);
   }
   return s;
 }
@@ -244,7 +279,8 @@ static void build_frame(UiFrame &f) {
     midi_core::make_tag(d.name, line.tag);
     line.open = d.midi_open;
     line.fresh = fresh(last[i]);
-    if (!d.midi_open) snprintf(line.detail, sizeof line.detail, "port %X.%X no USB channel", d.port_id >> 4, d.port_id & 0xF);
+    if (!d.midi_open && d.why1[0]) strlcpy(line.detail, d.why1, sizeof line.detail);
+    else if (!d.midi_open) snprintf(line.detail, sizeof line.detail, "port %X.%X no USB channel", d.port_id >> 4, d.port_id & 0xF);
     else if (last[i].at_ms) snprintf(line.detail, sizeof line.detail, "%c %s", last[i].mark, last[i].text);
     else strlcpy(line.detail, "quiet", sizeof line.detail);
   }
@@ -331,6 +367,8 @@ void setup() {
     ui_show_computer_mode(info);
     return;
   }
+  usb.setClaimPlanner(plan_claims);
+  usb.setClaimFilter(claim_filter);
   usb.onDeviceConnected(on_connected);
   usb.onDeviceDisconnected(on_disconnected);
   usb.onMidiMessage(on_midi);

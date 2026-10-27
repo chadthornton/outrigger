@@ -2512,6 +2512,19 @@ public:
   bool ready() const;
   bool setConfigurationSelector(ConfigurationSelector selector);
 
+  // usb-midi-host patch: lets the sketch decide which interfaces are claimed,
+  // so its resource broker can keep the 8 host channels for what it needs.
+  // The planner runs once per device on the USB client task, after the device
+  // descriptor is read and before any interface is claimed, with the raw
+  // configuration descriptor. The filter is then asked before each claim
+  // (HID, CDC, audio, MIDI, mass storage, vendor serial); false skips it.
+  // Both are plain function pointers; null means claim as the library would.
+  using ClaimPlanner = void (*)(const EspUsbHostDeviceInfo &info, bool isHub, const uint8_t *config,
+                                uint16_t length);
+  using ClaimFilter = bool (*)(uint8_t address, uint8_t interfaceNumber);
+  void setClaimPlanner(ClaimPlanner planner) { claimPlanner_ = planner; }
+  void setClaimFilter(ClaimFilter filter) { claimFilter_ = filter; }
+
   void onDeviceConnected(DeviceCallback callback);
   void onDeviceDisconnected(DeviceCallback callback);
   void onKeyboard(KeyboardCallback callback);
@@ -4206,6 +4219,8 @@ private:
   bool currentVideoFormatValid_ = false;
   bool currentInterfaceClaimed_ = false;
   esp_err_t currentClaimResult_ = ESP_OK;
+  ClaimPlanner claimPlanner_ = nullptr;  // usb-midi-host patch
+  ClaimFilter claimFilter_ = nullptr;    // usb-midi-host patch
   // Direction of the MIDI Streaming bulk endpoint the scan just passed, so the
   // class-specific endpoint descriptor that follows can be attributed to it.
   // ESP_USB_HOST_MIDI_ENDPOINT_NONE while the scan is not directly after one.
