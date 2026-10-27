@@ -30,20 +30,24 @@ STORE_OFFSET := 0x3D0000
 FW_VERSION := 0x$(shell git rev-parse --short=7 HEAD)
 FW_DIRTY := $(if $(shell git status --porcelain --untracked-files=no),1,0)
 
-.PHONY: test build build-all flash site serve clean fixtures golden store-image flash-store
+.PHONY: test build build-all flash site serve clean fixtures golden store-image flash-store store-add
 
 FM1_SRC := $(wildcard lib/fm1_loader/src/*.cpp)
 FM1_HDR := $(wildcard lib/fm1_loader/src/*.h) $(wildcard tests/support/*.h)
 FM1_TESTS := build/test_fm1_package build/test_fm1_library build/test_fm1_installer \
 	build/test_fm1_softkey build/test_fm1_posix build/test_fm1_locked build/test_fm1_library_posix
 
-test: build/test_midi_core build/test_status build/test_boot_mode build/test_broker build/test_describe $(FM1_TESTS) fixtures
+test: build/test_fm1_interop build/test_midi_core build/test_status build/test_boot_mode build/test_broker build/test_describe $(FM1_TESTS) fixtures
 	./build/test_midi_core
 	./build/test_status
 	./build/test_boot_mode
 	./build/test_broker
 	./build/test_describe
 	for t in $(FM1_TESTS); do ./$$t || exit 1; done
+	python3 -c "import shutil; shutil.rmtree('build/interop', ignore_errors=True)"
+	python3 -I tools/fm1lib.py selftest build/interop tests/fixtures/skiff-1.4.fwsc \
+		tests/fixtures/sloop-2.8.1.fwsc tests/fixtures/FM-1_015.fwsc
+	./build/test_fm1_interop build/interop
 	python3 -I tools/check_partitions.py firmware/$(BOARD)/partitions.csv
 
 # The Mac tests may write the mock FM-1 (FM1_LOADER_WRITES=1); test_fm1_locked
@@ -126,6 +130,13 @@ flash-store: store-image
 	$(if $(filter erase-store,$(CONFIRM)),,$(error flash-store erases every backup in the store: add CONFIRM=erase-store))
 	$(firstword $(wildcard $(ESP32_CORE)/../../../tools/esptool_py/*/esptool)) --chip esp32s3 --port $(PORT) \
 		write-flash $(STORE_OFFSET) build/store/store.bin
+
+# Adds packages to the board's store without losing its backups and saves:
+# reads the store back (kept in build/store/), adds, checks nothing else changed,
+# writes it back. Board in Computer mode. make store-add PKGS="a.fwsc b.fwsc" [PIN=1]
+store-add: $(TOOLS_PY)
+	$(if $(PKGS),,$(error PKGS="file.fwsc ..." names the packages to add))
+	$(TOOLS_PY) tools/store_add.py firmware/$(BOARD)/partitions.csv $(PORT) $(if $(PIN),--pin) $(PKGS)
 
 # Stage the firmware into site/ for the browser installer (ESP Web Tools).
 # fixtures brings wl82loader.bin, so build_site can scan for pieces of it.

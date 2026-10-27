@@ -19,6 +19,8 @@ using FlashHashes = std::vector<Hash>;  // kSectors entries
 
 struct PackageInfo {
   std::string id;  // library name, e.g. "skiff-1.4"
+  std::string name, version;  // for the screen, e.g. "Skiff", "1.4" (may be empty)
+  bool pinned = false;        // a favorite: never evicted
   std::string identity;
   Family family = Family::Felucca;
   Hash file_sha256{};
@@ -90,11 +92,13 @@ class Library {
 
   // Parses, checks and stores a .fwsc file under id.
   PackageError add_package(const std::string &id, const uint8_t *data, size_t len,
-                           const Hash *expected_sha256 = nullptr);
+                           const Hash *expected_sha256 = nullptr, const std::string &name = "",
+                           const std::string &version = "");
   bool package(const std::string &id, PackageInfo &out);
   std::vector<std::string> package_ids();
   // Refused while a unit has it installed or an unfinished install needs it.
   bool remove_package(const std::string &id);
+  bool set_pinned(const std::string &id, bool pinned);
   // What an app area with these sector hashes is (identity empty if unknown).
   Firmware identify_app(const std::vector<Hash> &app);
 

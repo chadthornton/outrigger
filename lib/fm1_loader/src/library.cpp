@@ -65,7 +65,8 @@ bool Library::get_manifest(const std::string &key, Manifest &m) {
 }
 
 PackageError Library::add_package(const std::string &id, const uint8_t *data, size_t len,
-                                  const Hash *expected_sha256) {
+                                  const Hash *expected_sha256, const std::string &name,
+                                  const std::string &version) {
   Package p;
   PackageError err = parse_package(data, len, p, expected_sha256);
   if (err != PackageError::None) return err;
@@ -75,6 +76,8 @@ PackageError Library::add_package(const std::string &id, const uint8_t *data, si
   m.fields["family"] = family_name(p.family);
   m.fields["file"] = hex(p.file_sha256);
   m.fields["app"] = hex(p.app_sha256);
+  if (!name.empty()) m.fields["name"] = clean(name);
+  if (!version.empty()) m.fields["version"] = clean(version);
   for (uint32_t i = 0; i < kAppSectors; ++i) {
     Hash h;
     if (!sectors_.put(p.app.data() + i * kSector, h)) return PackageError::StoreFailed;
@@ -90,6 +93,9 @@ bool Library::package(const std::string &id, PackageInfo &out) {
   out = PackageInfo();
   out.id = id;
   out.identity = m.get("identity");
+  out.name = m.get("name");
+  out.version = m.get("version");
+  out.pinned = m.get("pin") == "1";
   out.family = parse_family(m.get("family"));
   if (!parse_hash(m.get("file"), out.file_sha256) || !parse_hash(m.get("app"), out.app_sha256))
     return false;
@@ -114,6 +120,14 @@ bool Library::remove_package(const std::string &id) {
     if (u.installed_package == id || (u.has_pending && u.pending.package_id == id)) return false;
   }
   return storage_.remove("m/pkg/" + id) && storage_.sync();
+}
+
+bool Library::set_pinned(const std::string &id, bool pinned) {
+  Manifest m;
+  if (!get_manifest("m/pkg/" + id, m)) return false;
+  if (pinned) m.fields["pin"] = "1";
+  else m.fields.erase("pin");
+  return put_manifest("m/pkg/" + id, m);
 }
 
 Firmware Library::identify_app(const std::vector<Hash> &app) {
