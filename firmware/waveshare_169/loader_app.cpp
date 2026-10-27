@@ -31,7 +31,8 @@ constexpr const char *kDumpHead = "d9f43191777656de01c7bed4f9e9ba2e34e94832c5d2e
 constexpr const char *kDumpFactory = "70a8f5bea5097f4a0046682cdb5bf2e4ad6962901bd42debfe30c95a5ef3f3b0";
 
 EspUsbHost *usb = nullptr;
-bool (*loader_owns_midi)() = nullptr;
+LoaderCore core = {};
+std::atomic<bool> restart_requested{false};
 
 // Devices, written on the USB client task.
 std::atomic<uint8_t> fm1_midi_address{0};
@@ -148,7 +149,7 @@ class Host : public LoaderHost {
       why = "FM-1 MIDI never ready";
       return false;
     }
-    if (!wait_until(2000, [] { return loader_owns_midi && loader_owns_midi(); })) {
+    if (!wait_until(2000, [] { return core.owns_fm1_midi && core.owns_fm1_midi(); })) {
       key = KeyResult::SendFailed;
       why = "broker: Loader doesn't own FM-1 MIDI";
       return false;
@@ -160,11 +161,40 @@ class Host : public LoaderHost {
   }
   bool wait_for_rom_device(uint32_t timeout_ms) override {
     show("Waiting for ROM boot...", kYellow);
-    return wait_until(timeout_ms, [] {
+    auto ready = [] {
       const uint8_t a = rom_address.load();
       return a != 0 && usb->mscReady(a);
-    });
+    };
+    const uint32_t start = millis();
+    bool restarted = false;
+    while (!ready()) {
+      if (millis() - start > timeout_ms) {
+        const uint8_t a = rom_address.load();
+        if (!a) why = "ROM device never appeared";
+        else describe_refusal(a, "ROM device unusable");
+        return false;
+      }
+      // It appeared but wasn't claimed (checkpoint 1, second run): the broker
+      // may still count the FM-1 that just left. Restart the host once so
+      // everything enumerates afresh; the ROM stays in ROM boot until a power cycle.
+      const uint8_t a = rom_address.load();
+      if (a && !restarted && millis() - start > 3000) {
+        describe_refusal(a, "restarted host; was");
+        restarted = true;
+        show("Re-enumerating...", kYellow);
+        restart_requested = true;
+      }
+      vTaskDelay(pdMS_TO_TICKS(50));
+    }
+    return true;
   }
+  void describe_refusal(uint8_t address, const char *prefix) {
+    char reason[34] = "";
+    if (core.refusal) core.refusal(address, reason, sizeof reason);
+    snprintf(why_buf, sizeof why_buf, "%s: %s", prefix, reason[0] ? reason : "not claimed");
+    why = why_buf;
+  }
+  char why_buf[64] = "";
   bool wait_for_midi_return(uint32_t timeout_ms) override {
     show("Restarting the FM-1...", kYellow);
     return wait_until(timeout_ms, [] { return fm1_midi_address.load() != 0; });
@@ -220,13 +250,14 @@ void run_backup() {
   if (inst.current() == Step::Done) {
     show("Backed up. Nothing written.", kGreen, 100);
     report_backup(inst, host);
+    if (host.why[0]) show_line(1, host.why);  // a re-enumeration was needed: worth seeing
     return;
   }
   char buf[40];
   if (inst.failure() == Failure::KeyNotSent) snprintf(buf, sizeof buf, "No ROM boot: %s", key_result_text(host.key));
   else snprintf(buf, sizeof buf, "Stopped: %s", failure_text(inst.failure()));
   show(buf, kRed);
-  if (inst.failure() == Failure::KeyNotSent && host.why[0]) show_line(2, host.why);
+  if (host.why[0]) show_line(2, host.why);
   if (!host.identity.empty()) {
     snprintf(buf, sizeof buf, "FM-1 answered %s", host.identity.c_str());
     show_line(3, buf);
@@ -285,9 +316,9 @@ void open_store() {
 
 }  // namespace
 
-void loader_begin(EspUsbHost &host, bool (*owns_fm1_midi)()) {
+void loader_begin(EspUsbHost &host, const LoaderCore &c) {
   usb = &host;
-  loader_owns_midi = owns_fm1_midi;
+  core = c;
   sysex_queue = xQueueCreate(8, sizeof(SysexMsg));
   open_store();
   show_line(0, store_line);
@@ -328,6 +359,8 @@ void loader_request_backup() {
 }
 
 platform::Mode loader_wanted_mode() { return wanted.load(); }
+
+bool loader_wants_restart() { return restart_requested.exchange(false); }
 
 void loader_mode_changed(platform::Mode mode) { running = mode; }
 

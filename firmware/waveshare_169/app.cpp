@@ -331,6 +331,12 @@ static void restart_host(platform::Mode mode) {
 
 #if APP_LOADER
 static bool loader_owns_fm1_midi() { return loader_has_fm1_midi.load(); }
+static void device_refusal(uint8_t address, char *out, size_t len) {
+  taskENTER_CRITICAL(&shared_lock);
+  const platform::Reason why = refused_why[address & 0x7F];
+  taskEXIT_CRITICAL(&shared_lock);
+  snprintf(out, len, "%s", why.line1);
+}
 #endif
 
 static void save_settings(const UiSettings &s) {
@@ -419,7 +425,7 @@ void setup() {
   usb.onDeviceDisconnected(on_disconnected);
   usb.onMidiMessage(on_midi);
 #if APP_LOADER
-  loader_begin(usb, loader_owns_fm1_midi);
+  loader_begin(usb, {loader_owns_fm1_midi, device_refusal});
 #endif
   usb.begin();
   host_running = true;
@@ -434,7 +440,7 @@ void loop() {
     return;
   }
 #if APP_LOADER
-  if (loader_wanted_mode() != broker.mode()) {
+  if (loader_wanted_mode() != broker.mode() || loader_wants_restart()) {
     restart_host(loader_wanted_mode());
     loader_mode_changed(broker.mode());
   }

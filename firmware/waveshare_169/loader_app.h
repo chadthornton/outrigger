@@ -18,9 +18,15 @@
 #include "broker.h"
 #include "host_ui.h"
 
-// owns_fm1_midi: asks the broker whether the Loader owns the FM-1's MIDI face
-// right now; the ROM-boot key is sent only then.
-void loader_begin(EspUsbHost &usb, bool (*owns_fm1_midi)());
+// What the loader needs from the core.
+struct LoaderCore {
+  // Whether the broker gives the Loader the FM-1's MIDI face right now; the
+  // ROM-boot key is sent only then.
+  bool (*owns_fm1_midi)();
+  // The broker's screen line for a device it refused (empty when claimed).
+  void (*refusal)(uint8_t address, char *out, size_t len);
+};
+void loader_begin(EspUsbHost &usb, const LoaderCore &core);
 void loader_device_connected(const EspUsbHostDeviceInfo &d);
 void loader_device_disconnected(const EspUsbHostDeviceInfo &d);
 void loader_midi(const EspUsbHostMidiMessage &m);  // messages from the FM-1
@@ -29,5 +35,8 @@ void loader_request_backup();  // the Firmware page's hold
 // The mode the USB host should run in now: Load while a job needs the FM-1,
 // Play otherwise. loop() restarts the host when it differs, then reports back.
 platform::Mode loader_wanted_mode();
+// True once when the loader asks for the host to restart in the same mode, so
+// every device enumerates afresh (a ROM-boot FM-1 the broker turned away).
+bool loader_wants_restart();
 void loader_mode_changed(platform::Mode mode);
 void loader_ui(UiLoader &out);
