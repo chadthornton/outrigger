@@ -58,6 +58,8 @@ static lv_obj_t *usb_label, *problem_box, *problem_1, *problem_2;
 static lv_obj_t *chain_screen, *settings_screen, *preview_label;
 static lv_obj_t *size_buttons, *face_buttons;
 static lv_obj_t *computer_label;
+static lv_obj_t *network_labels[2];  // settings screen, computer-mode screen
+static char network_text[48] = "";
 static lv_obj_t *firmware_screen, *firmware_title, *firmware_lines[kLoaderLines], *hold_button, *hold_label,
     *hold_bar;
 static uint32_t hold_started;  // millis() when the hold began, 0 when not held
@@ -299,6 +301,18 @@ static void computer_tapped(lv_event_t *) {
   if (hooks.connect_computer) hooks.connect_computer();
 }
 
+// One small wrapping line, hidden while empty (ui_set_network).
+static lv_obj_t *network_label(lv_obj_t *parent) {
+  lv_obj_t *l = lv_label_create(parent);
+  lv_obj_set_width(l, lv_pct(100));
+  lv_label_set_long_mode(l, LV_LABEL_LONG_MODE_WRAP);
+  lv_obj_set_style_text_font(l, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(l, c(kGrey), 0);
+  lv_label_set_text(l, network_text);
+  if (!network_text[0]) lv_obj_add_flag(l, LV_OBJ_FLAG_HIDDEN);
+  return l;
+}
+
 static lv_obj_t *wide_button(lv_obj_t *parent, const char *text, lv_event_cb_t on_click, lv_obj_t **label_out) {
   lv_obj_t *b = lv_button_create(parent);
   lv_obj_set_flex_grow(b, 1);
@@ -325,6 +339,7 @@ static void build_settings_screen() {
   lv_obj_set_style_text_font(t, &lv_font_montserrat_20, 0);
   lv_obj_set_style_text_color(t, c(kWhite), 0);
   lv_label_set_text(t, "Settings");
+  network_labels[0] = network_label(settings_screen);
 
   lv_obj_t *ver = lv_label_create(settings_screen);
   lv_obj_add_flag(ver, LV_OBJ_FLAG_FLOATING);
@@ -564,6 +579,7 @@ static lv_obj_t *build_computer_screen(const char *info) {
   lv_obj_set_style_text_font(ver, &lv_font_montserrat_14, 0);
   lv_obj_set_style_text_color(ver, c(kGrey), 0);
   lv_label_set_text(ver, info);
+  network_labels[1] = network_label(scr);
 
   lv_obj_t *spacer = box(scr);
   lv_obj_set_width(spacer, lv_pct(100));
@@ -623,6 +639,17 @@ bool ui_begin(const BoardProfile &b, const UiSettings &s, const UiHooks &h, cons
 }
 
 void ui_show_computer_mode(const char *info) { lv_screen_load(build_computer_screen(info)); }
+
+void ui_set_network(const char *line) {
+  if (strcmp(line, network_text) == 0) return;
+  strlcpy(network_text, line, sizeof network_text);
+  for (lv_obj_t *l : network_labels) {
+    if (!l) continue;
+    lv_label_set_text(l, network_text);
+    if (network_text[0]) lv_obj_remove_flag(l, LV_OBJ_FLAG_HIDDEN);
+    else lv_obj_add_flag(l, LV_OBJ_FLAG_HIDDEN);
+  }
+}
 
 void ui_tick() { lv_timer_handler(); }
 

@@ -2535,6 +2535,19 @@ public:
   // callable from the USB client task.
   bool mscRawCommand(uint8_t address, const uint8_t *cdb, uint8_t cdbLength, uint8_t *data,
                      size_t dataLength, bool dataIn, size_t &actual, uint32_t timeoutMs);
+  // usb-midi-host patch: why the last mscRawCommand() went wrong, for the
+  // diagnostics log. Reset at the start of each call; read it on the same task.
+  struct MscRawResult
+  {
+    enum Stage : uint8_t { None, NoDevice, Cbw, Csw, CswInvalid, CswStatus } stage = None;
+    // The failed transfer's usb_transfer_status_t, or -1 timed out, -2 not submitted.
+    int8_t transferStatus = 0;
+    int8_t dataStatus = 0;  // the data phase's, when it failed but the CSW was still read
+    uint8_t cswStatus = 0;
+    uint32_t cswResidue = 0;
+    size_t moved = 0;  // data bytes moved
+  };
+  const MscRawResult &mscRawLastResult() const { return mscRawResult_; }
 
   void onDeviceConnected(DeviceCallback callback);
   void onDeviceDisconnected(DeviceCallback callback);
@@ -4232,6 +4245,7 @@ private:
   esp_err_t currentClaimResult_ = ESP_OK;
   ClaimPlanner claimPlanner_ = nullptr;  // usb-midi-host patch
   ClaimFilter claimFilter_ = nullptr;    // usb-midi-host patch
+  MscRawResult mscRawResult_;            // usb-midi-host patch
   // Direction of the MIDI Streaming bulk endpoint the scan just passed, so the
   // class-specific endpoint descriptor that follows can be attributed to it.
   // ESP_USB_HOST_MIDI_ENDPOINT_NONE while the scan is not directly after one.

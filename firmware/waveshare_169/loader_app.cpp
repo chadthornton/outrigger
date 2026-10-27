@@ -1,5 +1,6 @@
 #include "apps.h"
 #include "crumbs.h"
+#include "diag.h"
 #if APP_LOADER
 
 #include "loader_app.h"
@@ -16,6 +17,9 @@
 #include "midi_core.h"
 #include "posix_storage.h"
 #include "softkey.h"
+#if APP_WEB_UI
+#include "store_json.h"
+#endif
 
 using namespace fm1_loader;
 
@@ -107,13 +111,31 @@ class UsbScsi : public ScsiTransport {
     if (!address) return false;
     size_t actual = 0;
     if (!usb->mscRawCommand(address, cdb, uint8_t(cdb_len), dir == Dir::None ? nullptr : data,
-                            dir == Dir::None ? 0 : len, dir != Dir::Out, actual, kScsiTimeoutMs))
+                            dir == Dir::None ? 0 : len, dir != Dir::Out, actual, kScsiTimeoutMs)) {
+      log_failure(cdb, len, "failed");
       return false;
+    }
     // jl-uboot-tool's SG_IO ignores a short answer to a 16-byte response or the
     // inquiry (the rest stays zero); flash reads must arrive whole.
     // A flash read (FD05) must arrive whole, whatever its size.
     if (dir != Dir::In || actual == len) return true;
-    return cdb[0] != (kReadFlash >> 8) || cdb[1] != (kReadFlash & 0xFF) ? len <= 36 : false;
+    const bool ok = cdb[0] != (kReadFlash >> 8) || cdb[1] != (kReadFlash & 0xFF) ? len <= 36 : false;
+    if (!ok) log_failure(cdb, len, "short read");
+    return ok;
+  }
+  // GET /log: the command (opcode, the address its first 4 argument bytes
+  // carry for flash commands) and what mscRawCommand saw.
+  static void log_failure(const uint8_t *cdb, size_t len, const char *what) {
+#if APP_WEB_UI
+    const EspUsbHost::MscRawResult &r = usb->mscRawLastResult();
+    static const char *const kStage[] = {"-", "no device", "CBW", "CSW", "CSW invalid", "CSW status"};
+    DLOG_LOADER("scsi %02X%02X addr %02X%02X%02X%02X len %u %s: %s xfer %d data %d csw %u residue %lu moved %u",
+                cdb[0], cdb[1], cdb[2], cdb[3], cdb[4], cdb[5], unsigned(len), what,
+                r.stage < 6 ? kStage[r.stage] : "?", r.transferStatus, r.dataStatus, r.cswStatus,
+                (unsigned long)r.cswResidue, unsigned(r.moved));
+#else
+    (void)cdb, (void)len, (void)what;
+#endif
   }
 };
 
@@ -354,6 +376,9 @@ void refresh_preview() {
 }
 
 void finish(Installer &inst, const Host &host, const char *done_title) {
+  DLOG_LOADER("job end: %s (key %s, why '%s', danger %d)",
+              inst.current() == Step::Done ? done_title : failure_text(inst.failure()), key_result_text(host.key),
+              host.why, int(inst.danger()));
   if (inst.current() == Step::Done) {
     show(done_title, kGreen, 100);
     if (host.why[0]) show_line(1, host.why);  // a re-enumeration was needed: worth seeing
@@ -375,7 +400,13 @@ void finish(Installer &inst, const Host &host, const char *done_title) {
 }
 
 void run(Installer &inst) {
+  Step logged = Step(-1);
   while (inst.step()) {
+    if (inst.current() != logged) {
+      logged = inst.current();
+      DLOG_LOADER("step %d %s, %u of %u sectors", int(logged), step_text(logged), unsigned(inst.sectors_done()),
+                  unsigned(inst.sectors_total()));
+    }
     uint8_t percent = inst.sectors_total() ? uint8_t(inst.sectors_done() * 100 / inst.sectors_total()) : 0;
     show(step_text(inst.current()), kYellow, percent);
   }
@@ -389,6 +420,8 @@ void run_job() {
   o.confirmed = true;  // the 2-second hold on the Firmware page
   o.rom_timeout_ms = kRomWaitMs;
   const int sel = selected.load();
+  DLOG_LOADER("job start: %s", resume_ready ? "resume" : sel < 0 || sel >= int(item_ids.size()) ? "backup"
+                                                                                                : item_ids[sel].c_str());
   if (resume_ready) {
     // The FM-1 is still in ROM boot with an incomplete app: no key, straight to it.
     if (!host.wait_for_rom_device(kRomWaitMs)) {
@@ -429,6 +462,13 @@ void refresh_store_line() {
   show_line(0, store_line);
 }
 
+// GET /store's body, built here because Library isn't thread-safe.
+void publish_store() {
+#if APP_WEB_UI
+  if (store_ok) diag_publish_store(store_json(*library, *storage, LittleFS.totalBytes(), LittleFS.usedBytes()));
+#endif
+}
+
 void loader_task(void *) {
   CRUMB_LOADER("start");
   if (store_ok) {
@@ -438,6 +478,7 @@ void loader_task(void *) {
     CRUMB_LOADER("refresh_preview");
     DIAG("diag: refresh_preview (%u items)\n", unsigned(item_ids.size()));
     refresh_preview();
+    publish_store();
     DIAG("diag: loader task idle, stack left %u\n", unsigned(uxTaskGetStackHighWaterMark(nullptr)));
   }
   for (;;) {
@@ -452,6 +493,7 @@ void loader_task(void *) {
         PackageInfo p;
         if (library->package(item_ids[i], p)) library->set_pinned(p.id, !p.pinned);
         refresh_items();
+        publish_store();
       }
     }
     if (bits & (kSelect | kPin)) refresh_preview();
@@ -472,6 +514,7 @@ void loader_task(void *) {
     refresh_store_line();
     refresh_items();
     refresh_preview();
+    publish_store();
     busy = false;
   }
 }

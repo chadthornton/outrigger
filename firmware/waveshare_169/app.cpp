@@ -25,6 +25,7 @@
 
 #include "apps.h"
 #include "crumbs.h"
+#include "diag.h"
 #include "board_profile.h"
 #include "boot_mode.h"
 #include "broker.h"
@@ -34,6 +35,9 @@
 #include "status.h"
 #if APP_LOADER
 #include "loader_app.h"
+#endif
+#if APP_WEB_UI
+#include "web.h"
 #endif
 
 extern const BoardProfile kBoard;
@@ -83,7 +87,7 @@ static LastMessage last_by_address[128];   // per source device
 static LastMessage fm1_own;                // latest message the FM-1 itself sent
 static LastMessage fm1_in;                 // latest message delivered to the FM-1
 static char fm1_in_tag[4] = "";
-static uint32_t sent_count = 0, blocked_count = 0;
+static uint32_t sent_count = 0, blocked_count = 0, failed_count = 0;
 static uint32_t changes = 0;               // bumped on anything worth redrawing
 
 static midi_core::Router router;           // USB task only
@@ -99,6 +103,8 @@ static volatile uint8_t hub_addresses[kMaxHubs] = {};
 
 static void on_connected(const EspUsbHostDeviceInfo &d) {
   CRUMB_USB("connected");
+  DLOG_USB("connected #%u %04x:%04x %s%s port %02x", d.address, d.vid, d.pid, d.product, d.isHub ? " (hub)" : "",
+           d.portId);
   router.device_connected(d.address, d.vid, d.pid);
 #if APP_LOADER
   loader_device_connected(d);
@@ -122,6 +128,7 @@ static void plan_claims(const EspUsbHostDeviceInfo &d, bool is_hub, const uint8_
   // A descriptor that runs past its end still plans the interfaces read so far.
   platform::describe_device(d.address, d.vid, d.pid, is_hub, tag, config, length, desc);
   const platform::DevicePlan &plan = broker.attach(desc);
+  if (plan.reason.line1[0]) DLOG_USB("refused #%u %s: %s", d.address, tag, plan.reason.line1);
 #if APP_LOADER
   loader_has_fm1_midi = broker.owner(platform::Fm1Part::Midi) == platform::App::Loader;
 #endif
@@ -137,6 +144,7 @@ static bool claim_filter(uint8_t address, uint8_t interface_number) {
 
 static void on_disconnected(const EspUsbHostDeviceInfo &d) {
   CRUMB_USB("disconnected");
+  DLOG_USB("disconnected #%u %04x:%04x", d.address, d.vid, d.pid);
   router.device_disconnected(d.address);
 #if APP_LOADER
   loader_device_disconnected(d);
@@ -173,6 +181,7 @@ static void on_midi(const EspUsbHostMidiMessage &m) {
         router.route(m.address, m.cable, m.codeIndex, m.status, m.data1, m.data2, packet, &why);
     // midiSend() only submits the transfer, so it is safe on the USB task.
     mark = dest == 0 ? why : usb.midiSend(packet, sizeof packet, dest) ? '>' : '!';
+    if (mark == '!') DLOG_USB("midiSend to #%u failed: %02x %02x %02x", dest, m.status, m.data1, m.data2);
   }
   LastMessage msg{};
   midi_core::format_message(m.status, m.data1, m.data2, m.raw, m.length, msg.text);
@@ -194,6 +203,8 @@ static void on_midi(const EspUsbHostMidiMessage &m) {
       memcpy(fm1_in_tag, tag, sizeof fm1_in_tag);
     } else if (mark == 's') {
       ++blocked_count;
+    } else if (mark == '!') {
+      ++failed_count;
     }
   }
   ++changes;
@@ -339,6 +350,8 @@ static void build_frame(UiFrame &f) {
 // the USB host and every device enumerates again under the new mode's rules
 // (docs/architecture.md, "Resource broker"). Runs on loop(), never on a USB task.
 static void restart_host(platform::Mode mode) {
+  DLOG_LOOP("host: restarting in %s mode",
+            mode == platform::Mode::Load ? "Load" : mode == platform::Mode::Record ? "Record" : "Play");
   usb.end();
   broker.set_mode(mode);
 #if APP_LOADER
@@ -362,6 +375,45 @@ static void device_refusal(uint8_t address, char *out, size_t len) {
   const platform::Reason why = refused_why[address & 0x7F];
   taskEXIT_CRITICAL(&shared_lock);
   snprintf(out, len, "%s", why.line1);
+}
+#endif
+
+#if APP_WEB_UI
+// What GET /status shows: the frame the screen just drew, every device with
+// its channel cost and the broker's refusal, and the Firmware page. Loop only.
+static void publish_diag(const UiFrame *frame) {
+  static DiagState d;  // ~4 KB: kept off the loop task's stack
+  d.host_running = host_running;
+  d.mode = broker.mode();
+  if (frame) d.frame = *frame;
+  d.device_count = 0;
+  if (host_running) {
+    EspUsbHostDeviceInfo devices[8];
+    const size_t n = usb.getDevices(devices, 8);
+    for (size_t i = 0; i < n; ++i) {
+      const EspUsbHostDeviceInfo &dev = devices[i];
+      DiagDevice &out = d.devices[d.device_count++];
+      out = {};
+      out.address = dev.address;
+      out.vid = dev.vid;
+      out.pid = dev.pid;
+      out.hub = dev.isHub;
+      strlcpy(out.name, dev.product, sizeof out.name);
+      out.channels = uint8_t(usb.estimatedHcdChannelCount(dev.address));
+      EspUsbHostInterfaceInfo itfs[8];
+      out.interfaces = uint8_t(usb.getInterfaces(dev.address, itfs, 8));
+      for (uint8_t k = 0; k < out.interfaces; ++k) out.claimed += itfs[k].claimed ? 1 : 0;
+    }
+  }
+  taskENTER_CRITICAL(&shared_lock);
+  for (int i = 0; i < d.device_count; ++i) d.devices[i].refusal = refused_why[d.devices[i].address & 0x7F];
+  d.failed_sends = failed_count;
+  taskEXIT_CRITICAL(&shared_lock);
+#if APP_LOADER
+  d.has_loader = true;
+  loader_ui(d.loader);
+#endif
+  web_publish(d);
 }
 #endif
 
@@ -447,6 +499,9 @@ void setup() {
     char info[160];
     snprintf(info, sizeof info, "%s\n%s\n%s\nRST to try again.", last_crash[0], last_crash[1], last_crash[2]);
     ui_show_computer_mode(info);
+#if APP_WEB_UI
+    web_begin(true);  // so /crash and /coredump can be read without the screen
+#endif
     return;
   }
   if (mode == midi_core::BootMode::Computer) {
@@ -474,6 +529,10 @@ void setup() {
   usb.onDeviceConnected(on_connected);
   usb.onDeviceDisconnected(on_disconnected);
   usb.onMidiMessage(on_midi);
+#if APP_WEB_UI
+  CRUMB_LOOP("web_begin");
+  web_begin(false);
+#endif
 #if APP_LOADER
   loader_begin(usb, {loader_owns_fm1_midi, device_refusal});
 #endif
@@ -484,6 +543,16 @@ void setup() {
 void loop() {
   static uint32_t last_poll = 0, last_frame = 0, framed_changes = UINT32_MAX;
   static UiFrame frame;
+#if APP_WEB_UI
+  CRUMB_LOOP("web_loop");
+  web_loop(millis());
+  static uint32_t last_net = 0;
+  if (millis() - last_net > 1000) {
+    last_net = millis();
+    ui_set_network(web_network_line());
+    if (!host_running) publish_diag(nullptr);
+  }
+#endif
   if (!host_running) {  // computer mode: only the UI runs
 #if APP_LOADER && LOADER_DIAG
     static uint32_t last_diag = 0;
@@ -529,6 +598,10 @@ void loop() {
     loader_ui(loader);
     CRUMB_LOOP("ui_update_loader");
     ui_update_loader(loader);
+#endif
+#if APP_WEB_UI
+    CRUMB_LOOP("publish_diag");
+    publish_diag(&frame);
 #endif
   }
   CRUMB_LOOP("ui_tick");

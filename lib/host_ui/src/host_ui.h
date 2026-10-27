@@ -79,5 +79,8 @@ void ui_show_computer_mode(const char *info);
 void ui_update(const UiFrame &frame);
 // Refreshes the Firmware page; cheap when nothing changed.
 void ui_update_loader(const UiLoader &loader);
+// The network line on the settings and computer-mode screens (the Web UI's
+// address, or how to reach its setup hotspot). Empty hides it.
+void ui_set_network(const char *line);
 // Runs LVGL; call often (every few ms).
 void ui_tick();

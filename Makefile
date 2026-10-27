@@ -19,9 +19,19 @@ WRITES ?= 0
 WRITE_FLAGS := $(if $(filter 1,$(WRITES)),-DFM1_LOADER_WRITES=1) $(if $(filter 1,$(DIAG)),-DLOADER_DIAG=1)
 APP_LIBS_hub :=
 APP_LIBS_hub-loader := --library lib/fm1_loader
-APP_LIBS_everything := --library lib/fm1_loader
+APP_LIBS_everything := --library lib/fm1_loader --library lib/web_core
+# DIAG_WEB=1 adds the Web UI's read-only diagnostics (Wi-Fi, GET /status, /log,
+# /crash, /coredump, /store) to hub-loader, which the board runs for loader
+# checkpoints. `everything` always has them.
+ifeq ($(DIAG_WEB),1)
+ifneq ($(APPS),everything)
+APP_FLAGS_$(APPS) += -DAPP_WEB_UI=1
+APP_LIBS_$(APPS) += --library lib/web_core
+BUILD_SUFFIX := -web
+endif
+endif
 SKETCH := firmware/$(BOARD)
-BUILD := build/$(BOARD)/$(APPS)
+BUILD := build/$(BOARD)/$(APPS)$(BUILD_SUFFIX)
 # Mac tests use the Mac's clang; CI sets clang++ too (GCC's -Wformat-truncation
 # objects to the deliberate cut-off of screen lines).
 TEST_CXX ?= c++
@@ -41,12 +51,15 @@ FM1_HDR := $(wildcard lib/fm1_loader/src/*.h) $(wildcard tests/support/*.h)
 FM1_TESTS := build/test_fm1_package build/test_fm1_library build/test_fm1_installer \
 	build/test_fm1_softkey build/test_fm1_posix build/test_fm1_locked build/test_fm1_library_posix
 
-test: build/test_fm1_interop build/test_midi_core build/test_status build/test_boot_mode build/test_broker build/test_describe $(FM1_TESTS) fixtures
+test: build/test_fm1_interop build/test_midi_core build/test_status build/test_boot_mode build/test_broker build/test_describe build/test_web_core build/test_store_json $(FM1_TESTS) fixtures
 	./build/test_midi_core
 	./build/test_status
 	./build/test_boot_mode
 	./build/test_broker
 	./build/test_describe
+	./build/test_web_core
+	./build/test_store_json build/store.json
+	python3 -I -c "import json; json.load(open('build/store.json'))"
 	for t in $(FM1_TESTS); do ./$$t || exit 1; done
 	python3 -c "import shutil; shutil.rmtree('build/interop', ignore_errors=True)"
 	python3 -I tools/fm1lib.py selftest build/interop tests/fixtures/skiff-1.4.fwsc \
@@ -105,6 +118,16 @@ build/test_describe: tests/test_describe.cpp lib/platform/src/describe.cpp lib/p
 	mkdir -p build
 	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -Ilib/platform/src -Ilib/midi_core/src -o $@ tests/test_describe.cpp lib/platform/src/describe.cpp lib/platform/src/broker.cpp lib/midi_core/src/midi_core.cpp
 
+WEB_CORE_SRC := $(wildcard lib/web_core/src/*.cpp)
+build/test_web_core: tests/test_web_core.cpp $(WEB_CORE_SRC) $(wildcard lib/web_core/src/*.h)
+	mkdir -p build
+	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -pthread -Ilib/web_core/src -o $@ tests/test_web_core.cpp $(WEB_CORE_SRC)
+
+build/test_store_json: tests/test_store_json.cpp firmware/waveshare_169/store_json.cpp firmware/waveshare_169/store_json.h $(FM1_TEST_SRC) $(FM1_HDR) $(WEB_CORE_SRC)
+	mkdir -p build
+	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -DAPP_LOADER=1 -DAPP_WEB_UI=1 -Ilib/fm1_loader/src -Ilib/web_core/src \
+		-Ilib/platform/src -Ifirmware/waveshare_169 -Itests -o $@ $< firmware/waveshare_169/store_json.cpp $(FM1_TEST_SRC) $(WEB_CORE_SRC)
+
 build:
 	$(if $(filter $(APPS),$(APP_SETS)),,$(error APPS=$(APPS); known: $(APP_SETS)))
 	arduino-cli compile --fqbn $(FQBN) --build-property "tools.ctags.path=$(CTAGS_DIR)" \
@@ -112,7 +135,7 @@ build:
 		--build-property "compiler.cpp.extra_flags=-DFW_VERSION=$(FW_VERSION) -DFW_DIRTY=$(FW_DIRTY) -DESP_USB_HOST_MAX_SERIAL_PORTS=0 $(APP_FLAGS_$(APPS)) $(WRITE_FLAGS) -DLV_CONF_INCLUDE_SIMPLE -I$(CURDIR)/firmware/config" \
 		--build-property "compiler.c.extra_flags=-DLV_CONF_INCLUDE_SIMPLE -I$(CURDIR)/firmware/config" \
 		--library lib/midi_core --library lib/EspUsbHost --library lib/host_ui --library lib/platform $(APP_LIBS_$(APPS)) \
-		--build-path $(CURDIR)/build/cache/$(BOARD)/$(APPS) --output-dir $(BUILD) $(SKETCH)
+		--build-path $(CURDIR)/build/cache/$(BOARD)/$(APPS)$(BUILD_SUFFIX) --output-dir $(BUILD) $(SKETCH)
 
 build-all:
 	for b in $(BOARDS); do for a in $(APP_SETS); do $(MAKE) build BOARD=$$b APPS=$$a || exit 1; done; done
