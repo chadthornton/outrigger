@@ -31,9 +31,7 @@
 #include "midi_core.h"
 #include "status.h"
 #if APP_LOADER
-// Not called yet: including it makes the hub-loader app set compile
-// lib/fm1_loader for the ESP32-S3 (docs/architecture.md, "App sets and builds").
-#include "installer.h"
+#include "loader_app.h"
 #endif
 
 extern const BoardProfile kBoard;
@@ -75,6 +73,9 @@ static volatile uint8_t hub_addresses[kMaxHubs] = {};
 
 static void on_connected(const EspUsbHostDeviceInfo &d) {
   router.device_connected(d.address, d.vid, d.pid);
+#if APP_LOADER
+  loader_device_connected(d);
+#endif
   if (d.isHub) {
     for (int i = 0; i < kMaxHubs; ++i)
       if (hub_addresses[i] == 0) { hub_addresses[i] = d.address; break; }
@@ -105,6 +106,9 @@ static bool claim_filter(uint8_t address, uint8_t interface_number) {
 
 static void on_disconnected(const EspUsbHostDeviceInfo &d) {
   router.device_disconnected(d.address);
+#if APP_LOADER
+  loader_device_disconnected(d);
+#endif
   broker.detach(d.address);
   for (int i = 0; i < kMaxHubs; ++i)
     if (hub_addresses[i] == d.address) hub_addresses[i] = 0;
@@ -122,6 +126,9 @@ static void on_midi(const EspUsbHostMidiMessage &m) {
   if (m.codeIndex <= 1) return;
 
   const bool from_target = router.is_target(m.address);
+#if APP_LOADER
+  if (from_target) loader_midi(m);  // the identity answer, in Load mode
+#endif
   char mark = ' ';
   if (!from_target) {
     uint8_t packet[4];
@@ -291,6 +298,28 @@ static void build_frame(UiFrame &f) {
   if (have_target) snprintf(f.fm1_own, sizeof f.fm1_own, "itself sent: %s", own.at_ms ? own.text : "-");
 }
 
+// ---------- Modes ----------
+// A claim can't be taken back without re-enumerating, so a mode change restarts
+// the USB host and every device enumerates again under the new mode's rules
+// (docs/architecture.md, "Resource broker"). Runs on loop(), never on a USB task.
+static void restart_host(platform::Mode mode) {
+  usb.end();
+  broker.set_mode(mode);
+  router = midi_core::Router();
+  for (int i = 0; i < kMaxHubs; ++i) hub_addresses[i] = 0;
+  taskENTER_CRITICAL(&shared_lock);
+  for (auto &m : last_by_address) m = {};
+  for (auto &r : refused_why) r = {};
+  fm1_own = fm1_in = {};
+  ++changes;
+  taskEXIT_CRITICAL(&shared_lock);
+  usb.begin();
+}
+
+#if APP_LOADER
+static bool loader_owns_fm1_midi() { return broker.owner(platform::Fm1Part::Midi) == platform::App::Loader; }
+#endif
+
 static void save_settings(const UiSettings &s) {
   prefs.putUChar("text_size", s.text_size);
   prefs.putUChar("typeface", s.typeface);
@@ -356,7 +385,11 @@ void setup() {
   static char firmware[24];
   snprintf(firmware, sizeof firmware, "v %07lx%s %s", (unsigned long)FW_VERSION, FW_DIRTY ? "+" : "",
            platform::kAppSetLabel);
-  ui_begin(kBoard, settings, {save_settings, connect_computer, back_to_host}, firmware);
+  UiHooks hooks = {save_settings, connect_computer, back_to_host, nullptr};
+#if APP_LOADER
+  hooks.back_up_fm1 = loader_request_backup;
+#endif
+  ui_begin(kBoard, settings, hooks, firmware);
 
   if (mode == midi_core::BootMode::Computer) {
     // The USB host is never installed; the port goes to the chip's
@@ -372,6 +405,9 @@ void setup() {
   usb.onDeviceConnected(on_connected);
   usb.onDeviceDisconnected(on_disconnected);
   usb.onMidiMessage(on_midi);
+#if APP_LOADER
+  loader_begin(usb, loader_owns_fm1_midi);
+#endif
   usb.begin();
   host_running = true;
 }
@@ -384,6 +420,12 @@ void loop() {
     delay(5);
     return;
   }
+#if APP_LOADER
+  if (loader_wanted_mode() != broker.mode()) {
+    restart_host(loader_wanted_mode());
+    loader_mode_changed(broker.mode());
+  }
+#endif
   const uint32_t now = millis();
   if (now - last_poll > 1000) {
     last_poll = now;
@@ -400,6 +442,11 @@ void loop() {
     last_frame = now;
     build_frame(frame);
     ui_update(frame);
+#if APP_LOADER
+    UiLoader loader;
+    loader_ui(loader);
+    ui_update_loader(loader);
+#endif
   }
   ui_tick();
   delay(5);

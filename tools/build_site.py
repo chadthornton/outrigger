@@ -73,11 +73,42 @@ def read_partition_table(data):
         yield entry[12:28].rstrip(b"\0").decode(), offset, size
 
 
+# The layout every install keeps (docs/firmware-loader-plan.md, session 2): NVS
+# and otadata where Arduino's default table has them, so settings survive a
+# table change, the app at 0x10000, and the store after every app slot.
+FIXED = {"nvs": (0x9000, 0x5000), "otadata": (0xE000, 0x2000)}
+APP0_OFFSET, APP0_SIZE = 0x10000, 0x300000
+
+
+def check_table(table, flash_bytes):
+    """table: name -> (offset, size). Returns a list of problems."""
+    problems = []
+    for name, want in FIXED.items():
+        if table.get(name) != want:
+            problems.append(f"{name} is {table.get(name)}, must stay at {want}")
+    if table.get("app0", (None, 0))[0] != APP0_OFFSET or table.get("app0", (0, 0))[1] < APP0_SIZE:
+        problems.append(f"app0 is {table.get('app0')}, must start at 0x10000 with >= 3 MB")
+    if "store" in table:
+        store_off, store_size = table["store"]
+        if store_off % 0x1000 or store_off + store_size > flash_bytes:
+            problems.append("store is misaligned or runs past the flash")
+        for name, (off, size) in table.items():
+            if name != "store" and off < store_off + store_size and off + size > store_off:
+                problems.append(f"{name} overlaps the store")
+    ends = sorted((off, off + size, name) for name, (off, size) in table.items())
+    for (a0, a1, an), (b0, b1, bn) in zip(ends, ends[1:]):
+        if b0 < a1:
+            problems.append(f"{an} overlaps {bn}")
+    return problems
+
+
 def check_layout(parts, board):
     """Every part must end before the first data partition, so installs never touch NVS or storage."""
     table = dict((name, (off, size)) for name, off, size in read_partition_table(parts[0x8000]))
     if "nvs" not in table or "app0" not in table:
         fail(f"unexpected partition table: {sorted(table)}")
+    for problem in check_table(table, board["flash_bytes"]):
+        fail(problem)
     nvs_off, nvs_size = table["nvs"]
     app_off, app_size = table["app0"]
     if table.get("otadata", (None,))[0] != 0xE000:

@@ -22,11 +22,15 @@ BUILD := build/$(BOARD)/$(APPS)
 # objects to the deliberate cut-off of screen lines).
 TEST_CXX ?= c++
 SITE_PORT ?= 8088
+# The app0 slot of firmware/<board>/partitions.csv (3 MB); Arduino's own limit is
+# the default table's 1.25 MB.
+APP_SLOT := 3145728
+STORE_OFFSET := 0x3D0000
 # Shown on the computer-mode screen, and makes every commit a distinct build.
 FW_VERSION := 0x$(shell git rev-parse --short=7 HEAD)
 FW_DIRTY := $(if $(shell git status --porcelain --untracked-files=no),1,0)
 
-.PHONY: test build build-all flash site serve clean fixtures golden
+.PHONY: test build build-all flash site serve clean fixtures golden store-image flash-store
 
 FM1_SRC := $(wildcard lib/fm1_loader/src/*.cpp)
 FM1_HDR := $(wildcard lib/fm1_loader/src/*.h) $(wildcard tests/support/*.h)
@@ -40,6 +44,7 @@ test: build/test_midi_core build/test_status build/test_boot_mode build/test_bro
 	./build/test_broker
 	./build/test_describe
 	for t in $(FM1_TESTS); do ./$$t || exit 1; done
+	python3 -I tools/check_partitions.py firmware/$(BOARD)/partitions.csv
 
 # The Mac tests may write the mock FM-1 (FM1_LOADER_WRITES=1); test_fm1_locked
 # is built without it, as every firmware build is until hardware checkpoint 3.
@@ -95,6 +100,7 @@ build/test_describe: tests/test_describe.cpp lib/platform/src/describe.cpp lib/p
 build:
 	$(if $(filter $(APPS),$(APP_SETS)),,$(error APPS=$(APPS); known: $(APP_SETS)))
 	arduino-cli compile --fqbn $(FQBN) --build-property "tools.ctags.path=$(CTAGS_DIR)" \
+		--build-property "upload.maximum_size=$(APP_SLOT)" \
 		--build-property "compiler.cpp.extra_flags=-DFW_VERSION=$(FW_VERSION) -DFW_DIRTY=$(FW_DIRTY) -DESP_USB_HOST_MAX_SERIAL_PORTS=0 $(APP_FLAGS_$(APPS)) -DLV_CONF_INCLUDE_SIMPLE -I$(CURDIR)/firmware/config" \
 		--build-property "compiler.c.extra_flags=-DLV_CONF_INCLUDE_SIMPLE -I$(CURDIR)/firmware/config" \
 		--library lib/midi_core --library lib/EspUsbHost --library lib/host_ui --library lib/platform $(APP_LIBS_$(APPS)) \
@@ -105,6 +111,21 @@ build-all:
 
 flash: build
 	arduino-cli upload --fqbn $(FQBN) --input-dir $(BUILD) --port $(PORT) $(SKETCH)
+
+# The store partition's first setup: a LittleFS image holding JieLi's loader
+# (from tests/fixtures). JieLi's code, so it stays in build/ and is never staged
+# into site/. Flashing it ERASES every backup and save in the store, so it asks
+# for CONFIRM=erase-store. The board must be in download mode (Computer mode).
+TOOLS_PY := build/tools-venv/bin/python
+$(TOOLS_PY):
+	python3 -m venv build/tools-venv
+	$(TOOLS_PY) -m pip install -q littlefs-python==0.19.0
+store-image: $(TOOLS_PY) fixtures
+	$(TOOLS_PY) tools/store_image.py firmware/$(BOARD)/partitions.csv build/store/store.bin
+flash-store: store-image
+	$(if $(filter erase-store,$(CONFIRM)),,$(error flash-store erases every backup in the store: add CONFIRM=erase-store))
+	$(ESP32_CORE)/../../../tools/esptool_py/5.3.1/esptool --chip esp32s3 --port $(PORT) \
+		write-flash $(STORE_OFFSET) build/store/store.bin
 
 # Stage the firmware into site/ for the browser installer (ESP Web Tools).
 # fixtures brings wl82loader.bin, so build_site can scan for pieces of it.
