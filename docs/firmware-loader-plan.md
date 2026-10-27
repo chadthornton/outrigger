@@ -130,6 +130,12 @@ What it answered:
 Found on the way:
 - **A timing bug, fixed:** EspUsbHost reports a device as connected before its interfaces are claimed, so the first
   attempt sent nothing ("couldn't send to the FM-1"). The loader now waits for MIDI-ready and broker ownership.
+- **An intermittent ROM-boot miss:** on one repeat run the FM-1 took the key (screen dark), but no usable ROM device
+  appeared within 15 s. The suspect is the broker still counting the FM-1 that had just left. `536ee16` restarts the
+  host once in that case and shows the broker's refusal.
+  - **Next run:** passed with no re-enumeration needed ("Backed up", both hashes "= dump").
+  - **Still open:** the cause is unconfirmed until the miss happens again with that build.
+  - **The store:** didn't grow, because the second backup's sectors were already stored.
 - **Store overhead, a follow-up:** the first backup used about 1.7 MB of the store. A file per 4 KiB sector costs
   LittleFS a block of metadata as well as its data. Packing sectors into larger files would roughly halve that, and
   matters for the "about 24 packages" budget.
