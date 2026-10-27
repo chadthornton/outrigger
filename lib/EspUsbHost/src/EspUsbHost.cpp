@@ -7132,6 +7132,7 @@ bool EspUsbHost::mscRawCommand(uint8_t address,
     if (err != ESP_OK)
     {
       setLastError(err);
+      lastStatus = -3;
       return false;
     }
     if (out && length > 0)

@@ -19,6 +19,7 @@
 #include <EspUsbHost.h>
 #include <Preferences.h>
 #include <esp_app_desc.h>
+#include <esp_heap_caps.h>
 #include <soc/rtc_cntl_reg.h>
 #include <soc/system_reg.h>
 #include <soc/usb_serial_jtag_reg.h>
@@ -382,7 +383,12 @@ static void device_refusal(uint8_t address, char *out, size_t len) {
 // What GET /status shows: the frame the screen just drew, every device with
 // its channel cost and the broker's refusal, and the Firmware page. Loop only.
 static void publish_diag(const UiFrame *frame) {
-  static DiagState d;  // ~4 KB: kept off the loop task's stack
+  static uint32_t last = 0;
+  if (frame && millis() - last < 250) return;  // /status is polled once a second
+  last = millis();
+  static DiagState *copy = static_cast<DiagState *>(heap_caps_calloc(1, sizeof(DiagState), MALLOC_CAP_SPIRAM));
+  if (!copy) return;
+  DiagState &d = *copy;
   d.host_running = host_running;
   d.mode = broker.mode();
   if (frame) d.frame = *frame;

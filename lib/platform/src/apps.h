@@ -23,6 +23,7 @@ constexpr bool kHasWebUi = APP_WEB_UI;
 constexpr const char *kAppSetLabel = kHasLoader && kHasRecorder && kHasWebUi ? "all"
                                      : kHasLoader && !kHasRecorder && !kHasWebUi ? "hub+L"
                                      : kHasLoader && !kHasRecorder && kHasWebUi ? "hub+LW"
+                                     : !kHasLoader && !kHasRecorder && kHasWebUi ? "hub+W"
                                      : !kHasLoader && !kHasRecorder && !kHasWebUi ? "hub"
                                                                                   : "custom";
 

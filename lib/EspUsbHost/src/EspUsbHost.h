@@ -2540,7 +2540,8 @@ public:
   struct MscRawResult
   {
     enum Stage : uint8_t { None, NoDevice, Cbw, Csw, CswInvalid, CswStatus } stage = None;
-    // The failed transfer's usb_transfer_status_t, or -1 timed out, -2 not submitted.
+    // The failed transfer's usb_transfer_status_t, or -1 timed out, -2 not
+    // submitted, -3 no memory for the transfer (DMA-capable internal RAM).
     int8_t transferStatus = 0;
     int8_t dataStatus = 0;  // the data phase's, when it failed but the CSW was still read
     uint8_t cswStatus = 0;

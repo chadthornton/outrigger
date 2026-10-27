@@ -22,7 +22,8 @@ import urllib.request
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 # The settings page's app-set label -> the build directory `make build` uses.
-BUILD_DIRS = {"hub": "hub", "hub+L": "hub-loader", "hub+LW": "hub-loader-web", "all": "everything"}
+BUILD_DIRS = {"hub": "hub", "hub+W": "hub-web", "hub+L": "hub-loader", "hub+LW": "hub-loader-web",
+              "all": "everything"}
 
 
 def get(host, path, timeout=10):
@@ -76,15 +77,25 @@ def print_status(s):
         print(f"  preview: {' / '.join(f['preview'])}; action: {f['action']}{'' if f['can_act'] else ' (off)'}")
 
 
-def print_log(host, follow):
-    since = 0
+def log_lines(host, since):
+    """Every line after `since`, across as many pages as the server needs."""
+    out = []
     while True:
         r = get_json(host, f"/log?since={since}")
         if r["lost"]:
-            print(f"... {r['lost']} lines lost")
-        for seq, ms, src, text in r["lines"]:
-            print(f"{ms / 1000:10.3f} {src} {text}", flush=True)
+            out.append(f"... {r['lost']} lines lost")
+        out += [f"{ms / 1000:10.3f} {src} {text}" for _, ms, src, text in r["lines"]]
         since = r["next"] - 1
+        if not r["lines"]:
+            return out, since
+
+
+def print_log(host, follow):
+    since = 0
+    while True:
+        lines, since = log_lines(host, since)
+        for line in lines:
+            print(line, flush=True)
         if not follow:
             return
         time.sleep(1)
@@ -139,9 +150,8 @@ def main():
             (out_dir / "status.json").write_text(json.dumps(status, indent=2))
             for name in ("crash", "store"):
                 (out_dir / f"{name}.json").write_text(json.dumps(get_json(a.host, "/" + name), indent=2))
-            r = get_json(a.host, "/log?since=0")
-            (out_dir / "log.txt").write_text(
-                "".join(f"{ms / 1000:10.3f} {src} {text}\n" for _, ms, src, text in r["lines"]))
+            lines, _ = log_lines(a.host, 0)
+            (out_dir / "log.txt").write_text("".join(line + "\n" for line in lines))
             print_status(status)
             print(f"saved status, crash, store and log to {out_dir}")
         save_coredump(a.host, out_dir, status)

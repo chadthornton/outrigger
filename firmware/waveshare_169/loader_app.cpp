@@ -108,7 +108,10 @@ class UsbScsi : public ScsiTransport {
  public:
   bool execute(const uint8_t *cdb, size_t cdb_len, Dir dir, uint8_t *data, size_t len) override {
     const uint8_t address = rom_address.load();
-    if (!address) return false;
+    if (!address) {
+      log_failure(cdb, len, "no ROM device (disconnected?)");
+      return false;
+    }
     size_t actual = 0;
     if (!usb->mscRawCommand(address, cdb, uint8_t(cdb_len), dir == Dir::None ? nullptr : data,
                             dir == Dir::None ? 0 : len, dir != Dir::Out, actual, kScsiTimeoutMs)) {
@@ -127,7 +130,8 @@ class UsbScsi : public ScsiTransport {
   // carry for flash commands) and what mscRawCommand saw.
   static void log_failure(const uint8_t *cdb, size_t len, const char *what) {
 #if APP_WEB_UI
-    const EspUsbHost::MscRawResult &r = usb->mscRawLastResult();
+    EspUsbHost::MscRawResult r;
+    if (rom_address.load()) r = usb->mscRawLastResult();
     static const char *const kStage[] = {"-", "no device", "CBW", "CSW", "CSW invalid", "CSW status"};
     DLOG_LOADER("scsi %02X%02X addr %02X%02X%02X%02X len %u %s: %s xfer %d data %d csw %u residue %lu moved %u",
                 cdb[0], cdb[1], cdb[2], cdb[3], cdb[4], cdb[5], unsigned(len), what,

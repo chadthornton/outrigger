@@ -81,7 +81,8 @@ struct TaskLine {
   uint32_t stack_free;  // bytes never used: the high-water mark
   uint8_t priority;
 };
-static TaskLine tasks[32];
+constexpr int kMaxTasks = 48;
+static TaskLine tasks[kMaxTasks];
 static uint8_t task_count = 0;
 static std::string *store_body;  // GET /store
 static uint32_t store_at = 0;
@@ -89,7 +90,7 @@ static uint32_t store_at = 0;
 enum class Net : uint8_t { Connecting, Online };
 static Net net = Net::Connecting;
 static bool ap_on = false;
-static char own_ip[16] = "", ap_ip[16] = "", ssid_now[33] = "", ap_pass[9] = "";
+static char own_ip[16] = "", ap_ip[16] = "", ssid_now[33] = "", ap_pass[13] = "";
 static uint32_t ap_ip_u32 = 0;  // network byte order, for the via-hotspot check
 static int8_t rssi = 0;
 static char network_line[48] = "";  // empty until web_begin()
@@ -102,7 +103,7 @@ static bool started = false, safe = false;
 static Preferences wifi_prefs;
 static httpd_handle_t server = nullptr;
 static DNSServer dns;
-static bool mdns_on = false, joining_from_setup = false;
+static bool mdns_on = false, joining_from_setup = false, ever_online = false;
 static uint32_t join_at = 0, retry_saved_at = 0, connect_started = 0, online_since = 0, last_drain = 0;
 static volatile bool drain_queued = false;
 struct Seen {
@@ -322,7 +323,7 @@ static esp_err_t on_status(httpd_req_t *req) {
   if (!guard(req)) return ESP_OK;
   char *buf = json_buf();
   DiagState &s = *status_copy;
-  static TaskLine t[32];
+  static TaskLine t[kMaxTasks];
   uint8_t tn;
   uint32_t at;
   char ip[16], ssid[33];
@@ -490,8 +491,10 @@ static esp_err_t on_crash(httpd_req_t *req) {
 }
 
 // The raw partition, for `esp-coredump info_corefile --core-format raw` on the Mac.
+// Not on the setup hotspot: task stacks are no business of whoever joined it.
 static esp_err_t on_coredump(httpd_req_t *req) {
   if (!guard(req)) return ESP_OK;
+  if (via_hotspot(req)) return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "not on the setup hotspot");
   const esp_partition_t *p = coredump_partition();
   if (!p) return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "no coredump partition");
   static uint8_t *chunk = static_cast<uint8_t *>(heap_caps_malloc(4096, MALLOC_CAP_SPIRAM));
@@ -661,8 +664,12 @@ static const Seen *find_seen(const char *ssid) {
 // The scan blocks the loop ~2 s; USB routing runs on its own task.
 static void start_hotspot(uint32_t now) {
   if (ap_on) return;
-  snprintf(ap_pass, sizeof ap_pass, "%08lu", static_cast<unsigned long>(esp_random() % 100000000));
-  WiFi.mode(WIFI_AP_STA);
+  WiFi.mode(WIFI_AP_STA);  // the radio is on now, so esp_random() is truly random
+  // 12 characters from 32 easy-to-read ones: 60 bits, so a captured handshake
+  // can't be cracked offline the way 8 digits can.
+  static const char kAlphabet[] = "abcdefghjkmnpqrstuvwxyz23456789";
+  for (size_t i = 0; i + 1 < sizeof ap_pass; ++i) ap_pass[i] = kAlphabet[esp_random() % 31];
+  ap_pass[sizeof ap_pass - 1] = 0;
   WiFi.disconnect();  // a station still retrying hops channels and drags the hotspot along
   remember_scan(WiFi.scanNetworks(false));
   web_core::ScanEntry entries[sizeof seen / sizeof seen[0]];
@@ -751,9 +758,12 @@ void web_begin(bool safe_mode) {
 // the loop, because restart_host() deletes the USB tasks from this same task,
 // so none can disappear while their names are copied.
 static void sample_tasks() {
-  static TaskStatus_t status[32];
-  const UBaseType_t n = uxTaskGetSystemState(status, 32, nullptr);
-  TaskLine lines[32];
+  // FreeRTOS fills nothing (returns 0) if more tasks exist than fit, so the
+  // array has room to spare; the log says so if it ever runs out.
+  static TaskStatus_t status[kMaxTasks];
+  static TaskLine lines[kMaxTasks];
+  const UBaseType_t n = uxTaskGetSystemState(status, kMaxTasks, nullptr);
+  if (n == 0) DLOG_LOOP("tasks: more than %d, stack marks not shown", kMaxTasks);
   for (UBaseType_t i = 0; i < n; ++i) {
     strlcpy(lines[i].name, status[i].pcTaskName, sizeof lines[i].name);
     lines[i].stack_free = status[i].usStackHighWaterMark;  // bytes on ESP-IDF
@@ -800,6 +810,7 @@ void web_loop(uint32_t now) {
   if (connected && net != Net::Online) {
     net = Net::Online;
     online_since = now;
+    ever_online = true;
     if (trial_ssid[0] && WiFi.SSID() == trial_ssid) {  // they work: keep them
       memcpy(saved_ssid, trial_ssid, sizeof saved_ssid);
       memcpy(saved_pass, trial_pass, sizeof saved_pass);
@@ -847,8 +858,11 @@ void web_loop(uint32_t now) {
         retry_saved_at = 0;  // the failure branch above re-arms it
       }
     }
-  } else if (!connected && saved_ssid[0] && connect_started && now - connect_started > 20000) {
-    start_hotspot(now);  // a saved network that doesn't answer: open the hotspot
+  } else if (!connected && saved_ssid[0] && !ever_online && connect_started && now - connect_started > 20000) {
+    // A saved network that never answered since boot: open the hotspot. Once it
+    // has worked, a drop only retries the station: the hotspot's scan blocks
+    // the loop ~2 s, which mustn't happen in the middle of a loader job.
+    start_hotspot(now);
   }
   static uint32_t last_ips = 0;
   if (connected && now - last_ips > 5000) {  // refresh RSSI
