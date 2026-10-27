@@ -47,6 +47,10 @@ static Preferences prefs;
 #define FW_DIRTY 0    // 1 when built with uncommitted changes
 #endif
 static bool host_running = false;
+// LVGL redraws recurse through nested objects; with the USB host up and the
+// Firmware page built, 8 KB wasn't enough (checkpoint 2 core dump: loopTask
+// stack overflow inside lv_obj_redraw). 16 KB leaves room.
+SET_LOOP_TASK_STACK_SIZE(16 * 1024);
 RTC_NOINIT_ATTR Crumbs crumbs;
 // The last abnormal reset, for the Firmware page (empty after a normal boot).
 char last_crash[3][40] = {};
@@ -485,7 +489,7 @@ void loop() {
     static uint32_t last_diag = 0;
     if (millis() - last_diag > 500) {
       last_diag = millis();
-      UiLoader loader;
+      static UiLoader loader;
       loader_ui(loader);
       ui_update_loader(loader);
     }
@@ -521,7 +525,7 @@ void loop() {
     CRUMB_LOOP("ui_update");
     ui_update(frame);
 #if APP_LOADER
-    UiLoader loader;
+    static UiLoader loader;  // ~900 bytes: kept off the loop task's stack
     loader_ui(loader);
     CRUMB_LOOP("ui_update_loader");
     ui_update_loader(loader);
