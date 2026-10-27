@@ -341,7 +341,6 @@ static void device_refusal(uint8_t address, char *out, size_t len) {
 
 static void save_settings(const UiSettings &s) {
   prefs.putUChar("text_size", s.text_size);
-  prefs.putUChar("typeface", s.typeface);
 }
 
 // ---------- Boot mode ----------
@@ -400,7 +399,8 @@ static void hand_usb_to_serial_jtag() {
 void setup() {
   const midi_core::BootMode mode = read_boot_mode();
   prefs.begin("ui", false);
-  const UiSettings settings = {prefs.getUChar("text_size", 1), prefs.getUChar("typeface", 0)};
+  // An old "typeface" key from builds with a Pixel font stays in NVS, unread.
+  const UiSettings settings = {prefs.getUChar("text_size", 1)};
   static char firmware[24];
   snprintf(firmware, sizeof firmware, "v %07lx%s %s", (unsigned long)FW_VERSION, FW_DIRTY ? "+" : "",
            platform::kAppSetLabel);

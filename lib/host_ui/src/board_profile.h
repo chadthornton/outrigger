@@ -20,3 +20,8 @@ bool board_display_begin();
 void board_display_flush(int16_t x, int16_t y, int16_t w, int16_t h, const uint16_t *pixels);
 // True while a finger is down; x/y in screen pixels.
 bool board_touch_read(int16_t *x, int16_t *y);
+
+#if UI_TOUCH_PROBE
+// Diagnostic builds: the last touch as the panel reported it, unclamped.
+extern int16_t board_touch_raw[2];
+#endif

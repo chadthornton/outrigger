@@ -1076,10 +1076,10 @@
 #define LV_FONT_SOURCE_HAN_SANS_SC_16_CJK 0
 
 /** Pixel perfect monospaced fonts */
-#define LV_FONT_UNSCII_8 1
+#define LV_FONT_UNSCII_8 0
 
 /** UNSCII 16 */
-#define LV_FONT_UNSCII_16 1
+#define LV_FONT_UNSCII_16 0
 
 /** Include the header given by LV_FONT_CUSTOM_INCLUDE to declare custom
  *  fonts (LV_FONT_CUSTOM_DECLARE) or override font-related macros.

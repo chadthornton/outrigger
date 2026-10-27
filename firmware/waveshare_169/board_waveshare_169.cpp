@@ -42,6 +42,10 @@ void board_display_flush(int16_t x, int16_t y, int16_t w, int16_t h, const uint1
   panel->draw16bitRGBBitmap(x, y, const_cast<uint16_t *>(pixels), w, h);
 }
 
+#if UI_TOUCH_PROBE
+int16_t board_touch_raw[2] = {-1, -1};
+#endif
+
 bool board_touch_read(int16_t *x, int16_t *y) {
   uint8_t buf[7];
   Wire.beginTransmission(kTouchAddress);
@@ -51,7 +55,14 @@ bool board_touch_read(int16_t *x, int16_t *y) {
   for (uint8_t &b : buf) b = Wire.read();
   const uint8_t fingers = buf[2] & 0x0F;
   if (buf[2] == 0xFF || fingers == 0) return false;
-  *x = ((buf[3] & 0x0F) << 8) | buf[4];
-  *y = ((buf[5] & 0x0F) << 8) | buf[6];
-  return *x < kBoard.width && *y < kBoard.height;
+  // Clamp, don't drop: a press reported a pixel past the edge (the glass's
+  // bottom rim) is still a press on whatever sits there.
+  const int16_t rx = ((buf[3] & 0x0F) << 8) | buf[4], ry = ((buf[5] & 0x0F) << 8) | buf[6];
+#if UI_TOUCH_PROBE
+  board_touch_raw[0] = rx;
+  board_touch_raw[1] = ry;
+#endif
+  *x = rx < kBoard.width ? rx : kBoard.width - 1;
+  *y = ry < kBoard.height ? ry : kBoard.height - 1;
+  return true;
 }
