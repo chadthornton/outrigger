@@ -2,9 +2,9 @@
 // partition), JieLi's loader blob, and a loader task that runs fm1_loader's
 // Installer against the FM-1 on the hub. Built only with APP_LOADER.
 //
-// Session 2 scope (docs/firmware-loader-plan.md): "Back up this FM-1" only.
-// The build is read-only (FM1_LOADER_WRITES off), so nothing it does can write
-// the FM-1's flash.
+// It backs up the FM-1, installs library packages (only in builds with
+// FM1_LOADER_WRITES=1; others are read-only), and retries an install that
+// stopped part-way (the resume entry).
 //
 // Threads: the *_connected/_disconnected/_midi hooks run on EspUsbHost's client
 // task; loader_request_backup(), loader_wanted_mode(), loader_mode_changed() and
@@ -31,7 +31,11 @@ void loader_device_connected(const EspUsbHostDeviceInfo &d);
 void loader_device_disconnected(const EspUsbHostDeviceInfo &d);
 void loader_midi(const EspUsbHostMidiMessage &m);  // messages from the FM-1
 
-void loader_request_backup();  // the Firmware page's hold
+// The Firmware page: select a row (-1 = back up), pin a package, run the
+// selected action after the 2-second hold.
+void loader_select(int index);
+void loader_pin(int index);
+void loader_act();
 // The mode the USB host should run in now: Load while a job needs the FM-1,
 // Play otherwise. loop() restarts the host when it differs, then reports back.
 platform::Mode loader_wanted_mode();

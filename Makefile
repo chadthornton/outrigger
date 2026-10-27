@@ -13,6 +13,10 @@ APPS ?= hub
 APP_FLAGS_hub :=
 APP_FLAGS_hub-loader := -DAPP_LOADER=1
 APP_FLAGS_everything := -DAPP_LOADER=1 -DAPP_RECORDER=1 -DAPP_WEB_UI=1
+# WRITES=1 lets the Loader write the FM-1's flash (FM1_LOADER_WRITES, rom.h).
+# Off by default: on only for hardware checkpoints 2 and 3 until they pass.
+WRITES ?= 0
+WRITE_FLAGS := $(if $(filter 1,$(WRITES)),-DFM1_LOADER_WRITES=1)
 APP_LIBS_hub :=
 APP_LIBS_hub-loader := --library lib/fm1_loader
 APP_LIBS_everything := --library lib/fm1_loader
@@ -105,7 +109,7 @@ build:
 	$(if $(filter $(APPS),$(APP_SETS)),,$(error APPS=$(APPS); known: $(APP_SETS)))
 	arduino-cli compile --fqbn $(FQBN) --build-property "tools.ctags.path=$(CTAGS_DIR)" \
 		--build-property "upload.maximum_size=$(APP_SLOT)" \
-		--build-property "compiler.cpp.extra_flags=-DFW_VERSION=$(FW_VERSION) -DFW_DIRTY=$(FW_DIRTY) -DESP_USB_HOST_MAX_SERIAL_PORTS=0 $(APP_FLAGS_$(APPS)) -DLV_CONF_INCLUDE_SIMPLE -I$(CURDIR)/firmware/config" \
+		--build-property "compiler.cpp.extra_flags=-DFW_VERSION=$(FW_VERSION) -DFW_DIRTY=$(FW_DIRTY) -DESP_USB_HOST_MAX_SERIAL_PORTS=0 $(APP_FLAGS_$(APPS)) $(WRITE_FLAGS) -DLV_CONF_INCLUDE_SIMPLE -I$(CURDIR)/firmware/config" \
 		--build-property "compiler.c.extra_flags=-DLV_CONF_INCLUDE_SIMPLE -I$(CURDIR)/firmware/config" \
 		--library lib/midi_core --library lib/EspUsbHost --library lib/host_ui --library lib/platform $(APP_LIBS_$(APPS)) \
 		--output-dir $(BUILD) $(SKETCH)

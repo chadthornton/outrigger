@@ -7,6 +7,7 @@
 #include <LittleFS.h>
 #include <freertos/queue.h>
 
+#include <algorithm>
 #include <atomic>
 
 #include "installer.h"
@@ -209,6 +210,10 @@ const char *step_text(Step s) {
     case Step::WaitRom: return "Waiting for ROM boot...";
     case Step::Identify: case Step::UploadLoader: case Step::ReadIds: return "Identifying...";
     case Step::Backup: return "Backing up (2 reads)...";
+    case Step::ResumeRead: return "Reading the FM-1...";
+    case Step::Plan: return "Planning...";
+    case Step::WriteApp: return "Writing firmware...";
+    case Step::WriteData: return "Writing data...";
     case Step::Reset: case Step::WaitMidi: return "Restarting the FM-1...";
     default: return "Working...";
   }
@@ -235,21 +240,106 @@ void report_backup(Installer &inst, const Host &host) {
   show_line(5, buf);
 }
 
-void run_backup() {
-  UsbScsi scsi;
-  Host host;
-  Installer inst(scsi, host, *library, blob);
-  InstallOptions o;
-  o.confirmed = true;  // the 2-second hold on the Firmware page
-  o.rom_timeout_ms = kRomWaitMs;
-  inst.start_backup(o);
-  while (inst.step()) {
-    uint8_t percent = inst.sectors_total() ? uint8_t(inst.sectors_done() * 100 / inst.sectors_total()) : 0;
-    show(step_text(inst.current()), kYellow, percent);
+// The list the page shows (loader task only): package ids in row order.
+std::vector<std::string> item_ids;
+std::atomic<int> selected{-1}, pin_request{-1};
+// What the selected install was previewed as: the hold agrees to exactly that.
+DataDecision previewed;
+// An install stopped with the app area incomplete: the hold retries it (resume).
+bool resume_ready = false;
+bool loader_left_running = false;
+
+constexpr uint32_t kAct = 1, kSelect = 2, kPin = 4;
+
+std::string label_of(const PackageInfo &p) {
+  std::string name = p.name.empty() ? p.id : p.name;
+  return p.version.empty() ? name : name + " " + p.version;
+}
+
+void refresh_items() {
+  std::vector<PackageInfo> pkgs;
+  for (const std::string &id : library->package_ids()) {
+    PackageInfo p;
+    if (library->package(id, p)) pkgs.push_back(p);
   }
+  std::sort(pkgs.begin(), pkgs.end(), [](const PackageInfo &a, const PackageInfo &b) {
+    return a.pinned != b.pinned ? a.pinned : label_of(a) < label_of(b);
+  });
+  // What the FM-1 seen last runs, from its latest backup.
+  Firmware running;
+  Unit u;
+  FlashHashes flash;
+  if (library->unit(library->last_unit(), u) && library->backup(u.latest_backup, flash))
+    running = library->identify_app(std::vector<Hash>(flash.begin() + kAppStart / kSector,
+                                                      flash.begin() + kAppEnd / kSector));
+  item_ids.clear();
+  taskENTER_CRITICAL(&lock);
+  shown.item_count = 0;
+  for (const PackageInfo &p : pkgs) {
+    if (shown.item_count == kLoaderItems) break;
+    UiLoaderItem &it = shown.items[shown.item_count++];
+    strlcpy(it.label, label_of(p).c_str(), sizeof it.label);
+    strlcpy(it.note, running.known() && running.app_sha256 == p.app_sha256 ? "running" : p.identity.c_str(),
+            sizeof it.note);
+    it.pinned = p.pinned;
+    item_ids.push_back(p.id);
+  }
+  taskEXIT_CRITICAL(&lock);
+}
+
+void set_preview(const char *l0, const char *l1, const char *action, bool can) {
+  taskENTER_CRITICAL(&lock);
+  strlcpy(shown.preview[0], l0, sizeof shown.preview[0]);
+  strlcpy(shown.preview[1], l1, sizeof shown.preview[1]);
+  strlcpy(shown.action, action, sizeof shown.action);
+  shown.can_act = can;
+  shown.selected = int8_t(selected.load());
+  taskEXIT_CRITICAL(&lock);
+}
+
+void refresh_preview() {
+  const int sel = selected.load();
+  const bool ready = store_ok && blob_ok;
+  if (resume_ready) {
+    set_preview("An install stopped part-way.", "The FM-1 must still be in ROM boot.", "Hold: retry the install",
+                ready && kWritesEnabled);
+    return;
+  }
+  if (sel < 0 || sel >= int(item_ids.size())) {
+    set_preview("Reads the FM-1 twice.", "Writes nothing.", "Hold: back up FM-1", ready);
+    return;
+  }
+  const InstallPreview p = preview_install(*library, library->last_unit(), item_ids[sel]);
+  previewed = p.decision;
+  char l0[40], l1[40], action[40];
+  PackageInfo pkg;
+  library->package(item_ids[sel], pkg);
+  snprintf(action, sizeof action, "Hold: install %s", label_of(pkg).c_str());
+  if (!p.ok) {
+    set_preview(p.problem, "", action, false);
+    return;
+  }
+  if (p.app_sectors == 0) snprintf(l0, sizeof l0, "Already installed: 0 sectors");
+  else snprintf(l0, sizeof l0, "Writes %u of 143 app sectors", unsigned(p.app_sectors));
+  switch (p.decision.action) {
+    case DataAction::Keep:
+      strlcpy(l1, p.decision.stock_unmapped ? "Keeps old data: may confuse stock" : "Keeps songs and settings",
+              sizeof l1);
+      break;
+    case DataAction::Restore:
+      snprintf(l1, sizeof l1, "Restores its saves (%u sectors)", unsigned(p.data_sectors));
+      break;
+    case DataAction::FreshStart:
+      snprintf(l1, sizeof l1, "Fresh start: erases %u (saved)", unsigned(p.data_sectors));
+      break;
+  }
+  if (!kWritesEnabled) strlcpy(action, "Read-only build", sizeof action);
+  set_preview(l0, l1, action, ready && kWritesEnabled);
+}
+
+void finish(Installer &inst, const Host &host, const char *done_title) {
   if (inst.current() == Step::Done) {
-    show("Backed up. Nothing written.", kGreen, 100);
-    report_backup(inst, host);
+    show(done_title, kGreen, 100);
     if (host.why[0]) show_line(1, host.why);  // a re-enumeration was needed: worth seeing
     return;
   }
@@ -262,7 +352,56 @@ void run_backup() {
     snprintf(buf, sizeof buf, "FM-1 answered %s", host.identity.c_str());
     show_line(3, buf);
   }
-  if (inst.danger()) show_line(5, "FM-1 left in ROM boot: power-cycle it");
+  if (inst.danger()) {
+    show_line(4, "DON'T UNPLUG the FM-1 or switch it off");
+    show_line(5, "Hold to retry; Transporter if that fails");
+  }
+}
+
+void run(Installer &inst) {
+  while (inst.step()) {
+    uint8_t percent = inst.sectors_total() ? uint8_t(inst.sectors_done() * 100 / inst.sectors_total()) : 0;
+    show(step_text(inst.current()), kYellow, percent);
+  }
+}
+
+void run_job() {
+  UsbScsi scsi;
+  Host host;
+  Installer inst(scsi, host, *library, blob);
+  InstallOptions o;
+  o.confirmed = true;  // the 2-second hold on the Firmware page
+  o.rom_timeout_ms = kRomWaitMs;
+  const int sel = selected.load();
+  if (resume_ready) {
+    // The FM-1 is still in ROM boot with an incomplete app: no key, straight to it.
+    if (!host.wait_for_rom_device(kRomWaitMs)) {
+      show("Stopped: the FM-1 isn't in ROM boot", kRed);
+      if (host.why[0]) show_line(2, host.why);
+      return;
+    }
+    o.loader_running = loader_left_running;
+    inst.start_resume(o);
+    run(inst);
+    finish(inst, host, "Install finished.");
+  } else if (sel < 0 || sel >= int(item_ids.size())) {
+    inst.start_backup(o);
+    run(inst);
+    finish(inst, host, "Backed up. Nothing written.");
+    if (inst.current() == Step::Done) report_backup(inst, host);
+  } else {
+    // The hold agreed to what the preview showed, the data decision included.
+    o.fresh_start_ok = previewed.action == DataAction::FreshStart;
+    o.layout_change_ok = previewed.layout_warning;
+    inst.start_install(item_ids[sel], o);
+    run(inst);
+    char buf[40];
+    snprintf(buf, sizeof buf, "Installed: %u sectors written", unsigned(inst.sectors_done()));
+    finish(inst, host, buf);
+  }
+  resume_ready = inst.danger();
+  // Stopped part-way without a reset: the loader still runs in the FM-1's RAM.
+  loader_left_running = inst.danger();
 }
 
 // The store line: free space and units, refreshed after each job.
@@ -275,19 +414,37 @@ void refresh_store_line() {
 }
 
 void loader_task(void *) {
+  if (store_ok) {
+    refresh_items();
+    refresh_preview();
+  }
   for (;;) {
-    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    uint32_t bits = 0;
+    xTaskNotifyWait(0, UINT32_MAX, &bits, portMAX_DELAY);
+    if (!store_ok) continue;
+    if (bits & kPin) {
+      const int i = pin_request.exchange(-1);
+      if (i >= 0 && i < int(item_ids.size())) {
+        PackageInfo p;
+        if (library->package(item_ids[i], p)) library->set_pinned(p.id, !p.pinned);
+        refresh_items();
+      }
+    }
+    if (bits & (kSelect | kPin)) refresh_preview();
+    if (!(bits & kAct)) continue;
     busy = true;
-    for (int i = 2; i < kLoaderLines; ++i) show_line(i, "");
+    for (int i = 1; i < kLoaderLines; ++i) show_line(i, i == 1 ? blob_line : "");
     show("Switching to Load mode...", kYellow);
     wanted = platform::Mode::Load;
     // loop() restarts the USB host in Load mode, then reports back.
     wait_until(5000, [] { return running.load() == platform::Mode::Load; });
     if (running.load() != platform::Mode::Load) show("Couldn't enter Load mode", kRed);
-    else run_backup();
+    else run_job();
     wanted = platform::Mode::Play;
     wait_until(5000, [] { return running.load() == platform::Mode::Play; });
     refresh_store_line();
+    refresh_items();
+    refresh_preview();
     busy = false;
   }
 }
@@ -320,10 +477,13 @@ void loader_begin(EspUsbHost &host, const LoaderCore &c) {
   usb = &host;
   core = c;
   sysex_queue = xQueueCreate(8, sizeof(SysexMsg));
+  shown.selected = -1;
   open_store();
   show_line(0, store_line);
   show_line(1, blob_line);
-  show(store_ok && blob_ok ? "Ready. Read-only build." : "Not ready", store_ok && blob_ok ? kWhite : kRed);
+  const bool ready = store_ok && blob_ok;
+  show(!ready ? "Not ready" : kWritesEnabled ? "Ready. Writes are on." : "Ready. Read-only build.",
+       !ready ? kRed : kWritesEnabled ? kYellow : kWhite);
   xTaskCreatePinnedToCore(loader_task, "loader", 12288, nullptr, 2, &task, 1);
 }
 
@@ -352,10 +512,26 @@ void loader_midi(const EspUsbHostMidiMessage &m) {
   xQueueSend(sysex_queue, &out, 0);
 }
 
-void loader_request_backup() {
+void loader_select(int index) {
+  if (busy || !task) return;
+  selected = index;
+  xTaskNotify(task, kSelect, eSetBits);
+}
+
+void loader_pin(int index) {
+  if (busy || !task) return;
+  pin_request = index;
+  xTaskNotify(task, kPin, eSetBits);
+}
+
+void loader_act() {
   if (busy || !store_ok || !blob_ok || !task) return;
+  taskENTER_CRITICAL(&lock);
+  const bool can = shown.can_act;
+  taskEXIT_CRITICAL(&lock);
+  if (!can) return;
   busy = true;
-  xTaskNotifyGive(task);
+  xTaskNotify(task, kAct, eSetBits);
 }
 
 platform::Mode loader_wanted_mode() { return wanted.load(); }
@@ -369,7 +545,6 @@ void loader_ui(UiLoader &out) {
   out = shown;
   taskEXIT_CRITICAL(&lock);
   out.busy = busy;
-  out.can_back_up = store_ok && blob_ok;
 }
 
 #endif  // APP_LOADER

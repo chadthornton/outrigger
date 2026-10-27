@@ -347,6 +347,34 @@ static void test_resume_after_host_restart() {
   host_restart("UBOOT1.00", false);
 }
 
+// The board itself stopped the install (not a crash): it knows its loader is
+// still running in the FM-1, so the retry skips the upload whatever inquiry says.
+static void test_resume_with_loader_running() {
+  Rig r(base_flash(sloop()));
+  InstallOptions o;
+  o.confirmed = true;
+  o.fresh_start_ok = true;
+  r.inst.start_install("skiff-1.4", o);
+  while (r.rom.writes < 200 && r.inst.step()) {
+  }
+  r.rom.loader_product = "UBOOT1.00";  // the unknown case
+  const size_t before = r.rom.log.size();
+  Installer again(r.rom, r.host, r.lib, blob());
+  o.loader_running = true;
+  again.start_resume(o);
+  again.run();
+  CHECK(again.current() == Step::Done);
+  CHECK(memcmp(r.rom.flash.data() + kAppStart, skiff().data(), kAppLen) == 0);
+  for (size_t i = before; i < r.rom.log.size(); ++i) CHECK(r.rom.log[i].compare(0, 4, "fb06") != 0);
+  CHECK(r.rom.violations.empty());
+  // A fresh install ignores the hint: the FM-1 just entered ROM boot.
+  Rig f(base_flash(sloop()));
+  f.inst.start_install("skiff-1.4", o);
+  f.inst.run();
+  CHECK(f.inst.current() == Step::Done);
+  check_golden("install", f, "done");
+}
+
 static void test_resume_refusals() {
   {
     Rig r(base_flash(sloop()));  // never seen: no backup
@@ -547,6 +575,7 @@ int main() {
   test_loader_blob_checked_first();
   test_not_an_fm1();
   test_resume_after_host_restart();
+  test_resume_with_loader_running();
   test_resume_refusals();
   test_disconnect_mid_write();
   test_storage_failures();

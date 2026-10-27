@@ -404,9 +404,11 @@ void setup() {
   static char firmware[24];
   snprintf(firmware, sizeof firmware, "v %07lx%s %s", (unsigned long)FW_VERSION, FW_DIRTY ? "+" : "",
            platform::kAppSetLabel);
-  UiHooks hooks = {save_settings, connect_computer, back_to_host, nullptr};
+  UiHooks hooks = {save_settings, connect_computer, back_to_host, nullptr, nullptr, nullptr};
 #if APP_LOADER
-  hooks.back_up_fm1 = loader_request_backup;
+  hooks.loader_select = loader_select;
+  hooks.loader_pin = loader_pin;
+  hooks.loader_act = loader_act;
 #endif
   ui_begin(kBoard, settings, hooks, firmware);
 
