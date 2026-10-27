@@ -187,6 +187,10 @@ loader kind on every read route, with a Mac-side test like the address guard's.
 
 ## Follow-ups
 
+- **Built, not flashed or verified on the board:** `46669c0` (setup hotspot on the router's channel, join progress on
+  the phone page, credentials saved only after they work, QR code card). Tested only against a Mac mock. The board
+  runs `2f80837`. To verify: flash, "Forget this network" on the page, scan the QR, join, expect the ✓ message.
+
 - **Pairing and tokens are auth (guarded tier):** a high-effort `code-review` round before any of this merges.
 - Remove the open bench routes before anything merges, or put them behind pairing.
 - A QR code on the device for the setup hotspot (`LV_USE_QRCODE`, ~10 KB) so the phone joins by camera.
