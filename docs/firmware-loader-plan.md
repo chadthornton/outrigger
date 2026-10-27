@@ -110,6 +110,30 @@ checkpoint 1 read-only").** Branch `loader-session2`. Nothing is written to the 
 
 The firmware browser and the web install page with laptop backups follow in their own session, after this merges.
 
+**Checkpoint 1: passed, 2026-10-27** (Chad at the board; build `e848423`, read-only). On the recovered unit:
+- **Result:** "Backed up. Nothing written."
+- **Same unit:** unit `69bb070aaa87bd10`, the dump's.
+- **Untouched areas:** the boot head (`d9f43191…`) and the Bluetooth data plus factory voices (`70a8f5be…`) equal
+  the 2026-10-25 dump.
+
+What it answered:
+- **Skiff accepts the ROM-boot key:** it answered the identity query as `FM-1_714`, took the key and entered ROM
+  boot.
+- **EspUsbHost's attach is harmless:** the ROM device took the loader, the IDs and two full 1 MiB reads through
+  `mscRawCommand()`.
+- **`0xFC0C` with argument 1 restarts the FM-1 into its firmware:** the job only reaches "done" once the FM-1 is back
+  as a MIDI device.
+- **Store:** it mounted with the image's geometry, passed the rename-over self-test, and found the blob.
+- **Still unknown:** what inquiry reports once the loader runs, and the loader's USB buffer size. Neither is shown on
+  screen yet; the resume path needs the first.
+
+Found on the way:
+- **A timing bug, fixed:** EspUsbHost reports a device as connected before its interfaces are claimed, so the first
+  attempt sent nothing ("couldn't send to the FM-1"). The loader now waits for MIDI-ready and broker ownership.
+- **Store overhead, a follow-up:** the first backup used about 1.7 MB of the store. A file per 4 KiB sector costs
+  LittleFS a block of metadata as well as its data. Packing sectors into larger files would roughly halve that, and
+  matters for the "about 24 packages" budget.
+
 **Measurement for later:** packages are encrypted with a scramble that depends on flash address, so identical code
 at a shifted address shows up as different bytes. Decrypting before sharing sectors and compressing may save far
 more than the 1.41× measured on the encrypted bytes. Measure it with `tools/catalog_dedupe.py` after decryption is
