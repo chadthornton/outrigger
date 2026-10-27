@@ -131,7 +131,10 @@ So it splits in two.
      - **Locked builds:** the hold stays off ("read-only build").
   3. **Checkpoint 2, no-op:** a build with `FM1_LOADER_WRITES=1` installs Skiff over Skiff. The plan must show
      0 sectors, and nothing is erased.
-  4. **Checkpoint 3, real install:** Skiff → SLOOP → Skiff, with the Transporter wired and ready. This includes the
+  4. **Checkpoint 3, real install:** Skiff → Felucca 1.6.1 → Skiff, with the Transporter wired and ready.
+     - **Why not SLOOP (Chad, 2026-10-27):** SLOOP is Felucca 0.9-based, and Skiff (1.6.1) over 0.9 data is the
+       known brick pattern. SLOOP waits until store dumps (`tools/store_dump.py`) show where it keeps data outside
+       the Felucca table. This includes the
      save states (a Skiff project survives the round trip).
   5. **Then:** `hub-loader` ships with writes on, and the README and site say so. Code-review at high effort.
 - **3b. Web UI app and web install (its own session after 3a):**
