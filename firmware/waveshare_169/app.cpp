@@ -350,6 +350,10 @@ static void build_frame(UiFrame &f) {
 // A claim can't be taken back without re-enumerating, so a mode change restarts
 // the USB host and every device enumerates again under the new mode's rules
 // (docs/architecture.md, "Resource broker"). Runs on loop(), never on a USB task.
+// When the USB host last started: the hub's ports aren't polled for a while
+// after, while devices come and go.
+static uint32_t host_started_ms = 0;
+
 static void restart_host(platform::Mode mode) {
   DLOG_LOOP("host: restarting in %s mode",
             mode == platform::Mode::Load ? "Load" : mode == platform::Mode::Record ? "Record" : "Play");
@@ -367,6 +371,7 @@ static void restart_host(platform::Mode mode) {
   ++changes;
   taskEXIT_CRITICAL(&shared_lock);
   usb.begin();
+  host_started_ms = millis();
 }
 
 #if APP_LOADER
@@ -581,7 +586,15 @@ void loop() {
   }
 #endif
   const uint32_t now = millis();
-  if (now - last_poll > 1000) {
+  // Hub port polls are control transfers on the hub, sent from this task. Not
+  // in Load mode or around a host restart: checkpoint 3 crashed in ESP-IDF
+  // (hcd_urb_dequeue assert) with a poll in flight as the FM-1 left for ROM
+  // boot, and a timed-out poll abandons its transfer still queued.
+  bool poll_ok = now - host_started_ms > 3000 && broker.mode() == platform::Mode::Play;
+#if APP_LOADER
+  poll_ok = poll_ok && loader_wanted_mode() == platform::Mode::Play;
+#endif
+  if (poll_ok && now - last_poll > 1000) {
     last_poll = now;
     CRUMB_LOOP("poll_hub_ports");
     poll_hub_ports();
