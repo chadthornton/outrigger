@@ -219,9 +219,13 @@ class Host : public LoaderHost {
       // It appeared but wasn't claimed (checkpoint 1, second run): the broker
       // may still count the FM-1 that just left. Restart the host once so
       // everything enumerates afresh; the ROM stays in ROM boot until a power cycle.
+      // It never appeared (checkpoint 3, second attempt): the FM-1 left MIDI
+      // and was in ROM boot, but the hub's new device wasn't seen until the
+      // host restarted. ROM boot enumerates within a second or two otherwise.
       const uint8_t a = rom_address.load();
-      if (a && !restarted && millis() - start > 3000) {
-        describe_refusal(a, "restarted host; was");
+      if (!restarted && ((a && millis() - start > 3000) || (!a && millis() - start > 6000))) {
+        if (a) describe_refusal(a, "restarted host; was");
+        else why = "restarted host: no ROM device seen";
         restarted = true;
         show("Re-enumerating...", kYellow);
         restart_requested = true;
