@@ -30,7 +30,7 @@ STORE_OFFSET := 0x3D0000
 FW_VERSION := 0x$(shell git rev-parse --short=7 HEAD)
 FW_DIRTY := $(if $(shell git status --porcelain --untracked-files=no),1,0)
 
-.PHONY: test build build-all flash site serve clean fixtures golden store-image flash-store
+.PHONY: test ui-shots build build-all flash site serve clean fixtures golden store-image flash-store
 
 FM1_SRC := $(wildcard lib/fm1_loader/src/*.cpp)
 FM1_HDR := $(wildcard lib/fm1_loader/src/*.h) $(wildcard tests/support/*.h)
@@ -96,6 +96,31 @@ build/test_broker: tests/test_broker.cpp lib/platform/src/broker.cpp lib/platfor
 build/test_describe: tests/test_describe.cpp lib/platform/src/describe.cpp lib/platform/src/describe.h lib/platform/src/broker.cpp lib/platform/src/broker.h lib/midi_core/src/midi_core.cpp
 	mkdir -p build
 	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -Ilib/platform/src -Ilib/midi_core/src -o $@ tests/test_describe.cpp lib/platform/src/describe.cpp lib/platform/src/broker.cpp lib/midi_core/src/midi_core.cpp
+
+# Renders every host_ui screen with LVGL itself, on the Mac or in CI, writes
+# PNGs and a contact sheet to build/ui-shots/, and fails on layout problems
+# (tests/ui_shots/ui_shots.cpp). It uses the Arduino library's LVGL; CI clones
+# the same pinned tag into build/lvgl and sets LVGL_DIR.
+LVGL_VERSION := 9.6.0
+LVGL_DIR ?= $(HOME)/Documents/Arduino/libraries/lvgl
+ifneq ($(filter ui-shots build/ui_shots,$(MAKECMDGOALS)),)
+ifeq ($(shell grep -qx 'version=$(LVGL_VERSION)' $(LVGL_DIR)/library.properties 2>/dev/null && echo ok),)
+$(error ui-shots needs LVGL $(LVGL_VERSION) in LVGL_DIR=$(LVGL_DIR): git clone --depth 1 --branch v$(LVGL_VERSION) https://github.com/lvgl/lvgl build/lvgl, then add LVGL_DIR=build/lvgl)
+endif
+endif
+LVGL_OBJ := $(patsubst $(LVGL_DIR)/src/%.c,build/lvgl-obj/%.o,$(shell find $(LVGL_DIR)/src -name '*.c' 2>/dev/null))
+UI_FLAGS := -DLV_CONF_INCLUDE_SIMPLE -Ifirmware/config -I$(LVGL_DIR) -I$(LVGL_DIR)/src -Itests/ui_shots/stub
+build/lvgl-obj/%.o: $(LVGL_DIR)/src/%.c firmware/config/lv_conf.h
+	@mkdir -p $(dir $@)
+	@$(CC) -O1 $(UI_FLAGS) -c $< -o $@
+UI_SHOTS_SRC := tests/ui_shots/ui_shots.cpp lib/host_ui/src/host_ui.cpp
+build/ui_shots: $(UI_SHOTS_SRC) $(wildcard tests/ui_shots/*.h tests/ui_shots/stub/*.h lib/host_ui/src/*.h) $(LVGL_OBJ)
+	@echo "$(TEST_CXX) ... -o $@"
+	@$(TEST_CXX) -std=c++17 -O1 -Wall -Wextra -Werror -Wno-deprecated-declarations $(UI_FLAGS) -Ilib/host_ui/src -Ilib/midi_core/src \
+		-o $@ $(UI_SHOTS_SRC) $(LVGL_OBJ) -lz
+ui-shots: build/ui_shots
+	rm -rf build/ui-shots
+	./build/ui_shots build/ui-shots
 
 build:
 	$(if $(filter $(APPS),$(APP_SETS)),,$(error APPS=$(APPS); known: $(APP_SETS)))
