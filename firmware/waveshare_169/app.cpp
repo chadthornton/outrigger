@@ -59,6 +59,7 @@ SET_LOOP_TASK_STACK_SIZE(16 * 1024);
 RTC_NOINIT_ATTR Crumbs crumbs;
 // The last abnormal reset, for the Firmware page (empty after a normal boot).
 char last_crash[3][40] = {};
+char last_tail[kCrumbTail][64] = {};
 
 static void read_crumbs() {
   const esp_reset_reason_t r = esp_reset_reason();
@@ -69,6 +70,10 @@ static void read_crumbs() {
              r == ESP_RST_PANIC ? "crash" : r == ESP_RST_BROWNOUT ? "brownout" : "watchdog");
     snprintf(last_crash[1], sizeof last_crash[1], "loop:%s usb:%s", crumbs.loop, crumbs.usb);
     snprintf(last_crash[2], sizeof last_crash[2], "loader:%s", crumbs.loader);
+    for (int i = 0; i < kCrumbTail; ++i) {
+      const char *line = crumbs.tail[(crumbs.tail_next + i) % kCrumbTail];
+      strlcpy(last_tail[i], line, sizeof last_tail[i]);
+    }
   }
   memset(&crumbs, 0, sizeof crumbs);
   crumbs.magic = kCrumbMagic;
@@ -102,8 +107,15 @@ static platform::Reason refused_why[128];  // per address, under shared_lock
 constexpr int kMaxHubs = 2;
 static volatile uint8_t hub_addresses[kMaxHubs] = {};
 
+// The USB task's crumb names the device too: "conn #2 1209:0001".
+static void crumb_device(const char *what, const EspUsbHostDeviceInfo &d) {
+  char buf[24];
+  snprintf(buf, sizeof buf, "%s #%u %04x:%04x", what, d.address, d.vid, d.pid);
+  CRUMB_USB(buf);
+}
+
 static void on_connected(const EspUsbHostDeviceInfo &d) {
-  CRUMB_USB("connected");
+  crumb_device("conn", d);
   DLOG_USB("connected #%u %04x:%04x %s%s port %02x", d.address, d.vid, d.pid, d.product, d.isHub ? " (hub)" : "",
            d.portId);
   router.device_connected(d.address, d.vid, d.pid);
@@ -144,7 +156,7 @@ static bool claim_filter(uint8_t address, uint8_t interface_number) {
 }
 
 static void on_disconnected(const EspUsbHostDeviceInfo &d) {
-  CRUMB_USB("disconnected");
+  crumb_device("disc", d);
   DLOG_USB("disconnected #%u %04x:%04x", d.address, d.vid, d.pid);
   router.device_disconnected(d.address);
 #if APP_LOADER
@@ -357,7 +369,9 @@ static uint32_t host_started_ms = 0;
 static void restart_host(platform::Mode mode) {
   DLOG_LOOP("host: restarting in %s mode",
             mode == platform::Mode::Load ? "Load" : mode == platform::Mode::Record ? "Record" : "Play");
+  CRUMB_LOOP("usb.end");
   usb.end();
+  CRUMB_LOOP("usb.end done");
   broker.set_mode(mode);
 #if APP_LOADER
   loader_has_fm1_midi = false;
@@ -370,7 +384,9 @@ static void restart_host(platform::Mode mode) {
   fm1_own = fm1_in = {};
   ++changes;
   taskEXIT_CRITICAL(&shared_lock);
+  CRUMB_LOOP("usb.begin");
   usb.begin();
+  CRUMB_LOOP("usb.begin done");
   host_started_ms = millis();
 }
 
@@ -592,7 +608,10 @@ void loop() {
   // boot, and a timed-out poll abandons its transfer still queued.
   bool poll_ok = now - host_started_ms > 3000 && broker.mode() == platform::Mode::Play;
 #if APP_LOADER
-  poll_ok = poll_ok && loader_wanted_mode() == platform::Mode::Play;
+  // Loader builds don't poll at all while checkpoint 3's hcd_urb_dequeue crash
+  // is open: the polls ran in Play mode right up to both crashing holds. Only
+  // the port letters on the chain screen are lost.
+  poll_ok = false;
 #endif
   if (poll_ok && now - last_poll > 1000) {
     last_poll = now;

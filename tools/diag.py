@@ -137,6 +137,10 @@ def main():
         for line in c["lines"]:
             if line:
                 print(f"  {line}")
+        if c.get("tail"):
+            print("last log lines before the reset:")
+            for line in c["tail"]:
+                print(f"  {line}")
         d = c["coredump"]
         print(f"core dump: {str(d['size']) + ' bytes' if d['present'] else 'none'}")
     elif a.what == "store":

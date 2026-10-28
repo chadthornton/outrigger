@@ -8,12 +8,19 @@
 #include <esp_system.h>
 #include <string.h>
 
+// The last log lines (diag_log, web builds) are kept here too, so GET /crash
+// still has them after a panic wipes the log's RAM rings.
+constexpr int kCrumbTail = 12;
 struct Crumbs {
   uint32_t magic;
   char loop[24], loader[24], usb[24];
+  uint32_t tail_next;
+  char tail[kCrumbTail][64];
 };
 extern Crumbs crumbs;
-constexpr uint32_t kCrumbMagic = 0xC0FFEE42;
+constexpr uint32_t kCrumbMagic = 0xC0FFEE43;
+// The tail as it was before the last abnormal reset (oldest first; app.cpp).
+extern char last_tail[kCrumbTail][64];
 
 inline void crumb(char *slot, const char *where) { strncpy(slot, where, 23); slot[23] = 0; }
 #define CRUMB_LOOP(w) crumb(crumbs.loop, w)

@@ -54,6 +54,9 @@ void diag_log(char source, const char *fmt, ...) {
   vsnprintf(text, sizeof text, fmt, args);
   va_end(args);
   const uint32_t now = millis();
+  // Also into RTC memory, which a panic leaves alone (crumbs.h).
+  const uint32_t slot = __atomic_fetch_add(&crumbs.tail_next, 1, __ATOMIC_RELAXED) % kCrumbTail;
+  snprintf(crumbs.tail[slot], sizeof crumbs.tail[slot], "%lu %c %s", (unsigned long)now, source, text);
   switch (source) {
     case 'U': if (usb_ring) usb_ring->push(now, text); break;
     case 'L': if (loader_ring) loader_ring->push(now, text); break;
@@ -475,7 +478,7 @@ static const esp_partition_t *coredump_partition() {
 
 static esp_err_t on_crash(httpd_req_t *req) {
   if (!guard(req)) return ESP_OK;
-  char buf[640];
+  char buf[1600];
   Out o{buf, sizeof buf};
   o.raw("{\"reset_reason\":");
   o.str(reset_name(esp_reset_reason()));
@@ -483,6 +486,14 @@ static esp_err_t on_crash(httpd_req_t *req) {
   for (int i = 0; i < 3; ++i) {
     if (i) o.raw(",");
     o.str(last_crash[i]);
+  }
+  o.raw("],\"tail\":[");
+  bool first = true;
+  for (int i = 0; i < kCrumbTail; ++i) {
+    if (!last_tail[i][0]) continue;
+    if (!first) o.raw(",");
+    first = false;
+    o.str(last_tail[i]);
   }
   size_t addr = 0, size = 0;
   const bool present = esp_core_dump_image_get(&addr, &size) == ESP_OK;

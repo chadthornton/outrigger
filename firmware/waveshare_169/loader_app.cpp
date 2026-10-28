@@ -197,7 +197,9 @@ class Host : public LoaderHost {
       return false;
     }
     UsbMidiLink link;
+    CRUMB_LOADER("sending key");
     key = enter_rom_boot(link, identity);
+    CRUMB_LOADER("key done");
     if (key == KeyResult::SendFailed) why = "identity query not sent";
     return key == KeyResult::Sent;
   }
@@ -228,6 +230,8 @@ class Host : public LoaderHost {
         else why = "restarted host: no ROM device seen";
         restarted = true;
         show("Re-enumerating...", kYellow);
+        CRUMB_LOADER("restart requested");
+        DLOG_LOADER("ROM wait: restarting the host (%s)", why);
         restart_requested = true;
       }
       vTaskDelay(pdMS_TO_TICKS(50));
@@ -451,6 +455,7 @@ void run(Installer &inst) {
   while (inst.step()) {
     if (inst.current() != logged) {
       logged = inst.current();
+      CRUMB_LOADER(step_text(logged));
       DLOG_LOADER("step %d %s, %u of %u sectors", int(logged), step_text(logged), unsigned(inst.sectors_done()),
                   unsigned(inst.sectors_total()));
     }
