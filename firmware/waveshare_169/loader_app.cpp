@@ -296,18 +296,24 @@ bool in_rom_boot = false;
 bool loader_left_running = false;
 
 // An install stopped part-way: the unit record says so (it survives a reboot of
-// this board), and the top row's hold retries it instead of backing up.
+// this board), and the FM-1 isn't back as a MIDI device (a stale record from an
+// install that stopped before writing, say). The top row's hold then retries it
+// instead of backing up.
 bool resume_pending() {
   Unit u;
-  return kWritesEnabled && library->unit(library->last_unit(), u) && u.has_pending;
+  return kWritesEnabled && fm1_midi_address.load() == 0 && library->unit(library->last_unit(), u) &&
+         u.has_pending;
 }
+// What the top row was previewed as: the hold runs that, even if the FM-1 drops
+// off USB while the host restarts in Load mode.
+bool previewed_retry = false;
 
 int selected_index() {
   const int sel = selected.load();
   return sel >= 0 && sel < int(item_ids.size()) ? sel : -1;
 }
 
-constexpr uint32_t kAct = 1, kSelect = 2, kPin = 4;
+constexpr uint32_t kAct = 1, kSelect = 2, kPin = 4, kFm1Changed = 8;
 
 std::string label_of(const PackageInfo &p) {
   std::string name = p.name.empty() ? p.id : p.name;
@@ -369,7 +375,8 @@ void refresh_preview() {
   const int sel = selected_index();
   const bool ready = store_ok && blob_ok;
   previewed_id.clear();
-  if (sel < 0 && resume_pending()) {
+  previewed_retry = sel < 0 && resume_pending();
+  if (previewed_retry) {
     set_preview("An install stopped part-way.", "The FM-1 must still be in ROM boot.", "Hold: retry the install",
                 ready && kWritesEnabled);
     return;
@@ -456,7 +463,7 @@ void run_job() {
   o.confirmed = true;  // the 2-second hold on the Firmware page
   o.rom_timeout_ms = kRomWaitMs;
   const int sel = selected_index();
-  const bool resume = sel < 0 && resume_pending();
+  const bool resume = sel < 0 && previewed_retry;
   DLOG_LOADER("job start: %s", resume ? "resume" : sel < 0 ? "backup" : item_ids[sel].c_str());
   if (resume) {
     // The FM-1 is still in ROM boot with an incomplete app: no key, straight to it.
@@ -544,7 +551,7 @@ void loader_task(void *) {
         publish_store();
       }
     }
-    if (bits & (kSelect | kPin)) refresh_preview();
+    if (bits & (kSelect | kPin | kFm1Changed)) refresh_preview();
     if (!(bits & kAct)) continue;
     busy = true;
     for (int i = 1; i < kLoaderLines; ++i) show_line(i, i == 1 ? blob_line : "");
@@ -622,6 +629,7 @@ void loader_device_connected(const EspUsbHostDeviceInfo &d) {
   desc.pid = d.pid;
   if (platform::classify(desc) == platform::Kind::Fm1RomBoot) rom_address = d.address;
   else if (midi_core::device_role(d.vid, d.pid) == midi_core::Role::Target) fm1_midi_address = d.address;
+  if (task) xTaskNotify(task, kFm1Changed, eSetBits);  // the top row may change (resume_pending)
 }
 
 void loader_device_disconnected(const EspUsbHostDeviceInfo &d) {
@@ -629,6 +637,7 @@ void loader_device_disconnected(const EspUsbHostDeviceInfo &d) {
   rom_address.compare_exchange_strong(a, 0);
   a = d.address;
   fm1_midi_address.compare_exchange_strong(a, 0);
+  if (task) xTaskNotify(task, kFm1Changed, eSetBits);
 }
 
 void loader_midi(const EspUsbHostMidiMessage &m) {
