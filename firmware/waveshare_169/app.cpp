@@ -570,7 +570,14 @@ void setup() {
 #if APP_LOADER
   loader_begin(usb, {loader_owns_fm1_midi, device_refusal});
   broker.set_mode(loader_boot_mode());  // a job's boot runs in Load mode from the start
-  if (loader_boot_mode() == platform::Mode::Load) ui_show_firmware();
+  if (loader_boot_mode() == platform::Mode::Load) {
+    ui_show_firmware();
+    // EspUsbHost's hub tracking opens and closes every unknown device every
+    // 500 ms on the client task. In a job's boot that races the FM-1 leaving
+    // for ROM boot and the ROM device arriving: the suspect for checkpoint 3's
+    // hcd_urb_dequeue assert and missed ROM devices. A job doesn't need it.
+    usb.setHubTrackingEnabled(false);
+  }
 #endif
   usb.begin();
   host_running = true;
