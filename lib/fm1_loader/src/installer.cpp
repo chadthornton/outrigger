@@ -45,6 +45,9 @@ const char *failure_text(Failure f) {
     case Failure::IdentityMismatch: return "chip key or flash ID isn't an FM-1's";
     case Failure::DeviceLost: return "the FM-1 stopped answering";
     case Failure::BackupMismatch: return "the two backup reads differ";
+    case Failure::NoBackupForInstall: return "back up this FM-1 first";
+    case Failure::BackupStale: return "the FM-1 changed since its backup: back up again";
+    case Failure::LoaderTooSlow: return "the FM-1 was too slow to read: nothing written";
     case Failure::BlankUnitSector: return "the unit's Bluetooth sector is blank";
     case Failure::StorageFailed: return "the Waveshare's storage failed";
     case Failure::PackageMissing: return "package missing or damaged in the library";
@@ -71,6 +74,10 @@ void Installer::reset_state(const InstallOptions &opts) {
   step_ = Step::Idle;
   failure_ = Failure::None;
   danger_ = false;
+  in_rom_ = false;
+  erased_ = false;
+  pending_set_ = false;
+  loader_ms_ = 0;
   chunk_ = 512;
   index_ = 0;
   pass_ = 1;
@@ -101,6 +108,8 @@ void Installer::start_resume(const InstallOptions &opts) {
   if (!kWritesEnabled) return fail(Failure::WritesLocked);
   resume_ = true;
   danger_ = true;  // the app area may be half-written: never leave ROM boot on a failure
+  in_rom_ = true;
+  erased_ = true;  // an earlier run may have erased: the pending record stays
   step_ = Step::Identify;
 }
 
@@ -111,8 +120,18 @@ void Installer::run() {
 
 void Installer::fail(Failure f, bool reset_device) {
   failure_ = f;
+  if (!erased_) {
+    // Nothing reached the FM-1's flash: it's as it was, and so is its record.
+    danger_ = false;
+    if (pending_set_) {
+      unit_.has_pending = false;
+      unit_.pending = PendingInstall();
+      lib_.put_unit(unit_);
+      pending_set_ = false;
+    }
+  }
   // Only an FM-1 whose app area is untouched goes back to its firmware.
-  if (reset_device && !resume_ && !danger_) rom_.run_app(kResetArg);
+  if (reset_device && in_rom_ && !resume_ && !danger_) rom_.run_app(kResetArg);
   step_ = Step::Failed;
 }
 
@@ -136,6 +155,13 @@ bool Installer::step() {
       if (!lib_.package(package_id_, p)) return fail(Failure::PackageMissing), false;
       for (const Hash &h : p.app)
         if (!lib_.sectors().has(h)) return fail(Failure::PackageMissing), false;
+      if (!prepare_install()) return false;
+      if (total_ == 0) {  // already installed: no ROM boot needed
+        unit_.installed_package = package_id_;
+        lib_.put_unit(unit_);
+        step_ = Step::Done;
+        return false;
+      }
       step_ = Step::SendKey;
       break;
     }
@@ -145,6 +171,7 @@ bool Installer::step() {
       break;
     case Step::WaitRom:
       if (!host_.wait_for_rom_device(opts_.rom_timeout_ms)) return fail(Failure::NoRomDevice), false;
+      in_rom_ = true;
       step_ = Step::Identify;
       break;
     case Step::Identify: do_identify(); break;
@@ -152,6 +179,7 @@ bool Installer::step() {
     case Step::ReadIds: do_read_ids(); break;
     case Step::Backup: do_backup(); break;
     case Step::ResumeRead: do_resume_read(); break;
+    case Step::Check: do_check(); break;
     case Step::Plan: do_plan(); break;
     case Step::WriteApp: do_write(app_ops_, Step::WriteData); break;
     case Step::WriteData: do_write(data_ops_, Step::Reset); break;
@@ -191,6 +219,7 @@ void Installer::do_identify() {
   uint8_t type;
   uint32_t id;
   if (!rom_.online_device(type, id)) return fail(Failure::NoLoader);
+  loader_ms_ = host_.now_ms();  // running already: from now, at the latest
   step_ = Step::ReadIds;
 }
 
@@ -206,6 +235,7 @@ void Installer::do_upload() {
       return fail(Failure::LoaderFailed);
   }
   if (!rom_.mem_jump(kLoaderAddr, kLoaderArg)) return fail(Failure::LoaderFailed);
+  loader_ms_ = host_.now_ms();
   step_ = Step::ReadIds;
 }
 
@@ -223,8 +253,17 @@ void Installer::do_read_ids() {
   if (key != kChipKey || id != kFlashId) return fail(Failure::IdentityMismatch, true);
   index_ = 0;
   pass_ = 1;
-  flash_.assign(kSectors, Hash{});
-  step_ = resume_ ? Step::ResumeRead : Step::Backup;
+  if (resume_) {
+    flash_.assign(kSectors, Hash{});
+    step_ = Step::ResumeRead;
+  } else if (backup_only_) {
+    flash_.assign(kSectors, Hash{});
+    step_ = Step::Backup;
+  } else {
+    done_ = 0;
+    total_ = kSectors;
+    step_ = Step::Check;  // flash_ holds the backup the install planned from
+  }
 }
 
 bool Installer::read_sector(uint32_t addr, uint8_t *out) {
@@ -264,8 +303,13 @@ void Installer::do_backup() {
     unit_.name = opts_.unit_name;
   }
   if (!lib_.add_backup(unit_, flash_, backup_id_)) return fail(Failure::StorageFailed, true);
-  // Autosave the running firmware's data: the rollback point and the state to
-  // come back to.
+  if (!autosave()) return;
+  step_ = Step::Reset;
+}
+
+// Autosave the running firmware's data (from flash_): the rollback point and the
+// state to come back to. Not repeated when nothing changed.
+bool Installer::autosave() {
   std::vector<Hash> app(flash_.begin() + kAppStart / kSector, flash_.begin() + kAppEnd / kSector);
   current_ = lib_.identify_app(app);
   if (current_.known() && family_info(current_.family).saves_enabled) {
@@ -273,9 +317,57 @@ void Installer::do_backup() {
     std::vector<SaveState> saves = lib_.saves_of(unit_.id);
     bool same = !saves.empty() && saves.back().identity == s.identity &&
                 saves.back().app_sha256 == s.app_sha256 && saves.back().sectors == s.sectors;
-    if (!same && !lib_.add_save(unit_, s)) return fail(Failure::StorageFailed, true);
+    if (!same && !lib_.add_save(unit_, s)) return fail(Failure::StorageFailed, true), false;
   }
-  step_ = backup_only_ ? Step::Reset : Step::Plan;
+  return true;
+}
+
+// Before the key: the unit's latest stored backup is what the install plans
+// from (the preview showed the same), the autosave comes from it, and the
+// pending install is durable before the FM-1 leaves its firmware.
+bool Installer::prepare_install() {
+  const std::string id = opts_.unit_id.empty() ? lib_.last_unit() : opts_.unit_id;
+  if (id.empty() || !lib_.unit(id, unit_) || !lib_.backup(unit_.latest_backup, flash_) ||
+      flash_.size() != kSectors)
+    return fail(Failure::NoBackupForInstall), false;
+  if (!autosave() || !plan_ops()) return false;
+  if (total_ == 0) return true;
+  unit_.has_pending = true;
+  unit_.pending.package_id = package_id_;
+  unit_.pending.action = decision_.action;
+  unit_.pending.save_id = decision_.save_id;
+  unit_.pending.before_backup = unit_.latest_backup;
+  if (!lib_.put_unit(unit_)) return fail(Failure::StorageFailed), false;
+  pending_set_ = true;
+  return true;
+}
+
+// Install: one read of the flash, which must equal the backup it planned from;
+// then the writes, unless the loader has already run too long.
+void Installer::do_check() {
+  std::vector<uint8_t> buf(kSector);
+  const uint32_t addr = index_ * kSector;
+  if (!read_sector(addr, buf.data())) {
+    detail_ = where("check read at", addr);
+    return fail(Failure::DeviceLost, true);
+  }
+  if (sha256(buf.data(), buf.size()) != flash_[index_]) {
+    detail_ = where("differs from its backup at", addr);
+    return fail(Failure::BackupStale, true);
+  }
+  done_ = index_ + 1;
+  if (++index_ < kSectors) return;
+  index_ = 0;
+  const uint32_t ran = host_.now_ms() - loader_ms_;
+  if (ran > kLoaderBudgetMs) {
+    char buf2[48];
+    snprintf(buf2, sizeof buf2, "loader ran %u ms before the first erase", unsigned(ran));
+    detail_ = buf2;
+    return fail(Failure::LoaderTooSlow, true);
+  }
+  done_ = 0;
+  total_ = uint32_t(app_ops_.size() + data_ops_.size());
+  step_ = Step::WriteApp;
 }
 
 // Resume: which unit, its stored backup and unfinished install, then one read of
@@ -314,11 +406,11 @@ bool Installer::check_ops(const std::vector<SectorOp> &ops) {
   return true;
 }
 
-void Installer::do_plan() {
+bool Installer::plan_ops() {
   PackageInfo target;
-  if (!lib_.package(package_id_, target)) return fail(Failure::PackageMissing, true);
+  if (!lib_.package(package_id_, target)) return fail(Failure::PackageMissing, true), false;
   for (const Hash &h : target.app)
-    if (!lib_.sectors().has(h)) return fail(Failure::PackageMissing, true);
+    if (!lib_.sectors().has(h)) return fail(Failure::PackageMissing, true), false;
   if (resume_) {
     decision_ = DataDecision();
     decision_.action = unit_.pending.action;
@@ -326,45 +418,37 @@ void Installer::do_plan() {
   } else {
     decision_ = decide_data(unit_.id, current_, target, lib_.saves_of(unit_.id));
     if (decision_.action == DataAction::FreshStart && !opts_.fresh_start_ok)
-      return fail(Failure::NeedsFreshStartOk, true);
+      return fail(Failure::NeedsFreshStartOk, true), false;
     // Safety rule 6: a family change that keeps the old data needs the user's OK too.
     if (decision_.action == DataAction::Keep && decision_.layout_warning && !opts_.layout_change_ok)
-      return fail(Failure::NeedsLayoutChangeOk, true);
+      return fail(Failure::NeedsLayoutChangeOk, true), false;
   }
   app_ops_ = plan_app(flash_, target);
   data_ops_.clear();
   if (decision_.action == DataAction::Restore) {
     SaveState s;
     if (!lib_.save(decision_.save_id, s) || !plan_restore(s, unit_.id, target, flash_, data_ops_))
-      return fail(Failure::RestoreRefused, true);
+      return fail(Failure::RestoreRefused, true), false;
   } else if (decision_.action == DataAction::FreshStart) {
     data_ops_ = plan_fresh(target.family, flash_);
   }
-  if (!check_ops(app_ops_) || !check_ops(data_ops_)) return fail(Failure::GuardRefused, true);
+  if (!check_ops(app_ops_) || !check_ops(data_ops_)) return fail(Failure::GuardRefused, true), false;
   for (const SectorOp &op : data_ops_)
-    if (!lib_.sectors().has(op.want)) return fail(Failure::RestoreRefused, true);
+    if (!lib_.sectors().has(op.want)) return fail(Failure::RestoreRefused, true), false;
   done_ = 0;
   total_ = uint32_t(app_ops_.size() + data_ops_.size());
   index_ = 0;
-  if (total_ == 0) {  // already installed: nothing to write
+  return true;
+}
+
+// Resume: after the read of the flash as it is now.
+void Installer::do_plan() {
+  if (!plan_ops()) return;
+  if (total_ == 0) {  // the host died after the last verified sector
     danger_ = false;
-    if (!resume_) {
-      unit_.installed_package = package_id_;
-      lib_.put_unit(unit_);
-    } else {
-      finish_record();
-    }
+    finish_record();
     step_ = Step::Reset;
     return;
-  }
-  // Durable before the first erase, so a resume knows what to finish.
-  if (!resume_) {
-    unit_.has_pending = true;
-    unit_.pending.package_id = package_id_;
-    unit_.pending.action = decision_.action;
-    unit_.pending.save_id = decision_.save_id;
-    unit_.pending.before_backup = unit_.latest_backup;
-    if (!lib_.put_unit(unit_)) return fail(Failure::StorageFailed, true);
   }
   step_ = Step::WriteApp;
 }
@@ -379,7 +463,10 @@ bool Installer::write_sector(const SectorOp &op) {
              unsigned(total_));
     if (!guard(op.addr, kSector, op.right, op.family)) return fail(Failure::GuardRefused), false;
     if (op.right == Right::App) danger_ = true;
-    if (!rom_.erase_sector(op.addr)) {
+    const bool erased = rom_.erase_sector(op.addr);
+    // A failed erase may still have erased, unless it never reached the FM-1.
+    if (erased || rom_.reached_device()) erased_ = true;
+    if (!erased) {
       detail_ = where("erase", op.addr, progress);
       return fail(Failure::DeviceLost), false;
     }

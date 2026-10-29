@@ -39,8 +39,12 @@ bool MockRom::execute(const uint8_t *cdb, size_t cdb_len, Dir dir, uint8_t *data
   else
     line += " N0 -";
   ++commands;
-  bool ok = !(disconnect_after >= 0 && commands > disconnect_after) &&
-            handle(cdb, cdb_len, dir, data, len);
+  if (gone_at_first_erase && cdb[0] == (kEraseSector >> 8) && cdb[1] == (kEraseSector & 0xFF) &&
+      disconnect_after < 0)
+    disconnect_after = commands - 1;
+  const bool gone = (disconnect_after >= 0 && commands > disconnect_after) || was_reset;
+  reached_ = !gone;
+  bool ok = !gone && handle(cdb, cdb_len, dir, data, len);
   log.push_back(ok ? line : line + " !");
   return ok;
 }
@@ -88,6 +92,7 @@ bool MockRom::handle(const uint8_t *cdb, size_t cdb_len, Dir dir, uint8_t *data,
       }
       jump_arg = ln;
       loader_running = true;
+      reads_at_jump_ = reads;
       resp(data, len, cmd);
       return true;
     }
@@ -147,6 +152,7 @@ bool MockRom::handle(const uint8_t *cdb, size_t cdb_len, Dir dir, uint8_t *data,
         return false;
       }
       touched(addr);
+      if (reads_before_first_erase < 0) reads_before_first_erase = reads - reads_at_jump_;
       memset(flash.data() + addr, 0xFF, kSector);
       resp(data, len, cmd);
       return true;
