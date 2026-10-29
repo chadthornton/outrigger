@@ -52,6 +52,9 @@ static Preferences prefs;
 #define FW_DIRTY 0    // 1 when built with uncommitted changes
 #endif
 static bool host_running = false;
+#if APP_LOADER && LOADER_SOAK
+static uint32_t soak_restart_at = 0;  // safe mode in a soak build: carry on after this
+#endif
 // LVGL redraws recurse through nested objects; with the USB host up and the
 // Firmware page built, 8 KB wasn't enough (checkpoint 2 core dump: loopTask
 // stack overflow inside lv_obj_redraw). 16 KB leaves room.
@@ -529,6 +532,10 @@ void setup() {
 #if APP_WEB_UI
     web_begin(true);  // so /crash and /coredump can be read without the screen
 #endif
+#if APP_LOADER && LOADER_SOAK
+    loader_soak_crashed();
+    soak_restart_at = millis() + 90000;  // time for the Mac to fetch /crash and /coredump
+#endif
     return;
   }
   if (mode == midi_core::BootMode::Computer) {
@@ -583,6 +590,9 @@ void loop() {
   }
 #endif
   if (!host_running) {  // computer mode: only the UI runs
+#if APP_LOADER && LOADER_SOAK
+    if (soak_restart_at && int32_t(millis() - soak_restart_at) > 0) esp_restart();
+#endif
 #if APP_LOADER && LOADER_DIAG
     static uint32_t last_diag = 0;
     if (millis() - last_diag > 500) {

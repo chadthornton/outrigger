@@ -54,6 +54,19 @@ struct JobBoot {
 constexpr uint32_t kJobMagic = 0x10B5EED1;
 RTC_NOINIT_ATTR JobBoot job_boot;
 
+#if LOADER_SOAK
+// Soak builds back up the FM-1 by themselves, job after job, to make the USB
+// host crash on the FM-1's disconnect after the key happen often enough to study.
+// Backups write nothing; each one sends the FM-1 back to its firmware.
+struct Soak {
+  uint32_t magic;
+  uint32_t runs, ok, failed, crashes, failed_in_row;
+};
+constexpr uint32_t kSoakMagic = 0x50A4C0DE;
+constexpr uint32_t kSoakRuns = 50;
+RTC_NOINIT_ATTR Soak soak;
+#endif
+
 namespace {
 
 constexpr const char *kStoreMount = "/store";
@@ -594,6 +607,21 @@ void run_job() {
     finish(inst, host, scsi, buf);
   }
   log_heap("job end");
+#if LOADER_SOAK
+  if (!(inst.failure() == Failure::NoRomDevice && host.wants_reboot)) {
+    ++soak.runs;
+    if (inst.current() == Step::Done) {
+      ++soak.ok;
+      soak.failed_in_row = 0;
+    } else {
+      ++soak.failed;
+      ++soak.failed_in_row;
+    }
+    DLOG_LOADER("soak run %u: %s (ok %u, failed %u, crashes %u)", unsigned(soak.runs),
+                inst.current() == Step::Done ? "ok" : failure_text(inst.failure()), unsigned(soak.ok),
+                unsigned(soak.failed), unsigned(soak.crashes));
+  }
+#endif
   if (inst.failure() == Failure::NoRomDevice && host.wants_reboot) {
     JobBoot again = j;
     again.attempt = 2;
@@ -659,6 +687,29 @@ void loader_task(void *) {
     publish_store();
     busy = false;
   }
+#if LOADER_SOAK
+  if (soak.magic != kSoakMagic) soak = {kSoakMagic, 0, 0, 0, 0, 0};
+  if (store_ok && blob_ok && boot_mode == platform::Mode::Play) {
+    // The next backup, once the FM-1 is back (as MIDI, or still in ROM boot
+    // after a crash: then the key is skipped and the job resets it home).
+    wait_until(20000, [] { return fm1_midi_address.load() != 0 || rom_address.load() != 0; });
+    vTaskDelay(pdMS_TO_TICKS(3000));
+    const bool in_rom = rom_address.load() != 0;
+    if (soak.runs >= kSoakRuns || soak.failed_in_row >= 5) {
+      DLOG_LOADER("soak finished: %u runs, ok %u, failed %u, crashes %u", unsigned(soak.runs), unsigned(soak.ok),
+                  unsigned(soak.failed), unsigned(soak.crashes));
+      show("Soak finished", kGreen);
+    } else if (fm1_midi_address.load() || in_rom) {
+      JobBoot j = {};
+      j.kind = JobKind::Backup;
+      j.attempt = 1;
+      j.key_sent = in_rom;
+      restart_for(j, in_rom ? "soak, FM-1 in ROM boot" : "soak");
+    } else {
+      show("Soak paused: no FM-1", kRed);
+    }
+  }
+#endif
   for (;;) {
     uint32_t bits = 0;
     CRUMB_LOADER("idle");
@@ -797,6 +848,12 @@ void loader_act() {
 }
 
 platform::Mode loader_boot_mode() { return boot_mode; }
+
+#if LOADER_SOAK
+void loader_soak_crashed() {
+  if (soak.magic == kSoakMagic) ++soak.crashes;
+}
+#endif
 
 void loader_ui(UiLoader &out) {
   taskENTER_CRITICAL(&lock);

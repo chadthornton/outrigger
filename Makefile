@@ -17,6 +17,9 @@ APP_FLAGS_everything := -DAPP_LOADER=1 -DAPP_RECORDER=1 -DAPP_WEB_UI=1
 # Off by default: on only for hardware checkpoints 2 and 3 until they pass.
 WRITES ?= 0
 WRITE_FLAGS := $(if $(filter 1,$(WRITES)),-DFM1_LOADER_WRITES=1) $(if $(filter 1,$(DIAG)),-DLOADER_DIAG=1)
+# SOAK=1 (with DIAG_WEB=1): the board backs up the FM-1 by itself, over and over,
+# for hunting USB host crashes unattended (loader_app.cpp, LOADER_SOAK). Never a release.
+WRITE_FLAGS += $(if $(filter 1,$(SOAK)),-DLOADER_SOAK=1)
 APP_LIBS_hub :=
 APP_LIBS_hub-loader := --library lib/fm1_loader
 APP_LIBS_everything := --library lib/fm1_loader --library lib/web_core
@@ -29,6 +32,9 @@ APP_FLAGS_$(APPS) += -DAPP_WEB_UI=1
 APP_LIBS_$(APPS) += --library lib/web_core
 BUILD_SUFFIX := -web
 endif
+endif
+ifeq ($(SOAK),1)
+BUILD_SUFFIX := $(BUILD_SUFFIX)-soak
 endif
 SKETCH := firmware/$(BOARD)
 BUILD := build/$(BOARD)/$(APPS)$(BUILD_SUFFIX)
