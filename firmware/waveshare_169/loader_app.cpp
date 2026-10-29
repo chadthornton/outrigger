@@ -693,7 +693,9 @@ void loader_task(void *) {
     // The next backup, once the FM-1 is back (as MIDI, or still in ROM boot
     // after a crash: then the key is skipped and the job resets it home).
     wait_until(20000, [] { return fm1_midi_address.load() != 0 || rom_address.load() != 0; });
-    vTaskDelay(pdMS_TO_TICKS(3000));
+    // 45 s in Play: long enough for the Mac (tools/soak_watch.py) to read the log
+    // tail over Wi-Fi, whose first answer after a boot can take 20 s.
+    vTaskDelay(pdMS_TO_TICKS(45000));
     const bool in_rom = rom_address.load() != 0;
     if (soak.runs >= kSoakRuns || soak.failed_in_row >= 5) {
       DLOG_LOADER("soak finished: %u runs, ok %u, failed %u, crashes %u", unsigned(soak.runs), unsigned(soak.ok),
