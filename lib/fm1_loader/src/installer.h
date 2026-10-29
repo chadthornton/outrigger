@@ -91,6 +91,9 @@ struct InstallOptions {
   // stopped the install itself and didn't reset). The resume asks the loader
   // first and skips the upload when it answers.
   bool loader_running = false;
+  // The key went out before the board restarted (no ROM device showed up): the
+  // job runs again from waiting for ROM boot, without a second key.
+  bool key_sent = false;
   uint32_t rom_timeout_ms = 10000;
   uint32_t midi_timeout_ms = 15000;
 };

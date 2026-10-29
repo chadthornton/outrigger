@@ -36,11 +36,8 @@ void loader_midi(const EspUsbHostMidiMessage &m);  // messages from the FM-1
 void loader_select(int index);
 void loader_pin(int index);
 void loader_act();
-// The mode the USB host should run in now: Load while a job needs the FM-1,
-// Play otherwise. loop() restarts the host when it differs, then reports back.
-platform::Mode loader_wanted_mode();
-// True once when the loader asks for the host to restart in the same mode, so
-// every device enumerates afresh (a ROM-boot FM-1 the broker turned away).
-bool loader_wants_restart();
-void loader_mode_changed(platform::Mode mode);
+// The mode this boot's USB host runs in, fixed until the next restart: Load
+// when loader_begin() found a job recorded before the restart, Play otherwise.
+// A job is its own boot (loader_app.cpp, JobBoot): the host never restarts in place.
+platform::Mode loader_boot_mode();
 void loader_ui(UiLoader &out);

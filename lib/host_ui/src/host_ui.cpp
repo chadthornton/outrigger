@@ -647,6 +647,10 @@ bool ui_begin(const BoardProfile &b, const UiSettings &s, const UiHooks &h, cons
 
 void ui_show_computer_mode(const char *info) { lv_screen_load(build_computer_screen(info)); }
 
+void ui_show_firmware() {
+  if (firmware_screen) lv_screen_load(firmware_screen);
+}
+
 void ui_set_network(const char *line) {
   if (strcmp(line, network_text) == 0) return;
   strlcpy(network_text, line, sizeof network_text);

@@ -148,7 +148,7 @@ bool Installer::step() {
       if (hex(sha256(blob_.data(), blob_.size())) != kLoaderSha256)
         return fail(Failure::LoaderBlobBad), false;
       if (backup_only_) {
-        step_ = Step::SendKey;
+        step_ = opts_.key_sent ? Step::WaitRom : Step::SendKey;
         break;
       }
       if (!kWritesEnabled) return fail(Failure::WritesLocked), false;
@@ -162,7 +162,7 @@ bool Installer::step() {
         step_ = Step::Done;
         return false;
       }
-      step_ = Step::SendKey;
+      step_ = opts_.key_sent ? Step::WaitRom : Step::SendKey;
       break;
     }
     case Step::SendKey:

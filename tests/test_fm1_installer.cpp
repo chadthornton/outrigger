@@ -279,6 +279,26 @@ static void test_stop_before_any_erase_leaves_nothing() {
   // Once an erase may have happened, the record stays: test_disconnect_mid_write.
 }
 
+// The board restarted after the key because no ROM device showed up: the job
+// runs again without a second key, straight to waiting for ROM boot.
+static void test_key_already_sent() {
+  Rig r(base_flash(sloop()));
+  r.back_up();
+  InstallOptions o;
+  o.confirmed = true;
+  o.fresh_start_ok = true;
+  o.key_sent = true;
+  r.inst.start_install("skiff-1.4", o);
+  r.inst.run();
+  CHECK(r.inst.current() == Step::Done);
+  CHECK_EQ(r.host.keys, 0);
+  r.fresh_rom();
+  r.inst.start_backup(o);
+  r.inst.run();
+  CHECK(r.inst.current() == Step::Done);
+  CHECK_EQ(r.host.keys, 0);
+}
+
 // No backup of this FM-1 yet: nothing to plan from, so no key either.
 static void test_install_needs_a_backup() {
   Rig r(base_flash(sloop()));
@@ -755,6 +775,7 @@ int main() {
   test_first_erase_soon_after_the_loader();
   test_stop_before_any_erase_leaves_nothing();
   test_install_needs_a_backup();
+  test_key_already_sent();
   test_golden_resume();
   test_golden_backup();
   test_refusals_before_the_device();

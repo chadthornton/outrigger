@@ -70,6 +70,10 @@ static void read_crumbs() {
              r == ESP_RST_PANIC ? "crash" : r == ESP_RST_BROWNOUT ? "brownout" : "watchdog");
     snprintf(last_crash[1], sizeof last_crash[1], "loop:%s usb:%s", crumbs.loop, crumbs.usb);
     snprintf(last_crash[2], sizeof last_crash[2], "loader:%s", crumbs.loader);
+  }
+  // The log's last lines from before any reset (RST and esp_restart included,
+  // not a power-on): GET /crash shows them.
+  if (crumbs.magic == kCrumbMagic) {
     for (int i = 0; i < kCrumbTail; ++i) {
       const char *line = crumbs.tail[(crumbs.tail_next + i) % kCrumbTail];
       strlcpy(last_tail[i], line, sizeof last_tail[i]);
@@ -562,6 +566,8 @@ void setup() {
 #endif
 #if APP_LOADER
   loader_begin(usb, {loader_owns_fm1_midi, device_refusal});
+  broker.set_mode(loader_boot_mode());  // a job's boot runs in Load mode from the start
+  if (loader_boot_mode() == platform::Mode::Load) ui_show_firmware();
 #endif
   usb.begin();
   host_running = true;
@@ -594,13 +600,6 @@ void loop() {
     delay(5);
     return;
   }
-#if APP_LOADER
-  if (loader_wanted_mode() != broker.mode() || loader_wants_restart()) {
-    CRUMB_LOOP("restart_host");
-    restart_host(loader_wanted_mode());
-    loader_mode_changed(broker.mode());
-  }
-#endif
   const uint32_t now = millis();
   // Hub port polls are control transfers on the hub, sent from this task. Not
   // in Load mode or around a host restart: checkpoint 3 crashed in ESP-IDF

@@ -76,6 +76,8 @@ bool ui_begin(const BoardProfile &board, const UiSettings &settings, const UiHoo
 // Shows the computer-mode screen instead of the chain (USB host not running).
 // info: the running firmware's commit, so an update can be confirmed.
 void ui_show_computer_mode(const char *info);
+// Opens the Firmware page (a loader job's boot shows its progress there).
+void ui_show_firmware();
 // Refreshes the chain screen; cheap when nothing changed.
 void ui_update(const UiFrame &frame);
 // Refreshes the Firmware page; cheap when nothing changed.

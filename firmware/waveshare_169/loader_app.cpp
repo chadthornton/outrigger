@@ -7,7 +7,9 @@
 
 #include <Arduino.h>
 #include <LittleFS.h>
+#include <esp_attr.h>
 #include <esp_heap_caps.h>
+#include <esp_system.h>
 #include <freertos/queue.h>
 
 #include <algorithm>
@@ -31,6 +33,27 @@ extern char last_crash[3][40];  // app.cpp: the last abnormal reset, if any
 #define DIAG(...) do {} while (0)
 #endif
 
+// A job runs in a boot of its own. The hold records it here (RTC memory, kept
+// across esp_restart) and restarts the chip; the next boot starts the USB host
+// straight in Load mode and runs it, then restarts into Play. The host is never
+// restarted in place: in checkpoint 3 every USB failure (an ESP-IDF assert,
+// devices that never enumerated, Wi-Fi gone) came after usb.end()/begin(), and
+// the first job after a fresh boot always worked.
+enum class JobKind : uint8_t { None, Backup, Install, Resume };
+struct JobBoot {
+  uint32_t magic;
+  JobKind kind;
+  uint8_t attempt;  // 2: the board restarted after the key because no ROM device showed up
+  bool key_sent, fresh_ok, layout_ok, loader_running;
+  char package[48], unit[40];
+  // The job's result, for the Firmware page after the boot back to Play.
+  bool has_result;
+  uint32_t result_colour;
+  char result_title[40], result_lines[kLoaderLines][40];
+};
+constexpr uint32_t kJobMagic = 0x10B5EED1;
+RTC_NOINIT_ATTR JobBoot job_boot;
+
 namespace {
 
 constexpr const char *kStoreMount = "/store";
@@ -47,7 +70,7 @@ constexpr const char *kDumpFactory = "70a8f5bea5097f4a0046682cdb5bf2e4ad6962901b
 
 EspUsbHost *usb = nullptr;
 LoaderCore core = {};
-std::atomic<bool> restart_requested{false};
+JobBoot active_job = {};  // the job this boot runs (kind None: a Play boot)
 
 // Devices, written on the USB client task.
 std::atomic<uint8_t> fm1_midi_address{0};
@@ -64,8 +87,7 @@ SysexAssembler assembler;  // USB client task only
 // What loop() shows, under lock.
 portMUX_TYPE lock = portMUX_INITIALIZER_UNLOCKED;
 UiLoader shown = {};
-std::atomic<platform::Mode> wanted{platform::Mode::Play};
-std::atomic<platform::Mode> running{platform::Mode::Play};
+platform::Mode boot_mode = platform::Mode::Play;  // fixed for the whole boot
 std::atomic<bool> busy{false};
 TaskHandle_t task = nullptr;
 
@@ -169,6 +191,8 @@ class UsbMidiLink : public MidiLink {
 
 class Host : public LoaderHost {
  public:
+  bool reboot_on_miss = false;  // first attempt: a ROM device that doesn't show up restarts the board
+  bool wants_reboot = false;
   std::string identity;
   KeyResult key = KeyResult::NoAnswer;
   const char *why = "";  // which check stopped the key, for the screen
@@ -214,7 +238,6 @@ class Host : public LoaderHost {
       return a != 0 && usb->mscReady(a);
     };
     const uint32_t start = millis();
-    bool restarted = false;
     while (!ready()) {
       if (millis() - start > timeout_ms) {
         const uint8_t a = rom_address.load();
@@ -222,21 +245,18 @@ class Host : public LoaderHost {
         else describe_refusal(a, "ROM device unusable");
         return false;
       }
-      // It appeared but wasn't claimed (checkpoint 1, second run): the broker
-      // may still count the FM-1 that just left. Restart the host once so
-      // everything enumerates afresh; the ROM stays in ROM boot until a power cycle.
-      // It never appeared (checkpoint 3, second attempt): the FM-1 left MIDI
-      // and was in ROM boot, but the hub's new device wasn't seen until the
-      // host restarted. ROM boot enumerates within a second or two otherwise.
+      // It appeared but wasn't claimed (checkpoint 1, second run), or never
+      // appeared (checkpoint 3): it was found the moment everything enumerated
+      // afresh. Restart the board once; the FM-1 stays in ROM boot until a
+      // power cycle, and the job carries on from waiting for it.
       const uint8_t a = rom_address.load();
-      if (!restarted && ((a && millis() - start > 3000) || (!a && millis() - start > 6000))) {
-        if (a) describe_refusal(a, "restarted host; was");
-        else why = "restarted host: no ROM device seen";
-        restarted = true;
-        show("Re-enumerating...", kYellow);
-        CRUMB_LOADER("restart requested");
-        DLOG_LOADER("ROM wait: restarting the host (%s)", why);
-        restart_requested = true;
+      if (reboot_on_miss && ((a && millis() - start > 3000) || (!a && millis() - start > 6000))) {
+        if (a) describe_refusal(a, "restarting the board; was");
+        else why = "no ROM device seen: restarting the board";
+        CRUMB_LOADER("reboot for ROM");
+        DLOG_LOADER("ROM wait: %s", why);
+        wants_reboot = true;
+        return false;
       }
       vTaskDelay(pdMS_TO_TICKS(50));
     }
@@ -478,54 +498,128 @@ void run(Installer &inst) {
   }
 }
 
+void log_heap(const char *when) {
+  DLOG_LOADER("heap %s: internal %u (largest %u), DMA %u (largest %u), PSRAM %u", when,
+              unsigned(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)),
+              unsigned(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)),
+              unsigned(heap_caps_get_free_size(MALLOC_CAP_DMA)),
+              unsigned(heap_caps_get_largest_free_block(MALLOC_CAP_DMA)),
+              unsigned(heap_caps_get_free_size(MALLOC_CAP_SPIRAM)));
+}
+
+const char *job_name(JobKind k) {
+  switch (k) {
+    case JobKind::Backup: return "backup";
+    case JobKind::Install: return "install";
+    case JobKind::Resume: return "resume";
+    default: return "none";
+  }
+}
+
+// Records the job and restarts the chip; the next boot runs it in Load mode.
+[[noreturn]] void restart_for(const JobBoot &j, const char *why) {
+  job_boot = j;
+  job_boot.magic = kJobMagic;
+  DLOG_LOADER("restarting the board: %s (%s, attempt %u)", why, job_name(j.kind), unsigned(j.attempt));
+  show("Restarting in Load mode...", kYellow);
+  vTaskDelay(pdMS_TO_TICKS(400));  // the screen and the log catch up
+  esp_restart();
+}
+
+// The hold, on a Play boot (or a Load boot an install stopped in): what the
+// preview showed becomes the job of the next boot.
+void request_job() {
+  JobBoot j = {};
+  j.attempt = 1;
+  const int sel = selected_index();
+  if (sel < 0 && previewed_retry) {
+    j.kind = JobKind::Resume;
+    j.loader_running = loader_left_running;
+  } else if (sel < 0) {
+    j.kind = JobKind::Backup;
+  } else {
+    if (item_ids[sel] != previewed_id) {  // the hold agreed to what the preview showed
+      show("Stopped: selection changed. Check it.", kRed);
+      return;
+    }
+    j.kind = JobKind::Install;
+    strlcpy(j.package, previewed_id.c_str(), sizeof j.package);
+    strlcpy(j.unit, library->last_unit().c_str(), sizeof j.unit);
+    j.fresh_ok = previewed.action == DataAction::FreshStart;
+    j.layout_ok = previewed.layout_warning;
+  }
+  restart_for(j, "the hold");
+}
+
+// A Load boot: runs active_job, then restarts into Play unless an install
+// stopped part-way (the FM-1 stays in ROM boot, and the retry is a hold away).
 void run_job() {
+  JobBoot &j = active_job;
   UsbScsi scsi;
   Host host;
+  host.reboot_on_miss = j.attempt < 2 && j.kind != JobKind::Resume;
   Installer inst(scsi, host, *library, blob);
   InstallOptions o;
-  o.confirmed = true;  // the 2-second hold on the Firmware page
+  o.confirmed = true;  // the 2-second hold on the Firmware page, before the restart
   o.rom_timeout_ms = kRomWaitMs;
-  const int sel = selected_index();
-  const bool resume = sel < 0 && previewed_retry;
-  DLOG_LOADER("job start: %s", resume ? "resume" : sel < 0 ? "backup" : item_ids[sel].c_str());
-  if (resume) {
+  o.key_sent = j.key_sent;
+  DLOG_LOADER("job start: %s %s, attempt %u%s", job_name(j.kind), j.package, unsigned(j.attempt),
+              j.key_sent ? ", key already sent" : "");
+  log_heap("job start");
+  for (int i = 1; i < kLoaderLines; ++i) show_line(i, i == 1 ? blob_line : "");
+  if (j.kind == JobKind::Resume) {
     // The FM-1 is still in ROM boot with an incomplete app: no key, straight to it.
     if (!host.wait_for_rom_device(kRomWaitMs)) {
       show("Stopped: the FM-1 isn't in ROM boot", kRed);
       if (host.why[0]) show_line(2, host.why);
-      in_rom_boot = false;  // nothing to stay in Load mode for
-      return;
+    } else {
+      o.loader_running = j.loader_running;
+      inst.start_resume(o);
+      run(inst);
+      finish(inst, host, scsi, "Install finished.");
     }
-    o.loader_running = loader_left_running;
-    inst.start_resume(o);
-    run(inst);
-    finish(inst, host, scsi, "Install finished.");
-  } else if (sel < 0) {
+  } else if (j.kind == JobKind::Backup) {
     inst.start_backup(o);
     run(inst);
     finish(inst, host, scsi, "Backed up. Nothing written.");
     if (inst.current() == Step::Done) report_backup(inst, host);
   } else {
-    // The hold agreed to what the preview showed, the data decision included.
-    if (item_ids[sel] != previewed_id) {
-      show("Stopped: selection changed. Check it.", kRed);
-      return;
-    }
-    o.unit_id = library->last_unit();  // the unit the preview was for
-    o.fresh_start_ok = previewed.action == DataAction::FreshStart;
-    o.layout_change_ok = previewed.layout_warning;
-    inst.start_install(item_ids[sel], o);
+    o.unit_id = j.unit;  // the unit the preview was for
+    o.fresh_start_ok = j.fresh_ok;
+    o.layout_change_ok = j.layout_ok;
+    inst.start_install(j.package, o);
     run(inst);
     char buf[40];
     snprintf(buf, sizeof buf, "Installed: %u sectors written", unsigned(inst.sectors_done()));
     finish(inst, host, scsi, buf);
   }
+  log_heap("job end");
+  if (inst.failure() == Failure::NoRomDevice && host.wants_reboot) {
+    JobBoot again = j;
+    again.attempt = 2;
+    again.key_sent = true;
+    restart_for(again, "no ROM device after the key");
+  }
   in_rom_boot = inst.danger();
   loader_left_running = inst.danger();
-  if (inst.danger()) {  // select the top row: its hold is now the retry
+  if (in_rom_boot) {  // stay: the top row's hold is now the retry
     selected = -1;
     selected_id.clear();
+    return;
   }
+  // Back to Play on a fresh boot, with the result kept for the Firmware page.
+  JobBoot done = {};
+  done.has_result = true;
+  taskENTER_CRITICAL(&lock);
+  strlcpy(done.result_title, shown.title, sizeof done.result_title);
+  done.result_colour = shown.title_colour;
+  for (int i = 0; i < kLoaderLines; ++i) strlcpy(done.result_lines[i], shown.lines[i], sizeof done.result_lines[i]);
+  taskEXIT_CRITICAL(&lock);
+  job_boot = done;
+  job_boot.magic = kJobMagic;
+  DLOG_LOADER("job done: back to Play");
+  vTaskDelay(pdMS_TO_TICKS(1500));  // the result stays on screen a moment
+  esp_restart();
 }
 
 // The store line: free space and units, refreshed after each job.
@@ -556,6 +650,15 @@ void loader_task(void *) {
     publish_store();
     DIAG("diag: loader task idle, stack left %u\n", unsigned(uxTaskGetStackHighWaterMark(nullptr)));
   }
+  log_heap(boot_mode == platform::Mode::Load ? "Load boot" : "Play boot");
+  if (store_ok && blob_ok && active_job.kind != JobKind::None) {
+    run_job();  // restarts the board unless an install stopped part-way
+    refresh_store_line();
+    refresh_items();
+    refresh_preview();
+    publish_store();
+    busy = false;
+  }
   for (;;) {
     uint32_t bits = 0;
     CRUMB_LOADER("idle");
@@ -577,23 +680,7 @@ void loader_task(void *) {
     }
     if (bits & (kSelect | kPin | kFm1Changed)) refresh_preview();
     if (!(bits & kAct)) continue;
-    busy = true;
-    for (int i = 1; i < kLoaderLines; ++i) show_line(i, i == 1 ? blob_line : "");
-    show("Switching to Load mode...", kYellow);
-    wanted = platform::Mode::Load;
-    // loop() restarts the USB host in Load mode, then reports back.
-    wait_until(5000, [] { return running.load() == platform::Mode::Load; });
-    if (running.load() != platform::Mode::Load) show("Couldn't enter Load mode", kRed);
-    else run_job();
-    // After an install stopped part-way, stay in Load mode: the ROM device stays
-    // claimed and the loader in its RAM isn't disturbed by a re-enumeration.
-    const platform::Mode next = in_rom_boot ? platform::Mode::Load : platform::Mode::Play;
-    wanted = next;
-    wait_until(5000, [next] { return running.load() == next; });
-    refresh_store_line();
-    refresh_items();
-    refresh_preview();
-    publish_store();
+    request_job();  // restarts the board, unless the selection changed
     busy = false;
   }
 }
@@ -636,6 +723,19 @@ void loader_begin(EspUsbHost &host, const LoaderCore &c) {
   const bool ready = store_ok && blob_ok;
   show(!ready ? "Not ready" : kWritesEnabled ? "Ready. Writes are on." : "Ready. Read-only build.",
        !ready ? kRed : kWritesEnabled ? kYellow : kWhite);
+  // A job recorded before the restart runs now, once: it's cleared first, so a
+  // crash during it (safe mode, then RST) doesn't run it again.
+  const bool job_valid = job_boot.magic == kJobMagic;
+  if (job_valid && job_boot.kind != JobKind::None && !last_crash[0][0]) {
+    active_job = job_boot;
+    boot_mode = platform::Mode::Load;
+    busy = true;
+    show("Load mode: starting the job...", kYellow);
+  } else if (job_valid && job_boot.has_result) {  // the last job's result, after its restart
+    show(job_boot.result_title, job_boot.result_colour);
+    for (int i = 0; i < kLoaderLines; ++i) show_line(i, job_boot.result_lines[i]);
+  }
+  memset(&job_boot, 0, sizeof job_boot);
   if (last_crash[0][0]) {  // the board reset abnormally: say where
     for (int i = 0; i < 3; ++i) show_line(2 + i, last_crash[i]);
   }
@@ -643,7 +743,7 @@ void loader_begin(EspUsbHost &host, const LoaderCore &c) {
   snprintf(mem, sizeof mem, "Free RAM %u KB internal, %u KB PSRAM",
            unsigned(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024),
            unsigned(heap_caps_get_free_size(MALLOC_CAP_SPIRAM) / 1024));
-  show_line(5, mem);
+  if (!shown.lines[5][0]) show_line(5, mem);
   xTaskCreatePinnedToCore(loader_task, "loader", 12288, nullptr, 2, &task, 1);
 }
 
@@ -696,11 +796,7 @@ void loader_act() {
   xTaskNotify(task, kAct, eSetBits);
 }
 
-platform::Mode loader_wanted_mode() { return wanted.load(); }
-
-bool loader_wants_restart() { return restart_requested.exchange(false); }
-
-void loader_mode_changed(platform::Mode mode) { running = mode; }
+platform::Mode loader_boot_mode() { return boot_mode; }
 
 void loader_ui(UiLoader &out) {
   taskENTER_CRITICAL(&lock);
