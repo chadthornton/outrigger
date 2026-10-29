@@ -107,10 +107,14 @@ bool wait_until(uint32_t timeout_ms, Ready ready) {
 class UsbScsi : public ScsiTransport {
  public:
   char last_failure[40] = "";  // what the USB layer said about the last failed command
+  bool reached_device() const override { return reached_; }
+  bool reached_ = true;
   bool execute(const uint8_t *cdb, size_t cdb_len, Dir dir, uint8_t *data, size_t len) override {
     last_failure[0] = 0;  // describes this command only
+    reached_ = true;
     const uint8_t address = rom_address.load();
     if (!address) {
+      reached_ = false;  // gone before it was sent: it did nothing
       note(cdb, "FM-1 gone from USB", 0, len);
       return false;
     }
@@ -249,6 +253,7 @@ class Host : public LoaderHost {
     show("Restarting the FM-1...", kYellow);
     return wait_until(timeout_ms, [] { return fm1_midi_address.load() != 0; });
   }
+  uint32_t now_ms() override { return millis(); }
 };
 
 // ---------- The job ----------
@@ -263,6 +268,7 @@ const char *step_text(Step s) {
     case Step::Plan: return "Planning...";
     case Step::WriteApp: return "Writing firmware...";
     case Step::WriteData: return "Writing data...";
+    case Step::Check: return "Checking the FM-1...";
     case Step::Reset: case Step::WaitMidi: return "Restarting the FM-1...";
     default: return "Working...";
   }
@@ -369,8 +375,10 @@ void refresh_items() {
   taskEXIT_CRITICAL(&lock);
 }
 
-void set_preview(const char *l0, const char *l1, const char *action, bool can) {
+// top: the top row's label when it isn't "Back up this FM-1" (the retry).
+void set_preview(const char *l0, const char *l1, const char *action, bool can, const char *top = "") {
   taskENTER_CRITICAL(&lock);
+  strlcpy(shown.top_label, top, sizeof shown.top_label);
   strlcpy(shown.preview[0], l0, sizeof shown.preview[0]);
   strlcpy(shown.preview[1], l1, sizeof shown.preview[1]);
   strlcpy(shown.action, action, sizeof shown.action);
@@ -385,8 +393,14 @@ void refresh_preview() {
   previewed_id.clear();
   previewed_retry = sel < 0 && resume_pending();
   if (previewed_retry) {
+    // The top row's hold writes now: its label says so, not "Back up".
+    Unit u;
+    PackageInfo p;
+    char top[40] = "Retry the install";
+    if (library->unit(library->last_unit(), u) && library->package(u.pending.package_id, p))
+      snprintf(top, sizeof top, "Retry the %s install", label_of(p).c_str());
     set_preview("An install stopped part-way.", "The FM-1 must still be in ROM boot.", "Hold: retry the install",
-                ready && kWritesEnabled);
+                ready && kWritesEnabled, top);
     return;
   }
   if (sel < 0) {
@@ -497,6 +511,7 @@ void run_job() {
       show("Stopped: selection changed. Check it.", kRed);
       return;
     }
+    o.unit_id = library->last_unit();  // the unit the preview was for
     o.fresh_start_ok = previewed.action == DataAction::FreshStart;
     o.layout_change_ok = previewed.layout_warning;
     inst.start_install(item_ids[sel], o);

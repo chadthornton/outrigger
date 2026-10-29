@@ -53,6 +53,7 @@ struct UiLoader {
   int8_t selected;                    // -1: "Back up this FM-1"; else an item
   char preview[2][40];                // what the selected action would do
   char action[40];                    // the hold's label, e.g. "Hold: install SLOOP"
+  char top_label[40];                 // the top row, if not "Back up this FM-1" (a retry)
   uint8_t percent;                    // progress while busy
   bool busy;                          // a job is running: the hold is off
   bool can_act;                       // the selected action can run now

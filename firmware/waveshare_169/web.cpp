@@ -437,6 +437,7 @@ static esp_err_t on_status(httpd_req_t *req) {
     o.str(L.preview[1]);
     o.raw("]");
     o.key_str("action", L.action);
+    o.key_str("top", L.top_label);
     o.raw(",\"percent\":%u,\"busy\":%s,\"can_act\":%s}", L.percent, L.busy ? "true" : "false",
           L.can_act ? "true" : "false");
   }

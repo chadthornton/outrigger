@@ -74,6 +74,7 @@ def print_status(s):
                 print(f"  {line}")
         for i, it in enumerate(f["items"]):
             print(f"  {'>' if i == f['selected'] else ' '}{'*' if it['pinned'] else ' '} {it['label']}  {it['note']}")
+        print(f"  top row: {f.get('top') or 'Back up this FM-1'}")
         print(f"  preview: {' / '.join(f['preview'])}; action: {f['action']}{'' if f['can_act'] else ' (off)'}")
 
 

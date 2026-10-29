@@ -527,6 +527,13 @@ void ui_update_loader(const UiLoader &l) {
     set_text(item_stars[r], l.items[i].pinned ? LV_SYMBOL_OK : "*");
     set_colour(item_stars[r], l.items[i].pinned ? kYellow : kGrey);
   }
+  // The top row: "Back up this FM-1", or the retry its hold now runs.
+  if (l.top_label[0]) {
+    snprintf(buf, sizeof buf, LV_SYMBOL_WARNING " %s", l.top_label);
+    set_text(item_labels[0], buf);
+  } else {
+    set_text(item_labels[0], LV_SYMBOL_DOWNLOAD " Back up this FM-1");
+  }
   if (l.selected != shown_selected) {
     for (int r = 0; r <= kLoaderItems; ++r)
       set_colour(item_rows[r], r - 1 == l.selected ? kSpine : kDim, false);
