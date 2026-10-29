@@ -62,7 +62,7 @@ struct Soak {
   uint32_t magic;
   uint32_t runs, ok, failed, crashes, failed_in_row;
 };
-constexpr uint32_t kSoakMagic = 0x50A4C0DE;
+constexpr uint32_t kSoakMagic = 0x50A4C0DF;  // changed per soak build: counts start over
 constexpr uint32_t kSoakRuns = 50;
 RTC_NOINIT_ATTR Soak soak;
 #endif
