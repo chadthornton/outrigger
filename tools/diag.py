@@ -139,7 +139,7 @@ def main():
             if line:
                 print(f"  {line}")
         if c.get("tail"):
-            print("last log lines before the reset:")
+            print("last log lines (kept across resets; \"boot:\" starts each boot):")
             for line in c["tail"]:
                 print(f"  {line}")
         d = c["coredump"]

@@ -479,8 +479,11 @@ static const esp_partition_t *coredump_partition() {
 
 static esp_err_t on_crash(httpd_req_t *req) {
   if (!guard(req)) return ESP_OK;
-  char buf[1600];
-  Out o{buf, sizeof buf};
+  // The tail is up to 40 lines of 96 bytes: a PSRAM buffer, not this task's stack.
+  constexpr size_t kCrashJson = 8192;
+  static char *buf = static_cast<char *>(heap_caps_malloc(kCrashJson, MALLOC_CAP_SPIRAM));
+  if (!buf) return httpd_resp_send_500(req);
+  Out o{buf, kCrashJson};
   o.raw("{\"reset_reason\":");
   o.str(reset_name(esp_reset_reason()));
   o.raw(",\"safe_mode\":%s,\"lines\":[", safe ? "true" : "false");
@@ -489,12 +492,17 @@ static esp_err_t on_crash(httpd_req_t *req) {
     o.str(last_crash[i]);
   }
   o.raw("],\"tail\":[");
+  // Oldest first, read from RTC memory as it is now (this boot's lines too).
   bool first = true;
+  const uint32_t next = __atomic_load_n(&crumbs.tail_next, __ATOMIC_RELAXED);
   for (int i = 0; i < kCrumbTail; ++i) {
-    if (!last_tail[i][0]) continue;
+    char line[kCrumbLine];
+    memcpy(line, crumbs.tail[(next + i) % kCrumbTail], sizeof line);
+    line[sizeof line - 1] = 0;  // a line being written may be torn, never unterminated
+    if (!line[0]) continue;
     if (!first) o.raw(",");
     first = false;
-    o.str(last_tail[i]);
+    o.str(line);
   }
   size_t addr = 0, size = 0;
   const bool present = esp_core_dump_image_get(&addr, &size) == ESP_OK;

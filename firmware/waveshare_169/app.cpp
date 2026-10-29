@@ -59,7 +59,6 @@ SET_LOOP_TASK_STACK_SIZE(16 * 1024);
 RTC_NOINIT_ATTR Crumbs crumbs;
 // The last abnormal reset, for the Firmware page (empty after a normal boot).
 char last_crash[3][40] = {};
-char last_tail[kCrumbTail][64] = {};
 
 static void read_crumbs() {
   const esp_reset_reason_t r = esp_reset_reason();
@@ -71,16 +70,13 @@ static void read_crumbs() {
     snprintf(last_crash[1], sizeof last_crash[1], "loop:%s usb:%s", crumbs.loop, crumbs.usb);
     snprintf(last_crash[2], sizeof last_crash[2], "loader:%s", crumbs.loader);
   }
-  // The log's last lines from before any reset (RST and esp_restart included,
-  // not a power-on): GET /crash shows them.
   if (crumbs.magic == kCrumbMagic) {
-    for (int i = 0; i < kCrumbTail; ++i) {
-      const char *line = crumbs.tail[(crumbs.tail_next + i) % kCrumbTail];
-      strlcpy(last_tail[i], line, sizeof last_tail[i]);
-    }
+    // The tail carries on (crumbs.h); only the steps start over.
+    crumbs.loop[0] = crumbs.loader[0] = crumbs.usb[0] = 0;
+  } else {  // power-on: RTC memory holds noise
+    memset(&crumbs, 0, sizeof crumbs);
+    crumbs.magic = kCrumbMagic;
   }
-  memset(&crumbs, 0, sizeof crumbs);
-  crumbs.magic = kCrumbMagic;
 }
 
 // ---------- State shared between the USB task and loop() ----------

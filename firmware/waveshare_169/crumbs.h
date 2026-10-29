@@ -8,19 +8,20 @@
 #include <esp_system.h>
 #include <string.h>
 
-// The last log lines (diag_log, web builds) are kept here too, so GET /crash
-// still has them after a panic wipes the log's RAM rings.
-constexpr int kCrumbTail = 12;
+// The last log lines (diag_log, web builds) are kept here too, across every
+// reset but a power-on (a panic, RST, the job boot's esp_restart), so GET /crash
+// has them after the RAM log is gone. "boot:" lines mark where each boot began.
+// 40 lines: a whole job boot (it ends in esp_restart, which wipes the RAM log).
+constexpr int kCrumbTail = 40;
+constexpr int kCrumbLine = 96;
 struct Crumbs {
   uint32_t magic;
   char loop[24], loader[24], usb[24];
   uint32_t tail_next;
-  char tail[kCrumbTail][64];
+  char tail[kCrumbTail][kCrumbLine];
 };
 extern Crumbs crumbs;
 constexpr uint32_t kCrumbMagic = 0xC0FFEE43;
-// The tail as it was before the last abnormal reset (oldest first; app.cpp).
-extern char last_tail[kCrumbTail][64];
 
 inline void crumb(char *slot, const char *where) { strncpy(slot, where, 23); slot[23] = 0; }
 #define CRUMB_LOOP(w) crumb(crumbs.loop, w)
