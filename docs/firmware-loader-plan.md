@@ -162,14 +162,32 @@ So it splits in two.
     - Make the failure name its command, address and sector count.
   - **Also fix:** `status.cpp`'s fallback line "It may not be class-compliant", which showed for a Launchkey whose
     MIDI simply didn't reopen after many host restarts.
+- **Checkpoint 3, second session (2026-10-27/29, builds `c42d5f0` to `b4a4d71`):**
+  - **Leg 1 done, Skiff → Felucca 1.6.1, but through the retry.** The board booted with the FM-1 in ROM boot and
+    found the first attempt's pending record. The top row's hold became "retry the install" while the row still
+    read "Back up this FM-1", and Chad held it as a backup. It ran the first attempt's confirmed plan (fresh start,
+    143 + 6 sectors) as a resume. The Skiff saves stayed in the store. Fixed: the row now reads
+    "Retry the … install", and `/status` shows the top row, quoted to Chad before every hold.
+  - **Leg 2 stopped twice before any erase:** the FM-1 left ROM boot on its own about 8.5 s after the loader
+    started (two backup reads, then the plan). A resume reaches its first erase 3.3 s in and wrote for 9 s without
+    a stop. Leading hypothesis: a loader watchdog that erases and writes feed and reads don't. Fixed in `d860144`:
+    an install plans from the stored backup before the key, then reads once (compared with that backup) and
+    erases, with a 6 s budget. A stop before any erase leaves no danger flag and no pending record.
+  - **The board's USB host failed after in-place restarts:** an ESP-IDF `hcd_urb_dequeue` assert (twice, with app
+    hub requests in flight), ROM devices never seen, devices not re-enumerating, and once Wi-Fi gone too. Every
+    first job after a fresh boot worked. Fixed in `74033a9`: a job is its own boot (RTC `JobBoot`, then
+    `esp_restart`), and loader builds send no hub requests. The log tail now survives any reset (`/crash`).
 - **Left in session 3a, in order:**
-  1. ~~The failure detail and the status line.~~ Done in `605c522` (not yet flashed).
-  2. Merge `web-diag` when it's ready.
-  3. Checkpoint 3: Skiff → Felucca → Skiff.
-  4. `code-review` at high effort.
-  5. The merge gate.
+  1. ~~The failure detail and the status line.~~ Done in `605c522`.
+  2. ~~Merge `web-diag`.~~ Done (`c42d5f0`).
+  3. Checkpoint 3, leg 2: Felucca → Skiff on `74033a9` or later (backup, preview "Restores its saves", hold).
+  4. `code-review` at high effort. The first round (9 findings) covered up to `d2284ba`; everything since is
+     guarded and unreviewed.
+  5. Merge `master` (ui-polish rewrote `host_ui`; the Firmware page section conflicts), then the merge gate.
   6. Merge with `hub-loader` writes on.
-  - **Then:** merge `master` (ui-polish rewrote `host_ui`; expect conflicts in the Firmware page section).
+  - **Open causes:** the loader watchdog (confirm by timing a backup that stops reading for 9 s), and the USB host
+    after `usb.end()/begin()` (PR #2's session suspects app hub requests colliding with ESP-IDF's hub driver on
+    EP0).
 - **Long term, in order:**
   1. **3b:** the Web UI with install requests and laptop `.fm1bak`/`.fm1save` export and import, building on
      `web-diag`.
