@@ -1,7 +1,8 @@
 # UI redesign: nav, Play, switching firmware, errors
 
-**Status:** design agreed with Chad over five rounds of review, 2026-10-30. Mockups only; nothing is in `host_ui`
-yet. Build it after `loader-session3` merges: ui-polish rewrote `host_ui`, and that merge carries the current
+**Status:** 2026-10-30. Chad approved the nav as the header, one column on every board, compact Play, and
+switching that backs up only when the FM-1 changed. The remaining pages (results, errors, manual backup, Computer
+mode) are drawn in the same style and await his review. Mockups only; nothing is in `host_ui` yet. Build it after `loader-session3` merges: ui-polish rewrote `host_ui`, and that merge carries the current
 Firmware page (list → detail, `154d147`).
 
 - **Review page:** https://claude.ai/artifact/AemH6yE3Nzyeu6GYobHaeg. It shows every screen on every board and
@@ -17,6 +18,21 @@ Firmware page (list → detail, `154d147`).
 **Chad's goals:** "a top level nav and better error messaging and better clarity around what's currently running
 and what the backup process is". Then, in review: switching firmware is the tool's main job and shouldn't be
 cumbersome.
+
+## Mock screens by section
+
+`build/ui-mocks/nav/<board>_<size>_<name>.png`:
+
+| Section | Names |
+|---|---|
+| Play | `chain`, `chain6`, `chain6_open`, `chain_fm1_open`, `chain_problem` |
+| Focus without touch | `chain_focus`, `chain_navfocus`, `fm1_list_focus` |
+| FM-1 list | `fm1_list` |
+| Switching | `switch_confirm`, `switch_confirm_fresh`, `switch_writing`, `switch_changed`, `switched` |
+| Errors | `err_retry`, `err_norom`, `err_changing`, `not_ready` |
+| Unfinished install | `unfinished` |
+| Backups | `backups`, `backup_job` |
+| Setup | `setup`, `setup_scrolled`, `computer_confirm`, `computer_screen` |
 
 ## Screen map
 
@@ -108,6 +124,11 @@ so the USB name is never used.
 4. **A second `BackupStale`** right after the fresh backup stops the switch with "The FM-1 changed again right
    after its backup". It doesn't loop.
 
+**What a stopped check leaves behind** (`Installer::fail`, verified in code): a stop before any erase clears the
+pending record and sends the FM-1 back to its firmware (`run_app`).
+- **So the backup boot sends the key again**, which the estimate below includes.
+- **A failed chained backup can't look like "Install unfinished":** there is no pending record left to find.
+
 **Why this keeps songs safe.** The autosave comes from the stored backup, and the check proves that backup equals
 the FM-1 before any erase. So a changed FM-1 always gets a fresh backup, and a fresh autosave, before anything is
 written.
@@ -126,6 +147,8 @@ Chad's go-ahead and tests first in the loader session. Tests to write first:
   backup.
 - **Stale twice:** a second stale check stops the switch.
 - **Unchanged FM-1:** nothing is backed up.
+- **Failed chained backup:** a stale check clears the pending record, so a failed chained backup lands on "Switch
+  didn't start: nothing written", not "Install unfinished".
 
 **Backups page.** Reached from the quiet row at the bottom of the list.
 - **What it says:** a switch backs up by itself when the FM-1 changed, so you don't need to.

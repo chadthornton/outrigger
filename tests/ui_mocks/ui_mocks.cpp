@@ -784,15 +784,6 @@ static void pinned_hold(Top &t, const char *what, uint32_t fill) {
 // One column on every board: landscape keeps the rail but stacks the page
 // like portrait, scrolling when it must (Chad, round 3: the side-by-side
 // columns read as two unrelated lists).
-static void nav_play(int controllers, bool problem_, bool scrolled = false) {
-  Top t = top_page(0, problem_ ? Badge::Warn : Badge::None);
-  chain(t.content, controllers, problem_, t.page, true);
-  if (scrolled) {
-    lv_obj_update_layout(t.scr);
-    lv_obj_scroll_to_y(t.page, LV_COORD_MAX, LV_ANIM_OFF);
-  }
-}
-
 // Play, compact (round 4): one line per stage, its title and one status on
 // the right. Tapping a line opens that stage's detail, one at a time; a
 // problem opens its own stage. Every line is a hit target now that a tap on
@@ -893,30 +884,11 @@ static void nav_chain(int controllers, int open, int focus = -1, bool fm1_proble
                 fm1_problem ? "FM-1 not answering" : nullptr, "Replug it into hub port 2.");
 }
 
-static void nav_home() {
-  Top t = top_page(1);
-  lv_obj_t *k = card(t.content, 0x141414, kDim);
-  text(k, "Runs Skiff 1.4", kWhite, heading(2));
-  text(k, "Read from backup b50. Its USB name says Felucca.", kMuted, base() - 1);
-  nav_row(t.content, LV_SYMBOL_DOWNLOAD " Back up", "Latest b50 matches it");
-  nav_row(t.content, LV_SYMBOL_DRIVE " Change firmware", "5 in the library");
-}
-
 static void nav_unfinished() {
   Top t = top_page(1, Badge::None, Badge::Bad);
   problem(t.content, {"Install unfinished", false, "Don't unplug the FM-1 or switch it off.",
                       "It's in ROM boot with half of Felucca 1.6.1 written.", nullptr, nullptr});
   pinned_hold(t, "retry Felucca 1.6.1", kRed);
-}
-
-// The Play badge from another section: the chain has a problem.
-static void nav_home_play_problem() {
-  Top t = top_page(1, Badge::Warn);
-  lv_obj_t *k = card(t.content, 0x141414, kDim);
-  text(k, "Runs Skiff 1.4", kWhite, heading(2));
-  text(k, "Read from backup b50. Its USB name says Felucca.", kMuted, base() - 1);
-  nav_row(t.content, LV_SYMBOL_DOWNLOAD " Back up", "Latest b50 matches it");
-  nav_row(t.content, LV_SYMBOL_DRIVE " Change firmware", "5 in the library");
 }
 
 static void nav_setup(bool scrolled) {
@@ -1310,10 +1282,6 @@ static void run(const Board &b, int size) {
 
   // Round 2: the top level, every board.
   static const Entry kRound2[] = {
-      {"play1", [] { nav_play(1, false); }},
-      {"play6", [] { nav_play(6, false); }},
-      {"play6_scrolled", [] { nav_play(6, false, true); }},
-      {"play_problem", [] { nav_play(1, true); }},
       {"chain", [] { nav_chain(1, -1); }},
       {"chain6", [] { nav_chain(6, -1); }},
       {"chain6_open", [] { nav_chain(6, 1); }},
@@ -1325,7 +1293,6 @@ static void run(const Board &b, int size) {
          nav_chain(1, -1);
          nav_focus = -1;
        }},
-      {"home", nav_home},
       {"fm1_list", [] { fm1_list(); }},
       {"fm1_list_focus", [] { fm1_list(true); }},
       {"switch_confirm", [] { switch_confirm(true); }},
@@ -1341,7 +1308,6 @@ static void run(const Board &b, int size) {
       {"not_ready", not_ready},
       {"computer_confirm", computer_confirm},
       {"computer_screen", computer_screen},
-      {"home_badge", nav_home_play_problem},
       {"unfinished", nav_unfinished},
       {"setup", [] { nav_setup(false); }},
       {"setup_scrolled", [] { nav_setup(true); }},
