@@ -20,9 +20,10 @@ apps ask it for them. See `docs/architecture.md`, and the merge gate below befor
 | `lib/web_core/` | Web UI pieces with no Arduino headers: the diagnostics log (lock-free rings per task, numbered history), the read-only route table, the Host guard, the setup hotspot's channel pick. Tested by `make test`. |
 | `tools/diag.py` | Reads the board's web diagnostics from the Mac: `/status`, `/log`, `/crash`, `/store`, and saves `/coredump` for `esp-coredump`. |
 | `lib/host_ui/` | The LVGL screens (signal chain, settings), laid out from a `BoardProfile`, not fixed pixels. |
+| `tests/ui_shots/` | `make ui-shots`: renders every `host_ui` screen with LVGL on the Mac (S/M/L, hub and hub-loader, 0-6 controllers, Off, a problem, settings, Firmware, Computer mode), taps them with a drifting finger, and fails on a clipped or out-of-safe-area label. PNGs and `sheet.png` in `build/ui-shots/`. Check UI changes here before booking the board. |
 | `firmware/config/lv_conf.h` | LVGL configuration (fonts, clib malloc so big buffers can use PSRAM). |
 | `site/`, `tools/build_site.py` | Browser installer (ESP Web Tools) and the script that stages firmware into it. |
-| `.github/workflows/ci.yml` | CI: `make test`, then every board × app set built and staged into the site, on every push. |
+| `.github/workflows/ci.yml` | CI: `make test` and `make ui-shots`, then every board × app set built and staged into the site, on every push. |
 | `firmware/waveshare_169/` | Arduino sketch for the Waveshare board: `app.cpp` (USB host, routing, gathers the frame) and `board_waveshare_169.cpp` (board profile, display and touch drivers). Code stays out of the `.ino` (see below). |
 
 To add a board: copy the sketch folder, write a new `board_*.cpp` with its `BoardProfile` (size, shape, corner
@@ -34,6 +35,7 @@ change. Check the board's schematic for a USB-C port wired to the ESP32-S3's nat
 
 ```
 make test      # midi_core, platform and fm1_loader tests on the Mac (fetches fixtures once)
+make ui-shots  # render and check every screen; build/ui-shots/sheet.png (needs LVGL 9.6.0, see Makefile)
 make fixtures  # FM-1 packages and wl82loader.bin for the tests, pinned by SHA-256 (gitignored)
 make golden    # regenerate tests/golden/ from the Unbricker and jl-uboot-tool (Python venv in build/)
 make build     # compile one board x app set: BOARD=waveshare_169 (default) APPS=hub|hub-loader|everything

@@ -449,7 +449,6 @@ static void publish_diag(const UiFrame *frame) {
 
 static void save_settings(const UiSettings &s) {
   prefs.putUChar("text_size", s.text_size);
-  prefs.putUChar("typeface", s.typeface);
 }
 
 // ---------- Boot mode ----------
@@ -509,7 +508,8 @@ void setup() {
   read_crumbs();
   const midi_core::BootMode mode = read_boot_mode();
   prefs.begin("ui", false);
-  const UiSettings settings = {prefs.getUChar("text_size", 1), prefs.getUChar("typeface", 0)};
+  // An old "typeface" key from builds with a Pixel font stays in NVS, unread.
+  const UiSettings settings = {prefs.getUChar("text_size", 1)};
   static char firmware[24];
   snprintf(firmware, sizeof firmware, "v %07lx%s %s", (unsigned long)FW_VERSION, FW_DIRTY ? "+" : "",
            platform::kAppSetLabel);

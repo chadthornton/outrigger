@@ -10,7 +10,6 @@
 
 struct UiSettings {
   uint8_t text_size;  // 0 small, 1 medium, 2 large
-  uint8_t typeface;   // 0 sans (Montserrat), 1 pixel (Unscii)
 };
 
 // One device's line in the controller group.

@@ -1,4 +1,4 @@
-# Every push: the Mac-style tests, then every board x app set built and staged
+# Every push: the Mac-style tests and the UI shots, then every board x app set built and staged
 # into the installer site. Nothing is published: the staged firmware is a
 # private workflow artifact. JieLi's wl82loader.bin is fetched for the tests
 # and for build_site.py's licensing scan, and never uploaded.
@@ -21,6 +21,26 @@ jobs:
           path: tests/fixtures
           key: fixtures-${{ hashFiles('tools/fetch_fixtures.py') }}
       - run: make test TEST_CXX=clang++
+      # The UI shots build LVGL itself, at the firmware job's pinned 9.6.0.
+      - uses: actions/cache@v4
+        id: lvgl
+        with:
+          path: build/lvgl
+          key: lvgl-9.6.0
+      - name: LVGL 9.6.0
+        if: steps.lvgl.outputs.cache-hit != 'true'
+        run: git clone -q --depth 1 --branch v9.6.0 https://github.com/lvgl/lvgl build/lvgl
+      - name: Every screen renders and fits (make ui-shots)
+        run: |
+          test "$(git -C build/lvgl rev-parse HEAD)" = 80ca777e37a2b176770726a02e07a6fb79ef0b39
+          make -j"$(nproc)" ui-shots LVGL_DIR=build/lvgl TEST_CXX=clang++
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ui-shots
+          path: build/ui-shots/
+          retention-days: 14
+          if-no-files-found: ignore
 
   firmware:
     runs-on: ubuntu-latest
