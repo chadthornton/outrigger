@@ -1,6 +1,6 @@
 # UI redesign: top-level nav, errors, what's running (draft for Chad's sign-off)
 
-**Status:** proposal, 2026-10-30. Mockups only, nothing built into `host_ui` yet. Build it after `loader-session3`
+**Status:** proposal, 2026-10-30; round 2 (top level, more screens) the same day. Mockups only, nothing built into `host_ui` yet. Build it after `loader-session3`
 merges (ui-polish rewrote `host_ui`, and that merge carries the current Firmware page).
 
 - **Review page:** https://claude.ai/artifact/AemH6yE3Nzyeu6GYobHaeg (every screen at S, M and L).
@@ -12,6 +12,59 @@ merges (ui-polish rewrote `host_ui`, and that merge carries the current Firmware
 
 **Chad's goals:** "a top level nav and better error messaging and better clarity around what's currently running
 and what the backup process is."
+
+## Round 2: the top level (Chad's notes, 2026-10-30)
+
+Chad's notes on round 1: drop the header and let the nav be the header; make it full width, bleeding off the
+top of the glass, and let it scroll away with the page; make it icon-driven (a MIDI or routing icon for Play, a
+cartridge for FM-1); start with the top level and see how it propagates; and plan for other screens now,
+starting with two 320×480 panels (IPS and SPI), where landscape may suit the bigger sizes.
+
+Rendered by `make ui-mocks` into `build/ui-mocks/nav/` on 240×280, 320×480 and 480×320 at S, M and L: 0 layout
+problems. One detail line is cut with "..." (320×480 L, six controllers).
+- **The nav is the header.** The status strip is gone.
+  - **Portrait:** a band of three icons, full width, from the top edge of the glass into its corners. It is the
+    first thing in the page, so on a page taller than the screen it scrolls away with the content.
+  - **Landscape:** a rail down the left edge, top to bottom.
+  - **Active section:** the icon in white with a blue bar under it (beside it on the rail); the others grey.
+  - **Attention badges:** a dot on the icon. Orange on Play when the chain has a problem; red on FM-1 when an
+    install is unfinished. They show from any section.
+- **Icons**, drawn from LVGL shapes in the mock (`icon_midi`, `icon_cart`): Play is a 5-pin MIDI DIN socket, FM-1
+  is a cartridge (a shell with a label, a connector tab with contacts), and Setup is the gear. 24 px on 240×280, 30
+  px on 320+. The real ones would be a small A8 image or icon-font set at those sizes.
+- **What the strip carried, now:** the chain's FM-1 node reads "runs Skiff 1.4", and FM-1 home gives the source.
+  PLAY needs no label (it's the normal state); a job's LOAD boot still takes the whole screen.
+- **Holds stay pinned** below the scrolling page, also on top-level pages (the unfinished-install retry).
+- **Round 1's sub-pages** keep the old strip and tabs until Chad approves round 2; then they take the back-arrow
+  title row under the same rule (no strip).
+
+### Screen shapes
+
+The layout follows the screen's shape; a new board needs only a `BoardProfile`.
+
+| Shape | Boards | Nav | Chain |
+|---|---|---|---|
+| Small portrait (under 400 px tall) | 240×280, 240×320, 172×320 | top band | stacked, shrinks to fit |
+| Tall portrait | 320×480 upright | top band | stacked, 6 controllers fit at M |
+| Landscape | 480×320, 800×480 | left rail | left to right at S and M; stacked at L |
+| Square or round | 480×480, 412×412 | top band inside the circle | stacked |
+
+- **320×480 is 2:3**, a bit taller than 4:3.
+- **Recommended defaults:** landscape on the 320×480 panels, portrait on the 1.69". Setup gets a "Rotate screen"
+  row on boards that can turn (an LVGL display rotation, saved in settings).
+- **Square panels** use a 10 px side margin and 8 px top and bottom (host_ui's rect padding is 6).
+- **The landscape chain**: Controllers → Router → FM-1 as columns on one spine, hub line underneath. Router shows
+  bare counts ("123456", "12 blocked") to give Controllers the width.
+- **Landscape pages** put the FM-1 card and Setup's version and sizes on the left, their rows on the right.
+- **Text size steps** get `font_boost` 1 on the 3.5" panels.
+
+### Round 2 questions for Chad
+
+1. Do the MIDI socket and the cartridge read right? (Recommended: keep both.)
+2. Should the nav scroll away, or stay put? (Recommended: scroll away, as proposed. It only happens at L on the
+   1.69".)
+3. Should the 320×480 panels default to landscape? (Recommended: yes, with Rotate screen in Setup.)
+4. Which display driver and touch controller do the new panels have? (Needed for their board profiles.)
 
 ## What's wrong today
 
