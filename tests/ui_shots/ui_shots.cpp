@@ -161,6 +161,8 @@ static bool tap_button(lv_obj_t *scr, const char *text, int hold_ms = 80, int dr
     fail("no '%s' button", text);
     return false;
   }
+  lv_obj_scroll_to_view_recursive(b, LV_ANIM_OFF);  // a page that scrolls: bring it up first
+  run(20);
   lv_area_t a;
   lv_obj_get_coords(b, &a);
   tap((a.x1 + a.x2) / 2, (a.y1 + a.y2) / 2, hold_ms, drift);
