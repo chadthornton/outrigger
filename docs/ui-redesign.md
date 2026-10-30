@@ -15,15 +15,16 @@ and what the backup process is."
 
 ## What's wrong today
 
+Baseline: `loader-session3` at `154d147`, which split the Firmware page into a list and a detail screen holding the
+status lines, the preview and the 2-second hold. That fixed the overflow and matches this design's list → detail
+direction. What's left:
 - **Navigation is hidden.** A tap anywhere on the chain opens Settings, and Firmware is a button inside Settings.
-- **The Firmware page doesn't fit.** It holds the title, six status lines, up to ten rows, two preview lines and the
-  hold on one screen, so at M it scrolls and the hold sits below the fold.
-- **One row means two things.** In checkpoint 3 the top row's hold ran a resume while the row read "Back up", and
-  Chad held it as a backup. The row now reads "Retry the … install", but the pattern invites the mistake.
-- **Errors mix three things.** A red title, then lines with sectors, USB codes and hashes. The board knows whether
-  the FM-1 is safe and what fixes it, but the page doesn't say so plainly.
-- **"Running" has no source.** The page marks a package "running", but that mark comes from the latest backup, not
+- **Nothing says what the board is doing.** No mode is shown outside the Firmware detail's title.
+- **Errors mix three things.** The stopped detail shows nine lines at one weight: cause, USB codes, sector, the
+  danger warning and advice. The board knows whether the FM-1 is safe and what fixes it, but doesn't say so first.
+- **"Running" has no source.** The list marks a package "running", but that mark comes from the latest backup, not
   from the FM-1. Skiff even calls itself Felucca on USB.
+- **Diagnostics sit in the main flow.** Store, blob, unit hashes and free RAM appear on every detail screen.
 
 ## Screen map
 
