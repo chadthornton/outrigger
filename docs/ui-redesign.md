@@ -6,8 +6,8 @@ merges (ui-polish rewrote `host_ui`, and that merge carries the current Firmware
 - **Review page:** https://claude.ai/artifact/AemH6yE3Nzyeu6GYobHaeg (every screen at S, M and L).
 - **Mockups:** `make ui-mocks` renders them with LVGL from `tests/ui_mocks/ui_mocks.cpp` into `build/ui-mocks/`,
   with the same label checks as `make ui-shots`.
-  - **Results:** 42 screens, 0 layout problems. Every page fits at S and M; at L, 11 page bodies scroll, but their
-    holds and the tab bar stay in view.
+  - **Results:** 45 screens (15 at each size), 0 layout problems. Every page fits at S and M; at L, 12 page bodies
+    scroll, but their holds and the tab bar stay in view.
   - **Sample data only.** The mock code is a layout reference, not code to merge into `host_ui`.
 
 **Chad's goals:** "a top level nav and better error messaging and better clarity around what's currently running
@@ -64,6 +64,13 @@ Every screen starts with one line, at 12 px (14 px at L), which doesn't grow wit
 
 ## FM-1 section
 
+- **An unfinished install overrides everything here.** When `resume_pending()` is true (the board booted with the
+  FM-1 still in ROM boot and a pending record), FM-1 home becomes the "Install unfinished" card. Its retry hold is
+  the only action; Back up and Change firmware are gone. This is checkpoint 3's mix-up: the split pages must not
+  leave a backup holdable on a half-written FM-1.
+  - **The strip** reads "FM-1: install unfinished" in red, since the latest backup no longer describes the FM-1.
+  - **Play** shows the FM-1 node red, with "Install unfinished: see FM-1".
+
 - **FM-1 home.**
   - **A card:** "Runs Skiff 1.4", then in small grey "Read from backup b50. Its USB name says Felucca."
   - **Two rows:** "Back up" (sub-line: "Latest b50 matches it") and "Change firmware" (sub-line: "5 in the library").
@@ -107,8 +114,13 @@ Every screen starts with one line, at 12 px (14 px at L), which doesn't grow wit
 
 **The pattern.** Every job error has the same parts, in this order:
 1. **Headline:** what happened, orange (safe) or red (danger).
-2. **Safety card:** a green check and "Nothing was written.", or a red warning and "Don't unplug the FM-1 or switch
-   it off."
+2. **Safety card,** in one of three states:
+   - **Nothing written** (green check): the job erased and wrote nothing.
+   - **Written and verified** (green check, "Installed and checked."): it wrote, every sector verified, and the
+     error came after (`MidiNotBack`).
+   - **Danger** (red warning, "Don't unplug the FM-1 or switch it off."): `danger()` is true.
+   - The state comes from whether the job wrote anything (sectors written, or a write step reached), not from
+     `!danger()` alone. `MidiNotBack` has `danger()` false after 149 sectors were written.
 3. **Why:** one plain sentence.
 4. **To do:** one sentence, then a hold that runs that fix and says which one.
 5. **Detail:** small and grey, for us: `failure_detail()`, `scsi.last_failure`, `host.why`.
@@ -120,14 +132,15 @@ Every screen starts with one line, at 12 px (14 px at L), which doesn't grow wit
 | Signal | Safe? | Why | To do | Hold |
 |---|---|---|---|---|
 | `danger()` after `DeviceLost`, `WriteVerifyFailed` | no | "It's in ROM boot with half of X written." | "Hold to retry: it carries on where it stopped." Detail adds "If the retry fails: Transporter + bN." | retry X |
-| `KeyNotSent`, `host.why` = "FM-1 already in ROM boot" | yes | "The FM-1 was already in ROM boot." | "Switch the FM-1 off and on, then try again." | back up / install X |
+| `KeyNotSent`, `host.why` = "FM-1 already in ROM boot", **no pending record** | yes | "The FM-1 was already in ROM boot." | "Switch the FM-1 off and on, then try again." | back up / install X |
+| The same, **with a pending record** for this unit | no | Route to "Install unfinished": never advise a power cycle. | | retry X |
 | `KeyNotSent`, "no FM-1 on the hub" | yes | "No FM-1 on the hub." | "Plug it into hub port 2." | none (OK) |
 | `NoRomDevice` (after the 3 tries) | yes | "The FM-1 took the key but didn't show up in ROM boot." | "Switch it off and on, then try again." | the same job |
 | `BackupStale` | yes | "The FM-1 changed since backup bN: a saved song counts." | "Back up again, then install." | back up |
 | `NoBackupForInstall` | yes | "This FM-1 has no backup yet." | "Back up first." | back up |
 | `BackupMismatch` | yes | "The two reads differed." | "Try again. If it repeats, check the cable and hub." | back up |
 | `LoaderTooSlow` | yes | "The FM-1 was too slow to read." | "Try again." | the same job |
-| `MidiNotBack` | yes | "Installed, but the FM-1 didn't come back as MIDI." | "Switch it off and on." | none |
+| `MidiNotBack` | written and verified | "Installed, but the FM-1 didn't come back as MIDI." | "Switch it off and on." | none |
 | Not ready (store or blob) | yes | "This board's store is unreadable" or "The loader file is missing." | "Needs a fix from the Mac." | none |
 | Anything else | per `danger()` | `failure_text()` | "Try again." | the same job |
 
@@ -136,8 +149,8 @@ Every screen starts with one line, at 12 px (14 px at L), which doesn't grow wit
 - **Reads:** all 1 MiB of the FM-1's flash, twice, compared (safety rule 3). Writes nothing to the FM-1.
 - **Stored:** in this board's internal LittleFS store, under the unit ID (a hash of the FM-1's Bluetooth sector at
   `0xE9000`).
-- **Kept:** the unit's first backup (`baseline_backup`) forever, plus its latest. Laptop copies come with the Web UI
-  (3b).
+- **Kept:** the unit's first backup (`baseline_backup`) forever, plus its latest. A new latest replaces the old one
+  once it's stored (`Library::add_backup`). Laptop copies come with the Web UI (3b).
 - **What it's for:**
   - **The undo:** no write without a verified backup of this unit; Transporter plus backup recovers a brick.
   - **"Running":** the board reads the installed firmware from the latest backup.
@@ -153,7 +166,8 @@ Every screen starts with one line, at 12 px (14 px at L), which doesn't grow wit
   - **The list:** items with a note kind (running, save, not yet).
   - **The plan:** the install preview's sentences.
   - **The job:** kind, step list with states, percent, danger.
-  - **The result:** kind, safe, headline, why, todo, detail, and the fix hold's label and action.
+  - **The result:** kind, a safety state (nothing written, written and verified, danger), headline, why, todo,
+    detail, and the fix hold's label and action.
   - Today's `lines[6]` diagnostics move to the Web UI's `/status` (and a Details page if Chad wants it).
 - **`JobBoot`'s result** carries those result fields instead of a title and six lines. RTC slow memory has room
   (8 KB).

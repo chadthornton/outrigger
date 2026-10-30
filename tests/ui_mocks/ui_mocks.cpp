@@ -129,7 +129,7 @@ struct Mode {
   uint32_t colour;
 };
 static const Mode kPlay = {"PLAY", kGreen}, kLoad = {"LOAD", kYellow};
-static void header(lv_obj_t *scr, Mode mode, const char *right) {
+static void header(lv_obj_t *scr, Mode mode, const char *right, uint32_t right_colour = kGrey) {
   const int step = text_size == 2 ? 2 : 1;  // 12, 12, 14 px
   lv_obj_t *r = row(scr, 6);
   lv_obj_t *pill = box(r);
@@ -140,7 +140,7 @@ static void header(lv_obj_t *scr, Mode mode, const char *right) {
   lv_obj_set_style_pad_hor(pill, 5, 0);
   lv_obj_set_style_pad_ver(pill, 1, 0);
   word(pill, mode.name, 0x000000, step);
-  lv_obj_t *l = word(r, right, kGrey, step);
+  lv_obj_t *l = word(r, right, right_colour, step);
   lv_obj_set_flex_grow(l, 1);
   lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_RIGHT, 0);
   lv_label_set_long_mode(l, LV_LABEL_LONG_MODE_DOTS);
@@ -407,6 +407,19 @@ static void fm1_home() {
   text(k, "Read from backup b50. Its USB name says Felucca.", kMuted, base() - 1);
   nav_row(b, LV_SYMBOL_DOWNLOAD " Back up", "Latest b50 matches it");
   nav_row(b, LV_SYMBOL_DRIVE " Change firmware", "5 in the library");
+  tabs(scr, 1);
+  lv_screen_load(scr);
+}
+
+// The board booted into Play with an install left unfinished (resume_pending()):
+// the retry is the only action, Back up and Change firmware are gone.
+static void fm1_unfinished() {
+  lv_obj_t *scr = new_screen();
+  header(scr, kPlay, "FM-1: install unfinished", kRed);
+  lv_obj_t *b = body(scr, 4);
+  problem(b, {"Install unfinished", false, "Don't unplug the FM-1 or switch it off.",
+              "It's in ROM boot with half of Felucca 1.6.1 written.", nullptr, nullptr});
+  hold(scr, "retry Felucca 1.6.1", 0, kRed);
   tabs(scr, 1);
   lv_screen_load(scr);
 }
@@ -687,6 +700,7 @@ static void run_size(int size) {
       {"12_stopped_changed", stopped_changed},
       {"13_done", done},
       {"14_setup", setup},
+      {"15_fm1_unfinished", fm1_unfinished},
   };
   for (const Entry &e : kScreens) {
     e.build();
