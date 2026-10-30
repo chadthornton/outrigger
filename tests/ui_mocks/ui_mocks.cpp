@@ -944,9 +944,10 @@ static void nav_setup(bool scrolled) {
 }
 
 // ---------- Round 5: switching firmware is the FM-1 page ----------
-// The FM-1 section opens on the firmware list. Switching backs up first, by
-// itself, so there's one hold and no "back up again" refusal; a manual backup
-// is a quiet row at the bottom.
+// The FM-1 section opens on the firmware list. A switch checks the FM-1
+// against its latest backup and writes; only if the FM-1 changed does it back
+// up first, by itself (Chad's call). One hold either way; a manual backup is a
+// quiet row at the bottom.
 
 // A page under a section: no nav, a back row on top, a pinned footer.
 static Top sub_page(const char *title, uint32_t colour = kWhite, bool back = true) {
@@ -1009,13 +1010,13 @@ static void fm1_list(bool focus = false) {
   firmware_line(t.content, "SLOOP 2.8.1", "not yet", false);
   lv_obj_t *gap = box(t.content);
   lv_obj_set_size(gap, 1, 4);
-  nav_row(t.content, "Backups", "Latest b50, before every switch", kMuted);
+  nav_row(t.content, "Backups", "Latest b50; switches keep it current", kMuted);
 }
 
 static void switch_confirm(bool has_save) {
   Top t = sub_page("Felucca 1.6.1");
   text(t.content, "Switches from Skiff 1.4.", kWhite, base());
-  step(t.content, StepState::Next, "Backs up the FM-1 first");
+  step(t.content, StepState::Next, "Backs up only if the FM-1 changed");
   step(t.content, StepState::Next, "Saves Skiff's songs");
   step(t.content, StepState::Next, "Writes Felucca: 143 sectors");
   step(t.content, StepState::Next, has_save ? "Brings back Felucca's songs" : "Starts Felucca fresh: no songs saved yet");
@@ -1023,22 +1024,31 @@ static void switch_confirm(bool has_save) {
   pinned_hold(t, "switch to Felucca 1.6.1", kYellow);
 }
 
-static void switch_job(int stage) {
+// changed: the check found the FM-1 differs from b50, so this switch backs
+// up first. Otherwise it goes straight to writing.
+static void switch_job(bool changed) {
   Top t = sub_page("Switching to Felucca", kYellow, false);
-  if (stage >= 2) {
+  if (!changed) {
     lv_obj_t *k = card(t.content, kDangerBg, kDangerEdge);
     text(k, LV_SYMBOL_WARNING " Don't unplug or switch off the FM-1", kWhite, base() - 1);
+    step(t.content, StepState::Done, "Checked: same as b50");
+    step(t.content, StepState::Done, "Saved Skiff's songs");
+    step(t.content, StepState::Now, "Writing 88 of 149");
+    step(t.content, StepState::Next, "Restart the FM-1");
+    progress(t.content, 59);
+    return;
   }
-  static const char *const kSteps[] = {"Backed up (b51)", "Saved Skiff's songs", "Writing 88 of 149", "Restart the FM-1"};
-  static const char *const kNow[] = {"Backing up: 2nd read, 42%", "Saving Skiff's songs", "Writing 88 of 149", "Restarting the FM-1"};
-  for (int i = 0; i < 4; ++i)
-    step(t.content, i < stage ? StepState::Done : i == stage ? StepState::Now : StepState::Next, i == stage ? kNow[i] : kSteps[i]);
-  progress(t.content, stage == 0 ? 21 : 59);
+  step(t.content, StepState::Done, "Changed since b50: nothing written");
+  step(t.content, StepState::Now, "Backing up: 2nd read, 42%");
+  step(t.content, StepState::Next, "Save Skiff's songs");
+  step(t.content, StepState::Next, "Write Felucca");
+  step(t.content, StepState::Next, "Restart the FM-1");
+  progress(t.content, 21);
 }
 
 static void backups_page() {
   Top t = sub_page("Backups");
-  text(t.content, "Every switch backs up the FM-1 first. You don't need to.", kWhite, base());
+  text(t.content, "A switch backs up by itself when the FM-1 changed since its last backup. You don't need to.", kWhite, base());
   text(t.content, "A backup reads all 1 MB of the FM-1 twice and keeps it on this board. It writes nothing to the FM-1.",
        kGrey, base() - 1);
   text(t.content, "Kept: the first (b1) and the latest (b50).", kGrey, base() - 1);
@@ -1229,8 +1239,8 @@ static void run(const Board &b, int size) {
       {"fm1_list_focus", [] { fm1_list(true); }},
       {"switch_confirm", [] { switch_confirm(true); }},
       {"switch_confirm_fresh", [] { switch_confirm(false); }},
-      {"switch_backing_up", [] { switch_job(0); }},
-      {"switch_writing", [] { switch_job(2); }},
+      {"switch_changed", [] { switch_job(true); }},
+      {"switch_writing", [] { switch_job(false); }},
       {"backups", backups_page},
       {"home_badge", nav_home_play_problem},
       {"unfinished", nav_unfinished},
