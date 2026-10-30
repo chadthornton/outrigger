@@ -43,7 +43,7 @@ enum class JobKind : uint8_t { None, Backup, Install, Resume };
 struct JobBoot {
   uint32_t magic;
   JobKind kind;
-  uint8_t attempt;  // 2: the board restarted after the key because no ROM device showed up
+  uint8_t attempt;  // 2, 3: the board restarted after a key because no ROM device showed up
   bool key_sent, fresh_ok, layout_ok, loader_running;
   char package[48], unit[40];
   // The job's result, for the Firmware page after the boot back to Play.
@@ -52,6 +52,7 @@ struct JobBoot {
   char result_title[40], result_lines[kLoaderLines][40];
 };
 constexpr uint32_t kJobMagic = 0x10B5EED1;
+constexpr uint8_t kKeyTries = 3;  // boots that look for ROM boot, each after a key
 RTC_NOINIT_ATTR JobBoot job_boot;
 
 #if LOADER_SOAK
@@ -570,12 +571,21 @@ void run_job() {
   JobBoot &j = active_job;
   UsbScsi scsi;
   Host host;
-  host.reboot_on_miss = j.attempt < 2 && j.kind != JobKind::Resume;
+  host.reboot_on_miss = j.attempt < kKeyTries && j.kind != JobKind::Resume;
   Installer inst(scsi, host, *library, blob);
   InstallOptions o;
   o.confirmed = true;  // the 2-second hold on the Firmware page, before the restart
   o.rom_timeout_ms = kRomWaitMs;
   o.key_sent = j.key_sent;
+  if (j.key_sent) {
+    // A retry after a restart: the FM-1 is in ROM boot, or it took the key but
+    // restarted into its own firmware (the soak saw 2 in 7). Then it gets the key again.
+    wait_until(10000, [] { return rom_address.load() != 0 || fm1_midi_address.load() != 0; });
+    if (!rom_address.load() && fm1_midi_address.load()) {
+      DLOG_LOADER("retry: the FM-1 is back in its firmware, sending the key again");
+      o.key_sent = false;
+    }
+  }
   DLOG_LOADER("job start: %s %s, attempt %u%s", job_name(j.kind), j.package, unsigned(j.attempt),
               j.key_sent ? ", key already sent" : "");
   log_heap("job start");
@@ -624,8 +634,8 @@ void run_job() {
 #endif
   if (inst.failure() == Failure::NoRomDevice && host.wants_reboot) {
     JobBoot again = j;
-    again.attempt = 2;
-    again.key_sent = true;
+    again.attempt = uint8_t(j.attempt + 1);
+    again.key_sent = true;  // the next boot checks whether the FM-1 is in ROM boot
     restart_for(again, "no ROM device after the key");
   }
   in_rom_boot = inst.danger();

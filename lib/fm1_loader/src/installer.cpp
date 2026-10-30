@@ -508,9 +508,17 @@ void Installer::finish_record() {
   unit_.installed_package = package_id_;
   unit_.has_pending = false;
   unit_.pending = PendingInstall();
-  // Not fatal: the flash is verified, and a stale pending record only makes a
+  // What the FM-1 holds now: the flash it planned from with every written sector
+  // (each one read back) in place. Recorded as the latest backup, so the page's
+  // "running" mark and the next install's plan start from the FM-1 as it is.
+  FlashHashes now = flash_;
+  for (const std::vector<SectorOp> *ops : {&app_ops_, &data_ops_})
+    for (const SectorOp &op : *ops) now[op.addr / kSector] = op.want;
+  std::string id;
+  // Not fatal: the flash is verified. Without the record, the next install's
+  // check read stops it ("back up again"); a stale pending record only makes a
   // later resume find nothing to write.
-  lib_.put_unit(unit_);
+  if (!lib_.add_backup(unit_, now, id)) lib_.put_unit(unit_);
 }
 
 }  // namespace fm1_loader
