@@ -279,7 +279,7 @@ struct Problem {
   const char *detail;
 };
 static void problem(lv_obj_t *parent, const Problem &p) {
-  text(parent, p.what, p.safe ? kOrange : kRed, heading(2));
+  if (p.what) text(parent, p.what, p.safe ? kOrange : kRed, heading(2));  // null: the page's title says it
   lv_obj_t *s = card(parent, p.safe ? kOkBg : kDangerBg, p.safe ? kOkEdge : kDangerEdge);
   lv_obj_t *sr = row(s, 6);
   word(sr, p.safe ? LV_SYMBOL_OK : LV_SYMBOL_WARNING, p.safe ? kGreen : kRed, base());
@@ -1056,6 +1056,97 @@ static void backups_page() {
   pinned_hold(t, "back up now", kYellow);
 }
 
+// ---------- Round 6: the remaining pages, in the round 2 style ----------
+// Results and errors keep round 1's pattern (what happened, is the FM-1 safe,
+// why, what to do, then the detail) on a sub-page; a running job's pages have
+// no back arrow.
+
+static void backup_job() {
+  Top t = sub_page("Backing up", kYellow, false);
+  step(t.content, StepState::Done, "FM-1 in ROM boot");
+  step(t.content, StepState::Now, "Reading, 2nd pass: 42%");
+  step(t.content, StepState::Next, "Compare and store");
+  step(t.content, StepState::Next, "Restart the FM-1");
+  progress(t.content, 42);
+  text(t.content, "Writes nothing to the FM-1.", kMuted, base() - 1);
+}
+
+static void switched() {
+  Top t = sub_page("Switched", kGreen);
+  text(t.content, "Felucca 1.6.1 is running.", kWhite, heading(1));
+  step(t.content, StepState::Done, "149 sectors written and checked");
+  step(t.content, StepState::Done, "Skiff's songs saved, Felucca's back");
+  step(t.content, StepState::Done, "FM-1 restarted");
+  lv_obj_t *f = column(t.foot);
+  lv_obj_set_style_pad_hor(f, kSide, 0);
+  lv_obj_set_style_pad_bottom(f, kTop, 0);
+  plain_button(f, "OK");
+}
+
+// The headline is the page's title, so the safety line comes straight after.
+static void err_page(const Problem &p, const char *fix, uint32_t fill, bool back = true) {
+  Top t = sub_page(p.what, p.safe ? kOrange : kRed, back);
+  Problem body = p;
+  body.what = nullptr;
+  problem(t.content, body);
+  if (fix) {
+    pinned_hold(t, fix, fill);
+  } else {
+    lv_obj_t *f = column(t.foot);
+    lv_obj_set_style_pad_hor(f, kSide, 0);
+    lv_obj_set_style_pad_bottom(f, kTop, 0);
+    plain_button(f, "OK");
+  }
+}
+
+static void err_retry() {
+  err_page({"Switch stopped", false, "Don't unplug the FM-1 or switch it off.",
+            "It's in ROM boot with half of Felucca 1.6.1 written.", "Hold to retry: it carries on where it stopped.",
+            "sector 3 of 149, USB FB01. If the retry fails: Transporter + b50."},
+           "retry Felucca 1.6.1", kRed, false);
+}
+
+static void err_norom() {
+  err_page({"Switch didn't start", true, "Nothing was written.", "The FM-1 was already in ROM boot.",
+            "Switch the FM-1 off and on, then try again.", "No ROM boot: key not sent"},
+           "switch to Felucca 1.6.1", kYellow);
+}
+
+static void err_changing() {
+  err_page({"Switch didn't start", true, "Nothing was written. Backup b51 is fresh.",
+            "The FM-1 changed again right after its backup.", "Leave it untouched for a moment, then try again.",
+            "check read: differs from b51 at 0xE5000"},
+           "switch to Felucca 1.6.1", kYellow);
+}
+
+static void not_ready() {
+  err_page({"Can't switch yet", true, "The FM-1 is untouched.", "This board's firmware store can't be read.",
+            "It needs a fix from a computer. MIDI still works.", "Store unreadable: make flash-store"},
+           nullptr, kYellow);
+}
+
+static void computer_confirm() {
+  Top t = sub_page("Computer mode");
+  text(t.content, "Restarts this board with MIDI off, so a computer can update it over USB.", kWhite, base());
+  text(t.content, "Open the installer page in Chrome or Edge. After an update it goes back to MIDI by itself.", kGrey,
+       base() - 1);
+  pinned_hold(t, "restart in Computer mode", kYellow);
+}
+
+// The board in Computer mode: the USB host isn't running, so no nav and no
+// apps; one way back.
+static void computer_screen() {
+  Top t = sub_page(LV_SYMBOL_USB " Computer mode", kYellow, false);
+  text(t.content, "MIDI is off. Plug this board into a computer and open the installer in Chrome or Edge.", kWhite,
+       base());
+  text(t.content, "Board v 4d1d09e hub+L", kGrey, base() - 1);
+  text(t.content, "Web: 192.168.1.40", kMuted, base() - 1);
+  lv_obj_t *f = column(t.foot);
+  lv_obj_set_style_pad_hor(f, kSide, 0);
+  lv_obj_set_style_pad_bottom(f, kTop, 0);
+  plain_button(f, "Back to MIDI");
+}
+
 // ---------- Checks and shots ----------
 static int text_width(const char *s, const lv_font_t *font) {
   int w = 0;
@@ -1242,6 +1333,14 @@ static void run(const Board &b, int size) {
       {"switch_changed", [] { switch_job(true); }},
       {"switch_writing", [] { switch_job(false); }},
       {"backups", backups_page},
+      {"backup_job", backup_job},
+      {"switched", switched},
+      {"err_retry", err_retry},
+      {"err_norom", err_norom},
+      {"err_changing", err_changing},
+      {"not_ready", not_ready},
+      {"computer_confirm", computer_confirm},
+      {"computer_screen", computer_screen},
       {"home_badge", nav_home_play_problem},
       {"unfinished", nav_unfinished},
       {"setup", [] { nav_setup(false); }},
