@@ -279,6 +279,40 @@ static void test_stop_before_any_erase_leaves_nothing() {
   // Once an erase may have happened, the record stays: test_disconnect_mid_write.
 }
 
+// A verified install records what it wrote as the unit's latest backup, so the
+// page's "running" mark and the next preview describe the FM-1 as it is now
+// (checkpoint 3: a second Felucca hold was planned from the backup before the first).
+static void test_install_records_the_written_flash() {
+  Image f = base_flash(skiff());
+  memset(f.data() + 0x97000, 0x21, kSector);  // a Skiff project
+  Rig r(f);
+  r.back_up();
+  r.install("sloop-2.8.1");
+  CHECK(r.inst.current() == Step::Done);
+  Unit u = r.unit();
+  FlashHashes latest;
+  CHECK(r.lib.backup(u.latest_backup, latest));
+  bool same = latest.size() == kSectors;
+  for (uint32_t i = 0; same && i < kSectors; ++i)
+    same = latest[i] == sha256(r.rom.flash.data() + i * kSector, kSector);
+  CHECK(same);
+  CHECK(u.baseline_backup != u.latest_backup);  // the baseline stays the first backup
+  // The preview for the same package now says there's nothing to write, and a
+  // second install of it doesn't send the key.
+  InstallPreview p = preview_install(r.lib, u.id, "sloop-2.8.1");
+  CHECK(p.ok && p.app_sectors == 0 && p.current.app_sha256 == r.lib.identify_app(
+      std::vector<Hash>(latest.begin() + kAppStart / kSector, latest.begin() + kAppEnd / kSector)).app_sha256);
+  r.fresh_rom();
+  r.install("sloop-2.8.1");
+  CHECK(r.inst.current() == Step::Done);
+  CHECK_EQ(r.host.keys, 0);
+  // And straight back to Skiff, with no backup in between: its check read passes.
+  r.fresh_rom();
+  r.install("skiff-1.4");
+  CHECK(r.inst.current() == Step::Done);
+  CHECK(r.rom.flash[0x97000] == 0x21);  // the Skiff project came back
+}
+
 // The board restarted after the key because no ROM device showed up: the job
 // runs again without a second key, straight to waiting for ROM boot.
 static void test_key_already_sent() {
@@ -776,6 +810,7 @@ int main() {
   test_stop_before_any_erase_leaves_nothing();
   test_install_needs_a_backup();
   test_key_already_sent();
+  test_install_records_the_written_flash();
   test_golden_resume();
   test_golden_backup();
   test_refusals_before_the_device();
