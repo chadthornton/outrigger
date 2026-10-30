@@ -177,10 +177,25 @@ So it splits in two.
     hub requests in flight), ROM devices never seen, devices not re-enumerating, and once Wi-Fi gone too. Every
     first job after a fresh boot worked. Fixed in `74033a9`: a job is its own boot (RTC `JobBoot`, then
     `esp_restart`), and loader builds send no hub requests. The log tail now survives any reset (`/crash`).
+- **Checkpoint 3: passed 2026-10-30** (build `fc72748`, writes on).
+  - **Leg 2, Felucca 1.6.1 → Skiff 1.4:** the preview read "Writes 143 of 143 app sectors / Restores its saves
+    (6 sectors)". The install verified all 149 sectors, autosaved Felucca's data first (s9), and cleared its
+    pending record. A backup afterwards found the FM-1 running `FM-1_714` (Skiff 1.4), with the boot head and the
+    Bluetooth and voice data still equal to the 2026-10-25 dump.
+  - **Skiff calls itself "Felucca" on USB** (`1209:0001 Felucca`), so the FM-1's name doesn't tell the two apart;
+    only a backup does.
+- **Soak tests (`make build ... SOAK=1`, `tools/soak_watch.py`):** the board backs up the FM-1 by itself, job after
+  job, and the Mac keeps every crash's log tail and core dump.
+  - **Baseline (`a616453`):** 6 runs, 3 ok, 2 ROM devices missed, 2 `hcd_urb_dequeue` crashes, all as the FM-1
+    left USB after the key.
+  - **Hub tracking off in job boots (`77ff4ec`):** 9 runs, 7 ok, 1 crash (same assert), 2 runs where the FM-1
+    restarted into its firmware instead of ROM boot. `fc72748` sends the key again in that case.
+  - **Still open, and a blocker for shipping writes on:** the crash's root cause. Every crash came before any
+    write, at the FM-1's disconnect after the key.
 - **Left in session 3a, in order:**
   1. ~~The failure detail and the status line.~~ Done in `605c522`.
   2. ~~Merge `web-diag`.~~ Done (`c42d5f0`).
-  3. Checkpoint 3, leg 2: Felucca → Skiff on `74033a9` or later (backup, preview "Restores its saves", hold).
+  3. ~~Checkpoint 3.~~ Passed (above).
   4. `code-review` at high effort. The first round (9 findings) covered up to `d2284ba`; everything since is
      guarded and unreviewed.
   5. Merge `master` (ui-polish rewrote `host_ui`; the Firmware page section conflicts), then the merge gate.
