@@ -3150,6 +3150,10 @@ public:
   // Defaults to on. Set it before begin() to take effect from the first scan.
   void setHubTrackingEnabled(bool enabled);
   bool hubTrackingEnabled() const;
+  // Client loops on which a gone device's interfaces couldn't be released yet
+  // because ESP-IDF still held one of its transfers (its endpoints are freed
+  // only after that). Nonzero shows the disconnect race happened and was waited out.
+  uint32_t disconnectDeferrals() const;
   bool getHubPortStatus(uint8_t hubAddress, uint8_t port, uint16_t &status, uint16_t &change);
   bool networkOpen(uint8_t address = ESP_USB_HOST_ANY_ADDRESS);
   bool networkOpen(const EspUsbHostNetworkInterfaceInfo &network);
@@ -4218,6 +4222,7 @@ private:
   uint32_t defaultAudioSampleRate_ = 48000;
   uint8_t nextHubIndex_ = 1;
   bool hubTrackingEnabled_ = true;
+  volatile uint32_t disconnectDeferrals_ = 0;
   uint32_t lastHostDeviceScanMs_ = 0;
 
   EndpointState endpoints_[16];

@@ -2425,6 +2425,11 @@ bool EspUsbHost::hubTrackingEnabled() const
   return hubTrackingEnabled_;
 }
 
+uint32_t EspUsbHost::disconnectDeferrals() const
+{
+  return disconnectDeferrals_;
+}
+
 bool EspUsbHost::setHubPortPower(uint8_t hubAddress, uint8_t port, bool enable)
 {
   if (!running_ || !clientHandle_)
@@ -9162,7 +9167,24 @@ void EspUsbHost::handleDeviceGone(usb_device_handle_t goneHandle)
   // The device is already gone, so no control transfer is attempted: the
   // streaming state and the frame buffer are dropped rather than wound down.
   releaseVideoStreaming(*device, false);
-  releaseEndpoints(*device, false);
+  // The endpoints' transfers can't be freed yet: ESP-IDF may still hold one on
+  // a pipe's done list (it flushes the pipes before it posts DEV_GONE, and this
+  // client pass may have checked for pending endpoints before that flush).
+  // Freeing it here let hcd_urb_dequeue() later read reused memory and assert.
+  // Stop them instead; finalizeDisconnectedDevice() frees them once IDF lets
+  // every interface go, which it refuses while a transfer is in flight.
+  portENTER_CRITICAL(&endpointSubmitMux_);
+  for (EndpointState &endpoint : endpoints_)
+  {
+    if (endpoint.inUse && endpoint.deviceHandle == device->handle)
+    {
+      endpoint.stopping = true;
+      endpoint.resubmitPending = false;
+      endpoint.resubmitAfterLed = false;
+      endpoint.recoveryPending = false;
+    }
+  }
+  portEXIT_CRITICAL(&endpointSubmitMux_);
   device->disconnectPending = true;
 
   dispatchDeviceDisconnected(info);
@@ -13189,6 +13211,10 @@ void EspUsbHost::handleTransfer(usb_transfer_t *transfer)
   endpoint->transferSubmitted = false;
   portEXIT_CRITICAL(&endpointSubmitMux_);
   DeviceState *device = findDeviceByHandle(endpoint->deviceHandle);
+  if (device && device->disconnectPending)
+  {
+    return;  // already reported gone: no data for it, and nothing resubmits
+  }
 
   const bool isAudioStreaming = endpoint->interfaceClass == USB_CLASS_AUDIO_VALUE &&
                                 endpoint->interfaceSubClass == USB_AUDIO_SUBCLASS_AUDIO_STREAMING;
@@ -16037,8 +16063,11 @@ bool EspUsbHost::finalizeDisconnectedDevice(DeviceState &device)
   device.interfaceCount = remaining;
   if (remaining != 0)
   {
+    disconnectDeferrals_++;
     return false;
   }
+  // IDF has dequeued every transfer and run its callback: now they can go.
+  releaseEndpoints(device, false);
   device.endpointChannelCount = 0;
 
   const esp_err_t closeErr = device.handle

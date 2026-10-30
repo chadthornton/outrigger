@@ -62,8 +62,9 @@ RTC_NOINIT_ATTR JobBoot job_boot;
 struct Soak {
   uint32_t magic;
   uint32_t runs, ok, failed, crashes, failed_in_row;
+  uint32_t deferrals;  // disconnects whose endpoints waited for IDF (EspUsbHost::disconnectDeferrals)
 };
-constexpr uint32_t kSoakMagic = 0x50A4C0DF;  // changed per soak build: counts start over
+constexpr uint32_t kSoakMagic = 0x50A4C0E0;  // changed per soak build: counts start over
 constexpr uint32_t kSoakRuns = 50;
 RTC_NOINIT_ATTR Soak soak;
 #endif
@@ -618,6 +619,8 @@ void run_job() {
   }
   log_heap("job end");
 #if LOADER_SOAK
+  // This boot's count: each job runs in its own boot, so the RTC record sums them.
+  if (usb) soak.deferrals += usb->disconnectDeferrals();
   if (!(inst.failure() == Failure::NoRomDevice && host.wants_reboot)) {
     ++soak.runs;
     if (inst.current() == Step::Done) {
@@ -627,9 +630,9 @@ void run_job() {
       ++soak.failed;
       ++soak.failed_in_row;
     }
-    DLOG_LOADER("soak run %u: %s (ok %u, failed %u, crashes %u)", unsigned(soak.runs),
+    DLOG_LOADER("soak run %u: %s (ok %u, failed %u, crashes %u, deferrals %u)", unsigned(soak.runs),
                 inst.current() == Step::Done ? "ok" : failure_text(inst.failure()), unsigned(soak.ok),
-                unsigned(soak.failed), unsigned(soak.crashes));
+                unsigned(soak.failed), unsigned(soak.crashes), unsigned(soak.deferrals));
   }
 #endif
   if (inst.failure() == Failure::NoRomDevice && host.wants_reboot) {
@@ -698,7 +701,7 @@ void loader_task(void *) {
     busy = false;
   }
 #if LOADER_SOAK
-  if (soak.magic != kSoakMagic) soak = {kSoakMagic, 0, 0, 0, 0, 0};
+  if (soak.magic != kSoakMagic) soak = {kSoakMagic, 0, 0, 0, 0, 0, 0};
   if (store_ok && blob_ok && boot_mode == platform::Mode::Play) {
     // The next backup, once the FM-1 is back (as MIDI, or still in ROM boot
     // after a crash: then the key is skipped and the job resets it home).
@@ -708,8 +711,8 @@ void loader_task(void *) {
     vTaskDelay(pdMS_TO_TICKS(45000));
     const bool in_rom = rom_address.load() != 0;
     if (soak.runs >= kSoakRuns || soak.failed_in_row >= 5) {
-      DLOG_LOADER("soak finished: %u runs, ok %u, failed %u, crashes %u", unsigned(soak.runs), unsigned(soak.ok),
-                  unsigned(soak.failed), unsigned(soak.crashes));
+      DLOG_LOADER("soak finished: %u runs, ok %u, failed %u, crashes %u, deferrals %u", unsigned(soak.runs),
+                  unsigned(soak.ok), unsigned(soak.failed), unsigned(soak.crashes), unsigned(soak.deferrals));
       show("Soak finished", kGreen);
     } else if (fm1_midi_address.load() || in_rom) {
       JobBoot j = {};
