@@ -1,7 +1,7 @@
 # UI redesign: top-level nav, errors, what's running (draft for Chad's sign-off)
 
-**Status:** proposal, 2026-10-30; round 2 (top level, more screens) and round 3 (one column in landscape) the
-same day. Mockups only, nothing built into `host_ui` yet. Build it after `loader-session3`
+**Status:** proposal, 2026-10-30; round 2 (top level, more screens) round 3 (one column in landscape) and round
+4 (compact Play, input without touch) the same day. Mockups only, nothing built into `host_ui` yet. Build it after `loader-session3`
 merges (ui-polish rewrote `host_ui`, and that merge carries the current Firmware page).
 
 - **Review page:** https://claude.ai/artifact/AemH6yE3Nzyeu6GYobHaeg (every screen at S, M and L).
@@ -38,6 +38,41 @@ problems. One detail line is cut with "..." (320×480 L, six controllers).
 - **Holds stay pinned** below the scrolling page, also on top-level pages (the unfinished-install retry).
 - **Round 1's sub-pages** keep the old strip and tabs until Chad approves round 2; then they take the back-arrow
   title row under the same rule (no strip).
+
+### Round 4: compact Play, and input without touch
+
+**Play collapses to one line per stage** (Chad: "a lot of incidental information"). Each of Hub, Controllers,
+Router and FM-1 is one line: dot, name, and one status on the right. Tapping the line opens that stage's detail
+(today's lines) under it; one stage is open at a time, and a second tap closes it.
+- **Statuses** are terse and show the worst thing first:
+  - **Hub:** "USB 8/8" (yellow when full).
+  - **Controllers:** "LAU playing", or "6, 1 issue" (orange).
+  - **Router:** "123k sent".
+  - **FM-1:** "Skiff 1.4", or "no answer" (orange).
+- **A problem opens its own stage** with the fix card, and badges the Play icon.
+- **Lines are 36 px tall on the 1.69" and 44 px on 320+**, so each is a real hit target. On the 1.69" there's no
+  chevron, and at L the status drops under the name.
+- **Fit:** collapsed, Play fits at S and M on every board, and at L on all but the 1.69" (one line, scrolls). An
+  open stage with six controllers scrolls; the 1.69" no longer shrinks text for the chain.
+- **Detail lines wrap** instead of being cut with "...".
+- The code needs a per-stage status line from `status.h` (the worst condition, else the latest activity) next to
+  the existing detail lines.
+
+**Input without touch.** Not every ESP32 board has touch: many have one to three buttons, a rotary encoder or a
+5-way switch (the 1.47" Waveshare among them). Every screen works by focus too, through an LVGL input group in
+reading order: nav icons, then each line on the page.
+
+| Input | Move | Open | Hold (backup, install) |
+|---|---|---|---|
+| Touch | scroll | tap | keep pressing 2 s |
+| Encoder | turn | press | keep pressing 2 s |
+| 5-way | up, down; left, right between sections | center | hold center 2 s |
+| Two buttons | short A | short B | hold B 2 s |
+| One button | short press | long press | keep holding to 2 s |
+
+- **The focus ring** is a 2 px blue border on the line, or an outline on the nav icon, so nothing moves when focus
+  arrives. It shows only on boards without touch.
+- **The `BoardProfile`** gains the input kind (touch, encoder, keys) and which pins.
 
 ### Screen shapes
 

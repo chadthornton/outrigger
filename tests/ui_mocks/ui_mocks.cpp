@@ -670,6 +670,7 @@ static lv_obj_t *icon_gear(lv_obj_t *parent, int s, uint32_t col) {
 }
 
 enum class Badge { None, Warn, Bad };
+static int nav_focus = -1;  // the nav item a D-pad or encoder has reached, -1 none
 
 // One nav item: the icon, a bar that marks the active one, a badge when that
 // section needs attention.
@@ -686,6 +687,12 @@ static void nav_item(lv_obj_t *parent, int which, bool active, Badge badge) {
   const uint32_t col = active ? kWhite : kIconOff;
   lv_obj_t *icon = which == 0 ? icon_midi(cell, s, col) : which == 1 ? icon_cart(cell, s, col) : icon_gear(cell, s, col);
   lv_obj_set_style_pad_hor(cell, landscape() ? 0 : 8, 0);
+  if (which == nav_focus) {  // an outline: drawn outside the cell, so the band doesn't move
+    lv_obj_set_style_outline_width(cell, 2, 0);
+    lv_obj_set_style_outline_color(cell, c(kBlue), 0);
+    lv_obj_set_style_outline_pad(cell, 3, 0);
+    lv_obj_set_style_radius(cell, 8, 0);
+  }
   if (!landscape()) {
     lv_obj_move_to_index(bar, -1);  // under the icon
     lv_obj_set_size(bar, s, 3);
@@ -783,6 +790,106 @@ static void nav_play(int controllers, bool problem_, bool scrolled = false) {
     lv_obj_update_layout(t.scr);
     lv_obj_scroll_to_y(t.page, LV_COORD_MAX, LV_ANIM_OFF);
   }
+}
+
+// Play, compact (round 4): one line per stage, its title and one status on
+// the right. Tapping a line opens that stage's detail, one at a time; a
+// problem opens its own stage. Every line is a hit target now that a tap on
+// the chain no longer means "open Settings".
+struct Stage {
+  const char *title;
+  uint32_t title_colour, dot;
+  const char *status;
+  uint32_t status_colour;
+  std::vector<std::pair<const char *, uint32_t>> lines;
+};
+
+// open: the stage showing its detail (-1 none). focus: the line a D-pad or
+// encoder has reached (-1 none), drawn with the focus ring.
+static void chain_compact(lv_obj_t *parent, const std::vector<Stage> &stages, int open, int focus,
+                          const char *problem_what = nullptr, const char *problem_do = nullptr) {
+  const int line_h = W >= 320 ? 44 : 36, dot = W >= 320 ? 14 : 12;
+  for (size_t i = 0; i < stages.size(); ++i) {
+    const Stage &st = stages[i];
+    lv_obj_t *r = row(parent, 0);
+    lv_obj_set_flex_align(r, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    lv_obj_t *rail = box(r);
+    lv_obj_add_flag(rail, LV_OBJ_FLAG_IGNORE_LAYOUT);
+    lv_obj_set_size(rail, dot, lv_pct(100));
+    lv_obj_set_flex_flow(rail, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(rail, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_t *d = dot_at(rail, 0, 0, dot, dot, st.dot, LV_RADIUS_CIRCLE);
+    lv_obj_set_style_margin_top(d, W < 320 && text_size == 2 ? 8 : (line_h - dot) / 2, 0);
+    lv_obj_t *spine = box(rail);
+    lv_obj_set_width(spine, 2);
+    lv_obj_set_flex_grow(spine, 1);
+    if (i + 1 < stages.size()) {
+      lv_obj_set_style_bg_opa(spine, LV_OPA_COVER, 0);
+      lv_obj_set_style_bg_color(spine, c(kSpine), 0);
+    }
+    lv_obj_t *col = column(r, 2);
+    lv_obj_set_style_pad_left(col, dot + 8, 0);
+    // On the 1.69" at L the status drops under the title; elsewhere it sits
+    // on the right of the same line.
+    const bool stacked = W < 320 && text_size == 2;
+    lv_obj_t *head = stacked ? column(col, 0) : row(col, 8);
+    if (!stacked) lv_obj_set_height(head, line_h);
+    lv_obj_set_style_pad_hor(head, 6, 0);
+    lv_obj_set_style_pad_ver(head, stacked ? 4 : 0, 0);
+    lv_obj_set_style_radius(head, 8, 0);
+    if (int(i) == open) {
+      lv_obj_set_style_bg_opa(head, LV_OPA_COVER, 0);
+      lv_obj_set_style_bg_color(head, c(0x1A1A1A), 0);
+    }
+    if (int(i) == focus) {
+      lv_obj_set_style_border_width(head, 2, 0);  // inside the line, so nothing clips it
+      lv_obj_set_style_border_color(head, c(kBlue), 0);
+    }
+    word(head, st.title, st.title_colour, heading(1));
+    lv_obj_t *status = word(head, st.status, st.status_colour, base() - 1);
+    if (!stacked) {
+      lv_obj_set_width(status, 1);
+      lv_obj_set_flex_grow(status, 1);
+      lv_obj_set_style_text_align(status, LV_TEXT_ALIGN_RIGHT, 0);
+      lv_label_set_long_mode(status, LV_LABEL_LONG_MODE_DOTS);
+      lv_label_set_max_lines(status, 1);
+    }
+    if (W >= 320) word(head, int(i) == open ? LV_SYMBOL_UP : LV_SYMBOL_DOWN, kIconOff, base() - 2);
+    if (int(i) != open) continue;
+    lv_obj_t *detail = column(col, 1);
+    lv_obj_set_style_pad_left(detail, 6, 0);
+    lv_obj_set_style_pad_bottom(detail, 8, 0);
+    for (const auto &l : st.lines) text(detail, l.first, l.second, base() - 1);  // wraps, never cut
+    if (problem_what) {
+      lv_obj_t *k = card(detail, kWarnBg, kWarnEdge);
+      text(k, problem_what, kOrange, base());
+      text(k, problem_do, kWhite, base());
+    }
+  }
+}
+
+static std::vector<Stage> stages(int controllers, bool fm1_problem) {
+  static const char *const kLines[] = {"LAU  > NoteOn C#4 v127", "KEY  > CC 74 = 101", "ARP  port 1.3 no USB channel",
+                                       "BSP  > Pitch +8191",     "CTL  > NoteOff A0",  "DRM  > CC 1 = 64"};
+  std::vector<Stage> s;
+  s.push_back({"Hub", kWhite, kGreen, "USB 8/8", kYellow, {{"ports 1:LAU 2:FM- 3:off", kGrey}, {"8 of 8 USB channels in use", kYellow}}});
+  Stage ctl = {controllers > 1 ? "Controllers" : "Controller", kYellow, controllers > 2 ? kOrange : kGreen,
+               controllers > 2 ? "6, 1 issue" : "LAU playing", controllers > 2 ? kOrange : kGreen, {}};
+  for (int i = 0; i < controllers; ++i) ctl.lines.push_back({kLines[i], i == 2 ? kRed : i == 0 ? kGreen : kGrey});
+  s.push_back(ctl);
+  s.push_back({"Router", kWhite, kGreen, "123k sent", kGrey, {{"123456 passed", kGrey}, {"12 SysEx blocked", kGrey}}});
+  if (fm1_problem)
+    s.push_back({"FM-1", kMagenta, kRed, "no answer", kOrange, {{"last in: LAU NoteOn C#4 v127", kRed}}});
+  else
+    s.push_back({"FM-1", kMagenta, kGreen, "Skiff 1.4", kGrey,
+                 {{"runs Skiff 1.4 (backup b50)", kWhite}, {"in: LAU NoteOn C#4 v127", kGrey}, {"itself sent: CC 7 = 100", kGrey}}});
+  return s;
+}
+
+static void nav_chain(int controllers, int open, int focus = -1, bool fm1_problem = false) {
+  Top t = top_page(0, fm1_problem ? Badge::Warn : Badge::None);
+  chain_compact(t.content, stages(controllers, fm1_problem), fm1_problem ? 3 : open, focus,
+                fm1_problem ? "FM-1 not answering" : nullptr, "Replug it into hub port 2.");
 }
 
 static void nav_home() {
@@ -1002,6 +1109,17 @@ static void run(const Board &b, int size) {
       {"play6", [] { nav_play(6, false); }},
       {"play6_scrolled", [] { nav_play(6, false, true); }},
       {"play_problem", [] { nav_play(1, true); }},
+      {"chain", [] { nav_chain(1, -1); }},
+      {"chain6", [] { nav_chain(6, -1); }},
+      {"chain6_open", [] { nav_chain(6, 1); }},
+      {"chain_fm1_open", [] { nav_chain(1, 3); }},
+      {"chain_problem", [] { nav_chain(1, -1, -1, true); }},
+      {"chain_focus", [] { nav_chain(6, -1, 2); }},
+      {"chain_navfocus", [] {
+         nav_focus = 1;
+         nav_chain(1, -1);
+         nav_focus = -1;
+       }},
       {"home", nav_home},
       {"home_badge", nav_home_play_problem},
       {"unfinished", nav_unfinished},
