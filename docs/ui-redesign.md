@@ -1,6 +1,7 @@
 # UI redesign: top-level nav, errors, what's running (draft for Chad's sign-off)
 
-**Status:** proposal, 2026-10-30; round 2 (top level, more screens) the same day. Mockups only, nothing built into `host_ui` yet. Build it after `loader-session3`
+**Status:** proposal, 2026-10-30; round 2 (top level, more screens) and round 3 (one column in landscape) the
+same day. Mockups only, nothing built into `host_ui` yet. Build it after `loader-session3`
 merges (ui-polish rewrote `host_ui`, and that merge carries the current Firmware page).
 
 - **Review page:** https://claude.ai/artifact/AemH6yE3Nzyeu6GYobHaeg (every screen at S, M and L).
@@ -25,7 +26,7 @@ problems. One detail line is cut with "..." (320×480 L, six controllers).
 - **The nav is the header.** The status strip is gone.
   - **Portrait:** a band of three icons, full width, from the top edge of the glass into its corners. It is the
     first thing in the page, so on a page taller than the screen it scrolls away with the content.
-  - **Landscape:** a rail down the left edge, top to bottom.
+  - **Landscape:** a rail down the left edge, top to bottom, fixed while the page scrolls.
   - **Active section:** the icon in white with a blue bar under it (beside it on the rail); the others grey.
   - **Attention badges:** a dot on the icon. Orange on Play when the chain has a problem; red on FM-1 when an
     install is unfinished. They show from any section.
@@ -45,17 +46,22 @@ The layout follows the screen's shape; a new board needs only a `BoardProfile`.
 | Shape | Boards | Nav | Chain |
 |---|---|---|---|
 | Small portrait (under 400 px tall) | 240×280, 240×320, 172×320 | top band | stacked, shrinks to fit |
-| Tall portrait | 320×480 upright | top band | stacked, 6 controllers fit at M |
-| Landscape | 480×320, 800×480 | left rail | left to right at S and M; stacked at L |
+| Tall portrait | 320×480 upright | top band | one column, 6 controllers fit at M |
+| Landscape | 480×320, 800×480 | left rail | one column beside the rail, scrolls |
 | Square or round | 480×480, 412×412 | top band inside the circle | stacked |
 
 - **320×480 is 2:3**, a bit taller than 4:3.
 - **Recommended defaults:** landscape on the 320×480 panels, portrait on the 1.69". Setup gets a "Rotate screen"
   row on boards that can turn (an LVGL display rotation, saved in settings).
 - **Square panels** use a 10 px side margin and 8 px top and bottom (host_ui's rect padding is 6).
-- **The landscape chain**: Controllers → Router → FM-1 as columns on one spine, hub line underneath. Router shows
-  bare counts ("123456", "12 blocked") to give Controllers the width.
-- **Landscape pages** put the FM-1 card and Setup's version and sizes on the left, their rows on the right.
+- **One column on every board (round 3, Chad):** landscape keeps the rail but stacks each page exactly as portrait
+  does. A left-to-right chain and two-column FM-1 and Setup pages were tried in round 2 and dropped: side by side,
+  they read as two unrelated lists.
+  - **The rail stays put** while the page scrolls beside it. In portrait the band scrolls away with the page.
+  - **Text size holds on bigger boards.** On 320 px and wider, the chain's fit loop only tightens gaps, then the
+    page scrolls. The 1.69" keeps today's shrink-to-fit.
+  - **A narrow side column** is allowed later only for detail about the row directly to its left (e.g. a node's
+    counts), never for a second list.
 - **Text size steps** get `font_boost` 1 on the 3.5" panels.
 
 ### Round 2 questions for Chad

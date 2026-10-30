@@ -379,8 +379,10 @@ static void chain(lv_obj_t *parent, int controllers, bool fm1_problem, lv_obj_t 
     text(k, "Replug it into hub port 2.", kWhite, base());
   }
 
-  // Shrink until the chain fits: gaps first, then text, as host_ui does.
-  for (int shrink = 0; shrink < 8; ++shrink) {
+  // Shrink until the chain fits: gaps first, then text, as host_ui does. On
+  // 320 px and wider boards only the gaps tighten; past that the page scrolls.
+  const int max_shrink = W >= 320 ? 3 : 8;
+  for (int shrink = 0; shrink < max_shrink; ++shrink) {
     const int d = base() - (shrink > 2 ? shrink - 2 : 0);
     const lv_font_t *tf = font_for(d + 3), *df = font_for(d);
     static const int kGapEighths[] = {6, 3, 1};
@@ -771,95 +773,25 @@ static void pinned_hold(Top &t, const char *what, uint32_t fill) {
   lv_obj_set_style_pad_bottom(t.content, 6, 0);
 }
 
-// Two columns side by side in landscape, stacked in portrait.
-static lv_obj_t *split(lv_obj_t *content, lv_obj_t **right) {
-  if (!landscape()) {
-    *right = content;
-    return content;
-  }
-  lv_obj_t *r = row(content, 10);
-  lv_obj_set_flex_align(r, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
-  lv_obj_t *l = column(r, 6);
-  lv_obj_set_width(l, LV_SIZE_CONTENT);
-  lv_obj_set_flex_grow(l, 1);
-  *right = column(r, 6);
-  lv_obj_set_width(*right, LV_SIZE_CONTENT);
-  lv_obj_set_flex_grow(*right, 1);
-  return l;
-}
-
-// Landscape's chain: left to right, Controllers -> Router -> FM-1, the hub
-// line under it.
-static void chain_row(lv_obj_t *parent, int controllers, bool fm1_problem) {
-  static const char *const kTags[] = {"LAU", "KEY", "ARP", "BSP", "CTL", "DRM"};
-  static const char *const kDetail[] = {"NoteOn C#4 v127", "CC 74 = 101", "no USB channel",
-                                        "Pitch +8191",     "NoteOff A0",  "CC 1 = 64"};
-  lv_obj_t *r = row(parent, 0);
-  lv_obj_set_flex_align(r, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
-  auto col = [&](const char *title, uint32_t colour, uint32_t dot, int grow, bool last) {
-    lv_obj_t *k = column(r, 2);
-    lv_obj_set_width(k, LV_SIZE_CONTENT);
-    lv_obj_set_flex_grow(k, grow);
-    lv_obj_t *head = row(k, 0);
-    lv_obj_set_height(head, 14);
-    dot_at(head, 0, 0, 12, 12, dot, LV_RADIUS_CIRCLE);
-    lv_obj_t *line = box(head);
-    lv_obj_set_height(line, 2);
-    lv_obj_set_flex_grow(line, 1);
-    if (!last) {
-      lv_obj_set_style_bg_opa(line, LV_OPA_COVER, 0);
-      lv_obj_set_style_bg_color(line, c(kSpine), 0);
-    }
-    lv_obj_t *t = word(k, title, colour, heading(2));
-    lv_obj_set_style_pad_right(t, 6, 0);
-    return k;
-  };
-  auto detail = [&](lv_obj_t *k, const char *s, uint32_t colour) {
-    lv_obj_t *l = word(k, s, colour, base() - 1);
-    lv_obj_set_width(l, lv_pct(100));
-    lv_obj_set_style_pad_right(l, 6, 0);
-    lv_label_set_long_mode(l, LV_LABEL_LONG_MODE_DOTS);
-    lv_label_set_max_lines(l, 1);
-  };
-  char title[24];
-  snprintf(title, sizeof title, controllers > 1 ? "Controllers (%d)" : "Controller", controllers);
-  lv_obj_t *ctl = col(title, kYellow, kGreen, 6, false);
-  for (int i = 0; i < controllers; ++i) {
-    char buf[40];
-    snprintf(buf, sizeof buf, "%s  %s", kTags[i], kDetail[i]);
-    detail(ctl, buf, i == 2 ? kRed : i == 0 ? kGreen : kGrey);
-  }
-  lv_obj_t *router = col("Router", kWhite, kGreen, 3, false);
-  detail(router, "123456", kGrey);
-  detail(router, "12 blocked", kGrey);
-  lv_obj_t *fm1 = col("FM-1", kMagenta, fm1_problem ? kRed : kGreen, 5, true);
-  detail(fm1, "runs Skiff 1.4", kWhite);
-  detail(fm1, "LAU NoteOn C#4", fm1_problem ? kRed : kGreen);
-  if (!fm1_problem) detail(fm1, "own: CC 7 = 100", kGrey);
-  text(parent, "Hub  1:LAU 2:FM- 3:off   USB 8/8", kMuted, base() - 1);
-  if (fm1_problem) {
-    lv_obj_t *k = card(parent, kWarnBg, kWarnEdge);
-    text(k, "FM-1 not answering", kOrange, base());
-    text(k, "Replug it into hub port 2.", kWhite, base());
-  }
-}
-
-static void nav_play(int controllers, bool problem_) {
+// One column on every board: landscape keeps the rail but stacks the page
+// like portrait, scrolling when it must (Chad, round 3: the side-by-side
+// columns read as two unrelated lists).
+static void nav_play(int controllers, bool problem_, bool scrolled = false) {
   Top t = top_page(0, problem_ ? Badge::Warn : Badge::None);
-  // Across the screen while the lines fit; at L they don't, so the chain
-  // stacks as in portrait, beside the rail.
-  if (landscape() && text_size < 2) chain_row(t.content, controllers, problem_);
-  else chain(t.content, controllers, problem_, t.page, true);
+  chain(t.content, controllers, problem_, t.page, true);
+  if (scrolled) {
+    lv_obj_update_layout(t.scr);
+    lv_obj_scroll_to_y(t.page, LV_COORD_MAX, LV_ANIM_OFF);
+  }
 }
 
 static void nav_home() {
   Top t = top_page(1);
-  lv_obj_t *right, *left = split(t.content, &right);
-  lv_obj_t *k = card(left, 0x141414, kDim);
+  lv_obj_t *k = card(t.content, 0x141414, kDim);
   text(k, "Runs Skiff 1.4", kWhite, heading(2));
   text(k, "Read from backup b50. Its USB name says Felucca.", kMuted, base() - 1);
-  nav_row(right, LV_SYMBOL_DOWNLOAD " Back up", "Latest b50 matches it");
-  nav_row(right, LV_SYMBOL_DRIVE " Change firmware", "5 in the library");
+  nav_row(t.content, LV_SYMBOL_DOWNLOAD " Back up", "Latest b50 matches it");
+  nav_row(t.content, LV_SYMBOL_DRIVE " Change firmware", "5 in the library");
 }
 
 static void nav_unfinished() {
@@ -872,20 +804,18 @@ static void nav_unfinished() {
 // The Play badge from another section: the chain has a problem.
 static void nav_home_play_problem() {
   Top t = top_page(1, Badge::Warn);
-  lv_obj_t *right, *left = split(t.content, &right);
-  lv_obj_t *k = card(left, 0x141414, kDim);
+  lv_obj_t *k = card(t.content, 0x141414, kDim);
   text(k, "Runs Skiff 1.4", kWhite, heading(2));
   text(k, "Read from backup b50. Its USB name says Felucca.", kMuted, base() - 1);
-  nav_row(right, LV_SYMBOL_DOWNLOAD " Back up", "Latest b50 matches it");
-  nav_row(right, LV_SYMBOL_DRIVE " Change firmware", "5 in the library");
+  nav_row(t.content, LV_SYMBOL_DOWNLOAD " Back up", "Latest b50 matches it");
+  nav_row(t.content, LV_SYMBOL_DRIVE " Change firmware", "5 in the library");
 }
 
 static void nav_setup(bool scrolled) {
   Top t = top_page(2);
-  lv_obj_t *right, *left = split(t.content, &right);
-  text(left, "Board v 4d1d09e hub+L", kGrey, base());
-  text(left, "Web: 192.168.1.40", kMuted, base() - 1);
-  lv_obj_t *sizes = row(left, 6);
+  text(t.content, "Board v 4d1d09e hub+L", kGrey, base());
+  text(t.content, "Web: 192.168.1.40", kMuted, base() - 1);
+  lv_obj_t *sizes = row(t.content, 6);
   lv_obj_set_height(sizes, 40);
   static const char *const kSizes[] = {"S", "M", "L"};
   for (int i = 0; i < 3; ++i) {
@@ -897,8 +827,8 @@ static void nav_setup(bool scrolled) {
     lv_obj_set_style_bg_color(s, c(i == text_size ? kBlue : kDim), 0);
     lv_obj_center(word(s, kSizes[i], kWhite, i * 2 + 3 + bd->font_boost));
   }
-  if (bd->radius == 0) nav_row(right, LV_SYMBOL_REFRESH " Rotate screen", landscape() ? "Now: landscape" : "Now: portrait");
-  nav_row(right, LV_SYMBOL_USB " Computer mode", "For updates over USB");
+  if (bd->radius == 0) nav_row(t.content, LV_SYMBOL_REFRESH " Rotate screen", landscape() ? "Now: landscape" : "Now: portrait");
+  nav_row(t.content, LV_SYMBOL_USB " Computer mode", "For updates over USB");
   if (scrolled) {
     lv_obj_update_layout(t.scr);
     lv_obj_scroll_to_y(t.page, LV_COORD_MAX, LV_ANIM_OFF);
@@ -1070,6 +1000,7 @@ static void run(const Board &b, int size) {
   static const Entry kRound2[] = {
       {"play1", [] { nav_play(1, false); }},
       {"play6", [] { nav_play(6, false); }},
+      {"play6_scrolled", [] { nav_play(6, false, true); }},
       {"play_problem", [] { nav_play(1, true); }},
       {"home", nav_home},
       {"home_badge", nav_home_play_problem},
