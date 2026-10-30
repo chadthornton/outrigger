@@ -1,29 +1,48 @@
 // `make ui-mocks`: renders the proposed UI redesign (docs/ui-redesign.md) with
-// LVGL itself, at the real 240x280 rounded screen and text sizes S, M and L.
+// LVGL itself, at each board's real size (240x280 rounded, 320x480 portrait and
+// landscape) and text sizes S, M and L.
 // Design exploration only: these screens are built from fixed sample data and
 // don't touch host_ui. Each shot is checked like ui_shots does (labels inside
 // the glass's safe area, never clipped, at least a line tall), and pages that
 // need to scroll are reported, so the mocks prove they fit.
 //
-// Writes <out>/<size>_<screen>.png and <out>/report.txt; exits 1 on any
-// layout problem.
+// Writes <out>/<size>_<screen>.png (round 1, 240x280 only), <out>/nav/<board>_
+// <size>_<screen>.png (round 2, the top level) and a report.txt in each; exits
+// 1 on any layout problem.
 #include <lvgl.h>
+#include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
-#include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
 #include "../ui_shots/png.h"
 
-constexpr int W = 240, H = 280, kRadius = 40;
-constexpr int kSide = kRadius * 3 / 10 + 4, kTop = kRadius / 3 + 4;
+// The boards the mocks render for. radius 0: a rect panel with square corners.
+struct Board {
+  const char *id;
+  int w, h, radius, font_boost;
+};
+static const Board kBoards[] = {{"240x280", 240, 280, 40, 0},  // Waveshare 1.69", rounded
+                                {"320x480", 320, 480, 0, 1},   // 3.5" IPS / SPI panels, portrait
+                                {"480x320", 480, 320, 0, 1}};  // the same panels turned sideways
+static const Board *bd = &kBoards[0];
+static int W, H, kRadius, kSide, kTop;  // host_ui's safe_padding() for the board
+static void use_board(const Board &b) {
+  bd = &b;
+  W = b.w;
+  H = b.h;
+  kRadius = b.radius;
+  kSide = b.radius ? b.radius * 3 / 10 + 4 : 10;  // square panels: 10, not host_ui's 6, off the bezel
+  kTop = b.radius ? b.radius / 3 + 4 : 8;
+}
+static bool landscape() { return W > H; }
 
 static uint32_t now_ms = 1000;
 static uint32_t tick() { return now_ms; }
-static uint16_t fb[W * H];
+static uint16_t fb[480 * 480];
 
 static void flush_cb(lv_display_t *d, const lv_area_t *a, uint8_t *px) {
   const uint16_t *p = reinterpret_cast<const uint16_t *>(px);
@@ -32,20 +51,11 @@ static void flush_cb(lv_display_t *d, const lv_area_t *a, uint8_t *px) {
   lv_display_flush_ready(d);
 }
 
-// ---------- Results, shared with the parent across fork() ----------
-constexpr int kMaxShots = 64;
-struct Shot {
-  char size, screen[24];
-  bool scrolls;
-  int problems;
-  uint8_t rgb[W * H * 3];
-};
-struct Results {
-  int problems, shots;
-  Shot shot[kMaxShots];
-};
-static Results *results;
-static char where[40];
+// Each board x size runs in its own fork() and writes its own PNGs; the
+// report files collect one line per shot.
+static const char *out_dir;
+static int problems_found;
+static char where[48];
 
 // ---------- Fonts and colours (as host_ui) ----------
 static const lv_font_t *const kSteps[] = {&lv_font_montserrat_10, &lv_font_montserrat_12, &lv_font_montserrat_14,
@@ -53,7 +63,7 @@ static const lv_font_t *const kSteps[] = {&lv_font_montserrat_10, &lv_font_monts
                                           &lv_font_montserrat_22, &lv_font_montserrat_24, &lv_font_montserrat_28};
 static const lv_font_t *font_for(int step) { return kSteps[step < 0 ? 0 : step > 8 ? 8 : step]; }
 static int text_size;  // 0 S, 1 M, 2 L
-static int base() { return text_size * 2; }  // S 10, M 14, L 18 px body text
+static int base() { return text_size * 2 + bd->font_boost; }  // S 10, M 14, L 18 px, plus the boost
 // Headings: two or three steps up, but never past 20 px: at L, 24 px titles
 // take a line each and push the page into scrolling.
 static int heading(int up) { return base() + up < 5 ? base() + up : 5; }
@@ -214,7 +224,7 @@ static void hold(lv_obj_t *scr, const char *what, int percent = 0, uint32_t fill
   lv_obj_set_width(l, lv_pct(94));
   lv_label_set_long_mode(l, LV_LABEL_LONG_MODE_WRAP);
   lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
-  lv_obj_set_style_text_font(l, font_for(text_size == 0 ? 1 : 2), 0);
+  lv_obj_set_style_text_font(l, font_for((text_size == 0 ? 1 : 2) + bd->font_boost), 0);
   lv_obj_set_style_text_color(l, c(kWhite), 0);
   lv_label_set_text_fmt(l, "Hold: %s", what);
   lv_obj_center(l);
@@ -307,7 +317,9 @@ struct ChainNode {
   lv_obj_t *title, *dot, *line, *content;
   std::vector<lv_obj_t *> details;
 };
-static void chain(lv_obj_t *parent, int controllers, bool fm1_problem) {
+static void chain(lv_obj_t *parent, int controllers, bool fm1_problem, lv_obj_t *fit_in = nullptr,
+                  bool show_runs = false) {
+  if (!fit_in) fit_in = parent;
   static const char *const kTags[] = {"LAU", "KEY", "ARP", "BSP", "CTL", "DRM"};
   static const char *const kDetail[] = {"> NoteOn C#4 v127", "> CC 74 = 101", "port 1.3 no USB channel",
                                         "> Pitch +8191",      "> NoteOff A0",  "> CC 1 = 64"};
@@ -358,6 +370,7 @@ static void chain(lv_obj_t *parent, int controllers, bool fm1_problem) {
   ChainNode &router = node("Router", kWhite, kGreen, false);
   detail(router, "123456 passed  12 blocked", kGrey);
   ChainNode &fm1 = node("FM-1", kMagenta, fm1_problem ? kRed : kGreen, true);
+  if (show_runs) detail(fm1, "runs Skiff 1.4", kWhite);
   detail(fm1, fm1_problem ? "in: LAU NoteOn C#4 v127" : "in: LAU NoteOn C#4 v127", fm1_problem ? kRed : kGrey);
   if (!fm1_problem) detail(fm1, "itself sent: CC 7 = 100", kGrey);
   if (fm1_problem) {
@@ -382,7 +395,7 @@ static void chain(lv_obj_t *parent, int controllers, bool fm1_problem) {
     }
     lv_obj_update_layout(lv_obj_get_screen(parent));
     lv_obj_update_layout(lv_obj_get_screen(parent));
-    if (lv_obj_get_scroll_bottom(parent) <= 0) break;
+    if (lv_obj_get_scroll_bottom(fit_in) <= 0) break;
   }
 }
 
@@ -580,11 +593,332 @@ static void setup() {
   lv_screen_load(scr);
 }
 
+// ---------- Round 2: the top level, on several boards ----------
+// No status strip: the nav is the header. In portrait it's a full-bleed band
+// of three icons across the top; in landscape a rail down the left edge. It's
+// part of the page, so on a page that scrolls it scrolls away with the
+// content. Holds stay pinned below the scrolling part.
+
+static int icon_size() { return W >= 320 ? 30 : 24; }
+static const uint32_t kBand = 0x171717, kIconOff = 0x7A7A7A;
+
+static lv_obj_t *dot_at(lv_obj_t *parent, int x, int y, int w, int h, uint32_t col, int radius) {
+  lv_obj_t *o = box(parent);
+  lv_obj_set_pos(o, x, y);
+  lv_obj_set_size(o, w, h);
+  lv_obj_set_style_radius(o, radius, 0);
+  lv_obj_set_style_bg_opa(o, LV_OPA_COVER, 0);
+  lv_obj_set_style_bg_color(o, c(col), 0);
+  return o;
+}
+
+// Play: a 5-pin MIDI DIN socket, pins round the top, key at the bottom.
+static lv_obj_t *icon_midi(lv_obj_t *parent, int s, uint32_t col) {
+  lv_obj_t *o = box(parent);
+  lv_obj_set_size(o, s, s);
+  lv_obj_t *ring = box(o);
+  lv_obj_set_size(ring, s, s);
+  lv_obj_set_style_radius(ring, LV_RADIUS_CIRCLE, 0);
+  lv_obj_set_style_border_width(ring, s >= 28 ? 3 : 2, 0);
+  lv_obj_set_style_border_color(ring, c(col), 0);
+  const int d = s >= 28 ? 4 : 3;
+  const float r = s * 0.26f;
+  for (int i = 0; i < 5; ++i) {
+    const float a = 3.14159265f * (1.0f + i * 0.25f);  // left, upper left, top, upper right, right
+    dot_at(o, int(lroundf(s / 2.0f + r * cosf(a) - d / 2.0f)), int(lroundf(s / 2.0f + r * sinf(a) - d / 2.0f)) + s / 10,
+           d, d, col, LV_RADIUS_CIRCLE);
+  }
+  dot_at(o, (s - s / 4) / 2, s * 7 / 10, s / 4, s / 7, col, 1);  // the key
+  return o;
+}
+
+// FM-1: a game cartridge: a wide shell with its label, and a narrower
+// connector tab with contacts underneath.
+static lv_obj_t *icon_cart(lv_obj_t *parent, int s, uint32_t col) {
+  lv_obj_t *o = box(parent);
+  lv_obj_set_size(o, s, s);
+  const int bw = s >= 28 ? 3 : 2, sh = s * 64 / 100, tw = s * 66 / 100, tx = (s - tw) / 2, top = s / 12;
+  lv_obj_t *tab = box(o);
+  lv_obj_set_pos(tab, tx, top + sh - bw);
+  lv_obj_set_size(tab, tw, s - top - sh + bw);
+  lv_obj_set_style_radius(tab, 2, 0);
+  lv_obj_set_style_border_width(tab, bw, 0);
+  lv_obj_set_style_border_color(tab, c(col), 0);
+  const int n = 3, inner = tw - 2 * (bw + 2), ch = s - top - sh - 3;
+  for (int i = 0; i < n; ++i)
+    dot_at(o, tx + bw + 2 + i * (inner - 2) / (n - 1), top + sh + 1, 2, ch > 2 ? ch : 2, col, 0);  // contacts
+  lv_obj_t *shell = box(o);
+  lv_obj_set_pos(shell, 0, top);
+  lv_obj_set_size(shell, s, sh);
+  lv_obj_set_style_radius(shell, 3, 0);
+  lv_obj_set_style_bg_opa(shell, LV_OPA_COVER, 0);
+  lv_obj_set_style_bg_color(shell, c(kBand), 0);
+  lv_obj_set_style_border_width(shell, bw, 0);
+  lv_obj_set_style_border_color(shell, c(col), 0);
+  dot_at(o, bw + 3, top + bw + 3, s - 2 * (bw + 3), sh - 2 * (bw + 3), col, 1);  // the label
+  return o;
+}
+
+static lv_obj_t *icon_gear(lv_obj_t *parent, int s, uint32_t col) {
+  lv_obj_t *o = box(parent);
+  lv_obj_set_size(o, s, s);
+  lv_obj_t *l = word(o, LV_SYMBOL_SETTINGS, col, s >= 28 ? 8 : 6);
+  lv_obj_center(l);
+  return o;
+}
+
+enum class Badge { None, Warn, Bad };
+
+// One nav item: the icon, a bar that marks the active one, a badge when that
+// section needs attention.
+static void nav_item(lv_obj_t *parent, int which, bool active, Badge badge) {
+  const int s = icon_size();
+  lv_obj_t *cell = box(parent);
+  lv_obj_set_flex_flow(cell, landscape() ? LV_FLEX_FLOW_ROW : LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_flex_align(cell, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_size(cell, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+  lv_obj_set_style_pad_row(cell, 5, 0);
+  lv_obj_set_style_pad_column(cell, 10, 0);
+  lv_obj_t *bar = box(cell);
+  if (landscape()) lv_obj_set_size(bar, 3, s + 6);
+  const uint32_t col = active ? kWhite : kIconOff;
+  lv_obj_t *icon = which == 0 ? icon_midi(cell, s, col) : which == 1 ? icon_cart(cell, s, col) : icon_gear(cell, s, col);
+  lv_obj_set_style_pad_hor(cell, landscape() ? 0 : 8, 0);
+  if (!landscape()) {
+    lv_obj_move_to_index(bar, -1);  // under the icon
+    lv_obj_set_size(bar, s, 3);
+  }
+  if (active) {
+    lv_obj_set_style_bg_opa(bar, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(bar, c(kBlue), 0);
+    lv_obj_set_style_radius(bar, 1, 0);
+  }
+  if (badge != Badge::None) {
+    lv_obj_t *b = dot_at(icon, s - 7, -2, 9, 9, badge == Badge::Bad ? kRed : kOrange, LV_RADIUS_CIRCLE);
+    lv_obj_set_style_border_width(b, 2, 0);
+    lv_obj_set_style_border_color(b, c(kBand), 0);
+    lv_obj_add_flag(b, LV_OBJ_FLAG_IGNORE_LAYOUT);
+  }
+}
+
+struct Top {
+  lv_obj_t *scr, *page, *content, *foot;  // foot: where a pinned hold goes
+};
+
+// A top-level page: the nav, then the content, which scrolls (taking the nav
+// with it in portrait) only if it must.
+static Top top_page(int active, Badge play = Badge::None, Badge fm1 = Badge::None) {
+  Top t;
+  t.scr = lv_obj_create(nullptr);
+  lv_obj_set_style_bg_color(t.scr, c(0x000000), 0);
+  lv_obj_set_style_pad_all(t.scr, 0, 0);
+  lv_obj_remove_flag(t.scr, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_flex_flow(t.scr, landscape() ? LV_FLEX_FLOW_ROW : LV_FLEX_FLOW_COLUMN);
+  const Badge badges[3] = {play, fm1, Badge::None};
+  lv_obj_t *band;
+  if (landscape()) {
+    band = box(t.scr);  // the rail: bleeds off the left, top and bottom edges
+    lv_obj_set_size(band, LV_SIZE_CONTENT, lv_pct(100));
+    lv_obj_set_flex_flow(band, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(band, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    lv_obj_set_style_pad_top(band, 14, 0);
+    lv_obj_set_style_pad_right(band, 12, 0);
+    lv_obj_set_style_pad_row(band, 22, 0);
+    t.foot = column(t.scr);
+    lv_obj_set_height(t.foot, lv_pct(100));
+    lv_obj_set_flex_grow(t.foot, 1);
+    t.page = box(t.foot);
+    lv_obj_set_width(t.page, lv_pct(100));
+    lv_obj_set_flex_grow(t.page, 1);
+  } else {
+    t.page = box(t.scr);
+    lv_obj_set_width(t.page, lv_pct(100));
+    lv_obj_set_flex_grow(t.page, 1);
+    band = box(t.page);  // bleeds off the top and both sides
+    lv_obj_set_size(band, lv_pct(100), LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(band, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(band, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    lv_obj_set_style_pad_top(band, kRadius ? 9 : 10, 0);
+    lv_obj_set_style_pad_bottom(band, 4, 0);
+    lv_obj_set_style_pad_column(band, W >= 320 ? 34 : 18, 0);
+    t.foot = t.scr;
+  }
+  lv_obj_set_style_bg_opa(band, LV_OPA_COVER, 0);
+  lv_obj_set_style_bg_color(band, c(kBand), 0);
+  for (int i = 0; i < 3; ++i) nav_item(band, i, i == active, badges[i]);
+
+  lv_obj_set_flex_flow(t.page, LV_FLEX_FLOW_COLUMN);
+  lv_obj_add_flag(t.page, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_scroll_dir(t.page, LV_DIR_VER);
+  lv_obj_set_scrollbar_mode(t.page, LV_SCROLLBAR_MODE_ACTIVE);
+  bodies.push_back(t.page);
+  t.content = column(t.page, 6);
+  lv_obj_set_style_pad_hor(t.content, landscape() ? 12 : kSide, 0);
+  lv_obj_set_style_pad_top(t.content, landscape() ? kTop + 6 : 10, 0);
+  lv_obj_set_style_pad_bottom(t.content, kTop, 0);
+  if (landscape()) lv_obj_set_style_pad_right(t.content, kSide + 4, 0);
+  lv_screen_load(t.scr);
+  return t;
+}
+
+// A hold pinned under the scrolling page.
+static void pinned_hold(Top &t, const char *what, uint32_t fill) {
+  lv_obj_t *f = column(t.foot);
+  lv_obj_set_style_pad_hor(f, landscape() ? 12 : kSide, 0);
+  if (landscape()) lv_obj_set_style_pad_right(f, kSide + 4, 0);
+  lv_obj_set_style_pad_bottom(f, kTop, 0);
+  hold(f, what, 0, fill);
+  lv_obj_set_style_pad_bottom(t.content, 6, 0);
+}
+
+// Two columns side by side in landscape, stacked in portrait.
+static lv_obj_t *split(lv_obj_t *content, lv_obj_t **right) {
+  if (!landscape()) {
+    *right = content;
+    return content;
+  }
+  lv_obj_t *r = row(content, 10);
+  lv_obj_set_flex_align(r, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+  lv_obj_t *l = column(r, 6);
+  lv_obj_set_width(l, LV_SIZE_CONTENT);
+  lv_obj_set_flex_grow(l, 1);
+  *right = column(r, 6);
+  lv_obj_set_width(*right, LV_SIZE_CONTENT);
+  lv_obj_set_flex_grow(*right, 1);
+  return l;
+}
+
+// Landscape's chain: left to right, Controllers -> Router -> FM-1, the hub
+// line under it.
+static void chain_row(lv_obj_t *parent, int controllers, bool fm1_problem) {
+  static const char *const kTags[] = {"LAU", "KEY", "ARP", "BSP", "CTL", "DRM"};
+  static const char *const kDetail[] = {"NoteOn C#4 v127", "CC 74 = 101", "no USB channel",
+                                        "Pitch +8191",     "NoteOff A0",  "CC 1 = 64"};
+  lv_obj_t *r = row(parent, 0);
+  lv_obj_set_flex_align(r, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+  auto col = [&](const char *title, uint32_t colour, uint32_t dot, int grow, bool last) {
+    lv_obj_t *k = column(r, 2);
+    lv_obj_set_width(k, LV_SIZE_CONTENT);
+    lv_obj_set_flex_grow(k, grow);
+    lv_obj_t *head = row(k, 0);
+    lv_obj_set_height(head, 14);
+    dot_at(head, 0, 0, 12, 12, dot, LV_RADIUS_CIRCLE);
+    lv_obj_t *line = box(head);
+    lv_obj_set_height(line, 2);
+    lv_obj_set_flex_grow(line, 1);
+    if (!last) {
+      lv_obj_set_style_bg_opa(line, LV_OPA_COVER, 0);
+      lv_obj_set_style_bg_color(line, c(kSpine), 0);
+    }
+    lv_obj_t *t = word(k, title, colour, heading(2));
+    lv_obj_set_style_pad_right(t, 6, 0);
+    return k;
+  };
+  auto detail = [&](lv_obj_t *k, const char *s, uint32_t colour) {
+    lv_obj_t *l = word(k, s, colour, base() - 1);
+    lv_obj_set_width(l, lv_pct(100));
+    lv_obj_set_style_pad_right(l, 6, 0);
+    lv_label_set_long_mode(l, LV_LABEL_LONG_MODE_DOTS);
+    lv_label_set_max_lines(l, 1);
+  };
+  char title[24];
+  snprintf(title, sizeof title, controllers > 1 ? "Controllers (%d)" : "Controller", controllers);
+  lv_obj_t *ctl = col(title, kYellow, kGreen, 6, false);
+  for (int i = 0; i < controllers; ++i) {
+    char buf[40];
+    snprintf(buf, sizeof buf, "%s  %s", kTags[i], kDetail[i]);
+    detail(ctl, buf, i == 2 ? kRed : i == 0 ? kGreen : kGrey);
+  }
+  lv_obj_t *router = col("Router", kWhite, kGreen, 3, false);
+  detail(router, "123456", kGrey);
+  detail(router, "12 blocked", kGrey);
+  lv_obj_t *fm1 = col("FM-1", kMagenta, fm1_problem ? kRed : kGreen, 5, true);
+  detail(fm1, "runs Skiff 1.4", kWhite);
+  detail(fm1, "LAU NoteOn C#4", fm1_problem ? kRed : kGreen);
+  if (!fm1_problem) detail(fm1, "own: CC 7 = 100", kGrey);
+  text(parent, "Hub  1:LAU 2:FM- 3:off   USB 8/8", kMuted, base() - 1);
+  if (fm1_problem) {
+    lv_obj_t *k = card(parent, kWarnBg, kWarnEdge);
+    text(k, "FM-1 not answering", kOrange, base());
+    text(k, "Replug it into hub port 2.", kWhite, base());
+  }
+}
+
+static void nav_play(int controllers, bool problem_) {
+  Top t = top_page(0, problem_ ? Badge::Warn : Badge::None);
+  // Across the screen while the lines fit; at L they don't, so the chain
+  // stacks as in portrait, beside the rail.
+  if (landscape() && text_size < 2) chain_row(t.content, controllers, problem_);
+  else chain(t.content, controllers, problem_, t.page, true);
+}
+
+static void nav_home() {
+  Top t = top_page(1);
+  lv_obj_t *right, *left = split(t.content, &right);
+  lv_obj_t *k = card(left, 0x141414, kDim);
+  text(k, "Runs Skiff 1.4", kWhite, heading(2));
+  text(k, "Read from backup b50. Its USB name says Felucca.", kMuted, base() - 1);
+  nav_row(right, LV_SYMBOL_DOWNLOAD " Back up", "Latest b50 matches it");
+  nav_row(right, LV_SYMBOL_DRIVE " Change firmware", "5 in the library");
+}
+
+static void nav_unfinished() {
+  Top t = top_page(1, Badge::None, Badge::Bad);
+  problem(t.content, {"Install unfinished", false, "Don't unplug the FM-1 or switch it off.",
+                      "It's in ROM boot with half of Felucca 1.6.1 written.", nullptr, nullptr});
+  pinned_hold(t, "retry Felucca 1.6.1", kRed);
+}
+
+// The Play badge from another section: the chain has a problem.
+static void nav_home_play_problem() {
+  Top t = top_page(1, Badge::Warn);
+  lv_obj_t *right, *left = split(t.content, &right);
+  lv_obj_t *k = card(left, 0x141414, kDim);
+  text(k, "Runs Skiff 1.4", kWhite, heading(2));
+  text(k, "Read from backup b50. Its USB name says Felucca.", kMuted, base() - 1);
+  nav_row(right, LV_SYMBOL_DOWNLOAD " Back up", "Latest b50 matches it");
+  nav_row(right, LV_SYMBOL_DRIVE " Change firmware", "5 in the library");
+}
+
+static void nav_setup(bool scrolled) {
+  Top t = top_page(2);
+  lv_obj_t *right, *left = split(t.content, &right);
+  text(left, "Board v 4d1d09e hub+L", kGrey, base());
+  text(left, "Web: 192.168.1.40", kMuted, base() - 1);
+  lv_obj_t *sizes = row(left, 6);
+  lv_obj_set_height(sizes, 40);
+  static const char *const kSizes[] = {"S", "M", "L"};
+  for (int i = 0; i < 3; ++i) {
+    lv_obj_t *s = box(sizes);
+    lv_obj_set_height(s, lv_pct(100));
+    lv_obj_set_flex_grow(s, 1);
+    lv_obj_set_style_radius(s, 8, 0);
+    lv_obj_set_style_bg_opa(s, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(s, c(i == text_size ? kBlue : kDim), 0);
+    lv_obj_center(word(s, kSizes[i], kWhite, i * 2 + 3 + bd->font_boost));
+  }
+  if (bd->radius == 0) nav_row(right, LV_SYMBOL_REFRESH " Rotate screen", landscape() ? "Now: landscape" : "Now: portrait");
+  nav_row(right, LV_SYMBOL_USB " Computer mode", "For updates over USB");
+  if (scrolled) {
+    lv_obj_update_layout(t.scr);
+    lv_obj_scroll_to_y(t.page, LV_COORD_MAX, LV_ANIM_OFF);
+  }
+}
+
 // ---------- Checks and shots ----------
 static int text_width(const char *s, const lv_font_t *font) {
   int w = 0;
   for (; *s; ++s) w += lv_font_get_glyph_width(font, uint8_t(s[0]), uint8_t(s[1]));
   return w;
+}
+
+// True if (x, y) is on the glass, at least `inset` px in from its edge.
+static bool on_glass(int x, int y, int inset) {
+  if (x < inset || y < inset || x >= W - inset || y >= H - inset) return false;
+  if (!kRadius) return true;
+  const int cx = x < kRadius ? kRadius : x >= W - kRadius ? W - kRadius - 1 : x;
+  const int cy = y < kRadius ? kRadius : y >= H - kRadius ? H - kRadius - 1 : y;
+  return (x - cx) * (x - cx) + (y - cy) * (y - cy) <= (kRadius - inset) * (kRadius - inset);
 }
 
 static int check_labels(lv_obj_t *o) {
@@ -607,18 +941,27 @@ static int check_labels(lv_obj_t *o) {
         vis.x2 = LV_MIN(vis.x2, pa.x2);
         vis.y2 = LV_MIN(vis.y2, pa.y2);
       }
-      // A label below a scrolling body's fold is fine: it scrolls into view.
+      // A label scrolled out of a page's view is fine: it scrolls back in.
       lv_obj_t *scroller = nullptr;
       for (lv_obj_t *p = lv_obj_get_parent(ch); p; p = lv_obj_get_parent(p))
         if (is_body(p)) scroller = p;
-      const bool below_fold = scroller && lv_obj_get_scroll_bottom(scroller) > 0 && vis.x2 - vis.x1 >= a.x2 - a.x1;
-      const bool cut = !below_fold && (vis.x2 - vis.x1 < a.x2 - a.x1 || vis.y2 - vis.y1 < a.y2 - a.y1);
+      const bool off_view = scroller &&
+                            (lv_obj_get_scroll_bottom(scroller) > 0 || lv_obj_get_scroll_top(scroller) > 0) &&
+                            vis.x2 - vis.x1 >= a.x2 - a.x1;
+      const bool cut = !off_view && (vis.x2 - vis.x1 < a.x2 - a.x1 || vis.y2 - vis.y1 < a.y2 - a.y1);
       const bool wide = lv_label_get_long_mode(ch) != LV_LABEL_LONG_MODE_WRAP &&
                         lv_label_get_long_mode(ch) != LV_LABEL_LONG_MODE_DOTS &&
                         text_width(t, font) > lv_obj_get_content_width(ch) + 1;
       const bool short_ = lv_area_get_height(&a) < lv_font_get_line_height(font);
-      const bool unsafe = !below_fold && (a.x1 < kSide - 2 || a.x2 > W - kSide + 1 || a.y1 < kTop - 2 ||
-                                          a.y2 > H - kTop + 1);
+      // The label's text box, not its full width, must sit on the glass.
+      const int tw = LV_MIN(text_width(t, font), lv_area_get_width(&a));
+      const lv_text_align_t align = lv_obj_get_style_text_align(ch, LV_PART_MAIN);
+      const int tx1 = align == LV_TEXT_ALIGN_RIGHT    ? a.x2 - tw
+                      : align == LV_TEXT_ALIGN_CENTER ? (a.x1 + a.x2 - tw) / 2
+                                                      : a.x1;
+      const int tx2 = tx1 + tw, inset = kRadius ? 3 : 2;
+      const bool unsafe = !off_view && (!on_glass(tx1, a.y1, inset) || !on_glass(tx2, a.y1, inset) ||
+                                        !on_glass(tx1, a.y2, inset) || !on_glass(tx2, a.y2, inset));
       if (cut || wide || short_ || unsafe) {
         ++problems;
         printf("  !! %s: '%s' x %d..%d y %d..%d%s%s%s%s\n", where, t, (int)a.x1, (int)a.x2, (int)a.y1, (int)a.y2,
@@ -634,15 +977,15 @@ static int check_labels(lv_obj_t *o) {
 static bool any_scrolls(lv_obj_t *o) {
   for (uint32_t i = 0; i < lv_obj_get_child_count(o); ++i) {
     lv_obj_t *ch = lv_obj_get_child(o, i);
-    if (is_body(ch) && lv_obj_get_scroll_bottom(ch) > 0) return true;
+    if (is_body(ch) && (lv_obj_get_scroll_bottom(ch) > 0 || lv_obj_get_scroll_top(ch) > 0)) return true;
     if (any_scrolls(ch)) return true;
   }
   return false;
 }
 
-static void shoot(const char *screen) {
-  const char sz = "SML"[text_size];
-  snprintf(where, sizeof where, "%c %s", sz, screen);
+// Renders the active screen, checks it, writes <file>.png and a report line.
+static void shoot(const char *file, const char *report_name, const char *label) {
+  snprintf(where, sizeof where, "%s %c %s", bd->id, "SML"[text_size], label);
   lv_obj_t *scr = lv_screen_active();
   lv_obj_update_layout(scr);
   lv_obj_invalidate(scr);
@@ -650,42 +993,53 @@ static void shoot(const char *screen) {
     now_ms += 5;
     lv_timer_handler();
   }
-  Shot &s = results->shot[results->shots++];
-  s.size = sz;
-  snprintf(s.screen, sizeof s.screen, "%s", screen);
-  s.problems = check_labels(scr);
-  s.scrolls = any_scrolls(scr);
-  results->problems += s.problems;
+  const int problems = check_labels(scr);
+  const bool scrolls = any_scrolls(scr);
+  problems_found += problems;
+  std::vector<uint8_t> rgb(size_t(W) * H * 3);
   for (int y = 0; y < H; ++y)
     for (int x = 0; x < W; ++x) {
       const uint16_t p = fb[y * W + x];
-      const int dx = x < kRadius ? kRadius - x : x >= W - kRadius ? x - (W - kRadius - 1) : 0;
-      const int dy = y < kRadius ? kRadius - y : y >= H - kRadius ? y - (H - kRadius - 1) : 0;
-      const bool out = dx && dy && dx * dx + dy * dy > kRadius * kRadius;
-      uint8_t *o = &s.rgb[(y * W + x) * 3];
+      const bool out = !on_glass(x, y, 0);
+      uint8_t *o = &rgb[(size_t(y) * W + x) * 3];
       o[0] = out ? 20 : ((p >> 11) & 31) * 255 / 31;
       o[1] = out ? 20 : ((p >> 5) & 63) * 255 / 63;
       o[2] = out ? 20 : (p & 31) * 255 / 31;
     }
+  char path[512];
+  snprintf(path, sizeof path, "%s/%s.png", out_dir, file);
+  if (!png::write(path, W, H, rgb.data())) {
+    printf("  !! can't write %s\n", path);
+    ++problems_found;
+  }
+  snprintf(path, sizeof path, "%s/%s", out_dir, report_name);
+  if (FILE *f = fopen(path, "a")) {
+    fprintf(f, "%s %s %d\n", label, scrolls ? "scrolls" : "fits", problems);
+    fclose(f);
+  }
 }
 
-static void run_size(int size) {
+static void run(const Board &b, int size) {
+  use_board(b);
   text_size = size;
   lv_init();
   lv_tick_set_cb(tick);
   lv_display_t *d = lv_display_create(W, H);
   lv_display_set_color_format(d, LV_COLOR_FORMAT_RGB565);
-  static uint16_t buf[W * H / 4];
+  static uint16_t buf[480 * 480 / 4];
   lv_display_set_buffers(d, buf, nullptr, sizeof buf, LV_DISPLAY_RENDER_MODE_PARTIAL);
   lv_display_set_flush_cb(d, flush_cb);
   lv_obj_t *blank = lv_obj_create(nullptr);
   lv_screen_load(blank);
+  const char sz = "SML"[size];
+  char file[96], label[64];
 
   struct Entry {
     const char *name;
     void (*build)();
   };
-  static const Entry kScreens[] = {
+  // Round 1: every page, 240x280 only, under the old status strip.
+  static const Entry kRound1[] = {
       {"1_play_chain1", [] { play_chain(1, false); }},
       {"2_play_chain6", [] { play_chain(6, false); }},
       {"3_play_problem", [] { play_chain(1, true); }},
@@ -702,48 +1056,61 @@ static void run_size(int size) {
       {"14_setup", setup},
       {"15_fm1_unfinished", fm1_unfinished},
   };
-  for (const Entry &e : kScreens) {
+  if (&b == &kBoards[0])
+    for (const Entry &e : kRound1) {
+      e.build();
+      snprintf(file, sizeof file, "%c_%s", sz, e.name);
+      snprintf(label, sizeof label, "%c %s", sz, e.name);
+      shoot(file, "report.txt", label);
+      lv_screen_load(blank);
+      bodies.clear();
+    }
+
+  // Round 2: the top level, every board.
+  static const Entry kRound2[] = {
+      {"play1", [] { nav_play(1, false); }},
+      {"play6", [] { nav_play(6, false); }},
+      {"play_problem", [] { nav_play(1, true); }},
+      {"home", nav_home},
+      {"home_badge", nav_home_play_problem},
+      {"unfinished", nav_unfinished},
+      {"setup", [] { nav_setup(false); }},
+      {"setup_scrolled", [] { nav_setup(true); }},
+  };
+  for (const Entry &e : kRound2) {
     e.build();
-    shoot(e.name);
+    snprintf(file, sizeof file, "nav/%s_%c_%s", b.id, sz, e.name);
+    snprintf(label, sizeof label, "%s %c %s", b.id, sz, e.name);
+    shoot(file, "nav/report.txt", label);
     lv_screen_load(blank);
     bodies.clear();
   }
 }
 
 int main(int argc, char **argv) {
-  const char *out = argc > 1 ? argv[1] : "build/ui-mocks";
+  out_dir = argc > 1 ? argv[1] : "build/ui-mocks";
   setvbuf(stdout, nullptr, _IOLBF, 0);
-  results = static_cast<Results *>(
-      mmap(nullptr, sizeof(Results), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0));
-  if (results == MAP_FAILED) return 2;
-  for (int size = 0; size < 3; ++size) {
-    fflush(stdout);
-    const pid_t pid = fork();
-    if (pid == 0) {
-      run_size(size);
-      fflush(stdout);
-      _exit(0);
-    }
-    int status = 0;
-    waitpid(pid, &status, 0);
-    if (!WIFEXITED(status) || WEXITSTATUS(status)) {
-      printf("  !! size %d crashed (status %d)\n", size, status);
-      ++results->problems;
-    }
-  }
-  mkdir(out, 0755);
+  mkdir(out_dir, 0755);
   char path[512];
-  snprintf(path, sizeof path, "%s/report.txt", out);
-  FILE *report = fopen(path, "w");
-  for (int i = 0; i < results->shots; ++i) {
-    const Shot &s = results->shot[i];
-    snprintf(path, sizeof path, "%s/%c_%s.png", out, s.size, s.screen);
-    if (!png::write(path, W, H, s.rgb)) return 2;
-    if (report) fprintf(report, "%c %s %s %d\n", s.size, s.screen, s.scrolls ? "scrolls" : "fits", s.problems);
-  }
-  if (report) fclose(report);
-  int scrolling = 0;
-  for (int i = 0; i < results->shots; ++i) scrolling += results->shot[i].scrolls;
-  printf("%d mock screens in %s: %d layout problems, %d scroll\n", results->shots, out, results->problems, scrolling);
-  return results->problems ? 1 : 0;
+  snprintf(path, sizeof path, "%s/nav", out_dir);
+  mkdir(path, 0755);
+  int failed = 0;
+  for (const Board &b : kBoards)
+    for (int size = 0; size < 3; ++size) {
+      fflush(stdout);
+      const pid_t pid = fork();
+      if (pid == 0) {
+        run(b, size);
+        fflush(stdout);
+        _exit(problems_found ? 1 : 0);
+      }
+      int status = 0;
+      waitpid(pid, &status, 0);
+      if (!WIFEXITED(status) || WEXITSTATUS(status)) {
+        printf("  !! %s size %d: layout problems or a crash (status %d)\n", b.id, size, status);
+        ++failed;
+      }
+    }
+  printf("mocks in %s (report.txt, nav/report.txt): %s\n", out_dir, failed ? "layout problems" : "0 layout problems");
+  return failed ? 1 : 0;
 }
