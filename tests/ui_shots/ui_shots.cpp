@@ -264,14 +264,14 @@ static UiLoader loader_page(Page page) {
       strcpy(l.title, "Stopped: the FM-1 stopped answering");
       l.title_colour = 0xFF4A4A;
       l.can_act = true;
-      strcpy(l.top_label, "Retry the Felucca 1.6.1 install");
+      strcpy(l.top_label, "Retry Felucca 1.6.1");
       strcpy(l.preview[0], "An install stopped part-way.");
-      strcpy(l.preview[1], "The FM-1 must still be in ROM boot.");
+      strcpy(l.preview[1], "The FM-1 must be in ROM boot.");
       strcpy(l.action, "Hold: retry the install");
       lines[2] = "erase 0x5A000 try 1, sector 3 of 149";
       lines[3] = "USB: FB01 ESP_FAIL 0/16";
-      lines[4] = "DON'T UNPLUG the FM-1 or switch it off";
-      lines[5] = "Hold to retry; Transporter if that fails";
+      lines[4] = "DON'T unplug or turn off the FM-1";
+      lines[5] = "If the retry fails: Transporter";
       break;
     case Page::Busy:
       strcpy(l.title, "Backing up (2 reads)...");
@@ -377,10 +377,18 @@ static void run_build(bool loader, int size) {
     ui_update_loader(loader_page(Page::Ready));
     run(100);
     shoot(build, sz, "firmware");
+    // A row opens the detail: what the action does, and the hold.
+    if (!tap_button(firmware, "Back up", 80, 8)) return;
+    lv_obj_t *detail = lv_screen_active();
+    if (detail == firmware) {
+      fail("Back up didn't open the detail");
+      return;
+    }
+    shoot(build, sz, "backup");
     backup_calls = 0;
-    tap_button(firmware, "Hold", 80, 8);
+    tap_button(detail, "Hold", 80, 8);
     if (backup_calls) fail("a quick tap on Hold started a backup");
-    tap_button(firmware, "Hold", 2200, 8);
+    tap_button(detail, "Hold", 2200, 8);
     if (backup_calls != 1) fail("a 2 s hold gave %d backups, not 1", backup_calls);
     ui_update_loader(loader_page(Page::Install));
     run(100);
@@ -397,6 +405,12 @@ static void run_build(bool loader, int size) {
     ui_update_loader(loader_page(Page::NotReady));
     run(100);
     shoot(build, sz, "notready");
+    tap_button(detail, LV_SYMBOL_LEFT, 80, 8);
+    if (lv_screen_active() != firmware) fail("Back on the detail didn't return to the list");
+    // The list after a stopped install: its reason, and the retry on top.
+    ui_update_loader(loader_page(Page::Retry));
+    run(100);
+    shoot(build, sz, "stopped");
     tap_button(firmware, "Done", 80, 8);
     if (lv_screen_active() != settings) fail("Done on Firmware didn't return to settings");
   }
@@ -419,7 +433,8 @@ static void run_computer() {
 // One row per build x size, one column per screen, then Computer mode;
 // captions drawn by LVGL.
 static const char *const kColumns[] = {"chain0", "chain1", "chain2", "chain3", "chain4", "chain5",   "chain6",
-                                       "off",    "problem", "settings", "armed", "firmware", "busy", "done", "notready"};
+                                       "off",    "problem", "settings", "armed", "firmware", "stopped", "backup", "install",
+                                       "retry",  "busy",    "done",     "notready"};
 constexpr int kCols = sizeof kColumns / sizeof *kColumns, kGap = 8, kCaption = 18;
 static uint8_t caption_rgb[W * kCaption * 3];
 

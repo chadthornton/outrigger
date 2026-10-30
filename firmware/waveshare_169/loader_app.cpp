@@ -432,8 +432,8 @@ void refresh_preview() {
     PackageInfo p;
     char top[40] = "Retry the install";
     if (library->unit(library->last_unit(), u) && library->package(u.pending.package_id, p))
-      snprintf(top, sizeof top, "Retry the %s install", label_of(p).c_str());
-    set_preview("An install stopped part-way.", "The FM-1 must still be in ROM boot.", "Hold: retry the install",
+      snprintf(top, sizeof top, "Retry %s", label_of(p).c_str());
+    set_preview("An install stopped part-way.", "The FM-1 must be in ROM boot.", "Hold: retry the install",
                 ready && kWritesEnabled, top);
     return;
   }
@@ -493,8 +493,8 @@ void finish(Installer &inst, const Host &host, const UsbScsi &scsi, const char *
     show_line(3, buf);
   }
   if (inst.danger()) {
-    show_line(4, "DON'T UNPLUG the FM-1 or switch it off");
-    show_line(5, "Hold to retry; Transporter if that fails");
+    show_line(4, "DON'T unplug or turn off the FM-1");
+    show_line(5, "If the retry fails: Transporter");
   }
 }
 
