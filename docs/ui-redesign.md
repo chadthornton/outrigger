@@ -1,7 +1,7 @@
 # UI redesign: top-level nav, errors, what's running (draft for Chad's sign-off)
 
-**Status:** proposal, 2026-10-30; round 2 (top level, more screens) round 3 (one column in landscape) and round
-4 (compact Play, input without touch) the same day. Mockups only, nothing built into `host_ui` yet. Build it after `loader-session3`
+**Status:** proposal, 2026-10-30; round 2 (top level, more screens) round 3 (one column in landscape), round 4
+(compact Play, input without touch) and round 5 (switching backs up by itself) the same day. Mockups only, nothing built into `host_ui` yet. Build it after `loader-session3`
 merges (ui-polish rewrote `host_ui`, and that merge carries the current Firmware page).
 
 - **Review page:** https://claude.ai/artifact/AemH6yE3Nzyeu6GYobHaeg (every screen at S, M and L).
@@ -73,6 +73,42 @@ reading order: nav icons, then each line on the page.
 - **The focus ring** is a 2 px blue border on the line, or an outline on the nav icon, so nothing moves when focus
   arrives. It shows only on boards without touch.
 - **The `BoardProfile`** gains the input kind (touch, encoder, keys) and which pins.
+
+### Round 5: switching firmware backs up by itself
+
+Chad: switching firmware is the tool's main job, so it should be quick, and "is there any reason backing up
+shouldn't just happen automatically as part of changing firmware?" There isn't, and the installer needs it.
+- **Why a fresh backup matters.** An install autosaves the running firmware's songs from the unit's *stored*
+  latest backup, plans from it, then reads the FM-1 once and refuses `BackupStale` if anything differs
+  (`Installer::prepare_install`, `do_check`). A song saved after the last backup either blocks the install or,
+  without the check, would be lost.
+- **The design.** The FM-1 section opens on the firmware list (the running one first, in green; "your songs" when
+  a save for that firmware exists). Tapping one opens its plan, and one hold, "Hold: switch to Felucca 1.6.1",
+  runs:
+  1. Back up the FM-1 (two reads, compared).
+  2. Save the running firmware's songs.
+  3. Write the new firmware.
+  4. Bring back that firmware's songs, or start fresh.
+  5. Restart the FM-1.
+- **Two ROM-boot visits, one hold.** The backup and the write can't share a visit: the FM-1 left ROM boot about
+  8.5 s into a visit that read twice and then planned (checkpoint 3), and `kLoaderBudgetMs` (6 s) now caps the
+  time before the first erase. So the hold records a switch job that runs a backup boot, then an install boot,
+  through `JobBoot`, as today's jobs do. Estimated cost: about 30 s more per switch (the plan's figure for a
+  manual save).
+- **Storage doesn't grow.** `Library::add_backup` keeps the first backup and the latest; unchanged sectors are
+  stored once.
+- **Manual backup** is a quiet "Backups" row at the bottom of the FM-1 list. Its page explains backups, says what
+  is kept, and has "Hold: back up now", for before something risky, or (3b) to copy one to a computer. It stays
+  under FM-1, not Setup, because backups belong to one FM-1, and Setup is about the board.
+- **Screens in `make ui-mocks`:** `fm1_list`, `switch_confirm` (with and without a save), `switch_backing_up`,
+  `switch_writing`, `backups`. A running job has no back arrow. Holds on the 1.69" use 12 px text so the label
+  stays on one line.
+- **Guarded.** This changes the install path: one hold now runs two jobs. It needs its own plan, Chad's
+  go-ahead and tests first in the loader session. The round 1 "Install not started / back up again" error goes
+  away; `BackupStale` can then only mean the FM-1 changed between the two visits.
+- **Open question:** always back up first (recommended: predictable, one path to test), or try the write visit
+  first and back up only on `BackupStale`? The latter saves 30 s when nothing changed, but Felucca's autosave
+  likely changes data whenever it's played.
 
 ### Screen shapes
 

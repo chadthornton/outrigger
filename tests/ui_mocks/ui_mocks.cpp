@@ -224,7 +224,8 @@ static void hold(lv_obj_t *scr, const char *what, int percent = 0, uint32_t fill
   lv_obj_set_width(l, lv_pct(94));
   lv_label_set_long_mode(l, LV_LABEL_LONG_MODE_WRAP);
   lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
-  lv_obj_set_style_text_font(l, font_for((text_size == 0 ? 1 : 2) + bd->font_boost), 0);
+  // 12 px on the 1.69", so "Hold: switch to Felucca 1.6.1" stays on one line.
+  lv_obj_set_style_text_font(l, font_for(W < 320 ? 1 : 2 + bd->font_boost), 0);
   lv_obj_set_style_text_color(l, c(kWhite), 0);
   lv_label_set_text_fmt(l, "Hold: %s", what);
   lv_obj_center(l);
@@ -942,6 +943,109 @@ static void nav_setup(bool scrolled) {
   }
 }
 
+// ---------- Round 5: switching firmware is the FM-1 page ----------
+// The FM-1 section opens on the firmware list. Switching backs up first, by
+// itself, so there's one hold and no "back up again" refusal; a manual backup
+// is a quiet row at the bottom.
+
+// A page under a section: no nav, a back row on top, a pinned footer.
+static Top sub_page(const char *title, uint32_t colour = kWhite, bool back = true) {
+  Top t;
+  t.scr = lv_obj_create(nullptr);
+  lv_obj_set_style_bg_color(t.scr, c(0x000000), 0);
+  lv_obj_set_style_pad_all(t.scr, 0, 0);
+  lv_obj_remove_flag(t.scr, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_flex_flow(t.scr, LV_FLEX_FLOW_COLUMN);
+  lv_obj_t *head = column(t.scr);
+  lv_obj_set_style_pad_hor(head, kSide, 0);
+  lv_obj_set_style_pad_top(head, kTop, 0);
+  if (kRadius) lv_obj_set_style_pad_hor(head, kRadius / 2 + 4, 0);  // the title sits between the corners
+  if (back) title_row(head, title, colour);
+  else text(head, title, colour, heading(2));  // a running job: nowhere to go back to
+  t.page = box(t.scr);
+  lv_obj_set_width(t.page, lv_pct(100));
+  lv_obj_set_flex_grow(t.page, 1);
+  lv_obj_set_flex_flow(t.page, LV_FLEX_FLOW_COLUMN);
+  lv_obj_add_flag(t.page, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_scroll_dir(t.page, LV_DIR_VER);
+  lv_obj_set_scrollbar_mode(t.page, LV_SCROLLBAR_MODE_ACTIVE);
+  bodies.push_back(t.page);
+  t.content = column(t.page, 6);
+  lv_obj_set_style_pad_hor(t.content, kSide, 0);
+  lv_obj_set_style_pad_top(t.content, 8, 0);
+  lv_obj_set_style_pad_bottom(t.content, kTop, 0);
+  t.foot = t.scr;
+  lv_screen_load(t.scr);
+  return t;
+}
+
+// One firmware: name, a short note on the right, tinted when it's running.
+static void firmware_line(lv_obj_t *parent, const char *name, const char *note, bool running, bool focus = false) {
+  lv_obj_t *r = row(parent, 8);
+  lv_obj_set_height(r, W >= 320 ? 44 : 34);
+  lv_obj_set_style_bg_opa(r, LV_OPA_COVER, 0);
+  lv_obj_set_style_bg_color(r, c(running ? 0x10301A : 0x1A1A1A), 0);
+  lv_obj_set_style_radius(r, 8, 0);
+  lv_obj_set_style_pad_hor(r, 8, 0);
+  if (focus) {
+    lv_obj_set_style_border_width(r, 2, 0);
+    lv_obj_set_style_border_color(r, c(kBlue), 0);
+  }
+  if (running) word(r, LV_SYMBOL_PLAY, kGreen, base() - 1);
+  lv_obj_t *n = word(r, name, kWhite, heading(1));
+  lv_obj_set_width(n, 1);
+  lv_obj_set_flex_grow(n, 1);
+  lv_label_set_long_mode(n, LV_LABEL_LONG_MODE_DOTS);
+  lv_label_set_max_lines(n, 1);
+  if (note) word(r, note, running ? kGreen : kMuted, base() - 1);
+}
+
+static void fm1_list(bool focus = false) {
+  Top t = top_page(1);
+  firmware_line(t.content, "Skiff 1.4", "running", true);
+  firmware_line(t.content, "Felucca 1.6.1", "your songs", false, focus);
+  firmware_line(t.content, "Felucca 1.5.2", nullptr, false);
+  firmware_line(t.content, "M-VAVE stock V15", nullptr, false);
+  firmware_line(t.content, "SLOOP 2.8.1", "not yet", false);
+  lv_obj_t *gap = box(t.content);
+  lv_obj_set_size(gap, 1, 4);
+  nav_row(t.content, "Backups", "Latest b50, before every switch", kMuted);
+}
+
+static void switch_confirm(bool has_save) {
+  Top t = sub_page("Felucca 1.6.1");
+  text(t.content, "Switches from Skiff 1.4.", kWhite, base());
+  step(t.content, StepState::Next, "Backs up the FM-1 first");
+  step(t.content, StepState::Next, "Saves Skiff's songs");
+  step(t.content, StepState::Next, "Writes Felucca: 143 sectors");
+  step(t.content, StepState::Next, has_save ? "Brings back Felucca's songs" : "Starts Felucca fresh: no songs saved yet");
+  text(t.content, "MIDI stops until it's done.", kMuted, base() - 1);
+  pinned_hold(t, "switch to Felucca 1.6.1", kYellow);
+}
+
+static void switch_job(int stage) {
+  Top t = sub_page("Switching to Felucca", kYellow, false);
+  if (stage >= 2) {
+    lv_obj_t *k = card(t.content, kDangerBg, kDangerEdge);
+    text(k, LV_SYMBOL_WARNING " Don't unplug or switch off the FM-1", kWhite, base() - 1);
+  }
+  static const char *const kSteps[] = {"Backed up (b51)", "Saved Skiff's songs", "Writing 88 of 149", "Restart the FM-1"};
+  static const char *const kNow[] = {"Backing up: 2nd read, 42%", "Saving Skiff's songs", "Writing 88 of 149", "Restarting the FM-1"};
+  for (int i = 0; i < 4; ++i)
+    step(t.content, i < stage ? StepState::Done : i == stage ? StepState::Now : StepState::Next, i == stage ? kNow[i] : kSteps[i]);
+  progress(t.content, stage == 0 ? 21 : 59);
+}
+
+static void backups_page() {
+  Top t = sub_page("Backups");
+  text(t.content, "Every switch backs up the FM-1 first. You don't need to.", kWhite, base());
+  text(t.content, "A backup reads all 1 MB of the FM-1 twice and keeps it on this board. It writes nothing to the FM-1.",
+       kGrey, base() - 1);
+  text(t.content, "Kept: the first (b1) and the latest (b50).", kGrey, base() - 1);
+  text(t.content, "Back up by hand before you try something risky, or to copy one to a computer.", kMuted, base() - 1);
+  pinned_hold(t, "back up now", kYellow);
+}
+
 // ---------- Checks and shots ----------
 static int text_width(const char *s, const lv_font_t *font) {
   int w = 0;
@@ -1121,6 +1225,13 @@ static void run(const Board &b, int size) {
          nav_focus = -1;
        }},
       {"home", nav_home},
+      {"fm1_list", [] { fm1_list(); }},
+      {"fm1_list_focus", [] { fm1_list(true); }},
+      {"switch_confirm", [] { switch_confirm(true); }},
+      {"switch_confirm_fresh", [] { switch_confirm(false); }},
+      {"switch_backing_up", [] { switch_job(0); }},
+      {"switch_writing", [] { switch_job(2); }},
+      {"backups", backups_page},
       {"home_badge", nav_home_play_problem},
       {"unfinished", nav_unfinished},
       {"setup", [] { nav_setup(false); }},
