@@ -182,6 +182,14 @@ So it splits in two.
     (6 sectors)". The install verified all 149 sectors, autosaved Felucca's data first (s9), and cleared its
     pending record. A backup afterwards found the FM-1 running `FM-1_714` (Skiff 1.4), with the boot head and the
     Bluetooth and voice data still equal to the 2026-10-25 dump.
+  - **Marked round trip, the same day:** Chad set Skiff's tempo to 137 and changed a pattern step, then
+    backed up (b50) and went Skiff → Felucca → Skiff. Both changes came back. The restored save (s51) was
+    captured from b50, and the install read back each of its 6 sectors. The first erase came 2.1 s after the
+    loader started.
+  - **Found on the way:** a finished install doesn't update the unit's latest backup, so the page's "running"
+    mark and the next preview describe the firmware from before the install. A second Felucca hold was correctly
+    refused by the check read ("the FM-1 changed since its backup"). Fix: after a verified install, record the
+    written flash as the latest backup.
   - **Skiff calls itself "Felucca" on USB** (`1209:0001 Felucca`), so the FM-1's name doesn't tell the two apart;
     only a backup does.
 - **Soak tests (`make build ... SOAK=1`, `tools/soak_watch.py`):** the board backs up the FM-1 by itself, job after
