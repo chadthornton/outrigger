@@ -13,7 +13,7 @@ import { readBoard, fetchBuild, install, backupStore, finish } from "./install.j
 
 // Shown under each install area and in Details, so a bug report says which
 // installer ran. Bump it with every change to site/installer/.
-export const INSTALLER_VERSION = "2026-10-31.5";
+export const INSTALLER_VERSION = "2026-10-31.6";
 
 // The ESP32-S3's own USB port (USB-Serial-JTAG), in Computer mode or BOOT+RST.
 const PORT_FILTER = [{ usbVendorId: 0x303a, usbProductId: 0x1001 }];
@@ -144,8 +144,8 @@ class InstallArea {
   confirm(choice, build, board) {
     const words = describeBoard(board, build.manifest.build);
     const save = board.store
-      ? h("label", { class: "check" }, h("input", { type: "checkbox", id: "save-store", checked: true }),
-        ` Save a copy of my backups to this computer first (${mb(board.storeRange.size)} MB)`)
+      ? h("label", { class: "check" }, h("input", { type: "checkbox", id: "save-store" }),
+        ` Save a copy of my backups to this computer first (${mb(board.storeRange.size)} MB, about ${Math.ceil(board.storeRange.size / 1048576 * 41 / 60)} min)`)
       : null;
     const name = buildName(build.manifest.build.app_set);
     this.show(

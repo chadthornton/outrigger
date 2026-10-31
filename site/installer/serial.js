@@ -21,16 +21,18 @@ export class ChunkedTransport extends Transport {
 }
 
 // esptool-js's readFlash asks the stub for 4 KiB packets, up to 1024 ahead of
-// the host's acknowledgements. In Brave the board stopped mid-packet on the
-// first 3 KiB read (2026-10-31), the read-side twin of the write stall. This
-// asks for 1 KiB packets, one at a time: the stub sends the next only after
-// the host acknowledges the running total, then ends with the data's MD5.
-export const READ_BLOCK = 1024;
+// the host's acknowledgements. In Chrome and Brave on macOS (2026-10-31) the
+// board's reply stopped partway through a packet: after 616 bytes of a 1 KiB
+// packet, 512 of another; Node on the same Mac never lost a byte. This asks
+// for 64-byte packets (one USB packet), one at a time: the stub sends the
+// next only after the host acknowledges the running total, then ends with
+// the data's MD5. From the Mac: 1 MiB in 41 s (256-byte packets: 15.6 s).
+export const READ_BLOCK = 64;
 
-export async function readFlashInPieces(loader, addr, size, onProgress = () => {}) {
+export async function readFlashInPieces(loader, addr, size, onProgress = () => {}, block = READ_BLOCK) {
   const int = (n) => loader._intToByteArray(n);
   const res = await loader.checkCommand("read flash", loader.ESP_READ_FLASH,
-    Uint8Array.from([...int(addr), ...int(size), ...int(READ_BLOCK), ...int(1)]));
+    Uint8Array.from([...int(addr), ...int(size), ...int(block), ...int(1)]));
   if (res != 0) throw new Error(`Failed to read flash: ${res}`);
   const out = new Uint8Array(size);
   let got = 0;
