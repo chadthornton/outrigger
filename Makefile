@@ -251,7 +251,7 @@ check:
 	@grep -E "passed|keeps the install|Sketch uses" $(CHECK_DIR).log
 	@echo "check passed at $$(git rev-parse --short HEAD) (clean clone; log: $(CHECK_DIR).log)"
 
-# Stage the firmware into site/ for the browser installer (ESP Web Tools).
+# Stage the firmware into site/ for the browser installer (site/installer/).
 # fixtures brings wl82loader.bin, so build_site can scan for pieces of it.
 site: build-all fixtures
 	for b in $(BOARDS); do for a in $(APP_SETS); do \

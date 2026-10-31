@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage firmware into site/ for the ESP Web Tools installer.
+"""Stage firmware into site/ for the browser installer (site/installer/).
 
     tools/build_site.py <board sketch> <app set> <arduino build dir> <boot_app0.bin> <version>
 
@@ -7,8 +7,8 @@ Writes site/firmware/<board-id>/<app set>/{bootloader,partitions,boot_app0,app}.
 and its manifest.json. The board is named by its sketch (waveshare_169), the
 app set by the Makefile's APPS= (docs/architecture.md, "App sets and builds").
 
-Why four parts and not one merged image: the ESP Web Tools docs merge so that
-esptool can patch flash mode/size into the bootloader header. Arduino already
+Why four parts and not one merged image: esptool can patch flash mode/size
+into a merged image's bootloader header, but Arduino already
 writes the right header (dio, 80 MHz, 16 MB). A merged image starting at 0x0
 also fills 0x9000-0xDFFF with 0xFF, which erases NVS (settings, Wi-Fi, the
 loader's unit data). Arduino's own .merged.bin is worse: padded to 16 MB, it
@@ -172,14 +172,8 @@ def make_manifest(board, app_set, version, tag, parts):
         "version": version,
         # What the board will say it runs once installed (site/installer/board.js).
         "build": tag,
-        # Without this, ESP Web Tools erases the whole chip on every install of
-        # firmware that doesn't speak Improv. With it, the user gets an "Erase
-        # device" box that starts unticked.
-        "new_install_prompt_erase": True,
-        "new_install_improv_wait_time": 0,
         "builds": [{
             "chipFamily": board["chip"],
-            "improv": False,
             # The page checks each download by SHA-256, and each part on the
             # board by the MD5 the flasher computes after writing.
             "parts": [{"path": name, "offset": offset,
