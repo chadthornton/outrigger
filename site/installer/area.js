@@ -9,11 +9,11 @@
 import { ESPLoader } from "../vendor/esptool-js-0.7.0/bundle.js";
 import { ChunkedTransport, readFlashInPieces } from "./serial.js";
 import { describeBoard, buildName } from "./board.js";
-import { readBoard, fetchBuild, install, finish } from "./install.js";
+import { readBoard, fetchBuild, install, finish, prepareStore } from "./install.js";
 
 // Shown under each install area and in Details, so a bug report says which
 // installer ran. Bump it with every change to site/installer/.
-export const INSTALLER_VERSION = "2026-10-31.8";
+export const INSTALLER_VERSION = "2026-10-31.9";
 
 // The ESP32-S3's own USB port (USB-Serial-JTAG), in Computer mode or BOOT+RST.
 const PORT_FILTER = [{ usbVendorId: 0x303a, usbProductId: 0x1001 }];
@@ -49,6 +49,9 @@ async function withTimeout(promise, ms, what) {
 }
 // One install at a time on the page: every area shares the one board and the log.
 let busy = false;
+
+// Chad's wording (2026-10-31) for a store region that holds data but no store.
+const UNREADABLE = "Your ESP32 has storage we can't read. Email feedback@outrigger.music before continuing. Nothing was installed.";
 
 const KEEPS = "Installing replaces the program only. Settings, Wi-Fi and FM-1 backups stay.";
 
@@ -117,7 +120,13 @@ class InstallArea {
         const reading = this.open(port).then((loader) => readBoard(loader));
         reading.catch(() => {}); // after a timeout it fails against the closed port; nothing waits for it
         const board = await withTimeout(reading, READ_TIMEOUT_MS, "Reading the board");
-        this.confirm(choice, build, board);
+        if (build.template && !board.store) this.show(h("p", { class: "install-note", role: "status" }, "Checking the board's store…"));
+        const store = await prepareStore({ loader: this.loader, board, build });
+        if (store.action === "unreadable") {
+          await this.close();
+          return this.ready(UNREADABLE);
+        }
+        this.confirm(choice, build, board, store);
       } catch (e) {
         await this.close();
         this.ready(this.explain(e, "Couldn't read the board."));
@@ -150,14 +159,18 @@ class InstallArea {
     this.transport = this.loader = null;
   }
 
-  confirm(choice, build, board) {
+  confirm(choice, build, board, store) {
     const words = describeBoard(board, build.manifest.build);
     const name = buildName(build.manifest.build.app_set);
+    const storeWords = store.action !== "create" ? null
+      : store.loaderProblem ? `It has no store yet, and firmware switching won't be set up: ${store.loaderProblem}. Everything else installs.`
+        : "It has no store yet. Installing also sets one up with the file the loader needs from the FM-1's chip maker, downloaded from GitHub straight into this browser.";
     this.show(
       h("p", { class: "install-read" }, words.board),
       h("p", {}, words.install),
+      storeWords ? h("p", {}, storeWords) : null,
       h("div", { class: "row" },
-        h("button", { on: { click: () => this.run(build, board) } }, `Install ${name}`),
+        h("button", { on: { click: () => this.run(build, board, store) } }, `Install ${name}`),
         h("button", { class: "alt", on: { click: async () => { await this.close(); this.ready(); } } }, "Cancel")),
     );
   }
@@ -167,19 +180,21 @@ class InstallArea {
     this.show(bar, h("p", { class: "install-note", role: "status" }, label, ". Keep the cable in."));
   }
 
-  async run(build, board) {
+  async run(build, board, store) {
     if (busy) return;
     busy = true;
+    const label = { verify: "Checking every part", "verify store": "Checking the new store" };
     try {
       await install({
         loader: this.loader, board, manifest: build.manifest, parts: build.parts,
-        onStep: (s) => this.progress(s.step === "verify" ? "Checking every part" : `Writing the ${s.part}`, s.written, s.total),
+        storeWrites: store.storeWrites, storeBlank: store.storeBlank,
+        onStep: (s) => this.progress(label[s.step] || `Writing the ${s.part}`, s.written, s.total),
       });
       // Verified: from here on it's installed, whatever the restart does.
       const { loader, transport } = this;
       this.transport = this.loader = null;
       await finish({ loader, transport });
-      this.done(build);
+      this.done(build, store);
     } catch (e) {
       await this.close();
       this.ready(this.explain(e, "The install stopped."));
@@ -188,10 +203,14 @@ class InstallArea {
     }
   }
 
-  done(build) {
+  done(build, store) {
     const name = `${buildName(build.manifest.build.app_set)} ${build.manifest.build.commit}`;
+    const storeWords = store.action !== "create" ? null
+      : store.loaderProblem ? `Firmware switching isn't set up: ${store.loaderProblem}. Install again later to set it up.`
+        : "Its store is set up for the loader. Add firmwares from a Mac to switch between them.";
     this.show(h("div", { class: "install-done", role: "status" },
       h("p", {}, h("b", {}, `Installed ${name}.`), " The board restarts by itself. If its screen stays dark, tap RST once."),
+      storeWords ? h("p", {}, storeWords) : null,
       h("p", {}, "Then unplug it from this computer and plug it back into the hub.")));
   }
 

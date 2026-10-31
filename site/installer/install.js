@@ -6,6 +6,7 @@
 // eraseAll false and the flash settings kept as built. Nothing here erases.
 import { planInstall, parseTable, PARTS } from "./plan.js";
 import { readBuildTag, hasStore, classifyLayout, TAG_OFFSET, TAG_LENGTH } from "./board.js";
+import { storeAction, spliceStore, fetchLoader } from "./store.js";
 
 export const FLASH_BYTES = 16 * 1024 * 1024;
 const TABLE = { offset: 0x8000, size: 0xc00 };
@@ -45,13 +46,53 @@ export async function fetchBuild(manifestUrl, fetchFn = fetch) {
     parts.push({ offset: part.offset, data });
   }
   parts.sort((a, b) => a.offset - b.offset);
-  return { manifest, parts };
+  let template = null;
+  if (manifest.store_template) {
+    const t = await fetchFn(base + manifest.store_template);
+    if (!t.ok) throw new Error(`Couldn't download the store template (${manifest.store_template}).`);
+    template = await t.json();
+  }
+  return { manifest, parts, template };
 }
 
-// Writes the build. board comes from readBoard on this same connection.
-// onStep({step, part?, written?, total?}): "write" per part, then "verify".
-export async function install({ loader, board, manifest, parts, onStep = () => {} }) {
-  const plan = planInstall({ parts, boardTable: board.tableBytes, flashBytes: FLASH_BYTES });
+// What this install does to the board's store, worked out before anything
+// is written (store.js storeAction). build comes from fetchBuild; a build
+// with a store template runs the loader. Returns {action, storeWrites,
+// storeBlank, loaderProblem}: storeWrites is empty unless a store will be
+// created; loaderProblem says why it won't be when GitHub didn't deliver.
+export async function prepareStore({ loader, board, build, fetchFn = fetch }) {
+  const none = { storeWrites: [], storeBlank: false, loaderProblem: null };
+  if (!build.template) return { action: "none", ...none };
+  if (board.store) return { action: "keep", ...none };
+  const tablePart = build.parts.find((p) => p.offset === 0x8000);
+  const range = tablePart && parseTable(tablePart.data).store;
+  if (!range) return { action: "none", ...none };
+  const [offset, size] = range;
+  const blank = size === build.template.size && await storeIsBlank(loader, { offset, size }, build.template.blank_md5);
+  const action = storeAction({ runsLoader: true, hasStore: false, blank });
+  if (action !== "create") return { action, ...none };
+  try {
+    const blob = await fetchLoader(build.template, fetchFn);
+    const storeWrites = spliceStore(build.template, blob).map((b) => ({ offset: offset + b.offset, data: b.data }));
+    return { action, storeWrites, storeBlank: true, loaderProblem: null };
+  } catch (e) {
+    return { action, storeWrites: [], storeBlank: true, loaderProblem: e.message };
+  }
+}
+
+// Whether the store region is factory-blank: the board computes the MD5 of
+// the whole region (seconds, where reading it back takes minutes) and it's
+// compared with an erased region's, from store-template.json.
+export async function storeIsBlank(loader, storeRange, blankMd5) {
+  return (await loader.flashMd5sum(storeRange.offset, storeRange.size)) === blankMd5;
+}
+
+// Writes the build, and with storeWrites a new store (only onto a region
+// storeIsBlank found blank). board comes from readBoard on this connection.
+// onStep({step, part?, written?, total?}): "write" per part, "verify", then
+// "verify store" when a store was written.
+export async function install({ loader, board, manifest, parts, storeWrites = [], storeBlank = false, onStep = () => {} }) {
+  const plan = planInstall({ parts, boardTable: board.tableBytes, flashBytes: FLASH_BYTES, storeWrites, storeBlank });
   if (!plan.ok) throw new Error(`Nothing was written: ${plan.problems.join("; ")}.`);
 
   await loader.writeFlash({
@@ -66,10 +107,20 @@ export async function install({ loader, board, manifest, parts, onStep = () => {
 
   onStep({ step: "verify" });
   const md5 = new Map(manifest.builds[0].parts.map((p) => [p.offset, p.md5]));
-  for (const w of plan.writes) {
+  for (const w of plan.writes.filter((w) => w.name !== "store")) {
     const got = await loader.flashMd5sum(w.offset, w.data.length);
     if (got !== md5.get(w.offset)) {
       throw new Error(`The ${w.name} didn't read back as written. Your settings and backups weren't touched; install again.`);
+    }
+  }
+  // The store blocks hold the loader the browser downloaded, so the manifest
+  // has no MD5 for them: read them back instead (a few KiB).
+  const store = plan.writes.filter((w) => w.name === "store");
+  if (store.length) onStep({ step: "verify store" });
+  for (const w of store) {
+    const got = await loader.readFlash(w.offset, w.data.length);
+    if (got.length !== w.data.length || got.some((b, i) => b !== w.data[i])) {
+      throw new Error(`The new store didn't read back as written at 0x${w.offset.toString(16)}. Email feedback@outrigger.music before installing again.`);
     }
   }
   return plan;

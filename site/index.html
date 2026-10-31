@@ -107,17 +107,17 @@
   </section>
 
   <section class="path" id="switch" role="tabpanel" aria-labelledby="tab-switch">
-    <p>Install the loader, set it up once from a Mac, then switch from the board's screen. It checks the FM-1, backs it up,
-      writes only the firmware and reads every byte back.</p>
+    <p>Install the loader, add firmwares once from a Mac, then switch from the board's screen. It checks the FM-1, backs it
+      up, writes only the firmware and reads every byte back.</p>
     <div class="install" data-builds='[{"label":"Install with loader","manifest":"firmware/waveshare-esp32-s3-touch-lcd-1.69/hub-loader/manifest.json"}]' data-help="#no-port">
         <p class="install-note">Installing needs Chrome or Edge on a computer, with JavaScript on.</p>
       </div>
     <details>
-      <summary>The one-time Mac setup</summary>
-      <p>The loader needs a file from the FM-1's chip maker that this page may not publish. With the board in Computer mode, run
-        <code>make flash-store CONFIRM=erase-store</code> from this project, then add firmwares with
-        <code>make store-add PKGS="sloop.fwsc skiff.fwsc"</code> (it checks each one against the Firmware Hub, so the Mac needs
-        internet). Until then the board says <em>Store unreadable</em>. Each firmware keeps its own songs: switching never
+      <summary>Adding firmwares from a Mac</summary>
+      <p>The loader needs a file from the FM-1's chip maker that this site may not publish. On a new board, Install with loader
+        downloads it straight from GitHub into your browser and sets up the board's store with it. Then, with the board in
+        Computer mode, add firmwares from this project with <code>make store-add PKGS="sloop.fwsc skiff.fwsc"</code> (it checks
+        each one against the Firmware Hub, so the Mac needs internet). Each firmware keeps its own songs: switching never
         mixes them.</p>
     </details>
   </section>
