@@ -389,6 +389,28 @@ void describe_not_ready(bool store_ok, bool blob_ok, bool blob_missing, const ch
   PUT(out.detail, "%s", or_(detail, ""));
 }
 
+JobKind job_for_hold(const HoldInput &in, const char **why) {
+  *why = "";
+  switch (in.act) {
+    case UiAct::Retry:
+      if (in.previewed_retry && in.pending) return JobKind::Resume;
+      *why = "retry, but no install is unfinished";
+      return JobKind::None;
+    case UiAct::Backup:
+      if (!in.pending && !in.previewed_retry) return JobKind::Backup;
+      *why = "backup, but an install is unfinished";
+      return JobKind::None;
+    case UiAct::Switch:
+      if (in.pending || in.previewed_retry) *why = "switch, but an install is unfinished";
+      else if (in.selected < 0 || in.index != in.selected || !in.selected_previewed) *why = "switch, but the selection changed";
+      else return JobKind::Install;
+      return JobKind::None;
+    default:
+      *why = "a hold with nothing to run";
+      return JobKind::None;
+  }
+}
+
 void describe_refused(UiResult &out) {
   const uint32_t seq = out.seq;
   out = UiResult{};

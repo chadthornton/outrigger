@@ -663,26 +663,19 @@ void refuse(const char *why) {
 void request_job(UiAct act, int index) {
   JobBoot j = {};
   j.attempt = 1;
-  const bool pending = resume_pending();
   const int sel = selected_index();
-  if (act == UiAct::Retry) {
-    if (!previewed_retry || !pending) return refuse("retry, but no install is unfinished");
-    j.kind = JobKind::Resume;
+  const char *why = "";
+  j.kind = loader_messages::job_for_hold(
+      {act, index, sel, sel >= 0 && item_ids[sel] == previewed_id, resume_pending(), previewed_retry}, &why);
+  if (j.kind == JobKind::None) return refuse(why);
+  if (j.kind == JobKind::Resume) {
     j.loader_running = loader_left_running;
-  } else if (act == UiAct::Backup) {
-    if (pending || previewed_retry) return refuse("backup, but an install is unfinished");
-    j.kind = JobKind::Backup;
-  } else if (act == UiAct::Switch) {
+  } else if (j.kind == JobKind::Install) {
     // The hold agreed to what the preview showed.
-    if (pending || previewed_retry) return refuse("switch, but an install is unfinished");
-    if (sel < 0 || index != sel || item_ids[sel] != previewed_id) return refuse("switch, but the selection changed");
-    j.kind = JobKind::Install;
     strlcpy(j.package, previewed_id.c_str(), sizeof j.package);
     strlcpy(j.unit, library->last_unit().c_str(), sizeof j.unit);
     j.fresh_ok = previewed.action == DataAction::FreshStart;
     j.layout_ok = previewed.layout_warning;
-  } else {
-    return refuse("a hold with nothing to run");
   }
   const JobNames names = job_names(j);
   show_job(j.kind, Step::Idle, names.firmware.c_str(), names.backup, 0, 0, false);

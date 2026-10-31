@@ -295,6 +295,40 @@ static void test_job_steps() {
   EXPECT(j.steps[2].state == UiStepState::Done, "written before the restart");
 }
 
+// A hold runs only what its label named and the last preview showed.
+static void test_hold_gate() {
+  const char *why;
+  const HoldInput ok_switch = {UiAct::Switch, 2, 2, true, false, false};
+  EXPECT(job_for_hold(ok_switch, &why) == JobKind::Install && !why[0], "a switch that matches its preview");
+  HoldInput h = ok_switch;
+  h.index = 1;
+  EXPECT(job_for_hold(h, &why) == JobKind::None && has(why, "selection"), "a switch for another row");
+  h = ok_switch;
+  h.selected_previewed = false;
+  EXPECT(job_for_hold(h, &why) == JobKind::None, "a switch whose package isn't the previewed one");
+  h = ok_switch;
+  h.selected = -1;
+  h.index = -1;
+  EXPECT(job_for_hold(h, &why) == JobKind::None, "a switch with nothing selected");
+  h = ok_switch;
+  h.pending = true;
+  EXPECT(job_for_hold(h, &why) == JobKind::None && has(why, "unfinished"), "no switch over an unfinished install");
+  h = ok_switch;
+  h.previewed_retry = true;
+  EXPECT(job_for_hold(h, &why) == JobKind::None, "nor while the preview showed one");
+
+  EXPECT(job_for_hold({UiAct::Backup, -1, -1, false, false, false}, &why) == JobKind::Backup, "a backup");
+  EXPECT(job_for_hold({UiAct::Backup, -1, -1, false, true, false}, &why) == JobKind::None, "no backup: unfinished");
+  EXPECT(job_for_hold({UiAct::Backup, -1, -1, false, false, true}, &why) == JobKind::None, "no backup: previewed retry");
+
+  EXPECT(job_for_hold({UiAct::Retry, -1, -1, false, true, true}, &why) == JobKind::Resume, "a retry");
+  EXPECT(job_for_hold({UiAct::Retry, -1, -1, false, false, true}, &why) == JobKind::None,
+         "no retry once the FM-1 is back (pending gone)");
+  EXPECT(job_for_hold({UiAct::Retry, -1, -1, false, true, false}, &why) == JobKind::None,
+         "no retry the preview didn't show");
+  EXPECT(job_for_hold({UiAct::None, -1, -1, false, false, false}, &why) == JobKind::None, "nothing to run");
+}
+
 static void test_backup_name() {
   char b[12];
   backup_name("69bb070aaa87bd10-b50", b, sizeof b);
@@ -313,6 +347,7 @@ int main() {
   test_not_ready_and_unfinished();
   test_plan();
   test_job_steps();
+  test_hold_gate();
   test_backup_name();
   if (failures) {
     printf("%d failure(s)\n", failures);

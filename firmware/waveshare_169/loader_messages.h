@@ -72,6 +72,18 @@ void describe_result(const JobOutcome &in, UiResult &out);
 
 // The FM-1 page when the store or the loader file is bad.
 void describe_not_ready(bool store_ok, bool blob_ok, bool blob_missing, const char *detail, UiResult &out);
+// Which job a completed hold starts, or JobKind::None to refuse it (why says
+// why). A hold runs only what its label named and the last preview showed.
+struct HoldInput {
+  UiAct act;
+  int index;                // the row a switch's hold was for
+  int selected;             // the row the Loader last previewed, -1 none
+  bool selected_previewed;  // that row's package is the one previewed
+  bool pending;             // resume_pending() now
+  bool previewed_retry;     // the last preview found the install unfinished
+};
+JobKind job_for_hold(const HoldInput &in, const char **why);
+
 // A hold that no longer matched what the Loader previewed: nothing ran.
 void describe_refused(UiResult &out);
 // The FM-1 page when an install stopped part-way (resume_pending()).
