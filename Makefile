@@ -76,6 +76,8 @@ test: build/check_package build/test_fm1_interop build/test_midi_core build/test
 		tests/fixtures/sloop-2.8.1.fwsc tests/fixtures/FM-1_015.fwsc
 	./build/test_fm1_interop build/interop
 	python3 -I tools/check_partitions.py firmware/$(BOARD)/partitions.csv
+	python3 -I tests/installer/test_tables.py
+	node --test tests/installer/
 
 # The Mac tests may write the mock FM-1 (FM1_LOADER_WRITES=1); test_fm1_locked
 # is built without it, as every firmware build is until hardware checkpoint 3.

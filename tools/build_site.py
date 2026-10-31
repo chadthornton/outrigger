@@ -121,6 +121,11 @@ def check_layout(parts, board):
         fail("a part overlaps NVS")
     if len(parts[0x0]) > 0x8000:
         fail("bootloader runs into the partition table")
+    if 0xE000 + len(parts[0xE000]) > 0x10000:
+        fail("boot_app0 runs past otadata into app0 at 0x10000")
+    for offset, data in parts.items():
+        if not data:
+            fail(f"the part at {offset:#x} is empty")
     header = parts[0x0][:4]
     if header[0] != 0xE9:
         fail("bootloader has no image header")
