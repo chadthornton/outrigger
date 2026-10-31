@@ -1,0 +1,100 @@
+/* Shared by the redesign mock-ups: tokens, type, buttons, FAQ. Fonts are self-hosted: no CDN. */
+@font-face {
+  font-family: "Commissioner"; font-style: normal; font-weight: 400 700; font-display: swap;
+  src: url("fonts/commissioner-latin.woff2") format("woff2");
+}
+:root {
+  --bg: #f6f5f1; --fg: #151714; --muted: #5f645c; --line: #dddfd7; --panel: #ffffff; --soft: #eceee6;
+  --screen: #141713; --accent: #1f8a4c; --accent-fg: #ffffff; --warn: #9a3a00;
+  --radius: 14px;
+  --sans: "Commissioner", system-ui, -apple-system, "Segoe UI", sans-serif;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f110e; --fg: #eceee8; --muted: #9ba096; --line: #2a2e28; --panel: #181b17; --soft: #1d211c;
+    --screen: #050605; --accent: #46d384; --accent-fg: #06150c; --warn: #ffab6b;
+  }
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 400 1.0625rem/1.6 var(--sans); font-kerning: normal;
+       -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+img, svg { display: block; max-width: 100%; }
+a { color: inherit; text-underline-offset: 3px; }
+h1, h2, h3 { margin: 0; text-wrap: balance; font-weight: 650; }
+p { margin: 0; text-wrap: pretty; }
+button:focus-visible, a:focus-visible, summary:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+
+.wordmark { font-weight: 700; letter-spacing: -.01em; font-size: 1.1rem; display: inline-flex; gap: 8px; align-items: center; text-decoration: none; }
+.wordmark i { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); display: inline-block; }
+.beta { font-size: .7rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
+        border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; }
+
+.btn { display: inline-flex; align-items: center; gap: 10px; font: inherit; font-weight: 600; border: 0; cursor: pointer;
+       border-radius: 10px; padding: 13px 22px; line-height: 1.2; background: var(--accent); color: var(--accent-fg); text-decoration: none; }
+.btn.ghost { background: transparent; color: var(--fg); box-shadow: inset 0 0 0 2px var(--line); }
+.btn:hover { filter: brightness(1.06); }
+.fine { font-size: .88rem; color: var(--muted); }
+.warn { font-size: .88rem; color: var(--warn); font-weight: 600; }
+.status { font-size: .8125rem; font-weight: 600; color: var(--muted); }
+
+/* FAQ / troubleshooting: native disclosure, so it reads without JavaScript. */
+.faq { display: grid; border-top: 1px solid var(--line); }
+.faq details { border-bottom: 1px solid var(--line); }
+.faq summary { list-style: none; cursor: pointer; padding: 15px 32px 15px 0; font-weight: 550; line-height: 1.4; position: relative; }
+.faq summary::-webkit-details-marker { display: none; }
+.faq summary::after { content: "+"; position: absolute; right: 4px; top: 13px; font-weight: 400; font-size: 1.3rem; color: var(--muted); }
+.faq details[open] summary::after { content: "–"; }
+.faq details:last-child { border-bottom: 0; }
+h3, h4, summary, .steps3 b { text-wrap: balance; }
+.faq details > :not(summary) { margin: -4px 0 18px; color: var(--muted); max-width: 38em; line-height: 1.6; }
+
+.mock-note { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); background: var(--fg); color: var(--bg);
+             padding: 10px 16px; border-radius: 10px; font-size: .9rem; opacity: 0; transition: opacity .2s; pointer-events: none; }
+.mock-note.show { opacity: 1; }
+
+/* Explorable setup diagram (rig.js). */
+.rig-fig { display: grid; gap: 14px; margin: 0; }
+.rig-fig svg { color: var(--fg); width: 100%; height: auto; overflow: hidden; }
+.rig-fig .part { cursor: pointer; transition: opacity .3s; outline: none; }
+.rig-fig .part.dim { opacity: .18; }
+.rig-fig .part:focus-visible use, .rig-fig .part:hover use { filter: drop-shadow(0 0 6px color-mix(in srgb, var(--accent) 55%, transparent)); }
+.rig-fig .dots circle { fill: var(--accent); pointer-events: none; }
+.rig-fig .dots .ring { fill: none; stroke: var(--accent); stroke-width: 3; transform-box: fill-box; transform-origin: center;
+                       animation: ring 1.6s cubic-bezier(.2, .6, .3, 1) infinite; }
+.rig-fig .hit { fill: transparent; }
+.rig-fig[data-zoomed]:not([data-zoomed=""]) .dots, .rig-fig[data-zoomed]:not([data-zoomed=""]) .labels { opacity: 0; }
+@keyframes ring { 0% { transform: scale(1); opacity: .85; } 100% { transform: scale(2.6); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .rig-fig .dots .ring { animation: none; opacity: 0; } }
+/* Chips appear once a part is picked, to hop between parts. */
+.rig-fig:not(.live) .chips, .rig-fig:not([data-zoomed]) .chips, .rig-fig[data-zoomed=""] .chips { display: none; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chips button { font: inherit; font-size: .875rem; font-weight: 550; border: 1px solid var(--line); background: var(--panel); color: var(--fg);
+                border-radius: 999px; padding: 7px 14px; cursor: pointer; }
+.chips button[aria-pressed="true"] { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 24px; display: grid; gap: 12px; }
+.panel h3 { font-size: 1.125rem; line-height: 1.3; }
+.panel p, .panel li { color: var(--muted); }
+.panel ul { margin: 0; padding-left: 1.1em; display: grid; gap: 4px; }
+.panel .shot { width: 150px; border-radius: 22px; border: 3px solid var(--fg); background: #000; }
+.panel .shots { display: flex; gap: 10px; overflow-x: auto; }
+.panel .row { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
+.panel .close { justify-self: start; font: inherit; font-size: .9rem; background: none; border: 0; color: var(--muted); text-decoration: underline; cursor: pointer; padding: 0; }
+.need-link { font-weight: 600; font-size: .9375rem; }
+
+/* Firmware strip: what "firmware" means, at a glance. */
+.firmwares { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+.fw { border-radius: 10px; padding: 9px 8px 8px; background: var(--soft); display: grid; gap: 2px; min-width: 0; }
+.fw b { font-size: .86rem; line-height: 1.15; overflow-wrap: anywhere; }
+.fw span { font-size: .72rem; color: var(--muted); }
+.fw i { width: 22px; height: 22px; border-radius: 6px; display: grid; place-items: center; font-style: normal; font-weight: 800; font-size: .75rem; color: #fff; margin-bottom: 4px; }
+.fw.groove i { background: #c2410c; } .fw.synth i { background: #2563eb; } .fw.ambient i { background: #7c3aed; } .fw.chords i { background: #0f766e; }
+@media (max-width: 520px) { .firmwares { grid-template-columns: repeat(2, 1fr); } }
+
+.install-out { font-weight: 600; font-size: .95rem; color: var(--accent); }
+.install-out.bad { color: var(--warn); }
+.panel .shots figure { margin: 0; display: grid; gap: 6px; flex: none; }
+.panel .shots figcaption { font-size: .8rem; color: var(--muted); text-align: center; }
+

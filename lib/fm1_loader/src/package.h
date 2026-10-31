@@ -1,6 +1,7 @@
 // FM-1 .fwsc packages: the identity string spelled by marker bytes, the UFW
 // container inside, and its flash.bin. A port of fm1_unbrick.py's parse_fwsc
 // and ufw_flash (themselves ports of Felucca's firmware/src/ota.c).
+// Ported from MvaveFM1Unbricker (MIT, Michael P Jones); see NOTICE for the ota.c lineage.
 #pragma once
 
 #include <stddef.h>

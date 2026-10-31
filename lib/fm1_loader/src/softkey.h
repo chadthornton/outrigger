@@ -4,6 +4,7 @@
 // then send the key F0 22 24 35 7D F7 as ONE 8-byte USB transfer (stock
 // compares whole transfers), three times 20 ms apart. Only the Loader calls
 // this, in Load mode; the Router drops every SysEx.
+// Ported from MvaveFM1Unbricker (MIT, Michael P Jones): see NOTICE.
 #pragma once
 
 #include <stddef.h>

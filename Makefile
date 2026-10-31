@@ -256,8 +256,12 @@ check:
 
 # Stage the firmware into site/ for the browser installer (site/installer/).
 # fixtures brings wl82loader.bin, so build_site can scan for pieces of it.
+# NOTICE and LICENSE go beside the firmware: GPL-3.0 and the MIT and BSD
+# licenses of what it includes ask for their texts to travel with the binaries.
 # Loader app sets also get the store template (tools/store_template.py).
 site: build-all fixtures $(TOOLS_PY)
+	cp NOTICE site/NOTICE.txt
+	cp LICENSE site/LICENSE.txt
 	for b in $(BOARDS); do \
 		$(TOOLS_PY) tools/store_template.py firmware/$$b/partitions.csv build/$$b/store-template.json || exit 1; \
 		for a in $(APP_SETS); do \

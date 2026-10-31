@@ -408,7 +408,7 @@ static void test_hold_gate() {
 
 static void test_backup_name() {
   char b[12];
-  backup_name("69bb070aaa87bd10-b50", b, sizeof b);
+  backup_name("0123456789abcdef-b50", b, sizeof b);
   EXPECT(strcmp(b, "b50") == 0, "b50");
   backup_name("", b, sizeof b);
   EXPECT(strcmp(b, "") == 0, "none");
