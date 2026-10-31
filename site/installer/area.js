@@ -7,13 +7,13 @@
 // Without JavaScript, or in a browser without Web Serial, the area says so and
 // the text around it still reads on its own.
 import { ESPLoader } from "../vendor/esptool-js-0.7.0/bundle.js";
-import { ChunkedTransport } from "./serial.js";
+import { ChunkedTransport, readFlashInPieces } from "./serial.js";
 import { describeBoard, buildName } from "./board.js";
 import { readBoard, fetchBuild, install, backupStore, finish } from "./install.js";
 
 // Shown under each install area and in Details, so a bug report says which
 // installer ran. Bump it with every change to site/installer/.
-export const INSTALLER_VERSION = "2026-10-31.4";
+export const INSTALLER_VERSION = "2026-10-31.5";
 
 // The ESP32-S3's own USB port (USB-Serial-JTAG), in Computer mode or BOOT+RST.
 const PORT_FILTER = [{ usbVendorId: 0x303a, usbProductId: 0x1001 }];
@@ -122,6 +122,9 @@ class InstallArea {
   async open(port) {
     this.transport = new ChunkedTransport(port, true); // trace: kept for Details when something fails
     this.loader = new ESPLoader({ transport: this.transport, baudrate: BAUD, romBaudrate: BAUD, serialOptions: SERIAL_OPTIONS, terminal: TERMINAL });
+    const loader = this.loader;
+    loader.readFlash = (addr, size, onPacket) =>
+      readFlashInPieces(loader, addr, size, (done, total) => onPacket && onPacket(null, done, total));
     const chip = await this.loader.main();
     if (!/ESP32-S3/.test(chip)) throw new Error(`That's an ${chip}, not the Waveshare's ESP32-S3.`);
   }

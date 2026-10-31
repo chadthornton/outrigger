@@ -78,9 +78,9 @@ export async function install({ loader, board, manifest, parts, onStep = () => {
 // The whole store, read back for the laptop. onProgress(done, total).
 export async function backupStore(loader, storeRange, onProgress = () => {}) {
   let done = 0;
-  return loader.readFlash(storeRange.offset, storeRange.size, (packet) => {
-    done += packet.length;
-    onProgress(Math.min(done, storeRange.size), storeRange.size);
+  return loader.readFlash(storeRange.offset, storeRange.size, (_packet, progress) => {
+    done = Math.min(progress, storeRange.size);
+    onProgress(done, storeRange.size);
   });
 }
 
