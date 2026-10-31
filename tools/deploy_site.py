@@ -29,7 +29,8 @@ PROJECT = "outrigger"
 # Pages branch per channel. The project's production branch is master; beta.outrigger.music
 # is a custom domain on the beta branch alias (beta.outrigger.pages.dev).
 BRANCHES = {"production": "master", "beta": "beta"}
-WRANGLER = "wrangler@4.156.0"
+# At least two weeks old: npm here refuses releases younger than a week.
+WRANGLER = "wrangler@4.151.1"
 ENV_FILE = Path.home() / ".config/cloudflare/outrigger-pages.env"
 STAGE = ROOT / "build/pages"
 # Cloudflare Pages limits (developers.cloudflare.com/pages/platform/limits/).
@@ -144,10 +145,12 @@ def deploy(channel, site):
     if problems:
         fail("refusing to upload:\n  " + "\n  ".join(problems))
     env = load_credentials()
-    subprocess.run(["npx", "--yes", WRANGLER, "pages", "deploy", str(STAGE),
+    upload = subprocess.run(["npx", "--yes", WRANGLER, "pages", "deploy", str(STAGE),
                     "--project-name", PROJECT, "--branch", BRANCHES[channel],
                     "--commit-hash", head, "--commit-message", git("log", "-1", "--format=%s", head),
-                    "--commit-dirty=false"], env=env, check=True)
+                    "--commit-dirty=false"], env=env)
+    if upload.returncode:
+        fail(f"wrangler failed (exit {upload.returncode}); its output is above")
     url = "https://outrigger.music" if channel == "production" else "https://beta.outrigger.music"
     print(f"deployed {head[:7]} to {channel}: {url}")
 
