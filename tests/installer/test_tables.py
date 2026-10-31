@@ -103,6 +103,11 @@ def check_manifest():
     failures = [] if got == want else [f"manifest parts {got} != {want}"]
     if m.get("build") != tag:
         failures.append(f"manifest build {m.get('build')} != {tag}")
+    if "store_template" in m:
+        failures.append("a MIDI Hub manifest names a store template; only loader builds set up a store")
+    loader = make_manifest(BOARD, "hub-loader", "def5678", dict(tag, app_set="hub+L"), parts, store_template=True)
+    if loader.get("store_template") != "store-template.json":
+        failures.append(f"a loader manifest's store_template is {loader.get('store_template')!r}")
     return failures
 
 

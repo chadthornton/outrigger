@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """Stage firmware into site/ for the browser installer (site/installer/).
 
-    tools/build_site.py <board sketch> <app set> <arduino build dir> <boot_app0.bin> <version>
+    tools/build_site.py <board sketch> <app set> <arduino build dir> <boot_app0.bin> <version> [<store-template.json>]
 
 Writes site/firmware/<board-id>/<app set>/{bootloader,partitions,boot_app0,app}.bin
-and its manifest.json. The board is named by its sketch (waveshare_169), the
+and its manifest.json. App sets with the loader also get store-template.json
+(tools/store_template.py): the store the installer writes onto a blank board,
+with a placeholder where the browser puts JieLi's loader. The board is named by its sketch (waveshare_169), the
 app set by the Makefile's APPS= (docs/architecture.md, "App sets and builds").
 
 Why four parts and not one merged image: esptool can patch flash mode/size
@@ -165,9 +167,13 @@ def check_build_tag(app, app_set):
     return tag
 
 
-def make_manifest(board, app_set, version, tag, parts):
+# App sets whose firmware runs the loader, so the installer sets up a store for it.
+LOADER_APP_SETS = ("hub-loader", "everything")
+
+
+def make_manifest(board, app_set, version, tag, parts, store_template=False):
     """manifest.json for one app set. parts: offset -> bytes."""
-    return {
+    manifest = {
         "name": f"{board['name']}: {APP_SETS[app_set]}",
         "version": version,
         # What the board will say it runs once installed (site/installer/board.js).
@@ -181,6 +187,10 @@ def make_manifest(board, app_set, version, tag, parts):
                        "sha256": hashlib.sha256(parts[offset]).hexdigest()} for offset, name, _ in PARTS],
         }],
     }
+    if store_template:
+        # Written onto a factory-blank store, with the loader fetched from GitHub (site/installer/store.js).
+        manifest["store_template"] = "store-template.json"
+    return manifest
 
 
 def check_licensing(files):
@@ -203,9 +213,10 @@ def check_licensing(files):
 
 
 def main():
-    if len(sys.argv) != 6:
+    if len(sys.argv) not in (6, 7):
         fail(__doc__.strip().splitlines()[2].strip())
-    sketch, app_set, build_dir, boot_app0, version = sys.argv[1:]
+    sketch, app_set, build_dir, boot_app0, version = sys.argv[1:6]
+    template = Path(sys.argv[6]) if len(sys.argv) == 7 else None
     board_id = next((k for k, b in BOARDS.items() if b["sketch"] == sketch), None)
     if board_id is None:
         fail(f"unknown board {sketch}; known: {', '.join(b['sketch'] for b in BOARDS.values())}")
@@ -213,6 +224,8 @@ def main():
     if app_set not in APP_SETS:
         fail(f"unknown app set {app_set}; known: {', '.join(APP_SETS)}")
     build_dir = Path(build_dir)
+    if app_set in LOADER_APP_SETS and not (template and template.is_file()):
+        fail(f"{app_set} runs the loader: pass its store-template.json (tools/store_template.py)")
 
     parts = {}
     for offset, _, src in PARTS:
@@ -233,7 +246,10 @@ def main():
     for offset, name, _ in PARTS:
         (out / name).write_bytes(parts[offset])
 
-    manifest = make_manifest(board, app_set, version, tag, parts)
+    with_template = app_set in LOADER_APP_SETS
+    if with_template:
+        shutil.copyfile(template, out / "store-template.json")
+    manifest = make_manifest(board, app_set, version, tag, parts, store_template=with_template)
     (out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
     try:

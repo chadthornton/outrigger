@@ -8,6 +8,8 @@ CTAGS_DIR ?= /opt/homebrew/bin
 # `make build BOARD=waveshare_169 APPS=hub-loader`; `make site` builds them all.
 BOARDS := waveshare_169
 APP_SETS := hub hub-loader everything
+# littlefs-python for the store image and the installer's store template (rule below).
+TOOLS_PY := build/tools-venv/bin/python
 BOARD ?= waveshare_169
 APPS ?= hub
 APP_FLAGS_hub :=
@@ -60,7 +62,7 @@ FM1_HDR := $(wildcard lib/fm1_loader/src/*.h) $(wildcard tests/support/*.h)
 FM1_TESTS := build/test_fm1_package build/test_fm1_library build/test_fm1_installer \
 	build/test_fm1_softkey build/test_fm1_posix build/test_fm1_locked build/test_fm1_library_posix
 
-test: build/check_package build/test_fm1_interop build/test_midi_core build/test_status build/test_boot_mode build/test_broker build/test_describe build/test_web_core build/test_store_json build/test_loader_messages $(FM1_TESTS) fixtures
+test: build/check_package build/test_fm1_interop build/test_midi_core build/test_status build/test_boot_mode build/test_broker build/test_describe build/test_web_core build/test_store_json build/test_loader_messages $(FM1_TESTS) fixtures $(TOOLS_PY)
 	./build/test_midi_core
 	./build/test_status
 	./build/test_boot_mode
@@ -77,6 +79,7 @@ test: build/check_package build/test_fm1_interop build/test_midi_core build/test
 	./build/test_fm1_interop build/interop
 	python3 -I tools/check_partitions.py firmware/$(BOARD)/partitions.csv
 	python3 -I tests/installer/test_tables.py
+	$(TOOLS_PY) tests/installer/test_store_template.py
 	node --test tests/installer/
 	python3 -I tests/test_deploy_site.py
 
@@ -218,7 +221,6 @@ flash: build
 # (from tests/fixtures). JieLi's code, so it stays in build/ and is never staged
 # into site/. Flashing it ERASES every backup and save in the store, so it asks
 # for CONFIRM=erase-store. The board must be in download mode (Computer mode).
-TOOLS_PY := build/tools-venv/bin/python
 $(TOOLS_PY):
 	python3 -m venv build/tools-venv
 	$(TOOLS_PY) -m pip install -q littlefs-python==0.19.0
@@ -254,10 +256,13 @@ check:
 
 # Stage the firmware into site/ for the browser installer (site/installer/).
 # fixtures brings wl82loader.bin, so build_site can scan for pieces of it.
-site: build-all fixtures
-	for b in $(BOARDS); do for a in $(APP_SETS); do \
+# Loader app sets also get the store template (tools/store_template.py).
+site: build-all fixtures $(TOOLS_PY)
+	for b in $(BOARDS); do \
+		$(TOOLS_PY) tools/store_template.py firmware/$$b/partitions.csv build/$$b/store-template.json || exit 1; \
+		for a in $(APP_SETS); do \
 		python3 tools/build_site.py $$b $$a build/$$b/$$a $(ESP32_CORE)/tools/partitions/boot_app0.bin \
-			$(shell git describe --always --dirty) || exit 1; done; done
+			$(shell git describe --always --dirty) build/$$b/store-template.json || exit 1; done; done
 
 # Web Serial needs a secure context; http://localhost counts.
 serve: site
