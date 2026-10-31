@@ -13,7 +13,7 @@ import { readBoard, fetchBuild, install, finish, prepareStore } from "./install.
 
 // Shown under each install area and in Details, so a bug report says which
 // installer ran. Bump it with every change to site/installer/.
-export const INSTALLER_VERSION = "2026-10-31.11";
+export const INSTALLER_VERSION = "2026-10-31.12";
 
 // The ESP32-S3's own USB port (USB-Serial-JTAG), in Computer mode or BOOT+RST.
 const PORT_FILTER = [{ usbVendorId: 0x303a, usbProductId: 0x1001 }];
@@ -54,7 +54,7 @@ let busy = false;
 // Chad's wording (2026-10-31) for a store region that holds data but no store.
 const UNREADABLE = "Your ESP32 has storage we can't read. Email feedback@outrigger.music before continuing. Nothing was installed.";
 
-const KEEPS = "Installing replaces the program only. Settings, Wi-Fi and FM-1 backups stay.";
+const KEEPS = "Checking reads the board and changes nothing: nothing is installed until you confirm. Installing replaces the program only. Settings, Wi-Fi and FM-1 backups stay.";
 
 const h = (tag, attrs = {}, ...kids) => {
   const el = document.createElement(tag);

@@ -98,10 +98,10 @@
     <p>You need a Waveshare ESP32-S3-Touch-LCD-1.69, a powered hub with USB-C ports, a USB-C data cable, and Chrome or Edge.</p>
     <ol>
       <li>Plug the board straight into this computer.</li>
-      <li>Click Install and pick <em>USB JTAG/serial debug unit</em>.</li>
+      <li>Click Check my board and pick <em>USB JTAG/serial debug unit</em>. The page says what's on the board; click Install to go ahead.</li>
       <li>Move the board to the hub, with your keyboard and the FM-1 in its USB-C ports. Play.</li>
     </ol>
-    <div class="install" data-builds='[{"label":"Install","manifest":"firmware/waveshare-esp32-s3-touch-lcd-1.69/hub/manifest.json"}]' data-help="#no-port">
+    <div class="install" data-builds='[{"label":"Check my board","manifest":"firmware/waveshare-esp32-s3-touch-lcd-1.69/hub/manifest.json"}]' data-help="#no-port">
         <p class="install-note">Installing needs Chrome or Edge on a computer, with JavaScript on.</p>
       </div>
   </section>
@@ -109,12 +109,12 @@
   <section class="path" id="switch" role="tabpanel" aria-labelledby="tab-switch">
     <p>Install the loader, add firmwares once from a Mac, then switch from the board's screen. It checks the FM-1, backs it
       up, writes only the firmware and reads every byte back.</p>
-    <div class="install" data-builds='[{"label":"Install with loader","manifest":"firmware/waveshare-esp32-s3-touch-lcd-1.69/hub-loader/manifest.json"}]' data-help="#no-port">
+    <div class="install" data-builds='[{"label":"Check my board","manifest":"firmware/waveshare-esp32-s3-touch-lcd-1.69/hub-loader/manifest.json"}]' data-help="#no-port">
         <p class="install-note">Installing needs Chrome or Edge on a computer, with JavaScript on.</p>
       </div>
     <details>
       <summary>Adding firmwares from a Mac</summary>
-      <p>The loader needs a file from the FM-1's chip maker that this site may not publish. On a new board, Install with loader
+      <p>The loader needs a file from the FM-1's chip maker that this site may not publish. On a new board, installing here
         downloads it straight from GitHub into your browser and sets up the board's store with it. Then, with the board in
         Computer mode, add firmwares from this project with <code>make store-add PKGS="sloop.fwsc skiff.fwsc"</code> (it checks
         each one against the Firmware Hub, so the Mac needs internet). Each firmware keeps its own songs: switching never
@@ -125,7 +125,7 @@
   <section class="path" id="update" role="tabpanel" aria-labelledby="tab-update">
     <p>On the board, open Settings, tap <b>Computer</b>, and tap it again within 3 seconds. Plug it into this computer and
       install the build it already runs. Settings shows which.</p>
-    <div class="install" data-builds='[{"label":"Update","manifest":"firmware/waveshare-esp32-s3-touch-lcd-1.69/hub/manifest.json"},{"label":"Update with loader","manifest":"firmware/waveshare-esp32-s3-touch-lcd-1.69/hub-loader/manifest.json"}]' data-help="#no-port">
+    <div class="install" data-builds='[{"label":"Check my board (MIDI Hub)","manifest":"firmware/waveshare-esp32-s3-touch-lcd-1.69/hub/manifest.json"},{"label":"Check my board (Hub + Loader)","manifest":"firmware/waveshare-esp32-s3-touch-lcd-1.69/hub-loader/manifest.json"}]' data-help="#no-port">
         <p class="install-note">Installing needs Chrome or Edge on a computer, with JavaScript on.</p>
       </div>
   </section>
@@ -155,7 +155,7 @@
     <p>Installing changes the board, never the FM-1. A keyboard with a 5-pin or 3.5 mm MIDI out doesn't need this: a cable into
       the FM-1's MIDI IN does the job.</p>
     <p>For developers: Everything adds a Wi-Fi status page; its loader can't write.</p>
-    <div class="install" data-builds='[{"label":"Install Everything","manifest":"firmware/waveshare-esp32-s3-touch-lcd-1.69/everything/manifest.json"}]' data-help="#no-port">
+    <div class="install" data-builds='[{"label":"Check my board (Everything)","manifest":"firmware/waveshare-esp32-s3-touch-lcd-1.69/everything/manifest.json"}]' data-help="#no-port">
       <p class="install-note">Installing needs Chrome or Edge on a computer, with JavaScript on.</p>
     </div>
     <p>Installs with <a href="https://github.com/espressif/esptool-js">esptool-js</a> 0.7.0 (Apache-2.0), served from this
