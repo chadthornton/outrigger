@@ -151,7 +151,8 @@ void describe_job(const JobInput &in, UiJob &out) {
   if (chained) {
     // A switch that found the FM-1 changed since its backup.
     PUT(out.title, "Switching to %s", fw);
-    put(a, sizeof a, "Changed since %s: nothing written", or_(in.stale_backup, "its backup"));
+    if (in.stale_backup && in.stale_backup[0]) put(a, sizeof a, "Changed since %s: nothing written", in.stale_backup);
+    else put(a, sizeof a, "No backup yet: nothing written");
     row(a, a, a, false);
   }
   if (in.kind == JobKind::Backup && chained) {
@@ -256,7 +257,10 @@ void describe_result(const JobOutcome &in, UiResult &out) {
     snprintf(why, sizeof why, "%s", out.why);
     if (why[0] >= 'A' && why[0] <= 'Z') why[0] = char(why[0] - 'A' + 'a');
     PUT(out.headline, "Switch didn't start");
-    PUT(out.why, "It changed since %s, and the backup stopped: %s", or_(in.stale_backup, "its backup"), why);
+    if (in.stale_backup && in.stale_backup[0])
+      PUT(out.why, "It changed since %s, and the backup stopped: %s", in.stale_backup, why);
+    else
+      PUT(out.why, "No backup yet, and the backup stopped: %s", why);
     if (out.fix == UiAct::Backup) {
       out.fix = UiAct::Switch;
       PUT(out.fix_label, "switch to %s", or_(in.firmware, "it"));

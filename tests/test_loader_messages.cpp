@@ -138,6 +138,8 @@ static void test_chained_backup_failed() {
   EXPECT(has(r.why, "changed since b50") && has(r.why, "two reads differed"), "why: changed, then the backup's reason");
   EXPECT(r.fix == UiAct::Switch && strcmp(r.fix_label, "switch to Felucca 1.6.1") == 0, "the hold switches again");
   EXPECT(!has(r.headline, "unfinished"), "never Install unfinished");
+  o.stale_backup = "";
+  EXPECT(has(result(o).why, "No backup yet"), "no backup: says so");
 
   // The fresh backup changed the plan (a fresh start the user didn't agree to).
   JobOutcome p{};
@@ -344,6 +346,9 @@ static void test_job_steps() {
          "says why it backs up");
   EXPECT(j.steps[1].state == UiStepState::Now && has(j.steps[1].text, "Backing up: 42%"), "backing up");
   EXPECT(j.steps[2].state == UiStepState::Next && has(j.steps[2].text, "Felucca"), "the write to come");
+  chained.stale_backup = "";  // there was no backup at all
+  describe_job(chained, j);
+  EXPECT(strcmp(j.steps[0].text, "No backup yet: nothing written") == 0, "no backup: says so");
   chained = {JobKind::Install, Step::WriteApp, "Felucca 1.6.1", "b51", 88, 149, true};
   chained.chain = Chain::Install;
   chained.stale_backup = "b50";

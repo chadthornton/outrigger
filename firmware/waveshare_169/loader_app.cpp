@@ -25,6 +25,7 @@
 #endif
 
 using namespace fm1_loader;
+using loader_messages::Chain;
 using loader_messages::JobKind;
 using loader_messages::KeyStop;
 
@@ -48,10 +49,15 @@ struct JobBoot {
   uint8_t attempt;  // 2, 3: the board restarted after a key because no ROM device showed up
   bool key_sent, fresh_ok, layout_ok, loader_running;
   char package[48], unit[40];
+  // A switch that found the FM-1 changed: its backup, then its install
+  // (switch_chain.h). Each stage is its own boot; the package, unit and the
+  // preview's consent (fresh_ok, layout_ok) carry through.
+  Chain chain;
+  char stale_backup[12];  // the backup the FM-1 had changed since ("b50")
 };
-// Changed with JobBoot's layout (the result moved to JobResult): a record left
-// by an older build is never read as a job.
-constexpr uint32_t kJobMagic = 0x10B5EED2;
+// Changed with JobBoot's layout: a record left by an older build is never
+// read as a job.
+constexpr uint32_t kJobMagic = 0x10B5EED3;
 constexpr uint8_t kKeyTries = 3;  // boots that look for ROM boot, each after a key
 RTC_NOINIT_ATTR JobBoot job_boot;
 
@@ -519,10 +525,13 @@ void refresh_preview() {
 }
 
 // The job page: the job's steps, from where the Installer is.
-void show_job(JobKind kind, Step step, const char *firmware, const char *backup, uint32_t done, uint32_t total,
+void show_job(const JobBoot &job, Step step, const char *firmware, const char *backup, uint32_t done, uint32_t total,
               bool danger) {
+  loader_messages::JobInput in = {job.kind, step, firmware, backup, done, total, danger};
+  in.chain = job.chain;
+  in.stale_backup = job.stale_backup;
   UiJob j;
-  loader_messages::describe_job({kind, step, firmware, backup, done, total, danger}, j);
+  loader_messages::describe_job(in, j);
   taskENTER_CRITICAL(&lock);
   shown.job = j;
   taskEXIT_CRITICAL(&lock);
@@ -538,13 +547,14 @@ JobNames job_names(const JobBoot &j) {
   if (!store_ok) return n;
   const Known k = known_unit();
   strlcpy(n.backup, k.latest, sizeof n.backup);
-  if (j.kind == JobKind::Install) n.firmware = package_label(j.package);
+  if (j.package[0]) n.firmware = package_label(j.package);  // a switch, or its chained backup
   else if (j.kind == JobKind::Resume && k.unit.has_pending) n.firmware = package_label(k.unit.pending.package_id);
   return n;
 }
 
-void finish(Installer &inst, const Host &host, const UsbScsi &scsi, const char *done_title, JobKind kind,
+void finish(Installer &inst, const Host &host, const UsbScsi &scsi, const char *done_title, const JobBoot &job,
             const JobNames &names, bool wrote) {
+  const JobKind kind = job.kind;
   DLOG_LOADER("job end: %s; %s; %s; key %s, why '%s', danger %d",
               inst.current() == Step::Done ? done_title : failure_text(inst.failure()), inst.failure_detail().c_str(),
               scsi.last_failure, key_result_text(host.key), host.why, int(inst.danger()));
@@ -599,6 +609,8 @@ void finish(Installer &inst, const Host &host, const UsbScsi &scsi, const char *
   o.detail = detail;
   o.sectors = inst.sectors_done();
   o.data = inst.decision().action;
+  o.chain = job.chain;
+  o.stale_backup = job.stale_backup;
   UiResult r = {};
   loader_messages::describe_result(o, r);
   set_result(r);
@@ -606,7 +618,7 @@ void finish(Installer &inst, const Host &host, const UsbScsi &scsi, const char *
 
 // Runs the Installer to its end, keeping the job page current. wrote: a write
 // step was reached (sectors_done() also counts reads, so it can't tell).
-void run(Installer &inst, JobKind kind, const JobNames &names, bool &wrote) {
+void run(Installer &inst, const JobBoot &job, const JobNames &names, bool &wrote) {
   Step logged = Step(-1);
   while (inst.step()) {
     if (inst.current() != logged) {
@@ -618,7 +630,7 @@ void run(Installer &inst, JobKind kind, const JobNames &names, bool &wrote) {
     if (inst.current() == Step::WriteApp || inst.current() == Step::WriteData) wrote = true;
     uint8_t percent = inst.sectors_total() ? uint8_t(inst.sectors_done() * 100 / inst.sectors_total()) : 0;
     show(step_text(inst.current()), kYellow, percent);
-    show_job(kind, inst.current(), names.firmware.c_str(), names.backup, inst.sectors_done(), inst.sectors_total(),
+    show_job(job, inst.current(), names.firmware.c_str(), names.backup, inst.sectors_done(), inst.sectors_total(),
              inst.danger());
   }
 }
@@ -682,7 +694,7 @@ void request_job(UiAct act, int index) {
     j.layout_ok = previewed.layout_warning;
   }
   const JobNames names = job_names(j);
-  show_job(j.kind, Step::Idle, names.firmware.c_str(), names.backup, 0, 0, false);
+  show_job(j, Step::Idle, names.firmware.c_str(), names.backup, 0, 0, false);
   restart_for(j, "the hold");
 }
 
@@ -713,7 +725,7 @@ void run_job() {
   for (int i = 1; i < kLoaderLines; ++i) show_line(i, i == 1 ? blob_line : "");
   const JobNames names = job_names(j);
   bool wrote = false;
-  show_job(j.kind, Step::Confirm, names.firmware.c_str(), names.backup, 0, 0, false);
+  show_job(j, Step::Confirm, names.firmware.c_str(), names.backup, 0, 0, false);
   if (j.kind == JobKind::Resume) {
     // The FM-1 is still in ROM boot with an incomplete app: no key, straight to it.
     if (!host.wait_for_rom_device(kRomWaitMs)) {
@@ -728,23 +740,23 @@ void run_job() {
     } else {
       o.loader_running = j.loader_running;
       inst.start_resume(o);
-      run(inst, j.kind, names, wrote);
-      finish(inst, host, scsi, "Install finished.", j.kind, names, wrote);
+      run(inst, j, names, wrote);
+      finish(inst, host, scsi, "Install finished.", j, names, wrote);
     }
   } else if (j.kind == JobKind::Backup) {
     inst.start_backup(o);
-    run(inst, j.kind, names, wrote);
-    finish(inst, host, scsi, "Backed up. Nothing written.", j.kind, names, wrote);
+    run(inst, j, names, wrote);
+    finish(inst, host, scsi, "Backed up. Nothing written.", j, names, wrote);
     if (inst.current() == Step::Done) report_backup(inst, host);
   } else {
     o.unit_id = j.unit;  // the unit the preview was for
     o.fresh_start_ok = j.fresh_ok;
     o.layout_change_ok = j.layout_ok;
     inst.start_install(j.package, o);
-    run(inst, j.kind, names, wrote);
+    run(inst, j, names, wrote);
     char buf[40];
     snprintf(buf, sizeof buf, "Installed: %u sectors written", unsigned(inst.sectors_done()));
-    finish(inst, host, scsi, buf, j.kind, names, wrote);
+    finish(inst, host, scsi, buf, j, names, wrote);
   }
   log_heap("job end");
   DLOG_LOADER("loader task stack left %u", unsigned(uxTaskGetStackHighWaterMark(nullptr)));
@@ -771,6 +783,20 @@ void run_job() {
     again.key_sent = true;  // the next boot checks whether the FM-1 is in ROM boot
     restart_for(again, "no ROM device after the key");
   }
+  // A switch whose FM-1 changed since its backup (or had none): back up, then
+  // install against that backup, each in a boot of its own. Nothing was erased.
+  const loader_messages::NextJob next =
+      loader_messages::next_after(j.kind, j.chain, inst.current() == Step::Done, inst.failure(), inst.danger());
+  if (next.restart) {
+    JobBoot then = j;
+    then.kind = next.kind;
+    then.chain = next.chain;
+    then.attempt = 1;
+    then.key_sent = false;
+    if (next.chain == Chain::Backup) strlcpy(then.stale_backup, names.backup, sizeof then.stale_backup);
+    restart_for(then, next.chain == Chain::Backup ? "switch: the FM-1 changed, backing up first"
+                                                  : "switch: backed up, installing");
+  }
   in_rom_boot = inst.danger();
   loader_left_running = inst.danger();
   if (in_rom_boot) {  // stay: the result page's hold is now the retry
@@ -781,7 +807,7 @@ void run_job() {
   // Back to Play on a fresh boot, with the result kept for the result page.
   JobResult done = {};
   done.magic = kResultMagic;
-  if (j.kind == JobKind::Install) strlcpy(done.package, j.package, sizeof done.package);
+  strlcpy(done.package, j.package, sizeof done.package);  // a switch's, or its chained backup's
   taskENTER_CRITICAL(&lock);
   done.result = shown.result;
   taskEXIT_CRITICAL(&lock);
@@ -923,7 +949,7 @@ void loader_begin(EspUsbHost &host, const LoaderCore &c) {
     busy = true;
     show("Load mode: starting the job...", kYellow);
     const JobNames names = job_names(active_job);
-    show_job(active_job.kind, Step::Confirm, names.firmware.c_str(), names.backup, 0, 0, false);
+    show_job(active_job, Step::Confirm, names.firmware.c_str(), names.backup, 0, 0, false);
   } else if (job_result.magic == kResultMagic && !last_crash[0][0]) {
     // The last job's result, after its restart: the UI opens it. A failed
     // switch's plan is previewed again, so the result's hold can run it.
