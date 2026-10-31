@@ -125,3 +125,18 @@ status where it's shown.
    - what Install writes, and what it leaves alone.
 5. **The open question for Chad:** whether Hub + Loader stays a visible button on a public page while it needs a Mac
    to set up. The prototype directions differ on this, so his pick decides it.
+
+## What shipped (2026-10-30)
+
+Chad found the rebuilt B over-explained and asked for a strong editorial path. The page in `site/index.html` keeps B's
+"what do you want to do?" choice and cuts everything else:
+
+- **Masthead:** one claim, "Switch firmware. Keep every song.", and one paragraph covering the loader, the keyboard and
+  what's next.
+- **Four tabs:** Play from a keyboard, Switch firmware, Update my board, My FM-1 is stuck. Each has one or two
+  sentences, at most three steps and one button.
+- **Erase warning:** one line in the warning colour under every Install button, never collapsed.
+- **Two expanders:** "No port shows up" and "the FM-1 doesn't play". The Mac setup sits in its own expander under
+  Switch firmware.
+- **Everything:** a footer link for developers.
+- **Without JavaScript,** all four paths show one after another.
