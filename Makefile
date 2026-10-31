@@ -53,14 +53,14 @@ STORE_OFFSET := 0x3D0000
 FW_VERSION := 0x$(shell git rev-parse --short=7 HEAD)
 FW_DIRTY := $(if $(shell git status --porcelain --untracked-files=no),1,0)
 
-.PHONY: test ui-shots ui-mocks build build-all flash site serve clean fixtures golden store-image flash-store store-add
+.PHONY: test ui-shots ui-mocks build build-all flash site serve clean fixtures golden store-image flash-store store-add check-latest
 
 FM1_SRC := $(wildcard lib/fm1_loader/src/*.cpp)
 FM1_HDR := $(wildcard lib/fm1_loader/src/*.h) $(wildcard tests/support/*.h)
 FM1_TESTS := build/test_fm1_package build/test_fm1_library build/test_fm1_installer \
 	build/test_fm1_softkey build/test_fm1_posix build/test_fm1_locked build/test_fm1_library_posix
 
-test: build/test_fm1_interop build/test_midi_core build/test_status build/test_boot_mode build/test_broker build/test_describe build/test_web_core build/test_store_json $(FM1_TESTS) fixtures
+test: build/check_package build/test_fm1_interop build/test_midi_core build/test_status build/test_boot_mode build/test_broker build/test_describe build/test_web_core build/test_store_json $(FM1_TESTS) fixtures
 	./build/test_midi_core
 	./build/test_status
 	./build/test_boot_mode
@@ -95,6 +95,16 @@ build/test_fm1_%: tests/test_fm1_%.cpp $(FM1_TEST_SRC) $(FM1_HDR)
 # kept out of git (tests/fixtures/).
 fixtures:
 	python3 -I tools/fetch_fixtures.py tests/fixtures
+
+# The newest release of each firmware the tests pin (or every catalog firmware,
+# LATEST_ALL=1), fetched into build/latest/ and run through a mock install by
+# build/check_package. Not part of make test: the catalog moves on its own.
+build/check_package: tests/check_package.cpp $(FM1_TEST_SRC) $(FM1_HDR)
+	mkdir -p build
+	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -DFM1_LOADER_WRITES=1 -Ilib/fm1_loader/src -Itests -o $@ $< $(FM1_TEST_SRC)
+
+check-latest: build/check_package fixtures
+	python3 -I tools/check_latest.py build/latest $(if $(filter 1,$(LATEST_ALL)),--all)
 
 # Regenerates tests/golden/ from the Unbricker and jl-uboot-tool (Python), then
 # shows any difference from the committed vectors. Only needed when the
