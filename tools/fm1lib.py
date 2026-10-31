@@ -136,8 +136,16 @@ def set_project(store, pkg_id, project):
             k, v = line.split(" ", 1)
             fields[k] = v
     fields["project"] = project
-    fields["family"] = "stock" if project == "stock" else "felucca"
+    fields["family"] = family_of_project(project, fields.get("identity", ""))
     store.write(key, serialize(fields, sectors).encode())
+
+
+def family_of_project(project, identity):
+    """library.cpp family_of_project(): stock for the catalog's stock project and
+    for sideloaded M-VAVE builds (FM-1_0NN), Felucca's ranges for the rest."""
+    if project == "stock" or (project.startswith("sha:") and re.fullmatch(r"FM-1_0\d\d", identity)):
+        return "stock"
+    return "felucca"
 
 
 def sideload_project(app_sha256_hex):
@@ -160,7 +168,7 @@ def add_package(store, pkg_id, data, name="", version="", expected_sha256=None, 
         raise PackageError("bad project %r" % project)
     app_hex = hashlib.sha256(app).hexdigest()
     project = project or sideload_project(app_hex)
-    family = "stock" if project == "stock" else "felucca"
+    family = family_of_project(project, ident)
     sectors = []
     for i in range(0, len(app), SECTOR):
         s = app[i:i + SECTOR]

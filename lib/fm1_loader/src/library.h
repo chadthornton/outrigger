@@ -5,6 +5,7 @@
 
 #include <stdint.h>
 
+#include <map>
 #include <string>
 #include <vector>
 
@@ -22,8 +23,9 @@ using FlashHashes = std::vector<Hash>;  // kSectors entries
 // shelf of saves (docs/package-sources.md). A package the catalog doesn't list
 // is sideloaded: its project is "sha:" and the first 16 hex digits of its app hash.
 std::string sideload_project(const Hash &app_sha256);
-// Stock for the catalog's "stock" project, Felucca's ranges for every other.
-Family family_of_project(const std::string &project);
+// Stock for the catalog's "stock" project and for sideloaded M-VAVE builds
+// (FM-1_0NN); Felucca's ranges for every other.
+Family family_of_project(const std::string &project, const std::string &identity);
 // Saves from different eras of one project never mix: Skiff 2.0 saves in new
 // formats (FM-1_720 and up). 0 for projects with no known break.
 int data_era(const std::string &project, const std::string &identity);
@@ -137,6 +139,7 @@ class Library {
   size_t collect_garbage();
 
  private:
+  bool read_save(const std::string &id, SaveState &out, std::map<std::string, std::string> &app_projects);
   bool put_manifest(const std::string &key, const Manifest &m);
   bool get_manifest(const std::string &key, Manifest &m);
   Storage &storage_;

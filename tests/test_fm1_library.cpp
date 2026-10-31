@@ -249,7 +249,7 @@ static PackageInfo info(const char *project, const char *identity, uint8_t app_t
   PackageInfo p;
   p.project = project;
   p.identity = identity;
-  p.family = family_of_project(project);
+  p.family = family_of_project(project, identity);
   p.app_sha256.fill(app_tag);
   return p;
 }
@@ -334,9 +334,17 @@ static void test_decide_data() {
 
 // Projects of packages and saves recorded before projects existed.
 static void test_projects() {
-  CHECK(family_of_project("stock") == Family::Stock);
-  CHECK(family_of_project("felucca") == Family::Felucca);
-  CHECK(family_of_project("bubba") == Family::Felucca);
+  CHECK(family_of_project("stock", "FM-1_015") == Family::Stock);
+  CHECK(family_of_project("felucca", "FM-1_916") == Family::Felucca);
+  CHECK(family_of_project("bubba", "FM-1_003") == Family::Felucca);
+  // A sideloaded M-VAVE build keeps stock's rules; a sideloaded community one doesn't.
+  CHECK(family_of_project("sha:0123456789abcdef", "FM-1_014") == Family::Stock);
+  CHECK(family_of_project("sha:0123456789abcdef", "FM-1_916") == Family::Felucca);
+  CHECK(family_of_project("sha:0123456789abcdef", "FM-1_0140") == Family::Felucca);
+  // The format-break table: Skiff 2.0 starts a new era, other projects have one.
+  CHECK(data_era("skiff", "FM-1_714") != data_era("skiff", "FM-1_720"));
+  CHECK(data_era("skiff", "FM-1_710") == data_era("skiff", "FM-1_714"));
+  CHECK(data_era("felucca", "FM-1_916") == data_era("felucca", "FM-1_917"));
   TestStorage st;
   Library lib(st);
   PackageInfo skiff = load(lib, "skiff-1.4", "skiff-1.4.fwsc", "skiff");
@@ -388,8 +396,8 @@ static void test_projects() {
 static void test_save_restore_round_trip() {
   TestStorage st;
   Library lib(st);
-  PackageInfo skiff = load(lib, "skiff-1.4", "skiff-1.4.fwsc");
-  PackageInfo sloop = load(lib, "sloop-2.8.1", "sloop-2.8.1.fwsc");
+  PackageInfo skiff = load(lib, "skiff-1.4", "skiff-1.4.fwsc", "skiff");
+  PackageInfo sloop = load(lib, "sloop-2.8.1", "sloop-2.8.1.fwsc", "sloop");
   Image img = unit_image(9);
   put_app(lib, img, skiff);
   fill(img, 0x97000, 0x3000, 11);  // songs
@@ -425,12 +433,17 @@ static void test_save_restore_round_trip() {
   CHECK(img[0x93000] == uint8_t(25));
   for (const SectorOp &op : ops) CHECK(!(op.addr >= kStagingStart && op.addr < kStagingEnd));
 
-  // Refused: another unit, another identity, another version.
-  CHECK(!plan_restore(back, "0000000000000000", skiff, store_image(lib, img), ops));
-  CHECK(!plan_restore(back, u.id, sloop, store_image(lib, img), ops));
+  // Another version of the same project, same era: its shelf's save restores.
   PackageInfo skiff_other = skiff;
   skiff_other.app_sha256[0] ^= 1;
-  CHECK(!plan_restore(back, u.id, skiff_other, store_image(lib, img), ops));
+  skiff_other.identity = "FM-1_713";
+  CHECK(plan_restore(back, u.id, skiff_other, store_image(lib, img), ops));
+  // Refused: another unit, another project, another era of the project.
+  CHECK(!plan_restore(back, "0000000000000000", skiff, store_image(lib, img), ops));
+  CHECK(!plan_restore(back, u.id, sloop, store_image(lib, img), ops));
+  PackageInfo skiff2 = skiff;
+  skiff2.identity = "FM-1_720";
+  CHECK(!plan_restore(back, u.id, skiff2, store_image(lib, img), ops));
   // A save naming a sector outside the family's ranges is refused outright.
   SaveState evil = back;
   evil.sectors.emplace_back(kStagingStart, evil.sectors[0].second);
