@@ -96,7 +96,6 @@ constexpr uint32_t kFm1AppearMs = 10000;  // the FM-1 re-enumerating after a hos
 // The unit recovered on 2026-10-25 (backups/fm1-transporter-dump-20261025-103326.bin
 // in the recovery project). Checkpoint 1 passes when a backup of the same unit
 // matches these.
-constexpr const char *kDumpUnit = "69bb070aaa87bd10";
 constexpr const char *kDumpHead = "d9f43191777656de01c7bed4f9e9ba2e34e94832c5d2ed02c3fc7ab7a6d9bd67";
 constexpr const char *kDumpFactory = "70a8f5bea5097f4a0046682cdb5bf2e4ad6962901bd42debfe30c95a5ef3f3b0";
 
@@ -335,7 +334,7 @@ const char *step_text(Step s) {
 void report_backup(Installer &inst, const Host &host) {
   const std::string &id = inst.unit().id;
   char buf[40];
-  snprintf(buf, sizeof buf, "Unit %s%s", id.c_str(), id == kDumpUnit ? " (dump's)" : "");
+  snprintf(buf, sizeof buf, "Unit %s", id.c_str());
   show_line(2, buf);
   snprintf(buf, sizeof buf, "Running %s", host.identity.empty() ? "?" : host.identity.c_str());
   show_line(3, buf);

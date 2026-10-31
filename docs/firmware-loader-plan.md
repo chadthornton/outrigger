@@ -246,7 +246,7 @@ first.
 
 **Checkpoint 1: passed, 2026-10-27** (Chad at the board; build `e848423`, read-only). On the recovered unit:
 - **Result:** "Backed up. Nothing written."
-- **Same unit:** unit `69bb070aaa87bd10`, the dump's.
+- **Same unit:** the dump's unit.
 - **Untouched areas:** the boot head (`d9f43191…`) and the Bluetooth data plus factory voices (`70a8f5be…`) equal
   the 2026-10-25 dump.
 

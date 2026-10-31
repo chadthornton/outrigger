@@ -23,7 +23,7 @@ enum class KeyStop : uint8_t {
   Answer,        // the identity handshake: see KeyResult
 };
 
-// "b50" from a backup id ("69bb070aaa87bd10-b50"); "" for none.
+// "b50" from a backup id ("0123456789abcdef-b50"); "" for none.
 void backup_name(const char *backup_id, char *out, size_t len);
 
 // The plan page: what holding "switch to X" would do, from the preview.

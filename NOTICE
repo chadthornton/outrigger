@@ -1,0 +1,114 @@
+Outrigger (usb-midi-host)
+Copyright (c) 2026 Chad Thornton
+
+This project includes, or is built from, the third-party work below. The
+firmware on the installer site (site/firmware/) is compiled from this
+repository together with the libraries marked "in the firmware".
+
+Not included anywhere: M-VAVE's FM-1 firmware images and JieLi's
+wl82loader.bin. The tests download them at test time (tools/fetch_fixtures.py,
+pinned by SHA-256, into the gitignored tests/fixtures/), and tools/build_site.py
+refuses to publish wl82loader.bin or any piece of it.
+
+
+Vendored in this repository
+---------------------------
+
+EspUsbHost 2.10.1, lib/EspUsbHost/ (in the firmware)
+  Copyright (c) 2026 TANAKA Masayuki. MIT License: lib/EspUsbHost/LICENSE.
+  Patched: ESP_USB_HOST_MAX_SERIAL_PORTS is overridable (see README).
+
+ESP Web Tools 10.4.0, site/vendor/esp-web-tools-10.4.0/ (the installer page)
+  By the ESPHome project (esphome/esp-web-tools). Apache License 2.0:
+  site/vendor/esp-web-tools-10.4.0/LICENSE.
+
+
+Ported into this repository
+---------------------------
+
+MvaveFM1Unbricker, https://github.com/Quixotic7/MvaveFM1Unbricker (in the firmware)
+  Copyright (c) 2026 Michael P Jones. MIT License (text below).
+  Ported: the softkey handshake (lib/fm1_loader/src/softkey.*), the .fwsc/UFW
+  package parsing (lib/fm1_loader/src/package.*, tools/fm1lib.py,
+  tools/catalog_dedupe.py), part of lib/fm1_loader/src/crypto.*, and the test
+  mock (tests/support/mock_rom.*).
+  The Unbricker's package parsing, CRC and header cipher say they are ports of
+  firmware/src/ota.c in Felucca (https://github.com/hugelton/Felucca), which
+  derives from M-VAVE's fm1_open; both are GPL-3.0. See
+  docs/public-release-audit.md, "Licenses".
+
+jl-uboot-tool, https://github.com/kagaimiq/jl-uboot-tool (in the firmware)
+  Copyright (c) 2023 Andrey Grigoryev (kagaimiq). MIT License (text below).
+  Ported: the ROM-boot command layouts (lib/fm1_loader/src/rom.*) and the
+  MengLi cipher and CRC (lib/fm1_loader/src/crypto.*).
+
+
+Libraries the firmware is built with (not vendored)
+---------------------------------------------------
+
+LVGL 9.6.0, https://github.com/lvgl/lvgl (in the firmware)
+  Copyright (c) 2025 LVGL Kft. MIT License (text below).
+  firmware/config/lv_conf.h is LVGL's configuration template, edited.
+
+GFX Library for Arduino (Arduino_GFX) 1.6.9,
+https://github.com/moononournation/Arduino_GFX (in the firmware)
+  Copyright (c) 2012 Adafruit Industries. BSD License (text below).
+
+Arduino core for the ESP32 3.3.12, https://github.com/espressif/arduino-esp32 (in the firmware)
+  Copyright Espressif Systems and contributors. GNU Lesser General Public
+  License 2.1: https://www.gnu.org/licenses/old-licenses/lgpl-2.1.html
+  The full source of this firmware and its build (make build-all) are public,
+  so anyone can rebuild it against a modified core.
+
+ESP-IDF, https://github.com/espressif/esp-idf (in the firmware, through the Arduino core)
+  Copyright Espressif Systems and contributors. Apache License 2.0:
+  https://www.apache.org/licenses/LICENSE-2.0
+  Its bundled components (FreeRTOS, lwIP, mbedTLS, TinyUSB and others) carry
+  their own permissive licenses, listed in ESP-IDF's COPYRIGHT.rst.
+
+
+MIT License (EspUsbHost, MvaveFM1Unbricker, jl-uboot-tool, LVGL)
+------------------------------------------------------------------
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+
+BSD License (Arduino_GFX)
+-------------------------
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+- Redistributions of source code must retain the above copyright notice,
+  this list of conditions and the following disclaimer.
+- Redistributions in binary form must reproduce the above copyright notice,
+  this list of conditions and the following disclaimer in the documentation
+  and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+POSSIBILITY OF SUCH DAMAGE.
