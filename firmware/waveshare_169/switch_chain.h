@@ -31,12 +31,11 @@ struct NextJob {
 // most three stages and never loops.
 inline NextJob next_after(JobKind kind, Chain chain, bool done, fm1_loader::Failure failure, bool danger) {
   using fm1_loader::Failure;
-  const NextJob end = {false, JobKind::None, chain};
   if (kind == JobKind::Install && chain == Chain::First && !done && !danger &&
       (failure == Failure::BackupStale || failure == Failure::NoBackupForInstall))
     return {true, JobKind::Backup, Chain::Backup};
   if (kind == JobKind::Backup && chain == Chain::Backup && done) return {true, JobKind::Install, Chain::Install};
-  return end;
+  return {false, JobKind::None, Chain::First};
 }
 
 }  // namespace loader_messages

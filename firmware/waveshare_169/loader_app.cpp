@@ -552,6 +552,13 @@ JobNames job_names(const JobBoot &j) {
   return n;
 }
 
+// The stage's result, unless the switch's chain carries on (switch_chain.h):
+// then there's no result yet, only the next stage.
+bool chain_goes_on(const Installer &inst, const JobBoot &job) {
+  return loader_messages::next_after(job.kind, job.chain, inst.current() == Step::Done, inst.failure(), inst.danger())
+      .restart;
+}
+
 void finish(Installer &inst, const Host &host, const UsbScsi &scsi, const char *done_title, const JobBoot &job,
             const JobNames &names, bool wrote) {
   const JobKind kind = job.kind;
@@ -583,6 +590,7 @@ void finish(Installer &inst, const Host &host, const UsbScsi &scsi, const char *
   }
 
   // The result page (loader_messages.cpp's table).
+  if (chain_goes_on(inst, job)) return;
   char detail[96] = "";
   if (!inst.failure_detail().empty()) {
     snprintf(detail, sizeof detail, "%s%s%s", inst.failure_detail().c_str(), scsi.last_failure[0] ? "; " : "",
@@ -785,9 +793,9 @@ void run_job() {
   }
   // A switch whose FM-1 changed since its backup (or had none): back up, then
   // install against that backup, each in a boot of its own. Nothing was erased.
-  const loader_messages::NextJob next =
-      loader_messages::next_after(j.kind, j.chain, inst.current() == Step::Done, inst.failure(), inst.danger());
-  if (next.restart) {
+  if (chain_goes_on(inst, j)) {
+    const loader_messages::NextJob next =
+        loader_messages::next_after(j.kind, j.chain, inst.current() == Step::Done, inst.failure(), inst.danger());
     JobBoot then = j;
     then.kind = next.kind;
     then.chain = next.chain;

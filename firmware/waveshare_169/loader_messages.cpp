@@ -62,6 +62,7 @@ void describe_plan(const PlanInput &in, UiPlan &out) {
     line("No backup yet, so it backs it up first.");
     snprintf(buf, sizeof buf, "Then writes %s.", in.target);
     line(buf);
+    line("It asks first if it would erase songs.");
     line("MIDI stops until it's done.");
   } else if (!p.ok) {
     warn = 0;
@@ -368,10 +369,15 @@ static void describe_stage(const JobOutcome &in, UiResult &out) {
       }
       break;
     case Failure::BackupStale:
-      // A first stale check chains to a backup (switch_chain.h); this is the
-      // check right after that backup.
-      PUT(out.why, "The FM-1 changed again right after its backup.");
-      PUT(out.todo, "Leave it untouched for a moment, then try again.");
+      // A first stale check chains to a backup (switch_chain.h); after that
+      // backup it means the FM-1 changed again.
+      if (in.chain == Chain::Install) {
+        PUT(out.why, "The FM-1 changed again right after its backup.");
+        PUT(out.todo, "Leave it untouched for a moment, then try again.");
+      } else {
+        PUT(out.why, "The FM-1 changed since %s.", or_(in.backup, "its backup"));
+        PUT(out.todo, "Try again.");
+      }
       break;
     case Failure::NoBackupForInstall:
       PUT(out.why, "There's no backup of this FM-1 yet.");
@@ -401,7 +407,8 @@ static void describe_stage(const JobOutcome &in, UiResult &out) {
     case Failure::NeedsFreshStartOk:
     case Failure::NeedsLayoutChangeOk:
       if (in.chain == Chain::Install) {  // the backup in the middle changed what the switch would do
-        PUT(out.why, "The FM-1 changed, and its new backup changes the plan.");
+        if (in.stale_backup && in.stale_backup[0]) PUT(out.why, "The FM-1 changed, and its new backup changes the plan.");
+        else PUT(out.why, "It's backed up now, and the switch needs your OK first.");
         PUT(out.todo, "Open %s again to see it, then hold.", fw);
         out.fix = UiAct::None;
       } else {

@@ -147,9 +147,18 @@ static void test_chained_backup_failed() {
   p.chain = Chain::Install;
   p.failure = Failure::NeedsFreshStartOk;
   p.firmware = "Felucca 1.6.1";
+  p.stale_backup = "b50";
   r = result(p);
   EXPECT(r.safety == UiSafety::NothingWritten && has(r.why, "changes the plan"), "plan changed");
   EXPECT(has(r.todo, "Open Felucca 1.6.1") && r.fix == UiAct::None, "plan changed: look first, no hold");
+  p.stale_backup = "";  // there was no backup, so no plan had been agreed
+  r = result(p);
+  EXPECT(has(r.why, "backed up now") && !has(r.why, "changed"), "no backup: the plan needs an OK");
+
+  // A stale check that isn't right after the switch's own backup.
+  JobOutcome first = switch_failed(Failure::BackupStale);
+  r = result(first);
+  EXPECT(!has(r.why, "again") && has(r.why, "changed since b50"), "a first stale check doesn't say again");
 
   // A switch that backed up first says so.
   JobOutcome ok{};
@@ -308,6 +317,7 @@ static void test_plan() {
   in.has_unit = false;
   describe_plan(in, p);
   EXPECT(p.can_act && plan_has(p, "backs it up first"), "no backup yet: the switch backs up first");
+  EXPECT(plan_has(p, "asks first"), "and says it asks before erasing songs");
   in.ready = false;
   describe_plan(in, p);
   EXPECT(!p.can_act, "no backup and not ready: no hold");

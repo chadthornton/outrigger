@@ -834,8 +834,9 @@ struct ChainRun {
   Failure failure = Failure::None;
 };
 // between(stage): runs before each stage after the first (the FM-1 changing, a flaky read).
+// fresh_ok: the consent the plan's hold carried (the preview's), for every stage.
 template <class Between>
-static ChainRun switch_to(Rig &r, const char *id, Between between) {
+static ChainRun switch_to(Rig &r, const char *id, Between between, bool fresh_ok = true) {
   using namespace loader_messages;
   ChainRun c;
   JobKind kind = JobKind::Install;
@@ -849,7 +850,7 @@ static ChainRun switch_to(Rig &r, const char *id, Between between) {
       r.inst.start_backup(o);
       r.inst.run();
     } else {
-      r.install(id);
+      r.install(id, fresh_ok);
     }
     c.last_kind = kind;
     c.last_chain = chain;
@@ -909,6 +910,16 @@ static void test_switch_without_backup_backs_up_first() {
   CHECK(!r.unit().latest_backup.empty());
 }
 
+// No backup yet, so no plan to agree to: a switch that turns out to need a
+// fresh start backs up, then stops for the user's OK with nothing written.
+static void test_switch_without_backup_asks_before_a_fresh_start() {
+  Rig r(base_flash(skiff()));
+  const ChainRun c = switch_to(r, "sloop-2.8.1", [](loader_messages::Chain) {}, false);
+  CHECK(!c.done && c.failure == Failure::NeedsFreshStartOk && c.last_chain == loader_messages::Chain::Install);
+  CHECK(!r.unit().latest_backup.empty());
+  CHECK(r.rom.lowest_touched < 0 && !r.unit().has_pending);
+}
+
 // It changes again right after its backup: the switch stops, nothing written, no loop.
 static void test_switch_changed_twice_stops() {
   Rig r(base_flash(skiff()));
@@ -947,6 +958,7 @@ int main() {
   test_switch_unchanged_backs_up_nothing();
   test_switch_changed_backs_up_first();
   test_switch_without_backup_backs_up_first();
+  test_switch_without_backup_asks_before_a_fresh_start();
   test_switch_changed_twice_stops();
   test_switch_failed_backup_stops();
   test_first_erase_soon_after_the_loader();
