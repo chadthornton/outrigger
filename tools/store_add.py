@@ -67,18 +67,40 @@ def esptool():
 
 
 def catalog_names():
-    """sha256 -> (id, name, version) from the Firmware Hub's catalog, or {} offline."""
+    """(sha256 -> (id, name, version), catalog id -> entry) from the Firmware Hub's catalog, or empty offline."""
     try:
         req = urllib.request.Request(CATALOG, headers={"User-Agent": "usb-midi-host-store-add/1"})
         with urllib.request.urlopen(req, timeout=20) as r:
             cat = json.load(r)
     except Exception as e:
         print("store_add: catalog unavailable (%s); naming packages after their files" % e)
-        return {}
+        return {}, {}
     out = {e["sha256"]: (e["id"], e["name"], e.get("version", "")) for e in cat["firmwares"]}
     s = cat["stock"]
     out[s["sha256"]] = ("stock", "M-VAVE stock", "V%d" % int(s["product"][5:]))
-    return out
+    return out, {e["id"]: e for e in cat["firmwares"]}
+
+
+def project_from_release(entries, pkg_id, version, file_sha):
+    """The catalog project of an older version the catalog no longer lists: the
+    package's name gives the candidate (\"felucca-1.6.1\" -> felucca), and only a
+    byte-identical file in that project's GitHub release of that version counts."""
+    if not version or not pkg_id.endswith("-" + version):
+        return ""
+    entry = entries.get(pkg_id[:-len(version) - 1])
+    if not entry or not entry.get("repo") or not entry.get("pkg"):
+        return ""
+    stem = entry["pkg"].rsplit("/", 1)[-1][:-len(entry.get("version", "") + ".fwsc")]  # "felucca-"
+    for tag in ("v" + version, version):
+        url = "https://github.com/%s/releases/download/%s/%s%s.fwsc" % (entry["repo"], tag, stem, version)
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "usb-midi-host-store-add/1"})
+            with urllib.request.urlopen(req, timeout=60) as r:
+                if hashlib.sha256(r.read()).hexdigest() == file_sha:
+                    return entry["id"]
+        except Exception:
+            continue
+    return ""
 
 
 def snapshot(fs, path=""):
@@ -106,7 +128,7 @@ def main():
         sys.exit("store_add: no packages named")
     offline = port.startswith("image:")  # image:<in.bin>:<out.bin>, for testing without a board
     offset, size = store_partition(csv_path)
-    names = catalog_names()
+    names, entries = catalog_names()
 
     stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     before = COPIES / ("store-from-board-%s.bin" % stamp)
@@ -145,9 +167,28 @@ def main():
         data = p.read_bytes()
         sha = hashlib.sha256(data).hexdigest()
         pkg_id, name, version = names.get(sha, (p.stem, p.stem, ""))
+        project = names[sha][0] if sha in names else ""  # empty: sideloaded (docs/package-sources.md)
+        if not project and "-" in p.stem:  # an older version: its author's GitHub release proves it
+            version = p.stem.rsplit("-", 1)[1]
+            project = project_from_release(entries, p.stem, version, sha)
+            if project:
+                name = entries[project]["name"]
         pkg_id = "%s-%s" % (pkg_id, version) if version and not pkg_id.endswith(version) else pkg_id
-        ident = fm1lib.add_package(store, pkg_id, data, name=name, version=version, pinned=pin)
-        added.append("%s (%s %s, %s)" % (pkg_id, name, version, ident))
+        ident = fm1lib.add_package(store, pkg_id, data, name=name, version=version, pinned=pin, project=project)
+        added.append("%s (%s %s, %s, %s)" % (pkg_id, name, version, ident, project or "sideloaded"))
+    # Packages stored before projects existed get theirs from the catalog, by file hash.
+    for key in sorted(k for k in was if k.startswith("m/pkg/")):
+        text = store.read(key).decode()
+        if any(line.startswith("project ") for line in text.splitlines()):
+            continue
+        file_sha = next((line[5:] for line in text.splitlines() if line.startswith("file ")), "")
+        version = next((line[8:] for line in text.splitlines() if line.startswith("version ")), "")
+        project = names[file_sha][0] if file_sha in names else project_from_release(entries, key[6:], version, file_sha)
+        if project:
+            fm1lib.set_project(store, key[6:], project)
+            added.append("%s: project %s recorded" % (key[6:], project))
+        else:
+            added.append("%s: no catalog project found; stays sideloaded" % key[6:])
     now = snapshot(fs)
     changed = [k for k, v in was.items() if now.get(k) != v and not k.startswith("m/pkg/")]
     if changed:

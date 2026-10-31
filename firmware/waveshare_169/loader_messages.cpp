@@ -58,9 +58,12 @@ void describe_plan(const PlanInput &in, UiPlan &out) {
     line("An install is unfinished.");
     line("Retry it from the FM-1 page first.");
   } else if (!in.has_unit) {
-    warn = 0;
-    line("No backup of this FM-1 yet.");
-    line("Back it up first, from Backups.");
+    // The switch backs it up first; the plan proper comes from that backup.
+    line("No backup yet, so it backs it up first.");
+    snprintf(buf, sizeof buf, "Then writes %s.", in.target);
+    line(buf);
+    line("It asks first if it would erase songs.");
+    line("MIDI stops until it's done.");
   } else if (!p.ok) {
     warn = 0;
     snprintf(buf, sizeof buf, "%s", p.problem);
@@ -73,10 +76,9 @@ void describe_plan(const PlanInput &in, UiPlan &out) {
     if (in.running[0]) snprintf(buf, sizeof buf, "Switches from %s.", in.running);
     else snprintf(buf, sizeof buf, "Switches from a firmware this board doesn't know.");
     line(buf);
-    // Today's install: one read must match the latest backup, or it stops
-    // with nothing written (BackupStale).
-    snprintf(buf, sizeof buf, "Checks the FM-1 still matches %s.", or_(in.backup, "its backup"));
-    line(buf);
+    // One read must match the latest backup; if the FM-1 changed, the switch
+    // backs up first (switch_chain.h).
+    line("Backs up only if the FM-1 changed.");
     if (p.current.known() && family_info(p.current.family).saves_enabled) {
       snprintf(buf, sizeof buf, "Saves %s's songs.", running);
       line(buf);
@@ -109,7 +111,7 @@ void describe_plan(const PlanInput &in, UiPlan &out) {
   out.line_count = uint8_t(n);
   out.warn_from = uint8_t(warn < 0 ? n : warn);
   if (!in.writes_enabled) PUT(out.hold, "read-only build");
-  out.can_act = in.ready && in.writes_enabled && !in.unfinished && in.has_unit && p.ok;
+  out.can_act = in.ready && in.writes_enabled && !in.unfinished && (!in.has_unit || p.ok);
 }
 
 // ---------- A running job ----------
@@ -120,84 +122,89 @@ void describe_job(const JobInput &in, UiJob &out) {
   const char *fw = or_(in.firmware, "the firmware");
   const char *backup = or_(in.backup, "its backup");
   const uint8_t pct = in.total ? uint8_t(in.done * 100 / in.total) : 0;
-  struct Plan {
-    const char *done, *next;  // the step's text once done, and still to come
-  };
-  // Which of the job's steps each Installer step belongs to, and its live text.
-  int now = 0;
-  char live[40] = "", checked[40], check_next[40];
-  Plan steps[kJobSteps] = {};
-  int count = 0;
   const Step s = in.step;
-  auto restart = [&](int i) {
-    steps[i] = {"FM-1 restarted", "Restart the FM-1"};
-    if (s == Step::Reset || s == Step::WaitMidi) {
-      now = i;
-      put(live, sizeof live, "Restarting the FM-1");
-    }
+  const bool rom_steps = s == Step::Idle || s == Step::Confirm || s == Step::SendKey || s == Step::WaitRom ||
+                         s == Step::Identify || s == Step::UploadLoader || s == Step::ReadIds;
+  const bool writing = s == Step::WriteApp || s == Step::WriteData, restarting = s == Step::Reset || s == Step::WaitMidi;
+  // What the FM-1 is doing before the job's real work: its live text.
+  char rom_live[40];
+  put(rom_live, sizeof rom_live, "%s",
+      s == Step::Idle                                  ? "Restarting this board"
+      : s == Step::Confirm || s == Step::SendKey       ? "Asking the FM-1"
+      : s == Step::WaitRom                             ? "Waiting for ROM boot"
+                                                       : "Starting the loader");
+
+  // Each step: its text once done, now (live), and still to come.
+  struct Row {
+    char done[40], now[40], next[40];
+  } rows[kJobSteps] = {};
+  int count = 0, now = 0;
+  auto row = [&](const char *done, const char *live, const char *next, bool is_now) {
+    Row &r = rows[count];
+    snprintf(r.done, sizeof r.done, "%s", done);
+    snprintf(r.now, sizeof r.now, "%s", live);
+    snprintf(r.next, sizeof r.next, "%s", next);
+    if (is_now) now = count;
+    ++count;
   };
-  auto rom = [&]() {
-    steps[0] = {"FM-1 in ROM boot", "Put the FM-1 in ROM boot"};
-    if (s == Step::Idle) put(live, sizeof live, "Restarting this board");
-    else if (s == Step::Confirm || s == Step::SendKey) put(live, sizeof live, "Asking the FM-1");
-    else if (s == Step::WaitRom) put(live, sizeof live, "Waiting for ROM boot");
-    else if (s == Step::Identify || s == Step::UploadLoader || s == Step::ReadIds)
-      put(live, sizeof live, "Starting the loader");
-  };
-  switch (in.kind) {
-    case JobKind::Backup:
-      PUT(out.title, "Backing up");
-      rom();
-      steps[1] = {"Read twice and stored", "Read it twice and store it"};
-      if (s == Step::Backup) {
-        now = 1;
-        put(live, sizeof live, "Reading twice: %u%%", unsigned(pct));
-      }
-      restart(2);
-      count = 3;
-      PUT(out.note, "Writes nothing to the FM-1.");
-      break;
-    case JobKind::Resume:
-      PUT(out.title, "Retrying %s", fw);
-      rom();
-      steps[1] = {"Read the FM-1", "Read the FM-1"};
-      if (s == Step::ResumeRead || s == Step::Plan) {
-        now = 1;
-        put(live, sizeof live, "Reading the FM-1: %u%%", unsigned(pct));
-      }
-      steps[2] = {"Written and checked", "Finish writing"};
-      if (s == Step::WriteApp || s == Step::WriteData) {
-        now = 2;
-        put(live, sizeof live, "Writing %u of %u", unsigned(in.done), unsigned(in.total));
-      }
-      restart(3);
-      count = 4;
-      break;
-    default:
-      PUT(out.title, "Switching to %s", fw);
-      rom();
-      // The install's one read, compared with the backup it planned from.
-      snprintf(checked, sizeof checked, "Checked: same as %s", backup);
-      snprintf(check_next, sizeof check_next, "Check it matches %s", backup);
-      steps[1] = {checked, check_next};
-      if (s == Step::Check) {
-        now = 1;
-        put(live, sizeof live, "Checking: %u%%", unsigned(pct));
-      }
-      steps[2] = {"Written and checked", "Write"};
-      if (s == Step::WriteApp || s == Step::WriteData) {
-        now = 2;
-        put(live, sizeof live, "Writing %u of %u", unsigned(in.done), unsigned(in.total));
-      }
-      restart(3);
-      count = 4;
-      break;
+  char a[40], b[40], c[40];
+  const bool chained = in.chain != Chain::First;
+  if (chained) {
+    // A switch that found the FM-1 changed since its backup.
+    PUT(out.title, "Switching to %s", fw);
+    if (in.stale_backup && in.stale_backup[0]) put(a, sizeof a, "Changed since %s: nothing written", in.stale_backup);
+    else put(a, sizeof a, "No backup yet: nothing written");
+    row(a, a, a, false);
   }
+  if (in.kind == JobKind::Backup && chained) {
+    if (s == Step::Backup) put(b, sizeof b, "Backing up: %u%%", unsigned(pct));
+    else put(b, sizeof b, "Backing up: %s", restarting ? "restarting the FM-1" : "starting");
+    row("Backed up", b, "Back up", true);
+    put(c, sizeof c, "Write %s", fw);
+    row(c, c, c, false);
+    row("FM-1 restarted", "Restarting the FM-1", "Restart the FM-1", false);
+  } else if (in.kind == JobKind::Backup) {
+    PUT(out.title, "Backing up");
+    row("FM-1 in ROM boot", rom_live, "Put the FM-1 in ROM boot", rom_steps);
+    put(b, sizeof b, "Reading twice: %u%%", unsigned(pct));
+    row("Read twice and stored", b, "Read it twice and store it", s == Step::Backup);
+    row("FM-1 restarted", "Restarting the FM-1", "Restart the FM-1", restarting);
+    PUT(out.note, "Writes nothing to the FM-1.");
+  } else if (in.kind == JobKind::Resume) {
+    PUT(out.title, "Retrying %s", fw);
+    row("FM-1 in ROM boot", rom_live, "Put the FM-1 in ROM boot", rom_steps);
+    put(b, sizeof b, "Reading the FM-1: %u%%", unsigned(pct));
+    row("Read the FM-1", b, "Read the FM-1", s == Step::ResumeRead || s == Step::Plan);
+    put(c, sizeof c, "Writing %u of %u", unsigned(in.done), unsigned(in.total));
+    row("Written and checked", c, "Finish writing", writing);
+    row("FM-1 restarted", "Restarting the FM-1", "Restart the FM-1", restarting);
+  } else {
+    PUT(out.title, "Switching to %s", fw);
+    if (chained) {
+      put(b, sizeof b, "Backed up: %s", backup);
+      row(b, b, b, false);
+    } else {
+      row("FM-1 in ROM boot", rom_live, "Put the FM-1 in ROM boot", rom_steps);
+    }
+    // The install's one read, compared with the backup it planned from. After
+    // a chained backup the ROM-boot steps fold into this one.
+    char done[40], next[40], live[40];
+    put(done, sizeof done, "Checked: same as %s", backup);
+    put(next, sizeof next, "Check it matches %s", backup);
+    if (s == Step::Check) put(live, sizeof live, "Checking: %u%%", unsigned(pct));
+    else put(live, sizeof live, "%s", rom_live);
+    row(done, live, next, s == Step::Check || (chained && rom_steps));
+    put(c, sizeof c, "Writing %u of %u", unsigned(in.done), unsigned(in.total));
+    row("Written and checked", c, "Write", writing);
+    row("FM-1 restarted", "Restarting the FM-1", "Restart the FM-1", restarting);
+  }
+  // A chained stage's first rows are done before it starts.
+  if (chained && now == 0) now = 1;
   out.step_count = uint8_t(count);
   for (int i = 0; i < count; ++i) {
     out.steps[i].state = i < now ? UiStepState::Done : i == now ? UiStepState::Now : UiStepState::Next;
     snprintf(out.steps[i].text, sizeof out.steps[i].text, "%s",
-             i < now ? steps[i].done : i == now && live[0] ? live : steps[i].next);
+             i < now ? rows[i].done : i == now ? rows[i].now : rows[i].next);
   }
   // The bar: the steps before this one, plus this one's share.
   out.percent = uint8_t((now * 100 + (in.total ? in.done * 100 / in.total : 0)) / count);
@@ -241,7 +248,28 @@ void back_up_first(UiResult &out) {
 
 }  // namespace
 
+static void describe_stage(const JobOutcome &in, UiResult &out);
+
 void describe_result(const JobOutcome &in, UiResult &out) {
+  describe_stage(in, out);
+  // The backup a switch needed didn't finish: it's the switch that didn't start.
+  if (in.kind == JobKind::Backup && in.chain == Chain::Backup && !in.done) {
+    char why[72];
+    snprintf(why, sizeof why, "%s", out.why);
+    if (why[0] >= 'A' && why[0] <= 'Z') why[0] = char(why[0] - 'A' + 'a');
+    PUT(out.headline, "Switch didn't start");
+    if (in.stale_backup && in.stale_backup[0])
+      PUT(out.why, "It changed since %s, and the backup stopped: %s", in.stale_backup, why);
+    else
+      PUT(out.why, "No backup yet, and the backup stopped: %s", why);
+    if (out.fix == UiAct::Backup) {
+      out.fix = UiAct::Switch;
+      PUT(out.fix_label, "switch to %s", or_(in.firmware, "it"));
+    }
+  }
+}
+
+static void describe_stage(const JobOutcome &in, UiResult &out) {
   const uint32_t seq = out.seq;
   out = UiResult{};
   out.seq = seq;
@@ -269,7 +297,10 @@ void describe_result(const JobOutcome &in, UiResult &out) {
           case DataAction::FreshStart: PUT(out.todo, "It starts fresh: no songs yet."); break;
           case DataAction::Keep: PUT(out.todo, "Songs and settings kept."); break;
         }
-        PUT(out.detail, "%u sectors written", unsigned(in.sectors));
+        if (in.chain == Chain::Install)
+          PUT(out.detail, "Backed up %s first; %u sectors written", or_(in.backup, ""), unsigned(in.sectors));
+        else
+          PUT(out.detail, "%u sectors written", unsigned(in.sectors));
       }
     }
     return;
@@ -338,10 +369,15 @@ void describe_result(const JobOutcome &in, UiResult &out) {
       }
       break;
     case Failure::BackupStale:
-      // Today's switch: it stops instead of backing up by itself.
-      PUT(out.why, "The FM-1 changed since %s.", or_(in.backup, "its last backup"));
-      PUT(out.todo, "Back it up again, then switch.");
-      back_up_first(out);
+      // A first stale check chains to a backup (switch_chain.h); after that
+      // backup it means the FM-1 changed again.
+      if (in.chain == Chain::Install) {
+        PUT(out.why, "The FM-1 changed again right after its backup.");
+        PUT(out.todo, "Leave it untouched for a moment, then try again.");
+      } else {
+        PUT(out.why, "The FM-1 changed since %s.", or_(in.backup, "its backup"));
+        PUT(out.todo, "Try again.");
+      }
       break;
     case Failure::NoBackupForInstall:
       PUT(out.why, "There's no backup of this FM-1 yet.");
@@ -367,6 +403,18 @@ void describe_result(const JobOutcome &in, UiResult &out) {
       }
       PUT(out.todo, "Switch it off and on.");
       out.fix = UiAct::None;
+      break;
+    case Failure::NeedsFreshStartOk:
+    case Failure::NeedsLayoutChangeOk:
+      if (in.chain == Chain::Install) {  // the backup in the middle changed what the switch would do
+        if (in.stale_backup && in.stale_backup[0]) PUT(out.why, "The FM-1 changed, and its new backup changes the plan.");
+        else PUT(out.why, "It's backed up now, and the switch needs your OK first.");
+        PUT(out.todo, "Open %s again to see it, then hold.", fw);
+        out.fix = UiAct::None;
+      } else {
+        PUT(out.why, "%s.", failure_text(in.failure));
+        PUT(out.todo, "Open it again to see the plan, then hold.");
+      }
       break;
     case Failure::WritesLocked:
       PUT(out.why, "This build can't write to the FM-1.");

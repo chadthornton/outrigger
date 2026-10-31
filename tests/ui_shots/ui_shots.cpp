@@ -378,8 +378,12 @@ static void plan_for(UiLoader &l, int item, DataAction data) {
   describe_plan(in, l.plan);
 }
 
-static void job(UiLoader &l, JobKind kind, Step step, uint32_t done, uint32_t total, bool danger) {
-  describe_job({kind, step, "Felucca 1.6.1", "b50", done, total, danger}, l.job);
+static void job(UiLoader &l, JobKind kind, Step step, uint32_t done, uint32_t total, bool danger,
+                Chain chain = Chain::First) {
+  JobInput in = {kind, step, "Felucca 1.6.1", chain == Chain::Install ? "b51" : "b50", done, total, danger};
+  in.chain = chain;
+  in.stale_backup = "b50";
+  describe_job(in, l.job);
 }
 
 static uint32_t result_seq;
@@ -520,6 +524,14 @@ static void fm1_pages() {
   job(l, JobKind::Backup, Step::Backup, 40, 100, false);
   ui_update_loader(l);
   shoot("job_backup");
+  // A switch whose FM-1 changed: the backup it runs, then its install.
+  job(l, JobKind::Backup, Step::Backup, 42, 100, false, Chain::Backup);
+  ui_update_loader(l);
+  if (!shows("Changed since b50")) fail("the chained backup doesn't say why");
+  shoot("job_chain_backup");
+  job(l, JobKind::Install, Step::WriteApp, 88, 149, true, Chain::Install);
+  ui_update_loader(l);
+  shoot("job_chain_write");
 
   // Then its result opens, once.
   JobOutcome ok{};
@@ -561,13 +573,15 @@ static void fm1_pages() {
   shoot("err_norom");
   expect_hold("Hold: switch to Felucca 1.6.1", UiAct::Switch, 1);
 
-  o.failure = Failure::BackupStale;
+  o.failure = Failure::BackupStale;  // right after the switch's own backup
+  o.chain = Chain::Install;
   o.detail = "differs from its backup at 0xE5000";
   result(l, o);
   ui_update_loader(l);
   run(100);
   shoot("err_stale");
-  expect_hold("Hold: back up now", UiAct::Backup, -1);
+  if (!shows("changed again")) fail("the second stale check doesn't say it changed again");
+  expect_hold("Hold: switch to Felucca 1.6.1", UiAct::Switch, 1);
   tap_on("Switch didn't start", 80, 8);  // the back row
   if (lv_screen_active() != list) fail("the result's back row didn't return to the list");
 
@@ -683,7 +697,7 @@ static void run_computer(const SimBoard &b) {
 // LVGL.
 static const char *const kColumns[] = {
     "play",       "play_hub",  "play5",      "play5_open",  "play_fm1",   "problem",  "nav_focus", "play_focus",
-    "fm1_list",   "fm1_list_focus", "plan_wait", "plan",    "plan_fresh", "backups",  "job_switch", "job_backup",
+    "fm1_list",   "fm1_list_focus", "plan_wait", "plan",    "plan_fresh", "backups",  "job_switch", "job_backup", "job_chain_backup", "job_chain_write",
     "switched",   "err_retry", "err_norom",  "err_stale",   "not_ready",  "unfinished", "setup",   "computer_confirm",
     "computer"};
 constexpr int kCols = sizeof kColumns / sizeof *kColumns, kGap = 8, kCaption = 18;

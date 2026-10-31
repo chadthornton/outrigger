@@ -10,11 +10,9 @@
 #include "host_ui.h"
 #include "installer.h"
 #include "softkey.h"
+#include "switch_chain.h"
 
 namespace loader_messages {
-
-// What a job boot runs (loader_app.cpp's JobBoot).
-enum class JobKind : uint8_t { None, Backup, Install, Resume };
 
 // Why the ROM-boot key didn't go out (the Host's checks before it).
 enum class KeyStop : uint8_t {
@@ -49,6 +47,8 @@ struct JobInput {
   const char *backup;     // the backup the switch checks against ("b50")
   uint32_t done, total;   // the step's sectors
   bool danger;
+  Chain chain = Chain::First;     // a switch that found the FM-1 changed: its backup, then its install
+  const char *stale_backup = "";  // the backup the FM-1 had changed since ("b50")
 };
 void describe_job(const JobInput &in, UiJob &out);
 
@@ -67,6 +67,8 @@ struct JobOutcome {
   const char *detail;         // for us: where it failed and what USB said, or ""
   uint32_t sectors;           // written, for a finished switch
   fm1_loader::DataAction data;
+  Chain chain = Chain::First;     // where a switch was in its chain (switch_chain.h)
+  const char *stale_backup = "";  // the backup the FM-1 had changed since
 };
 void describe_result(const JobOutcome &in, UiResult &out);
 

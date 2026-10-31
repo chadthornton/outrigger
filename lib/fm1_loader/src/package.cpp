@@ -28,7 +28,7 @@ const char *package_error_text(PackageError e) {
     case PackageError::NoFlashBin: return "no flash.bin entry";
     case PackageError::FlashBinPastEnd: return "flash.bin runs past the package";
     case PackageError::FlashBinShort: return "flash.bin doesn't reach 0x93000";
-    case PackageError::BadIdentity: return "identity isn't FM-1_NNN";
+    case PackageError::BadIdentity: return "identity isn't FM-1_ and 3-15 digits";
     case PackageError::BlankApp: return "app area is blank";
     case PackageError::HashMismatch: return "file hash doesn't match the library";
     case PackageError::BadId: return "bad library id";
@@ -37,15 +37,13 @@ const char *package_error_text(PackageError e) {
   return "?";
 }
 
+// FM-1_ and 3 to 15 digits, all the package marks can hold (kMarkedBlocks). Catalog
+// firmwares use 3 to 10: stock FM-1_015, x0x FM-1_9010100, mope1 FM-1_6673000300.
 bool valid_identity(const std::string &id) {
-  if (id.size() != 8 || id.compare(0, 5, "FM-1_") != 0) return false;
-  for (size_t i = 5; i < 8; ++i)
+  if (id.size() < 8 || id.size() > kMarkedBlocks || id.compare(0, 5, "FM-1_") != 0) return false;
+  for (size_t i = 5; i < id.size(); ++i)
     if (id[i] < '0' || id[i] > '9') return false;
   return true;
-}
-
-Family family_of(const std::string &id) {
-  return valid_identity(id) && id[5] == '0' ? Family::Stock : Family::Felucca;
 }
 
 PackageError parse_package(const uint8_t *data, size_t len, Package &out,
@@ -94,7 +92,6 @@ PackageError parse_package(const uint8_t *data, size_t len, Package &out,
   if (!valid_identity(out.identity)) return PackageError::BadIdentity;
 
   const uint8_t *flash = image.data() + out.flash_offset;
-  out.family = family_of(out.identity);
   out.app.assign(flash + kAppStart, flash + kAppEnd);
   out.app_sha256 = sha256(out.app.data(), out.app.size());
   out.head_sha256 = sha256(flash, kHeadEnd);

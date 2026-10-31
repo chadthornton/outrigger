@@ -55,7 +55,7 @@ def u32(p, o):
 
 
 def parse_package(data):
-    """(identity, family, app bytes) of a .fwsc file, with package.cpp's checks."""
+    """(identity, app bytes) of a .fwsc file, with package.cpp's checks."""
     stride = FWSC_BLOCK + 1
     if len(data) < stride * FWSC_MARKED:
         raise PackageError("too short to be an FM-1 package")
@@ -88,12 +88,12 @@ def parse_package(data):
         raise PackageError("flash.bin runs past the package")
     if length < APP_END:
         raise PackageError("flash.bin doesn't reach 0x93000")
-    if not re.fullmatch(r"FM-1_\d{3}", ident):
-        raise PackageError("identity isn't FM-1_NNN")
+    if not re.fullmatch(r"FM-1_\d{3,15}", ident):  # package.cpp valid_identity()
+        raise PackageError("identity isn't FM-1_ and 3-15 digits")
     app = bytes(image[off + APP_START:off + APP_END])
     if app.count(0xFF) == len(app) or app.count(0) == len(app):
         raise PackageError("app area is blank")
-    return ident, ("stock" if ident[5] == "0" else "felucca"), app
+    return ident, app
 
 
 def sector_key(digest):
@@ -124,14 +124,51 @@ class DirStore:
         return (self.root / key).read_bytes()
 
 
-def add_package(store, pkg_id, data, name="", version="", expected_sha256=None, pinned=False):
-    """Stores a package's app sectors and its manifest. Returns the identity."""
+def set_project(store, pkg_id, project):
+    """Records the catalog project of a package stored before projects existed."""
+    key = "m/pkg/" + pkg_id
+    fields, sectors = {}, []
+    for line in store.read(key).decode().splitlines():
+        if line.startswith("@"):
+            addr, h = line[1:].split(" ", 1)
+            sectors.append((int(addr, 16), bytes.fromhex(h)))
+        elif " " in line:
+            k, v = line.split(" ", 1)
+            fields[k] = v
+    fields["project"] = project
+    fields["family"] = family_of_project(project, fields.get("identity", ""))
+    store.write(key, serialize(fields, sectors).encode())
+
+
+def family_of_project(project, identity):
+    """library.cpp family_of_project(): stock for the catalog's stock project and
+    for sideloaded M-VAVE builds (FM-1_0NN), Felucca's ranges for the rest."""
+    if project == "stock" or (project.startswith("sha:") and re.fullmatch(r"FM-1_0\d\d", identity)):
+        return "stock"
+    return "felucca"
+
+
+def sideload_project(app_sha256_hex):
+    """library.cpp sideload_project(): the project of a package no catalog lists."""
+    return "sha:" + app_sha256_hex[:16]
+
+
+def add_package(store, pkg_id, data, name="", version="", expected_sha256=None, pinned=False, project=""):
+    """Stores a package's app sectors and its manifest. Returns the identity.
+
+    project is the package's Firmware Hub catalog id; empty means sideloaded
+    (library.cpp add_package())."""
     if not ID_RE.match(pkg_id):
         raise PackageError("bad library id %r" % pkg_id)
     file_sha = hashlib.sha256(data).hexdigest()
     if expected_sha256 and expected_sha256 != file_sha:
         raise PackageError("file hash doesn't match")
-    ident, family, app = parse_package(data)
+    ident, app = parse_package(data)
+    if project and not ID_RE.match(project):
+        raise PackageError("bad project %r" % project)
+    app_hex = hashlib.sha256(app).hexdigest()
+    project = project or sideload_project(app_hex)
+    family = family_of_project(project, ident)
     sectors = []
     for i in range(0, len(app), SECTOR):
         s = app[i:i + SECTOR]
@@ -140,8 +177,8 @@ def add_package(store, pkg_id, data, name="", version="", expected_sha256=None, 
             store.write(sector_key(h), s)
         sectors.append((APP_START + i, h))
     clean = lambda s: s.replace("\n", " ").replace("\r", " ")
-    fields = {"identity": ident, "family": family, "file": file_sha,
-              "app": hashlib.sha256(app).hexdigest(), "name": clean(name), "version": clean(version),
+    fields = {"identity": ident, "project": project, "family": family, "file": file_sha,
+              "app": app_hex, "name": clean(name), "version": clean(version),
               "pin": "1" if pinned else ""}
     store.write("m/pkg/" + pkg_id, serialize(fields, sectors).encode())
     return ident
