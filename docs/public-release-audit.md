@@ -105,7 +105,7 @@ This decision is on the tracker. `LICENSE` is added only after Chad picks one.
 |---|---|---|
 | README described CI as off because Actions minutes cost money | `README.md` lines 26 and 112 | **Fixed:** says CI is free once the repo is public and still not part of the gate. |
 | README said the site is "not published anywhere yet" | `README.md` Licensing section | **Fixed:** names beta.outrigger.music. |
-| `deploy_site.py` repeats `build_site.py`'s `wl82loader.bin` scan | PR #12's branch only (`claude/cloudflare-pages-f4323f`), not `master` | Not fixed here, because other sessions' branches are off-limits. Share one scan function after PR #12 and `esptool-installer` merge. Reported to the orchestrator. |
+| `deploy_site.py` repeats `build_site.py`'s `wl82loader.bin` scan | `tools/deploy_site.py` (from PR #12, now on `master`) and `tools/build_site.py` | Not fixed here: `esptool-installer` also changes the site build. Share one scan function once it merges. Reported to the orchestrator. |
 | Re-enable CI after going public | `.github/workflows/ci.yml` | Optional: `gh workflow enable CI` as an extra, free signal. The gate stays `make check`. |
 
 ## History rewrite: optional, not recommended
