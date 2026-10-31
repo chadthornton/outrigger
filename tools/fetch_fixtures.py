@@ -1,9 +1,10 @@
 """Fetch the fm1_loader test fixtures into tests/fixtures/ (gitignored).
 
-Each file is pinned by its own SHA-256 here, not by today's catalog: the catalog
-lists only the latest version of each firmware, so when one moves on, this
-script says so and stops instead of quietly fetching a different file (the
-golden vectors are built from these exact bytes).
+Each file is pinned by its own SHA-256 here, not by today's catalog: the golden
+vectors are built from these exact bytes. The community firmwares come from
+their authors' GitHub releases, which keep every version; the Firmware Hub
+keeps only the latest of each, so its old URLs disappear when a firmware moves
+on. tools/check_latest.py tries each firmware's newest release separately.
 
 Usage: python3 tools/fetch_fixtures.py [fixtures_dir]
 """
@@ -14,6 +15,7 @@ import urllib.request
 from pathlib import Path
 
 HUB = "https://thefirmwarehub.com/"
+GITHUB = "https://github.com/"
 JLUB_RAW = ("https://raw.githubusercontent.com/kagaimiq/jl-uboot-tool/"
             "adb3f18889e88ac512ce0a3c4d8cc3d3cb30696a/")
 
@@ -21,12 +23,13 @@ JLUB_RAW = ("https://raw.githubusercontent.com/kagaimiq/jl-uboot-tool/"
 FIXTURES = [
     ("FM-1_015.fwsc", "stock", HUB + "fw/mvave/FM-1_015.fwsc",
      "db1642b2b6fa5c2cccb11ffd13878068bb28601678d3644049f99dc40e7edb8a"),
-    ("skiff-1.4.fwsc", "skiff", HUB + "fw/skiff-1.4.fwsc",
+    ("skiff-1.4.fwsc", "skiff", GITHUB + "illuminus5/skiff/releases/download/v1.4/skiff-1.4.fwsc",
      "0622a752e8304777c042ccea0732ba023e1413baa6dbc8724576e2ec76de02e0"),
-    ("sloop-2.8.1.fwsc", "sloop", HUB + "fw/sloop-2.8.1.fwsc",
+    ("sloop-2.8.1.fwsc", "sloop", GITHUB + "isod89/sloop-fm1/releases/download/v2.8.1/sloop-2.8.1.fwsc",
      "64c9dfa7e75312debeae01a7c96e4ad3801eaffff9c81cb76ece9c48daf0501d"),
     # Felucca 1.6.1, the base Skiff builds on: checkpoint 3's same-layout target.
-    ("felucca-1.6.1.fwsc", "felucca", HUB + "fw/felucca-1.6.1.fwsc",
+    ("felucca-1.6.1.fwsc", "felucca",
+     GITHUB + "hugelton/Felucca/releases/download/v1.6.1/felucca-1.6.1.fwsc",
      "dff3a38f7e5b9833e15aba322558c9485e9e422e3ff813c616c91b3584a2d909"),
     # JieLi's loader, from jl-uboot-tool at the commit the Unbricker pins.
     ("wl82loader.bin", None, JLUB_RAW + "data/loaderblobs/usb/wl82loader.bin",
@@ -54,7 +57,7 @@ def check_catalog(catalog):
         if cid is None:
             continue
         entry = entries.get(cid)
-        if entry is None or entry["sha256"] != digest or not url.endswith(entry["pkg"]):
+        if entry is None or entry["sha256"] != digest:
             moved.append("%s: catalog now lists %s" % (name, entry and entry["pkg"]))
     return moved
 
@@ -67,9 +70,11 @@ def main():
     if not missing:
         print("fixtures: all %d present and verified" % len(FIXTURES))
         return 0
-    moved = check_catalog(json.loads(fetch(HUB + "catalog.json")))
-    for line in moved:
-        print("fixtures: NOTE %s (pinned file is still fetched by its own URL)" % line)
+    try:  # informational only: the pinned files don't come from the catalog
+        for line in check_catalog(json.loads(fetch(HUB + "catalog.json"))):
+            print("fixtures: NOTE %s (the pinned version is still fetched)" % line)
+    except (OSError, ValueError, KeyError) as e:
+        print("fixtures: NOTE catalog unreadable (%s)" % e)
     for name, _, url, digest in missing:
         data = fetch(url)
         if sha256(data) != digest:
