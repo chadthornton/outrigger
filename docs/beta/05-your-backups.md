@@ -35,5 +35,5 @@ Two things aren't in beta 1:
 - **copying a backup to your computer;**
 - **restoring a backup you choose** on the board.
 
-For now, your songs come back through each firmware's shelf. When you reinstall the board with the new installer
-page, it offers to save a copy of the board's backups to your computer first: keep that box ticked.
+For now, your songs come back through each firmware's shelf, and your backups live only on the board. Saving a
+copy to your computer, including before you reinstall the board, comes later, together with export.
