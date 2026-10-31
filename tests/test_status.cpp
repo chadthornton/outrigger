@@ -121,6 +121,103 @@ static void test_empty_hub() {
   EXPECT(strstr(v.problem.line1, "No devices") != nullptr, "says the hub is empty");
 }
 
+// Each problem belongs to the stage Play opens for it.
+static void test_problem_stage() {
+  HostSnapshot nothing{};
+  nothing.uptime_ms = 6000;
+  EXPECT(evaluate(nothing).problem_stage == kStageHub, "nothing on USB: the hub");
+  EXPECT(evaluate(hub_with({})).problem_stage == kStageHub, "empty hub: the hub");
+  HostSnapshot stuck = hub_with({device(2, "Felucca", Role::Target, 0x11, true)});
+  stuck.port_state[3] = 'C';
+  stuck.port_stuck_ms[3] = 5000;
+  ChainView v = evaluate(stuck);
+  EXPECT(v.problem_stage == kStageHub && v.stuck_port == 4, "stuck port: the hub, port 4");
+  EXPECT(evaluate(hub_with({device(2, "Felucca", Role::Target, 0x11, true),
+                            device(4, "MPK mini", Role::Controller, 0x13, false)}))
+                 .problem_stage == kStageControllers,
+         "a controller that didn't open: controllers");
+  EXPECT(evaluate(hub_with({device(2, "Felucca", Role::Target, 0x11, false)})).problem_stage == kStageFm1,
+         "an FM-1 that didn't open: the FM-1");
+  EXPECT(evaluate(hub_with({device(3, "Launchkey", Role::Controller, 0x12, true)})).problem_stage == kStageFm1,
+         "no FM-1: the FM-1");
+  EXPECT(evaluate(hub_with({device(2, "Felucca", Role::Target, 0x11, true)})).problem_stage == kStages,
+         "no problem: no stage");
+}
+
+static void statuses(const HostSnapshot &s, const Activity &a, StageStatus out[kStages]) {
+  stage_status(s, evaluate(s), a, out);
+}
+
+static void test_stage_status_playing() {
+  StageStatus st[kStages];
+  HostSnapshot s = hub_with({device(2, "Felucca", Role::Target, 0x11, true),
+                             device(3, "Launchkey Mini MK4 37", Role::Controller, 0x12, true)});
+  statuses(s, {"LAU", 123456, "Skiff 1.4", false}, st);
+  EXPECT(strcmp(st[kStageHub].text, "USB 8/8") == 0 && st[kStageHub].tone == Tone::Full, "hub: full is yellow");
+  EXPECT(strcmp(st[kStageControllers].text, "LAU playing") == 0 && st[kStageControllers].tone == Tone::Live,
+         "controllers: playing is green");
+  EXPECT(strcmp(st[kStageRouter].text, "123k sent") == 0, "router: sent count");
+  EXPECT(strcmp(st[kStageFm1].text, "Skiff 1.4") == 0 && st[kStageFm1].tone == Tone::Plain, "FM-1: its firmware");
+  s.channels_used = 5;
+  statuses(s, {nullptr, 0, nullptr, false}, st);
+  EXPECT(strcmp(st[kStageHub].text, "USB 5/8") == 0 && st[kStageHub].tone == Tone::Plain, "hub: room left is grey");
+  EXPECT(strcmp(st[kStageControllers].text, "LAU ready") == 0, "controllers: quiet");
+  EXPECT(strcmp(st[kStageRouter].text, "0 sent") == 0, "router: nothing sent yet");
+  EXPECT(strcmp(st[kStageFm1].text, "ready") == 0, "FM-1: no Loader, no name");
+}
+
+// The worst thing first: an issue beats activity, unfinished beats the name.
+static void test_stage_status_worst_first() {
+  StageStatus st[kStages];
+  HostSnapshot six = hub_with({device(2, "Felucca", Role::Target, 0x11, true), device(3, "Launchkey", Role::Controller, 0x12, true),
+                               device(4, "Keystep", Role::Controller, 0x13, true), device(5, "Arturia", Role::Controller, 0x14, false),
+                               device(6, "BeatStep", Role::Controller, 0x21, true), device(7, "Control", Role::Controller, 0x22, true)});
+  statuses(six, {"LAU", 10, "Skiff 1.4", false}, st);
+  EXPECT(strcmp(st[kStageControllers].text, "5, 1 issue") == 0 && st[kStageControllers].tone == Tone::Warn,
+         "an issue beats playing");
+  HostSnapshot one = hub_with({device(2, "Felucca", Role::Target, 0x11, true), device(4, "MPK mini", Role::Controller, 0x13, false)});
+  statuses(one, {nullptr, 0, nullptr, false}, st);
+  EXPECT(strcmp(st[kStageControllers].text, "MPK not open") == 0, "one controller: names it");
+  EXPECT(strcmp(st[kStageRouter].text, "idle") == 0, "router: nothing open to route");
+
+  HostSnapshot fm1 = hub_with({device(2, "Felucca", Role::Target, 0x11, false)});
+  statuses(fm1, {nullptr, 0, "Skiff 1.4", false}, st);
+  EXPECT(strcmp(st[kStageFm1].text, "no answer") == 0 && st[kStageFm1].tone == Tone::Warn, "FM-1 didn't open");
+  statuses(fm1, {nullptr, 0, "Skiff 1.4", true}, st);
+  EXPECT(strcmp(st[kStageFm1].text, "unfinished") == 0 && st[kStageFm1].tone == Tone::Bad,
+         "an unfinished install beats everything");
+  statuses(hub_with({device(3, "Launchkey", Role::Controller, 0x12, true)}), {nullptr, 0, nullptr, false}, st);
+  EXPECT(strcmp(st[kStageFm1].text, "not found") == 0 && st[kStageFm1].tone == Tone::Warn, "no FM-1");
+  EXPECT(strcmp(st[kStageControllers].text, "LAU ready") == 0, "the controller is still fine");
+
+  HostSnapshot nothing{};
+  nothing.uptime_ms = 6000;
+  statuses(nothing, {nullptr, 0, nullptr, false}, st);
+  EXPECT(strcmp(st[kStageHub].text, "no USB") == 0 && st[kStageHub].tone == Tone::Bad, "nothing on USB");
+  EXPECT(strcmp(st[kStageControllers].text, "none") == 0, "no controllers");
+  nothing.uptime_ms = 1000;
+  statuses(nothing, {nullptr, 0, nullptr, false}, st);
+  EXPECT(strcmp(st[kStageHub].text, "starting") == 0, "right after boot: no complaint");
+
+  HostSnapshot stuck = hub_with({device(2, "Felucca", Role::Target, 0x11, true)});
+  stuck.port_state[3] = 'C';
+  stuck.port_stuck_ms[3] = 5000;
+  statuses(stuck, {nullptr, 0, nullptr, false}, st);
+  EXPECT(strcmp(st[kStageHub].text, "port 4 stuck") == 0 && st[kStageHub].tone == Tone::Warn, "stuck port");
+}
+
+static void test_short_count() {
+  char b[12];
+  const struct { uint32_t n; const char *want; } cases[] = {
+      {0, "0"}, {999, "999"}, {1000, "1k"}, {123456, "123k"}, {999999, "999k"},
+      {1000000, "1.0M"}, {1250000, "1.2M"}, {9999999, "9.9M"}, {10000000, "10M"}, {45600000, "45M"}};
+  for (const auto &c : cases) {
+    short_count(c.n, b, sizeof b);
+    if (strcmp(b, c.want) != 0) printf("  %u gave '%s', not '%s'\n", unsigned(c.n), b, c.want);
+    EXPECT(strcmp(b, c.want) == 0, "short count");
+  }
+}
+
 static void test_tags() {
   char tag[4];
   make_tag("Launchkey Mini MK4 37", tag);
@@ -141,6 +238,10 @@ int main() {
   test_no_controller_is_not_an_error();
   test_empty_hub();
   test_tags();
+  test_problem_stage();
+  test_stage_status_playing();
+  test_stage_status_worst_first();
+  test_short_count();
   if (failures) {
     printf("%d failure(s)\n", failures);
     return 1;
