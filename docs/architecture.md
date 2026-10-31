@@ -300,13 +300,14 @@ App sets are chosen at build time. The Router is always built; the others are sw
   sets differ only in the app-set name the settings page shows, and `hub-loader` also compiles `lib/fm1_loader` for
   the ESP32-S3. Each set fills in as its app lands. "Everything" will not fit the current 1,310,720 B app slot once the
   Web UI lands; it needs decision 5's partition table first.
-- **CI** (`.github/workflows/ci.yml`) runs `make test` and builds every board × app set on each push, then stages the
-  installer site with the fixtures present so `build_site.py`'s `wl82loader.bin` scan really runs. Only
-  `site/firmware/` is uploaded. Nothing is published.
+- **`make check`** (the merge gate's step 2) clones the branch's last commit fresh, runs `make test` and
+  `make ui-shots`, builds every board × app set and stages the installer site with the fixtures present, so
+  `build_site.py`'s `wl82loader.bin` scan really runs. Nothing is published. `.github/workflows/ci.yml` does the same on
+  GitHub's machines, run by hand only.
 
 ## How an app lands on `master`
 
-The merge gate in `README.md`: Mac tests, CI green, and a hardware smoke check on the Waveshare (install, then the
+The merge gate in `README.md`: Mac tests, a clean `make check`, and a hardware smoke check on the Waveshare (install, then the
 Launchkey plays the FM-1 through the hub) before anything lands. An app also lands with:
 
 1. Its row in the mode table and its claims in the broker, with tests.
