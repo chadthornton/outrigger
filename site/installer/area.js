@@ -16,13 +16,24 @@ const PORT_FILTER = [{ usbVendorId: 0x303a, usbProductId: 0x1001 }];
 // The board's own USB port runs at full USB speed whatever baud rate is set,
 // and asking its ROM to change baud hangs the connection, so stay at 115200.
 const BAUD = 115200;
+// Web Serial's default 255-byte buffer can't take a flash-read packet (up to
+// 4 KiB, more once SLIP-escaped): reads stalled after "Flash ID" in Brave.
+// ESP Web Tools opened this board with 8192.
+const SERIAL_OPTIONS = { bufferSize: 16384 };
 const READ_TIMEOUT_MS = 30000;
-// esptool-js's progress lines go to the browser console, for a stuck install.
-const CONSOLE = {
-  clean() {},
-  writeLine: (line) => console.debug("esptool:", line),
-  write: (text) => console.debug("esptool:", text),
+// esptool-js's progress lines: the latest shows while the board is read, and
+// the last few show under "Details" when something fails.
+const LOG = [];
+let onLogLine = () => {};
+const logLine = (line) => {
+  const text = String(line).trim();
+  if (!text) return;
+  LOG.push(`${(performance.now() / 1000).toFixed(1)} s  ${text}`);
+  if (LOG.length > 60) LOG.shift();
+  console.debug("esptool:", text);
+  onLogLine(text);
 };
+const TERMINAL = { clean() {}, writeLine: logLine, write: logLine };
 const withTimeout = (promise, ms, what) => Promise.race([promise,
   new Promise((_, reject) => setTimeout(() => reject(new Error(`${what} took longer than ${ms / 1000} s.`)), ms))]);
 
@@ -69,6 +80,7 @@ class InstallArea {
     }
     this.show(
       note ? h("p", { class: "install-error", role: "alert" }, note) : null,
+      note && LOG.length ? h("details", { class: "install-log" }, h("summary", {}, "Details"), h("pre", {}, LOG.slice(-25).join("\n"))) : null,
       h("div", { class: "row" }, this.builds.map((b, i) =>
         h("button", { class: i ? "alt" : null, on: { click: () => this.connect(b) } }, b.label))),
       h("p", { class: "install-note" }, KEEPS, " ", h("a", { href: this.helpHref }, "No board listed?")),
@@ -84,7 +96,9 @@ class InstallArea {
       return; // closed the picker
     }
     this.busy = true;
-    this.show(h("p", { class: "install-note", role: "status" }, "Reading the board…"));
+    const step = h("span", {});
+    this.show(h("p", { class: "install-note", role: "status" }, "Reading the board… ", step));
+    onLogLine = (text) => { if (!text.startsWith("Debug")) step.textContent = text; };
     try {
       const [build, board] = await withTimeout(Promise.all([fetchBuild(choice.manifest),
         this.open(port).then(() => readBoard(this.loader))]), READ_TIMEOUT_MS, "Reading the board");
@@ -94,12 +108,13 @@ class InstallArea {
       this.ready(this.explain(e, "Couldn't read the board."));
     } finally {
       this.busy = false;
+      onLogLine = () => {};
     }
   }
 
   async open(port) {
     this.transport = new ChunkedTransport(port);
-    this.loader = new ESPLoader({ transport: this.transport, baudrate: BAUD, romBaudrate: BAUD, terminal: CONSOLE });
+    this.loader = new ESPLoader({ transport: this.transport, baudrate: BAUD, romBaudrate: BAUD, serialOptions: SERIAL_OPTIONS, terminal: TERMINAL });
     const chip = await this.loader.main();
     if (!/ESP32-S3/.test(chip)) throw new Error(`That's an ${chip}, not the Waveshare's ESP32-S3.`);
   }
