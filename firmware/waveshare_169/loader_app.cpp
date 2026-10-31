@@ -864,6 +864,8 @@ void loader_act() {
 
 platform::Mode loader_boot_mode() { return boot_mode; }
 
+bool loader_busy() { return busy.load(); }
+
 #if LOADER_SOAK
 void loader_soak_crashed() {
   if (soak.magic == kSoakMagic) ++soak.crashes;

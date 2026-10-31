@@ -463,6 +463,10 @@ static const char *this_build() {
 }
 
 static void connect_computer() {
+#if APP_LOADER
+  // Not while a job runs: a restart mid-install leaves the FM-1's app half-written.
+  if (loader_busy()) return;
+#endif
   Preferences boot;
   boot.begin("boot", false);
   boot.putString("computer", this_build());
@@ -573,9 +577,10 @@ void setup() {
   if (loader_boot_mode() == platform::Mode::Load) {
     ui_show_firmware();
     // EspUsbHost's hub tracking opens and closes every unknown device every
-    // 500 ms on the client task. In a job's boot that races the FM-1 leaving
-    // for ROM boot and the ROM device arriving: the suspect for checkpoint 3's
-    // hcd_urb_dequeue assert and missed ROM devices. A job doesn't need it.
+    // 500 ms on the client task. A job doesn't need it, and it races the FM-1
+    // leaving for ROM boot and the ROM device arriving. (It raised the rate of
+    // checkpoint 3's hcd_urb_dequeue assert; the cause, a transfer freed while
+    // IDF held it, is fixed in EspUsbHost's disconnect teardown.)
     usb.setHubTrackingEnabled(false);
   }
 #endif
@@ -620,9 +625,10 @@ void loop() {
   // boot, and a timed-out poll abandons its transfer still queued.
   bool poll_ok = now - host_started_ms > 3000 && broker.mode() == platform::Mode::Play;
 #if APP_LOADER
-  // Loader builds don't poll at all while checkpoint 3's hcd_urb_dequeue crash
-  // is open: the polls ran in Play mode right up to both crashing holds. Only
-  // the port letters on the chain screen are lost.
+  // Loader builds don't poll yet: the polls ran in Play mode right up to
+  // checkpoint 3's hcd_urb_dequeue crashes. That crash's cause is fixed in
+  // EspUsbHost's disconnect teardown; turning the polls back on waits for the
+  // hub-poll timeout fix (PR #2). Only the port letters on the chain screen are lost.
   poll_ok = false;
 #endif
   if (poll_ok && now - last_poll > 1000) {

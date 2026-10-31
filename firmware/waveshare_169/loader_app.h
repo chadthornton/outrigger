@@ -40,6 +40,8 @@ void loader_act();
 // when loader_begin() found a job recorded before the restart, Play otherwise.
 // A job is its own boot (loader_app.cpp, JobBoot): the host never restarts in place.
 platform::Mode loader_boot_mode();
+// A job is running (a Load boot until it ends): nothing may restart the board.
+bool loader_busy();
 #if LOADER_SOAK
 void loader_soak_crashed();  // safe mode, before the soak's restart
 #endif

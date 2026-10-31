@@ -313,6 +313,30 @@ static void test_install_records_the_written_flash() {
   CHECK(r.rom.flash[0x97000] == 0x21);  // the Skiff project came back
 }
 
+// The backup an install planned from holds the FM-1's only copy of firmware no
+// package has (flashed by Transporter, say): the install's own record doesn't
+// replace it. One of a known package still goes, so the store stays small.
+static void test_install_keeps_the_only_copy_of_unknown_firmware() {
+  Rig r(base_flash(skiff()));
+  r.back_up();  // the baseline
+  memcpy(r.rom.flash.data() + kAppStart, synth("custom-fw", kAppLen).data(), kAppLen);
+  r.back_up();
+  const std::string unknown = r.unit().latest_backup;
+  CHECK(unknown != r.unit().baseline_backup);
+  r.install("sloop-2.8.1");
+  CHECK(r.inst.current() == Step::Done);
+  FlashHashes kept;
+  CHECK(r.lib.backup(unknown, kept));
+  CHECK(r.unit().latest_backup != unknown);
+
+  const std::string known = r.unit().latest_backup;  // Sloop: a package
+  r.fresh_rom();
+  r.install("skiff-1.4");
+  CHECK(r.inst.current() == Step::Done);
+  CHECK(!r.lib.backup(known, kept));
+  CHECK(r.lib.backup(unknown, kept));
+}
+
 // The board restarted after the key because no ROM device showed up: the job
 // runs again without a second key, straight to waiting for ROM boot.
 static void test_key_already_sent() {
@@ -811,6 +835,7 @@ int main() {
   test_install_needs_a_backup();
   test_key_already_sent();
   test_install_records_the_written_flash();
+  test_install_keeps_the_only_copy_of_unknown_firmware();
   test_golden_resume();
   test_golden_backup();
   test_refusals_before_the_device();

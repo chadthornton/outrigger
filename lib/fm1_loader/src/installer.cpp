@@ -505,20 +505,34 @@ void Installer::do_write(std::vector<SectorOp> &ops, Step next) {
 }
 
 void Installer::finish_record() {
+  // The backup the install planned from is replaced by the new record below,
+  // unless its app is in no package: then it is the only copy of that firmware
+  // (Transporter's, say), and it stays.
+  FlashHashes before;
+  const bool keep_before =
+      !unit_.pending.before_backup.empty() && lib_.backup(unit_.pending.before_backup, before) &&
+      !lib_.identify_app(std::vector<Hash>(before.begin() + kAppStart / kSector, before.begin() + kAppEnd / kSector))
+           .known();
   unit_.installed_package = package_id_;
-  unit_.has_pending = false;
-  unit_.pending = PendingInstall();
+  if (!keep_before) {
+    unit_.has_pending = false;
+    unit_.pending = PendingInstall();
+  }
   // What the FM-1 holds now: the flash it planned from with every written sector
   // (each one read back) in place. Recorded as the latest backup, so the page's
   // "running" mark and the next install's plan start from the FM-1 as it is.
+  // add_backup() keeps the previous latest while it is the pending install's.
   FlashHashes now = flash_;
   for (const std::vector<SectorOp> *ops : {&app_ops_, &data_ops_})
     for (const SectorOp &op : *ops) now[op.addr / kSector] = op.want;
   std::string id;
+  const bool recorded = lib_.add_backup(unit_, now, id);
+  unit_.has_pending = false;
+  unit_.pending = PendingInstall();
   // Not fatal: the flash is verified. Without the record, the next install's
   // check read stops it ("back up again"); a stale pending record only makes a
   // later resume find nothing to write.
-  if (!lib_.add_backup(unit_, now, id)) lib_.put_unit(unit_);
+  if (!recorded || keep_before) lib_.put_unit(unit_);
 }
 
 }  // namespace fm1_loader
