@@ -26,6 +26,11 @@ esptool-js 0.7.0, site/vendor/esptool-js-0.7.0/ (the installer page)
   By Espressif Systems (espressif/esptool-js). Apache License 2.0:
   site/vendor/esptool-js-0.7.0/LICENSE.
 
+Commissioner, site/fonts/commissioner-latin.woff2 (the installer page)
+  Copyright 2015 The Commissioner Project Authors
+  (https://github.com/kosbarts/Commissioner). SIL Open Font License 1.1:
+  https://openfontlicense.org/open-font-license-official-text/
+
 
 Ported into this repository
 ---------------------------

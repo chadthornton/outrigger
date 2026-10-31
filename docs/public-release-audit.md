@@ -61,6 +61,7 @@ write path.
 |---|---|---|---|---|
 | EspUsbHost 2.10.1 | `lib/EspUsbHost/` (vendored, one patch) | MIT, TANAKA Masayuki | yes | notice; LICENSE kept |
 | esptool-js 0.7.0 | `site/vendor/` (replaced ESP Web Tools 10.4.0 when `esptool-installer` merged) | Apache-2.0 | no (site) | LICENSE kept |
+| Commissioner font | `site/fonts/` (from the site redesign) | SIL OFL 1.1 | no (site) | notice: **added** |
 | MvaveFM1Unbricker | ported: `softkey.*`, `package.*`, part of `crypto.*`, `mock_rom.*`, `tools/fm1lib.py`, `tools/catalog_dedupe.py` | MIT, Michael P Jones | yes | notice: **added** (NOTICE plus a header line in each file) |
 | jl-uboot-tool | ported: `rom.*`, part of `crypto.*`; `make golden` imports it from a checkout | MIT, Andrey Grigoryev | yes | notice: **added** |
 | LVGL 9.6.0 | Arduino library; `lv_conf.h` is its edited template | MIT | yes | notice: **added** |
