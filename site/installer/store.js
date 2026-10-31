@@ -14,14 +14,19 @@ export const sha256Hex = async (bytes) => hex(new Uint8Array(await crypto.subtle
 const LOADER_TIMEOUT_MS = 20000;
 const fromHex = (s) => Uint8Array.from(s.match(/../g), (b) => parseInt(b, 16));
 
-// What to do with the board's store (Chad, 2026-10-31):
+// What to do with the board's store (Chad, 2026-10-31), decided by the
+// board's own partition table, read before anything is written:
 // - none: the build doesn't run the loader, so the store isn't touched;
 // - keep: a store exists, with backups or not; it's never written;
-// - create: the store region is factory-blank (all 0xFF), so write a store;
-// - unreadable: the region holds data but no store this page can read; stop.
-export function storeAction({ runsLoader, hasStore, blank }) {
+// - create: the board's table has no store (it ran other firmware, so what's
+//   there is that firmware's, not FM-1 backups), or it has one and the region
+//   is factory-blank (all 0xFF): write a store;
+// - unreadable: the board's table has a store, the region holds data, and no
+//   store this page can read: where backups may have lived. Stop.
+export function storeAction({ runsLoader, hasStore, hadStorePartition, blank }) {
   if (!runsLoader) return "none";
   if (hasStore) return "keep";
+  if (!hadStorePartition) return "create";
   return blank ? "create" : "unreadable";
 }
 

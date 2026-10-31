@@ -20,11 +20,18 @@ test("storeAction: an existing store is kept, never written", () => {
 });
 
 test("storeAction: a factory-blank store region gets a store", () => {
-  assert.equal(storeAction({ runsLoader: true, hasStore: false, blank: true }), "create");
+  assert.equal(storeAction({ runsLoader: true, hasStore: false, hadStorePartition: true, blank: true }), "create");
 });
 
-test("storeAction: data with no readable store stops the install", () => {
-  assert.equal(storeAction({ runsLoader: true, hasStore: false, blank: false }), "unreadable");
+test("storeAction: our store partition with data but no readable store stops the install", () => {
+  assert.equal(storeAction({ runsLoader: true, hasStore: false, hadStorePartition: true, blank: false }), "unreadable");
+});
+
+// Chad, 2026-10-31: a board that ran other firmware (no store in its table)
+// has that firmware's leftovers where the store goes, not FM-1 backups.
+test("storeAction: a board from other firmware gets a store over its leftovers", () => {
+  assert.equal(storeAction({ runsLoader: true, hasStore: false, hadStorePartition: false, blank: false }), "create");
+  assert.equal(storeAction({ runsLoader: true, hasStore: false, hadStorePartition: false, blank: true }), "create");
 });
 
 // The real template and the splice tools/store_template.py checked by mounting
@@ -102,22 +109,28 @@ const storeBlock = (rel) => ({ offset: 0x3d0000 + rel, data: new Uint8Array(0x10
 
 test("plan: store blocks are written after the four parts when the store region is blank", () => {
   const plan = planInstall({ parts: parts(), boardTable: ourTable(), flashBytes: 16 << 20,
-    storeWrites: [storeBlock(0), storeBlock(0x1000)], storeBlank: true });
+    storeWrites: [storeBlock(0), storeBlock(0x1000)], storeWritable: true });
   assert.deepEqual(plan.problems, []);
   assert.deepEqual(plan.writes.map((w) => w.offset), [0x0, 0x8000, 0xe000, 0x10000, 0x3d0000, 0x3d1000]);
 });
 
-test("plan: no store writes unless the store region was found blank", () => {
+test("plan: no store writes unless prepareStore cleared the region", () => {
   const plan = planInstall({ parts: parts(), boardTable: ourTable(), flashBytes: 16 << 20,
-    storeWrites: [storeBlock(0)], storeBlank: false });
+    storeWrites: [storeBlock(0)], storeWritable: false });
   assert.equal(plan.ok, false);
-  assert.match(plan.problems.join("; "), /blank/);
+  assert.match(plan.problems.join("; "), /store/);
+});
+
+test("plan: store writes go through once prepareStore cleared the region", () => {
+  const plan = planInstall({ parts: parts(), boardTable: ourTable(), flashBytes: 16 << 20,
+    storeWrites: [storeBlock(0)], storeWritable: true });
+  assert.deepEqual(plan.problems, []);
 });
 
 test("plan: a store write outside the store, or not on a block, is refused", () => {
   for (const w of [{ offset: 0x3cf000, data: new Uint8Array(0x1000) }, { offset: 0x3d0800, data: new Uint8Array(0x1000) },
     { offset: 0x3d0000 + 0xc20000 - 0x1000, data: new Uint8Array(0x2000) }]) {
-    const plan = planInstall({ parts: parts(), boardTable: ourTable(), flashBytes: 16 << 20, storeWrites: [w], storeBlank: true });
+    const plan = planInstall({ parts: parts(), boardTable: ourTable(), flashBytes: 16 << 20, storeWrites: [w], storeWritable: true });
     assert.equal(plan.ok, false, `allowed a store write at 0x${w.offset.toString(16)}`);
   }
 });

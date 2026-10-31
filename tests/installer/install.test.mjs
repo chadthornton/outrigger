@@ -225,7 +225,7 @@ test("install: writes a store onto a blank region and reads it back", async () =
   const { manifest, parts } = hubBuild();
   const store = [{ offset: 0x3d0000, data: new Uint8Array(0x1000).fill(0x42) }, { offset: 0x3d4000, data: new Uint8Array(0x1000).fill(0x43) }];
   const steps = [];
-  await install({ loader: b, board: await readBoard(b), manifest, parts, storeWrites: store, storeBlank: true, onStep: (s) => steps.push(s.step) });
+  await install({ loader: b, board: await readBoard(b), manifest, parts, storeWrites: store, storeWritable: true, onStep: (s) => steps.push(s.step) });
   assert.deepEqual(b.flash.subarray(0x3d0000, 0x3d1000), store[0].data);
   assert.deepEqual(b.flash.subarray(0x3d4000, 0x3d5000), store[1].data);
   assert.ok(steps.includes("verify store"));
@@ -239,7 +239,7 @@ test("install: a store block that reads back wrong is reported, after a verified
   b.writeFlash = async (o) => { await realWrite(o); b.flash[0x3d0010] ^= 0xff; };
   const { manifest, parts } = hubBuild();
   const result = await install({ loader: b, board: await readBoard(b), manifest, parts,
-    storeWrites: [{ offset: 0x3d0000, data: new Uint8Array(0x1000).fill(0x42) }], storeBlank: true });
+    storeWrites: [{ offset: 0x3d0000, data: new Uint8Array(0x1000).fill(0x42) }], storeWritable: true });
   assert.match(result.storeProblem, /store/);
 });
 
@@ -264,7 +264,7 @@ test("prepareStore: a blank region gets the template with the loader, at the sto
   const b = boardWithBlankStore();
   const got = await prepareStore({ loader: b, board: await readBoard(b), build: loaderBuild(), fetchFn: github });
   assert.equal(got.action, "create");
-  assert.equal(got.storeBlank, true);
+  assert.equal(got.storeWritable, true);
   assert.deepEqual(got.storeWrites.map((w) => w.offset), [0x3d0000, 0x3d2000]);
   assert.equal(new TextDecoder().decode(got.storeWrites[1].data.subarray(8, 16)), "LOADERAB");
   assert.equal(got.loaderProblem, null);
@@ -313,4 +313,15 @@ test("fetchBuild: a loader build's store template must match the manifest's SHA-
   const good = { ...manifest, store_template: "store-template.json", store_template_sha256: createHash("sha256").update(templateText).digest("hex") };
   assert.deepEqual((await fetchBuild("fw/hub-loader/manifest.json", serve(good))).template, TEMPLATE);
   await assert.rejects(fetchBuild("fw/hub-loader/manifest.json", serve({ ...good, store_template_sha256: "0".repeat(64) })), /template/);
+});
+
+test("prepareStore: a board from other firmware (no store in its table) gets a store over leftovers, without an MD5", async () => {
+  const b = new FakeBoard();
+  b.flash.set(table([["nvs", 1, 0x9000, 0x5000], ["otadata", 1, 0xe000, 0x2000], ["app0", 0, 0x10000, 0x300000],
+    ["spiffs", 1, 0x310000, 0xe0000], ["coredump", 1, 0x3f0000, 0x10000]]), 0x8000);
+  b.flash.fill(0x00, 0x7f0000, 0x7f3000); // the demo firmware's old crash dump, inside the new store region
+  const got = await prepareStore({ loader: b, board: await readBoard(b), build: loaderBuild(), fetchFn: github });
+  assert.equal(got.action, "create");
+  assert.equal(got.storeWrites.length, 2);
+  assert.equal(b.calls.filter((c) => c[0] === "flashMd5sum").length, 0);
 });

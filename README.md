@@ -90,11 +90,13 @@ make serve    # same, then serve on http://localhost:8088 (Web Serial needs http
 - **What the board runs.** Each build carries a 20-byte tag at flash 0x10120 (`lib/platform/src/build_tag.h`): commit,
   dirty flag, app set. The page reads it before installing; `build_site.py` refuses an app without one. Boards running a
   build from before the tag show as "an earlier usb-midi-host build".
-- **A store for the loader.** Installing Hub + Loader or Everything onto a board whose store region is factory-blank
-  (the board's MD5 of the region matches an erased one's) also sets up the store `make flash-store` makes. The browser
+- **A store for the loader.** Installing Hub + Loader or Everything onto a board with no store also sets up the store
+  `make flash-store` makes, when the board ran other firmware (its partition table has no store, so what's there isn't
+  FM-1 backups; factory boards carry Waveshare's demo and its crash dump) or its store region is factory-blank (the
+  board's MD5 of the region matches an erased one's). The browser
   downloads `wl82loader.bin` from the pinned jl-uboot-tool commit on GitHub, checks its SHA-256, and copies it into
   `store-template.json` (`tools/store_template.py`, staged beside each loader build's manifest), so this site never hosts
-  it. An existing store is never written. A region with data but no store stops the install ("Your ESP32 has storage we
+  it. An existing store is never written. Our store partition with data but no readable store stops the install ("Your ESP32 has storage we
   can't read"); a failed download installs everything else and says firmware switching isn't set up.
   `tests/installer/test_store_template.py` mounts the spliced store and reads the loader back.
 - **No laptop copy yet.** Saving the store to the laptop from the page waits for the laptop-backups work

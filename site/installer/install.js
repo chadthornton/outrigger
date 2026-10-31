@@ -60,10 +60,10 @@ export async function fetchBuild(manifestUrl, fetchFn = fetch) {
 // What this install does to the board's store, worked out before anything
 // is written (store.js storeAction). build comes from fetchBuild; a build
 // with a store template runs the loader. Returns {action, storeWrites,
-// storeBlank, loaderProblem}: storeWrites is empty unless a store will be
+// storeWritable, loaderProblem}: storeWrites is empty unless a store will be
 // created; loaderProblem says why it won't be when GitHub didn't deliver.
 export async function prepareStore({ loader, board, build, fetchFn = fetch }) {
-  const none = { storeWrites: [], storeBlank: false, loaderProblem: null };
+  const none = { storeWrites: [], storeWritable: false, loaderProblem: null, previousFirmware: false };
   if (!build.template) return { action: "none", ...none };
   if (board.store) return { action: "keep", ...none };
   const tablePart = build.parts.find((p) => p.offset === 0x8000);
@@ -71,15 +71,19 @@ export async function prepareStore({ loader, board, build, fetchFn = fetch }) {
   if (!range) return { action: "none", ...none };
   const [offset, size] = range;
   if (size !== build.template.size) throw new Error("This build's store template doesn't fit its partition table (a site build problem; nothing was written).");
-  const blank = await storeIsBlank(loader, { offset, size }, build.template.blank_md5);
-  const action = storeAction({ runsLoader: true, hasStore: false, blank });
+  // Only a board whose own table has a store needs its region checked: on a
+  // board from other firmware, what's there isn't FM-1 backups.
+  const hadStorePartition = Boolean(board.table.store);
+  const blank = hadStorePartition && await storeIsBlank(loader, { offset, size }, build.template.blank_md5);
+  const action = storeAction({ runsLoader: true, hasStore: false, hadStorePartition, blank });
   if (action !== "create") return { action, ...none };
+  const previousFirmware = !hadStorePartition && board.layout !== "blank";
   try {
     const blob = await fetchLoader(build.template, fetchFn);
     const storeWrites = spliceStore(build.template, blob).map((b) => ({ offset: offset + b.offset, data: b.data }));
-    return { action, storeWrites, storeBlank: true, loaderProblem: null };
+    return { action, storeWrites, storeWritable: true, loaderProblem: null, previousFirmware };
   } catch (e) {
-    return { action, storeWrites: [], storeBlank: true, loaderProblem: e.message };
+    return { action, storeWrites: [], storeWritable: true, loaderProblem: e.message, previousFirmware };
   }
 }
 
@@ -90,14 +94,14 @@ export async function storeIsBlank(loader, storeRange, blankMd5) {
   return (await loader.flashMd5sum(storeRange.offset, storeRange.size)) === blankMd5;
 }
 
-// Writes the build, and with storeWrites a new store (only onto a region
-// storeIsBlank found blank). board comes from readBoard on this connection.
+// Writes the build, and with storeWrites a new store (only where
+// prepareStore cleared it). board comes from readBoard on this connection.
 // onStep({step, part?, written?, total?}): "write" per part, "verify", then
 // "verify store" when a store was written. Returns {plan, storeProblem}:
 // storeProblem says why a new store didn't read back (the program is in
 // place and checked by then, so the install still finishes).
-export async function install({ loader, board, manifest, parts, storeWrites = [], storeBlank = false, onStep = () => {} }) {
-  const plan = planInstall({ parts, boardTable: board.tableBytes, flashBytes: FLASH_BYTES, storeWrites, storeBlank });
+export async function install({ loader, board, manifest, parts, storeWrites = [], storeWritable = false, onStep = () => {} }) {
+  const plan = planInstall({ parts, boardTable: board.tableBytes, flashBytes: FLASH_BYTES, storeWrites, storeWritable });
   if (!plan.ok) throw new Error(`Nothing was written: ${plan.problems.join("; ")}.`);
 
   await loader.writeFlash({

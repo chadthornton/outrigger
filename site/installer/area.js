@@ -13,7 +13,7 @@ import { readBoard, fetchBuild, install, finish, prepareStore } from "./install.
 
 // Shown under each install area and in Details, so a bug report says which
 // installer ran. Bump it with every change to site/installer/.
-export const INSTALLER_VERSION = "2026-10-31.10";
+export const INSTALLER_VERSION = "2026-10-31.11";
 
 // The ESP32-S3's own USB port (USB-Serial-JTAG), in Computer mode or BOOT+RST.
 const PORT_FILTER = [{ usbVendorId: 0x303a, usbProductId: 0x1001 }];
@@ -166,7 +166,7 @@ class InstallArea {
     const name = buildName(build.manifest.build.app_set);
     const storeWords = store.action !== "create" ? null
       : store.loaderProblem ? `It has no store yet, and firmware switching won't be set up: ${store.loaderProblem}. Everything else installs.`
-        : "It has no store yet. Installing also sets one up with the file the loader needs from the FM-1's chip maker, downloaded from GitHub straight into this browser.";
+        : `${store.previousFirmware ? "This board ran other firmware before, so it has no store." : "It has no store yet."} Installing also sets up a fresh one with the file the loader needs from the FM-1's chip maker, downloaded from GitHub straight into this browser.`;
     this.show(
       h("p", { class: "install-read" }, words.board),
       h("p", {}, words.install),
@@ -189,7 +189,7 @@ class InstallArea {
     try {
       const { storeProblem } = await install({
         loader: this.loader, board, manifest: build.manifest, parts: build.parts,
-        storeWrites: store.storeWrites, storeBlank: store.storeBlank,
+        storeWrites: store.storeWrites, storeWritable: store.storeWritable,
         onStep: (s) => this.progress(label[s.step] || `Writing the ${s.part}`, s.written, s.total),
       });
       // Verified: from here on it's installed, whatever the restart does.
