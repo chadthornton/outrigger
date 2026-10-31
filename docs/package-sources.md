@@ -78,6 +78,26 @@ switch loses data, even when it starts fresh.
   same project. The installed version recorded is the catalog's, written only after the install verifies.
   The verify is today's read-back plus finish_record.
 
+## Step 2, how it's built
+
+- **A package knows its project.** `store-add` (and later upload and download) looks the file's SHA-256 up
+  in the catalog and records the catalog `id` in the package manifest (`project`). A file the catalog doesn't
+  list is sideloaded: its project is `sha:` and the first 16 hex digits of its app hash.
+- **The running firmware's project comes from the store, not from patterns.** `identify_app` already
+  matches the FM-1's app area against the stored packages sector by sector; the matched package's project is
+  the running project. An app no stored package matches is unknown: every install over it starts fresh. No
+  regex runs on the ESP32.
+- **Saves carry the project.** Saves recorded before this (s4 to s51 on the board) have none. They get it
+  when read, from the stored package with the same app hash, so nothing is rewritten.
+- **Stock is the catalog's `stock` project**, not "an identity starting `FM-1_0`". `bubba` (`FM-1_003`) is
+  a community firmware, with Felucca's ranges like the others.
+- **Which flash a shelf holds is unchanged:** Felucca's save ranges for every community firmware (verified
+  from Felucca's source and checkpoint 3), stock still unmapped (kept in place, never saved or erased).
+  - **Known gap:** a firmware that keeps data outside Felucca's ranges leaves it in place across a fresh
+    start, and its shelf doesn't hold it. The whole-flash backup before every install still does.
+- **The format-break table** starts with one row: Skiff below 2.0 to 2.0 or later is a fresh start (or that
+  project's shelf, if it holds a 2.x save).
+
 ## Checks that keep this honest
 
 - **`make check-latest`,** run at the start of each loader session and before installing a new release: each
