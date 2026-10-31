@@ -8,7 +8,7 @@
 // the text around it still reads on its own.
 import { ESPLoader, Transport } from "../vendor/esptool-js-0.7.0/bundle.js";
 import { describeBoard, buildName } from "./board.js";
-import { readBoard, fetchBuild, install, backupStore, restart } from "./install.js";
+import { readBoard, fetchBuild, install, backupStore, finish } from "./install.js";
 
 // The ESP32-S3's own USB port (USB-Serial-JTAG), in Computer mode or BOOT+RST.
 const PORT_FILTER = [{ usbVendorId: 0x303a, usbProductId: 0x1001 }];
@@ -91,7 +91,13 @@ class InstallArea {
   }
 
   async close() {
-    try { await this.transport?.disconnect(); } catch { /* already gone */ }
+    if (this.transport) {
+      try {
+        await Promise.race([this.transport.disconnect(), new Promise((r) => setTimeout(r, 2000))]);
+      } catch {
+        // already gone
+      }
+    }
     this.transport = this.loader = null;
   }
 
@@ -133,8 +139,10 @@ class InstallArea {
         loader: this.loader, board, manifest: build.manifest, parts: build.parts,
         onStep: (s) => this.progress(s.step === "verify" ? "Checking every part" : `Writing the ${s.part}`, s.written, s.total),
       });
-      await restart(this.loader);
-      await this.close();
+      // Verified: from here on it's installed, whatever the restart does.
+      const { loader, transport } = this;
+      this.transport = this.loader = null;
+      await finish({ loader, transport });
       this.done(build);
     } catch (e) {
       await this.close();

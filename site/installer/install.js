@@ -99,3 +99,20 @@ export async function restart(loader) {
   await loader.writeReg(WDT_CONFIG0, ((1 << 31) | (5 << 28) | (1 << 8) | 2) >>> 0); // on; stage 0 resets the system
   await loader.writeReg(WDT_WPROTECT, 0);
 }
+
+// After a verified install: restart the board and let go of the port. The
+// install is done by then, so nothing here can fail it. The watchdog fires
+// within milliseconds of being armed, so the lock write and the disconnect
+// may meet a port that has already dropped.
+export async function finish({ loader, transport, timeoutMs = 2000 }) {
+  try {
+    await restart(loader);
+  } catch {
+    // the chip reset under us, or never armed; RST still starts it
+  }
+  try {
+    await Promise.race([transport.disconnect(), new Promise((r) => setTimeout(r, timeoutMs))]);
+  } catch {
+    // already gone
+  }
+}

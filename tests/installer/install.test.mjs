@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { readBoard, install, backupStore, restart, fetchBuild } from "../../site/installer/install.js";
+import { readBoard, install, backupStore, restart, finish, fetchBuild } from "../../site/installer/install.js";
 
 const MB = 1024 * 1024;
 const md5 = (b) => createHash("md5").update(b).digest("hex");
@@ -190,4 +190,24 @@ test("fetchBuild: returns the four parts in offset order", async () => {
   const got = await fetchBuild("fw/hub/manifest.json", fetch);
   assert.deepEqual(got.parts.map((p) => p.offset), [0x0, 0x8000, 0xe000, 0x10000]);
   assert.deepEqual(got.manifest.build, manifest.build);
+});
+
+test("finish: a board that resets mid-restart and a port that never closes still finish", async () => {
+  const b = new FakeBoard();
+  let n = 0;
+  b.writeReg = async (addr, value) => {
+    b.calls.push(["writeReg", addr, value]);
+    if (++n > 3) throw new Error("port gone"); // the chip resets before the lock write lands
+  };
+  const transport = { disconnect: () => new Promise(() => {}) }; // hangs
+  const t0 = Date.now();
+  await finish({ loader: b, transport, timeoutMs: 50 });
+  assert.ok(Date.now() - t0 < 1000);
+  assert.equal(b.calls.filter((c) => c[0] === "writeReg").length, 4);
+});
+
+test("finish: a restart that fails before the watchdog is armed still finishes", async () => {
+  const b = new FakeBoard();
+  b.writeReg = async () => { throw new Error("no stub"); };
+  await finish({ loader: b, transport: { disconnect: async () => {} }, timeoutMs: 50 });
 });

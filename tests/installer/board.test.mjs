@@ -90,3 +90,9 @@ test("classifyLayout: blank, ours (has the store and recovery slots), or other",
   assert.equal(classifyLayout({ nvs: [0x9000, 0x5000], app0: [0x10000, 0x300000], recovery: [0x310000, 0xc0000], store: [0x3d0000, 0xc20000] }), "ours");
   assert.equal(classifyLayout({ nvs: [0x9000, 0x5000], app0: [0x10000, 0x140000], spiffs: [0x290000, 0x160000] }), "other");
 });
+
+test("describeBoard: a dirty build of the same commit can't promise nothing changes", () => {
+  const dirty = { ...hubDef, dirty: true };
+  const d = describeBoard({ tag: dirty, layout: "ours", store: false }, dirty);
+  assert.equal(d.install, "It already runs this commit. Installing it again rewrites the program. Your settings and Wi-Fi stay.");
+});

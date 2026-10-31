@@ -74,7 +74,10 @@ export function describeBoard(board, build) {
   const said = `This board runs ${now} ${version(board.tag)}${storeClause}.`;
   if (board.tag.app_set !== build.app_set) return { board: said, install: `Installing ${next} replaces ${now}. ${keeps}` };
   if (version(board.tag) === version(build)) {
-    return { board: said, install: `It already runs this build. Installing it again changes nothing. ${keeps}` };
+    // Two dirty builds of one commit can differ, so only a clean one is "this build".
+    const same = build.dirty ? "It already runs this commit. Installing it again rewrites the program."
+      : "It already runs this build. Installing it again changes nothing.";
+    return { board: said, install: `${same} ${keeps}` };
   }
   return { board: said, install: `Installing ${next} updates it. ${keeps}` };
 }
