@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Outrigger: B, sidebar</title>
+<link rel="stylesheet" href="shared.css">
+<style>
+  .wrap { max-width: 1120px; margin: 0 auto; padding-inline: max(20px, env(safe-area-inset-left)); }
+  nav { display: flex; align-items: center; gap: 12px; padding-block: 22px; border-bottom: 1px solid var(--line); }
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 56px; padding-block: 32px 72px; align-items: start; }
+  @media (max-width: 900px) { .layout { grid-template-columns: 1fr; gap: 40px; } }
+
+  .hero h1 { font-size: clamp(2.2rem, 5vw, 3.4rem); line-height: 1.02; letter-spacing: -.035em; font-weight: 820; max-width: 12em; }
+  .hero p { margin-top: 16px; font-size: 1.15rem; color: var(--muted); max-width: 30em; }
+  .hero svg { margin-top: 24px; color: var(--fg); max-width: 400px; }
+
+  .feature { display: grid; grid-template-columns: 56px 1fr; gap: 20px; padding-block: 26px; border-top: 1px solid var(--line); }
+  .feature:first-of-type { margin-top: 28px; }
+  .icon { width: 56px; height: 56px; border-radius: 14px; background: var(--soft); display: grid; place-items: center; color: var(--accent); font-weight: 800; font-size: 1.2rem; }
+  .feature h2 { font-size: 1.5rem; letter-spacing: -.02em; line-height: 1.15; }
+  .feature p { margin-top: 8px; color: var(--muted); max-width: 32em; }
+  .feature details { margin-top: 12px; }
+  .feature summary { cursor: pointer; font-weight: 600; font-size: .95rem; }
+  .feature details p { font-size: .95rem; }
+
+  .steps { margin-top: 8px; padding-top: 36px; border-top: 1px solid var(--line); }
+  .steps h2 { font-size: 1.5rem; letter-spacing: -.02em; }
+  .steps ol { counter-reset: s; list-style: none; padding: 0; margin: 18px 0 24px; display: grid; gap: 12px; }
+  .steps li { counter-increment: s; display: grid; grid-template-columns: 32px 1fr; gap: 12px; align-items: baseline; }
+  .steps li::before { content: counter(s); width: 28px; height: 28px; border-radius: 50%; background: var(--fg); color: var(--bg); display: grid; place-items: center; font-weight: 700; font-size: .85rem; }
+  .steps .act { display: flex; flex-wrap: wrap; gap: 14px 18px; align-items: center; }
+
+  aside { position: sticky; top: 24px; display: grid; gap: 16px; }
+  @media (max-width: 900px) { aside { position: static; } }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 22px; display: grid; gap: 12px; }
+  .card h3 { font-size: .78rem; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); }
+  .board { display: grid; grid-template-columns: 72px 1fr; gap: 14px; align-items: center; }
+  .board svg { color: var(--fg); }
+  .board b { display: block; line-height: 1.25; }
+  .card .faq { border-top: 0; }
+  .card .faq summary { padding-block: 10px; font-size: .95rem; }
+  .card .faq details > :not(summary) { font-size: .92rem; }
+  .card .faq details:last-child { border-bottom: 0; }
+  footer { border-top: 1px solid var(--line); padding-block: 22px 40px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <nav><a class="wordmark" href="#"><i></i>Outrigger</a><span class="beta">Beta</span></nav>
+
+  <div class="layout">
+    <main>
+      <section class="hero">
+        <h1>Your FM&#8209;1, untethered.</h1>
+        <p>A tiny touchscreen board that plays your FM-1 from any USB keyboard, and switches its firmware without a laptop.</p>
+        <a class="btn" href="#install" style="margin-top:22px">Install Outrigger</a>
+        <svg viewBox="0 0 640 312" role="img" aria-label="A USB keyboard and the FM-1 plugged into a USB hub, with the Outrigger board on the hub"><use href="art.svg#rig"/></svg>
+      </section>
+
+      <section class="feature">
+        <div class="icon" aria-hidden="true">♪</div>
+        <div>
+          <h2>Play from any USB keyboard</h2>
+          <p>One cable to the FM-1, one to your controller. Power and MIDI travel together.</p>
+          <details><summary>Instead of what?</summary><p>Without it, a USB-only controller needs a computer, or a MIDI box with TRS and 5-pin DIN adapters. If your keyboard already has a MIDI out, a cable does the job.</p></details>
+        </div>
+      </section>
+
+      <section class="feature">
+        <div class="icon" aria-hidden="true">⇄</div>
+        <div>
+          <h2>Switch firmware, keep every song</h2>
+          <p>Load any of 100+ firmwares right on the board. It backs up first, and your songs return when you switch back.</p>
+          <p class="status">Beta: needs one setup from a Mac first.</p>
+          <details><summary>How is it safe?</summary><p>It reads the FM-1 twice before writing, never touches its boot area, and checks every byte it writes. The FM-1 can always get back into install mode.</p></details>
+        </div>
+      </section>
+
+      <section class="steps" id="install">
+        <h2>Install in two minutes</h2>
+        <ol>
+          <li>Plug the board into this computer.</li>
+          <li>Click Install and pick the port it offers.</li>
+          <li>Move the board to the hub and play.</li>
+        </ol>
+        <div class="act">
+          <button class="btn" data-mock="Mock-up: Install isn't wired up here.">Install Outrigger</button>
+          <span class="warn">Leave “Erase device” unticked: it deletes your backups.</span>
+        </div>
+        <p class="fine" style="margin-top:12px">Chrome or Edge on a computer.</p>
+      </section>
+    </main>
+
+    <aside>
+      <div class="card">
+        <h3>Get the board</h3>
+        <div class="board">
+          <svg viewBox="0 0 120 140" aria-hidden="true"><use href="art.svg#board"/></svg>
+          <div><b>Waveshare ESP32-S3 Touch LCD 1.69</b><span class="fine">Plus a powered USB-C hub.</span></div>
+        </div>
+        <a class="btn ghost" href="#" data-mock="Mock-up: links to Amazon.">Buy on Amazon ↗</a>
+        <div class="faq"><details><summary>What's an ESP32?</summary><p>A small, cheap computer on a chip that runs lots of maker gadgets. This board adds a 1.69-inch touchscreen and a USB-C port.</p></details></div>
+      </div>
+      <div class="card" id="help">
+        <h3>Help</h3>
+        <div class="faq">
+          <details><summary>Update my board</summary><p>Settings, then tap Computer twice. Plug in and click Install. Backups stay.</p></details>
+          <details><summary>My FM-1 won't start</summary><p>It's almost certainly not dead. Try the Firmware Hub's Rescue, the Unbricker or the Transporter.</p></details>
+          <details><summary>No port shows up</summary><p>Use a data cable, not a charge-only one. Or hold BOOT, tap RST, release BOOT, and try again.</p></details>
+          <details><summary>Where do backups live?</summary><p>On the board, never online. Copying them to a computer comes later.</p></details>
+        </div>
+      </div>
+    </aside>
+  </div>
+</div>
+<footer><div class="wrap fine">Not affiliated with M-VAVE or Waveshare.</div></footer>
+<script src="mock.js"></script>
+</body>
+</html>

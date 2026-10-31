@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Outrigger: B2, sidebar</title>
+<link rel="stylesheet" href="shared.css">
+<style>
+  .wrap { max-width: 1120px; margin: 0 auto; padding-inline: max(20px, env(safe-area-inset-left)); }
+  .topnav { display: flex; align-items: center; gap: 14px; padding-block: 22px; }
+  .topnav .sp { flex: 1; }
+  .topnav .link { font-size: .95rem; color: var(--muted); text-decoration: none; }
+  @media (max-width: 520px) { .topnav .wide { display: none; } }
+  .eyebrow { font-size: .78rem; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); font-weight: 700; }
+  .need-items { display: grid; gap: 28px; }
+  .need-item { display: grid; grid-template-columns: 84px 1fr; gap: 18px; align-items: start; }
+  .need-item .ico { color: var(--fg); width: 84px; }
+  .need-item h3 { font-size: 1.2rem; margin-bottom: 6px; }
+  .need-item p, .need-item li { color: var(--muted); }
+  .need-item p + p { margin-top: 6px; }
+  .need-item b { color: var(--fg); font-weight: 650; }
+  .checks { margin: 0 0 10px; padding-left: 1.1em; display: grid; gap: 4px; }
+  footer { border-top: 1px solid var(--line); padding-block: 22px 40px; }
+
+  .topnav { border-bottom: 1px solid var(--line); }
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 56px; padding-block: 36px 40px; align-items: start; }
+  @media (max-width: 920px) { .layout { grid-template-columns: 1fr; gap: 36px; } }
+  .hero h1 { font-size: clamp(2.2rem, 5vw, 3.4rem); line-height: 1.02; letter-spacing: -.035em; font-weight: 820; }
+  .hero .lede { margin-top: 14px; font-size: 1.15rem; color: var(--muted); max-width: 30em; }
+  .hero .rig-fig { margin-top: 22px; max-width: 500px; }
+  .feature { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 22px; padding-block: 30px; border-top: 1px solid var(--line); }
+  .feature:first-of-type { margin-top: 36px; }
+  .feature .ico { width: 84px; color: var(--fg); }
+  .feature h2 { font-size: 1.45rem; letter-spacing: -.02em; line-height: 1.15; }
+  .feature p { margin-top: 8px; color: var(--muted); }
+  .feature .firmwares { margin-top: 16px; }
+  @media (max-width: 520px) { .feature { grid-template-columns: 1fr; gap: 10px; } .feature .ico { width: 64px; } }
+  aside.rail { position: sticky; top: 20px; display: grid; gap: 14px; }
+  @media (max-width: 920px) { aside.rail { position: static; } }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px; display: grid; gap: 12px; }
+  .card .btn { justify-content: center; }
+  .shopping { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+  .shopping a { display: grid; grid-template-columns: 40px 1fr auto; gap: 10px; align-items: center; padding: 8px 0; text-decoration: none; border-bottom: 1px solid var(--line); }
+  .shopping li:last-child a { border-bottom: 0; }
+  .shopping svg { width: 40px; color: var(--fg); }
+  .shopping span { font-size: .8rem; color: var(--muted); }
+  .section { padding-block: 40px; border-top: 1px solid var(--line); }
+  .section h2 { font-size: 1.9rem; letter-spacing: -.02em; margin-bottom: 24px; }
+  .needwrap { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 48px; }
+  .needwrap aside { background: var(--soft); border-radius: var(--radius); padding: 20px 20px 6px; align-self: start; }
+  @media (max-width: 920px) { .needwrap { grid-template-columns: 1fr; gap: 28px; } }
+</style>
+</head>
+<body>
+<nav class="wrap topnav">
+  <a class="wordmark" href="#"><i></i>Outrigger</a><span class="beta">Beta</span>
+  <span class="sp"></span>
+  <a class="link wide" href="#need">What you need</a><a class="link" href="#trouble">Help</a>
+</nav>
+<div class="wrap">
+  <div class="layout">
+    <main>
+      <section class="hero">
+        <h1>Your FM&#8209;1, untethered.</h1>
+        <p class="lede">A palm-sized touchscreen that plugs in beside it. Tap any part of the setup to see what it is.</p>
+        <figure class="rig-fig" data-rig aria-label="The setup: your controller and the FM-1 on a USB hub, with Outrigger on the hub">
+  <svg viewBox="0 0 640 312" role="img" aria-label="Your controller and the FM-1 plugged into a USB hub, with Outrigger on the hub"><use href="art.svg#rig"/></svg>
+  <div class="chips" role="group" aria-label="Look closer">
+    <button type="button" data-show="controller">Your controller</button>
+    <button type="button" data-show="outrigger">Outrigger</button>
+    <button type="button" data-show="hub">USB hub</button>
+    <button type="button" data-show="fm1">FM-1</button>
+  </div>
+  <section class="panel" data-panel="outrigger">
+    <h3>Outrigger</h3>
+    <p>A palm-sized ESP32 board with a touchscreen. It runs the connection and shows what's happening.</p>
+    <div class="shots">
+      <img class="shot" src="shots/M_play.png" alt="Play screen: hub, controller, router and FM-1, all green">
+      <img class="shot" src="shots/M_fm1_list.png" alt="Firmware list: Skiff running, Felucca with your songs, SLOOP">
+      <img class="shot" src="shots/M_plan.png" alt="Switch plan: backs up, saves Skiff's songs, writes Felucca">
+    </div>
+    <div class="row"><a class="need-link" href="#board">I need one ↓</a><button class="close" type="button" data-reset>Show the whole setup</button></div>
+  </section>
+  <section class="panel" data-panel="hub">
+    <h3>The USB hub</h3>
+    <p>Everything plugs into it, and one charger powers it all.</p>
+    <svg viewBox="0 0 500 190" role="img" aria-label="Hub wiring: charger into the power input, Outrigger on the host port, FM-1 and controller on USB-C data ports"><use href="art.svg#hub-wiring"/></svg>
+    <div class="row"><a class="need-link" href="#hub">What to look for ↓</a><button class="close" type="button" data-reset>Show the whole setup</button></div>
+  </section>
+  <section class="panel" data-panel="fm1">
+    <h3>The FM-1</h3>
+    <p>M-VAVE's pocket FM synthesizer: 27 keys, a speaker and a battery, for about $60–70. Its software can be swapped,
+      and players have written more than 100 versions of it.</p>
+    <div class="row"><a class="need-link" href="#fm1">Get one ↓</a><button class="close" type="button" data-reset>Show the whole setup</button></div>
+  </section>
+  <section class="panel" data-panel="controller">
+    <h3>Your controller</h3>
+    <p>Any USB MIDI keyboard or pad controller that works without a driver. One at a time.</p>
+    <p>Has a 5-pin or 3.5 mm MIDI out? A cable into the FM-1's MIDI IN plays it without Outrigger.</p>
+    <div class="row"><button class="close" type="button" data-reset>Show the whole setup</button></div>
+  </section>
+</figure>
+      </section>
+      <section class="feature">
+        <svg class="ico" viewBox="0 0 220 90" aria-hidden="true"><use href="art.svg#keyboard"/></svg>
+        <div><h2>Play your FM-1 from any USB keyboard</h2>
+<p>Plug both into the hub. Outrigger carries the notes and the power: no computer, no MIDI adapters.</p></div>
+      </section>
+      <section class="feature">
+        <svg class="ico" viewBox="0 0 150 120" aria-hidden="true"><use href="art.svg#fm1"/></svg>
+        <div><h2>Switch firmware, keep your work</h2>
+<p>Turn the FM-1 into a groovebox, a drum machine or an ambient generator. Outrigger backs up first, and your songs
+  come back when you switch back.</p>
+<div class="firmwares"><div class="fw groove"><i aria-hidden="true">S</i><b>SLOOP</b><span>live groovebox</span></div><div class="fw groove"><i aria-hidden="true">J</i><b>JIANT FM</b><span>living groovebox</span></div><div class="fw groove"><i aria-hidden="true">F</i><b>Felucca</b><span>the original</span></div><div class="fw groove"><i aria-hidden="true">S</i><b>Skiff</b><span>6-track groovebox</span></div><div class="fw synth"><i aria-hidden="true">M</i><b>Melodee</b><span>expressive player</span></div><div class="fw ambient"><i aria-hidden="true">A</i><b>AMB-1</b><span>generative ambient</span></div><div class="fw synth"><i aria-hidden="true">O</i><b>OberVave</b><span>analog-style poly</span></div><div class="fw groove"><i aria-hidden="true">X</i><b>X0X</b><span>909, 808, 303</span></div><div class="fw chords"><i aria-hidden="true">C</i><b>ChoralRoot</b><span>chord instrument</span></div><div class="fw ambient"><i aria-hidden="true">G</i><b>GR!MM</b><span>dark ambient</span></div></div>
+<p class="status">Beta: needs one setup from a Mac first. <a href="https://thefirmwarehub.com/" target="_blank" rel="noopener">All 104 at the Firmware Hub ↗</a></p></div>
+      </section>
+    </main>
+
+    <aside class="rail" id="install">
+      <div class="card">
+        <p class="eyebrow">Already have the parts?</p>
+        <button class="btn" type="button" data-install="out-b">Install Outrigger</button>
+<p class="install-out" id="out-b" role="status" hidden></p>
+        <p class="fine">Plug the board into your computer. About two minutes, free.</p>
+      </div>
+      <div class="card">
+        <p class="eyebrow">Shopping list</p>
+        <ul class="shopping">
+          <li><a href="#board"><svg viewBox="0 0 120 140" aria-hidden="true"><use href="art.svg#board"/></svg><b>ESP32-S3 board</b><span>↓</span></a></li>
+          <li><a href="#hub"><svg viewBox="0 0 120 50" aria-hidden="true"><use href="art.svg#hub"/></svg><b>Powered USB-C hub</b><span>↓</span></a></li>
+          <li><a href="#fm1"><svg viewBox="0 0 150 120" aria-hidden="true"><use href="art.svg#fm1"/></svg><b>An FM-1</b><span>↓</span></a></li>
+          <li><a href="#need"><svg viewBox="0 0 220 90" aria-hidden="true"><use href="art.svg#keyboard"/></svg><b>A USB keyboard</b><span>↓</span></a></li>
+        </ul>
+      </div>
+    </aside>
+  </div>
+
+  <section class="section" id="need">
+    <div class="needwrap">
+      <div><h2>What you need</h2><div class="need-items">
+  <section id="board" class="need-item">
+    <svg class="ico" viewBox="0 0 120 140" aria-hidden="true"><use href="art.svg#board"/></svg>
+    <div>
+      <h3>An ESP32-S3 board with a screen</h3>
+      <p><b>Works today:</b> Waveshare ESP32-S3-Touch-LCD-1.69, a 240×280 touchscreen. <a class="need-link" href="https://www.amazon.com/s?k=Waveshare+ESP32-S3-Touch-LCD-1.69" target="_blank" rel="noopener">Buy on Amazon ↗</a></p>
+      <p><b>Next, we expect:</b> Waveshare's 1.8-inch AMOLED and 3.5-inch touch boards, once Outrigger supports them.</p>
+      <p class="fine">It has to be an ESP32-S3 with native USB. Skip boards whose only USB port says "one-click download":
+        they have a converter chip and can't host a keyboard.</p>
+    </div>
+  </section>
+  <section id="hub" class="need-item">
+    <svg class="ico" viewBox="0 0 120 50" aria-hidden="true"><use href="art.svg#hub"/></svg>
+    <div>
+      <h3>A powered USB-C hub</h3>
+      <ul class="checks">
+        <li><b>Its own power input:</b> a USB-C charger port, or a barrel jack.</li>
+        <li><b>Pass-through charging</b> to its host port, the one a laptop would use. Outrigger plugs in there and runs on that power.</li>
+        <li><b>USB-C data ports</b> for the FM-1 and your controller. On the hub we tested, only the USB-C ports worked.</li>
+        <li>USB 2.0 is plenty.</li>
+      </ul>
+      <p><a class="need-link" href="https://www.amazon.com/s?k=USB-C+hub+PD+pass-through+charging" target="_blank" rel="noopener">Find one on Amazon ↗</a></p>
+    </div>
+  </section>
+  <section id="fm1" class="need-item">
+    <svg class="ico" viewBox="0 0 150 120" aria-hidden="true"><use href="art.svg#fm1"/></svg>
+    <div>
+      <h3>An FM-1</h3>
+      <p>M-VAVE's pocket FM synth, about $60–70. <a class="need-link" href="https://www.amazon.com/s?k=M-VAVE+FM-1" target="_blank" rel="noopener">Buy on Amazon ↗</a></p>
+    </div>
+  </section>
+  <section class="need-item">
+    <svg class="ico" viewBox="0 0 220 90" aria-hidden="true"><use href="art.svg#keyboard"/></svg>
+    <div>
+      <h3>Cables and a USB keyboard</h3>
+      <p>A USB-C data cable from the hub to Outrigger. The FM-1 and most keyboards come with their own.</p>
+    </div>
+  </section>
+</div></div>
+      <aside><p class="eyebrow">Before you buy</p><div class="faq">
+  <details><summary>What's an ESP32?</summary><p>A small, cheap computer on a chip, found in lots of maker gadgets.
+    Outrigger runs on one that comes with a touchscreen and a USB-C port, so it needs no soldering.</p></details>
+  <details><summary>What's an FM-1?</summary><p>A pocket FM synthesizer from M-VAVE, with 27 keys, a speaker and a
+    battery. Players write their own firmware for it, which is what Outrigger switches between.</p></details>
+  <details><summary>What does "firmware" mean here?</summary><p>The software the FM-1 runs. Swap it and the same
+    hardware becomes a different instrument: a groovebox, a drum machine, a chord instrument.</p></details>
+  <details><summary>My keyboard has a 5-pin or 3.5 mm MIDI out</summary><p>Then a MIDI cable into the FM-1's MIDI IN
+    plays it, no Outrigger needed. You'd still want Outrigger to switch firmware.</p></details>
+  <details><summary>Which controllers work?</summary><p>USB MIDI keyboards and pads that work without a driver, which
+    is most of them. One at a time: the board has room for the hub, the FM-1 and one controller.</p></details>
+</div></aside>
+    </div>
+  </section>
+  <section class="section" id="trouble" style="max-width:760px"><h2>Troubleshooting</h2><div class="faq">
+  <details><summary>Update Outrigger on my board</summary><p>On the board, open Settings and tap Computer twice. Plug
+    it into your computer and click Install. Your backups stay.</p></details>
+  <details><summary>Install can't find the board</summary><p>Try another cable: charge-only cables never show up. Or
+    hold BOOT, tap RST, let go of BOOT, and click Install again.</p></details>
+  <details><summary>My FM-1 won't start</summary><p>It's almost certainly not dead: its install mode lives in ROM.
+    <a href="https://thefirmwarehub.com/#rescue" target="_blank" rel="noopener">The Firmware Hub's Rescue</a> or the
+    Unbricker brings it back from a computer.</p></details>
+  <details><summary>A second keyboard shows up but doesn't play</summary><p>The board has room for one controller next to
+    the FM-1. Unplug the other one.</p></details>
+  <details><summary>Where do my backups live?</summary><p>On the board, never online. Copying them to a computer comes
+    in a later version.</p></details>
+</div></section>
+</div>
+<footer><div class="wrap fine">Not affiliated with M-VAVE or Waveshare.</div></footer>
+<script src="rig.js"></script>
+</body>
+</html>
