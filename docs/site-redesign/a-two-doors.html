@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Outrigger: A, two doors</title>
+<link rel="stylesheet" href="shared.css">
+<style>
+  .wrap { max-width: 1040px; margin: 0 auto; padding-inline: max(20px, env(safe-area-inset-left)); }
+  nav { display: flex; align-items: center; gap: 12px; padding-block: 22px; }
+  nav .sp { flex: 1; }
+  nav a.link { font-size: .95rem; color: var(--muted); text-decoration: none; }
+
+  .hero { display: grid; grid-template-columns: 1.05fr 1fr; gap: 40px; align-items: center; padding-block: 28px 56px; }
+  .hero h1 { font-size: clamp(2.4rem, 5.6vw, 4rem); line-height: 1; letter-spacing: -.035em; font-weight: 820; }
+  .hero p { margin-top: 18px; font-size: 1.2rem; color: var(--muted); max-width: 26em; }
+  .hero .cta { margin-top: 28px; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+  .rig { color: var(--fg); }
+  @media (max-width: 760px) { .hero { grid-template-columns: 1fr; gap: 28px; padding-bottom: 36px; } }
+
+  .doors { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  .door { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 28px; display: grid; gap: 14px; align-content: start; }
+  .door .num { font-size: .8rem; font-weight: 800; color: var(--accent); letter-spacing: .1em; }
+  .door h2 { font-size: 1.6rem; letter-spacing: -.02em; line-height: 1.1; }
+  .door p { color: var(--muted); }
+  .door ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+  .door li { padding-left: 26px; position: relative; }
+  .door li::before { content: ""; position: absolute; left: 0; top: .5em; width: 14px; height: 8px; border-left: 2.5px solid var(--accent); border-bottom: 2.5px solid var(--accent); transform: rotate(-45deg); }
+  .door .more { font-weight: 600; font-size: .95rem; }
+  @media (max-width: 760px) { .doors { grid-template-columns: 1fr; } }
+
+  .install { margin-block: 56px; background: var(--screen); color: #eef0ea; border-radius: 20px; padding: 40px;
+             display: grid; grid-template-columns: 1fr auto; gap: 24px; align-items: center; }
+  .install h2 { font-size: 1.8rem; letter-spacing: -.02em; }
+  .install p { color: #a9aea4; margin-top: 8px; }
+  .install .warn { color: #ffb37a; }
+  .install .side { display: grid; gap: 10px; justify-items: end; }
+  @media (max-width: 760px) { .install { grid-template-columns: 1fr; padding: 28px; } .install .side { justify-items: start; } }
+
+  .lower { display: grid; grid-template-columns: 1fr 1.3fr; gap: 48px; padding-bottom: 64px; }
+  .lower h2 { font-size: .8rem; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); margin-bottom: 14px; }
+  .need { display: grid; grid-template-columns: 96px 1fr; gap: 18px; align-items: center; }
+  .need svg { color: var(--fg); }
+  .need b { display: block; }
+  .need .buy { margin-top: 10px; display: flex; gap: 14px; flex-wrap: wrap; font-weight: 600; font-size: .95rem; }
+  .list { margin: 18px 0 0; padding-left: 1.1em; color: var(--muted); display: grid; gap: 4px; }
+  @media (max-width: 760px) { .lower { grid-template-columns: 1fr; gap: 36px; } }
+  footer { border-top: 1px solid var(--line); padding-block: 22px 40px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <nav>
+    <a class="wordmark" href="#"><i></i>Outrigger</a><span class="beta">Beta</span>
+    <span class="sp"></span>
+    <a class="link" href="#help">Help</a>
+  </nav>
+
+  <section class="hero">
+    <div>
+      <h1>Do more with your FM&#8209;1.</h1>
+      <p>A tiny touchscreen that sits beside it. Play from any USB keyboard. Switch firmware without a laptop.</p>
+      <div class="cta">
+        <a class="btn" href="#install">Get started</a>
+        <a class="fine" href="#need">What you need</a>
+      </div>
+    </div>
+    <svg class="rig" viewBox="0 0 640 312" role="img" aria-label="A USB keyboard and the FM-1 plugged into a USB hub, with the Outrigger board on the hub"><use href="art.svg#rig"/></svg>
+  </section>
+
+  <section class="doors">
+    <article class="door">
+      <span class="num">01</span>
+      <h2>Play from any USB keyboard</h2>
+      <ul>
+        <li>One cable to the FM-1, one to your controller</li>
+        <li>Power and MIDI on the same cables</li>
+        <li>No TRS adapters, no MIDI box</li>
+      </ul>
+      <a class="more" href="#">How the connection works →</a>
+    </article>
+    <article class="door">
+      <span class="num">02</span>
+      <h2>Switch firmware, keep your work</h2>
+      <ul>
+        <li>100+ firmwares from the Firmware Hub</li>
+        <li>Backs up before every switch</li>
+        <li>Your songs come back when you switch back</li>
+      </ul>
+      <p class="status">Beta: needs one setup from a Mac first.</p>
+      <a class="more" href="#">How switching works →</a>
+    </article>
+  </section>
+
+  <section class="install" id="install">
+    <div>
+      <h2>Install Outrigger on your board</h2>
+      <p>Plug the board into a computer and click Install. About two minutes, in Chrome or Edge.</p>
+    </div>
+    <div class="side">
+      <button class="btn" data-mock="Mock-up: Install isn't wired up here.">Install Outrigger</button>
+      <p class="warn">Leave “Erase device” unticked: it deletes your backups.</p>
+    </div>
+  </section>
+
+  <section class="lower">
+    <div id="need">
+      <h2>What you need</h2>
+      <div class="need">
+        <svg viewBox="0 0 120 140" aria-hidden="true"><use href="art.svg#board"/></svg>
+        <div>
+          <b>Waveshare ESP32-S3-Touch-LCD-1.69</b>
+          <span class="fine">A small ESP32 board with a touchscreen.</span>
+          <div class="buy"><a href="#" data-mock="Mock-up: links to Amazon.">Buy on Amazon ↗</a></div>
+        </div>
+      </div>
+      <ul class="list">
+        <li>A powered USB-C hub</li>
+        <li>Two USB-C data cables</li>
+      </ul>
+    </div>
+    <div id="help">
+      <h2>Help</h2>
+      <div class="faq">
+        <details><summary>What's an ESP32?</summary><p>A small, cheap computer on a chip, made by Espressif and found in lots of maker gadgets. Outrigger runs on one that comes with a 1.69-inch touchscreen and a USB-C port.</p></details>
+        <details><summary>My keyboard has a 5-pin or 3.5 mm MIDI out</summary><p>You don't need Outrigger to play: a cable into the FM-1's MIDI IN does it. You'd still want it for switching firmware.</p></details>
+        <details><summary>Update Outrigger on my board</summary><p>On the board: Settings, then tap Computer twice. Plug it into this computer and click Install. Your backups stay.</p></details>
+        <details><summary>No port shows up</summary><p>Try another cable: charge-only cables never show up. Or hold BOOT, tap RST, let go of BOOT, and click Install again.</p></details>
+        <details><summary>My FM-1 won't start</summary><p>It's almost certainly not dead. The Firmware Hub's Rescue, the Unbricker or the Transporter can bring it back from a computer.</p></details>
+      </div>
+    </div>
+  </section>
+</div>
+<footer><div class="wrap fine">Not affiliated with M-VAVE or Waveshare.</div></footer>
+<script src="mock.js"></script>
+</body>
+</html>
