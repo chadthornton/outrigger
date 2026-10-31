@@ -4,3 +4,4 @@ site/firmware/
 tests/fixtures/
 __pycache__/
 site/NOTICE.txt
+.wrangler/
