@@ -145,9 +145,19 @@ def main():
         data = p.read_bytes()
         sha = hashlib.sha256(data).hexdigest()
         pkg_id, name, version = names.get(sha, (p.stem, p.stem, ""))
+        project = names[sha][0] if sha in names else ""  # empty: sideloaded (docs/package-sources.md)
         pkg_id = "%s-%s" % (pkg_id, version) if version and not pkg_id.endswith(version) else pkg_id
-        ident = fm1lib.add_package(store, pkg_id, data, name=name, version=version, pinned=pin)
-        added.append("%s (%s %s, %s)" % (pkg_id, name, version, ident))
+        ident = fm1lib.add_package(store, pkg_id, data, name=name, version=version, pinned=pin, project=project)
+        added.append("%s (%s %s, %s, %s)" % (pkg_id, name, version, ident, project or "sideloaded"))
+    # Packages stored before projects existed get theirs from the catalog, by file hash.
+    for key in sorted(k for k in was if k.startswith("m/pkg/")):
+        text = store.read(key).decode()
+        if any(line.startswith("project ") for line in text.splitlines()):
+            continue
+        file_sha = next((line[5:] for line in text.splitlines() if line.startswith("file ")), "")
+        if file_sha in names:
+            fm1lib.set_project(store, key[6:], names[file_sha][0])
+            added.append("%s: project %s recorded" % (key[6:], names[file_sha][0]))
     now = snapshot(fs)
     changed = [k for k, v in was.items() if now.get(k) != v and not k.startswith("m/pkg/")]
     if changed:

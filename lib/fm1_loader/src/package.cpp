@@ -46,10 +46,6 @@ bool valid_identity(const std::string &id) {
   return true;
 }
 
-Family family_of(const std::string &id) {
-  return valid_identity(id) && id[5] == '0' ? Family::Stock : Family::Felucca;
-}
-
 PackageError parse_package(const uint8_t *data, size_t len, Package &out,
                            const Hash *expected_sha256) {
   out = Package();
@@ -96,7 +92,6 @@ PackageError parse_package(const uint8_t *data, size_t len, Package &out,
   if (!valid_identity(out.identity)) return PackageError::BadIdentity;
 
   const uint8_t *flash = image.data() + out.flash_offset;
-  out.family = family_of(out.identity);
   out.app.assign(flash + kAppStart, flash + kAppEnd);
   out.app_sha256 = sha256(out.app.data(), out.app.size());
   out.head_sha256 = sha256(flash, kHeadEnd);

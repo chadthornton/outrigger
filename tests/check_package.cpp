@@ -50,7 +50,7 @@ static bool check(const std::vector<uint8_t> &blob, const std::vector<uint8_t> &
 
   MemoryStorage storage;
   Library lib(storage);
-  CHECK(lib.add_package("stock", stock_file.data(), stock_file.size()) == PackageError::None);
+  CHECK(lib.add_package("stock", stock_file.data(), stock_file.size(), nullptr, "", "", "stock") == PackageError::None);
   CHECK(lib.add_package("candidate", file.data(), file.size()) == PackageError::None);
   Host host;
   MockRom rom(stock_flash(stock), blob);
@@ -84,8 +84,8 @@ static bool check(const std::vector<uint8_t> &blob, const std::vector<uint8_t> &
   CHECK_EQ(host.keys, 0);  // already installed: no ROM boot
 
   const bool ok = failures == before;
-  printf("%s: %s %s, %s family, %u sectors written over stock, data: %s\n", path, ok ? "ok" : "FAIL",
-         p.identity.c_str(), p.family == Family::Stock ? "stock" : "Felucca", unsigned(written), action);
+  printf("%s: %s %s, %u sectors written over stock, data: %s\n", path, ok ? "ok" : "FAIL",
+         p.identity.c_str(), unsigned(written), action);
   return ok;
 }
 

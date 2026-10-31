@@ -47,9 +47,9 @@ static Image unit_image(uint8_t seed) {
   return img;
 }
 
-static PackageInfo load(Library &lib, const char *id, const char *file) {
+static PackageInfo load(Library &lib, const char *id, const char *file, const char *project = "") {
   std::vector<uint8_t> data = read_file(std::string("tests/fixtures/") + file);
-  CHECK(lib.add_package(id, data.data(), data.size()) == PackageError::None);
+  CHECK(lib.add_package(id, data.data(), data.size(), nullptr, "", "", project) == PackageError::None);
   PackageInfo p;
   CHECK(lib.package(id, p));
   return p;
@@ -243,16 +243,20 @@ static void test_capture_save() {
   CHECK(capture_save("u", fw, h).sectors.empty());  // stock saves are disabled
 }
 
-static PackageInfo info(const char *identity, uint8_t app_tag) {
+// A package of a catalog project (docs/package-sources.md): the family follows the
+// project, never the identity's digits.
+static PackageInfo info(const char *project, const char *identity, uint8_t app_tag) {
   PackageInfo p;
+  p.project = project;
   p.identity = identity;
-  p.family = family_of(identity);
+  p.family = family_of_project(project);
   p.app_sha256.fill(app_tag);
   return p;
 }
 
 static Firmware running(const PackageInfo &p) {
   Firmware f;
+  f.project = p.project;
   f.identity = p.identity;
   f.app_sha256 = p.app_sha256;
   f.family = p.family;
@@ -263,6 +267,7 @@ static SaveState save_of(const char *unit, const PackageInfo &p, uint32_t seq) {
   SaveState s;
   s.id = std::string(unit) + "-s" + std::to_string(seq);
   s.unit = unit;
+  s.project = p.project;
   s.identity = p.identity;
   s.app_sha256 = p.app_sha256;
   s.family = p.family;
@@ -270,36 +275,114 @@ static SaveState save_of(const char *unit, const PackageInfo &p, uint32_t seq) {
   return s;
 }
 
+// The trust table: data is kept only within a project, and each project has its
+// own shelf of saves.
 static void test_decide_data() {
-  PackageInfo skiff = info("FM-1_714", 1), skiff2 = info("FM-1_714", 2);
-  PackageInfo sloop = info("FM-1_900", 3), stock = info("FM-1_015", 4);
+  PackageInfo skiff = info("skiff", "FM-1_714", 1), skiff13 = info("skiff", "FM-1_713", 2);
+  PackageInfo skiff2 = info("skiff", "FM-1_720", 3);
+  PackageInfo felucca = info("felucca", "FM-1_916", 4), felucca17 = info("felucca", "FM-1_917", 5);
+  PackageInfo sloop = info("sloop", "FM-1_900", 6), stock = info("stock", "FM-1_015", 7);
   std::vector<SaveState> none;
   // No-op install.
   DataDecision d = decide_data("A", running(skiff), skiff, none);
   CHECK(d.action == DataAction::Keep && !d.layout_warning);
-  // Switching back to a saved firmware restores the newest matching save.
-  std::vector<SaveState> saves = {save_of("A", skiff, 3), save_of("A", skiff, 7),
-                                  save_of("B", skiff, 9), save_of("A", skiff2, 8)};
+  // Another version of the same project keeps the data, both ways.
+  d = decide_data("A", running(felucca), felucca17, none);
+  CHECK(d.action == DataAction::Keep && !d.layout_warning);
+  d = decide_data("A", running(felucca17), felucca, none);
+  CHECK(d.action == DataAction::Keep && !d.layout_warning);
+  d = decide_data("A", running(skiff13), skiff, none);
+  CHECK(d.action == DataAction::Keep);
+  // Skiff 2.0 saves in new formats: crossing it is a fresh start...
+  d = decide_data("A", running(skiff), skiff2, none);
+  CHECK(d.action == DataAction::FreshStart && d.layout_warning);
+  // ...or the shelf's newest save from the other side of the break.
+  d = decide_data("A", running(skiff), skiff2, {save_of("A", skiff2, 4), save_of("A", skiff, 5)});
+  CHECK(d.action == DataAction::Restore && d.save_id == "A-s4");
+  d = decide_data("A", running(skiff2), skiff, {save_of("A", skiff13, 2), save_of("A", skiff2, 6)});
+  CHECK(d.action == DataAction::Restore && d.save_id == "A-s2");
+  // Another project: its shelf's newest save of this unit comes back, whichever
+  // version wrote it.
+  std::vector<SaveState> saves = {save_of("A", skiff, 3), save_of("A", skiff13, 7), save_of("B", skiff, 9),
+                                  save_of("A", felucca, 8), save_of("A", skiff2, 10)};
   d = decide_data("A", running(sloop), skiff, saves);
   CHECK(d.action == DataAction::Restore && d.save_id == "A-s7");
-  // Another unit's save is never picked.
+  // Felucca and Skiff are different projects: no data crosses at launch.
+  d = decide_data("A", running(felucca), skiff, none);
+  CHECK(d.action == DataAction::FreshStart && d.layout_warning);
+  // Another unit's save is never picked: an empty shelf starts fresh.
   d = decide_data("C", running(sloop), skiff, saves);
   CHECK(d.action == DataAction::FreshStart && d.layout_warning);
-  // An update keeps the data in place.
-  d = decide_data("A", running(skiff), skiff2, none);
-  CHECK(d.action == DataAction::Keep && !d.layout_warning);
-  // Rollback: the save made on the older version comes back.
-  d = decide_data("A", running(skiff2), skiff, {save_of("A", skiff, 2)});
-  CHECK(d.action == DataAction::Restore && d.save_id == "A-s2");
-  // A family switch with only another version's save starts fresh.
-  d = decide_data("A", running(sloop), skiff2, {save_of("A", skiff, 2)});
-  CHECK(d.action == DataAction::FreshStart);
-  // Unknown current firmware: fresh start too.
+  // Unknown current firmware: fresh start.
   d = decide_data("A", Firmware(), skiff, none);
   CHECK(d.action == DataAction::FreshStart && d.layout_warning);
+  // bubba reports FM-1_003 but is a community firmware, not stock.
+  PackageInfo bubba = info("bubba", "FM-1_003", 8);
+  CHECK(bubba.family == Family::Felucca);
+  d = decide_data("A", running(stock), bubba, none);
+  CHECK(d.action == DataAction::FreshStart && !d.stock_unmapped);
+  // Sideloaded: its own shelf (its app hash), so only itself keeps its data.
+  PackageInfo side = info("sha:0909090909090909", "FM-1_916", 9);
+  d = decide_data("A", running(felucca), side, none);
+  CHECK(d.action == DataAction::FreshStart && d.layout_warning);
+  d = decide_data("A", running(side), side, none);
+  CHECK(d.action == DataAction::Keep);
   // Stock: data kept in place, flagged, never erased or restored.
   d = decide_data("A", running(skiff), stock, {save_of("A", stock, 1)});
   CHECK(d.action == DataAction::Keep && d.stock_unmapped && d.layout_warning);
+}
+
+// Projects of packages and saves recorded before projects existed.
+static void test_projects() {
+  CHECK(family_of_project("stock") == Family::Stock);
+  CHECK(family_of_project("felucca") == Family::Felucca);
+  CHECK(family_of_project("bubba") == Family::Felucca);
+  TestStorage st;
+  Library lib(st);
+  PackageInfo skiff = load(lib, "skiff-1.4", "skiff-1.4.fwsc", "skiff");
+  CHECK_EQ(skiff.project, std::string("skiff"));
+  // No project given: sideloaded, its shelf keyed by its app hash.
+  PackageInfo sloop = load(lib, "sloop-2.8.1", "sloop-2.8.1.fwsc");
+  CHECK_EQ(sloop.project, "sha:" + hex(sloop.app_sha256).substr(0, 16));
+  // A save written without a project gets it from the package with its app.
+  Unit u;
+  u.id = "u1";
+  CHECK(lib.put_unit(u));
+  SaveState s;
+  s.unit = "u1";
+  s.identity = skiff.identity;
+  s.app_sha256 = skiff.app_sha256;
+  s.family = skiff.family;
+  CHECK(lib.add_save(u, s));
+  std::vector<SaveState> saves = lib.saves_of("u1");
+  CHECK(saves.size() == 1 && saves[0].project == "skiff");
+  // ...and from its app hash when no stored package has that app.
+  SaveState t = s;
+  t.app_sha256.fill(0x42);
+  CHECK(lib.add_save(u, t));
+  saves = lib.saves_of("u1");
+  CHECK(saves.size() == 2 && saves[1].project == "sha:" + hex(t.app_sha256).substr(0, 16));
+  // Packages stored before projects (the board's store): stock stays stock, the
+  // rest are sideloaded until store-add records their project.
+  for (const char *id : {"old-stock", "old-skiff"}) {
+    const bool is_stock = std::string(id) == "old-stock";
+    std::vector<uint8_t> data = read_file(is_stock ? "tests/fixtures/FM-1_015.fwsc" : "tests/fixtures/skiff-1.4.fwsc");
+    CHECK(lib.add_package(id, data.data(), data.size(), nullptr, "", "", is_stock ? "stock" : "skiff") ==
+          PackageError::None);
+    std::vector<uint8_t> raw;
+    CHECK(st.read(std::string("m/pkg/") + id, raw));
+    std::string text(raw.begin(), raw.end()), old;
+    for (const std::string &line : lines_of(text))
+      if (line.compare(0, 8, "project ") != 0) old += line + "\n";
+    CHECK(st.write(std::string("m/pkg/") + id, reinterpret_cast<const uint8_t *>(old.data()), old.size()));
+    PackageInfo p;
+    CHECK(lib.package(id, p));
+    if (is_stock) CHECK(p.project == "stock" && p.family == Family::Stock);
+    else CHECK(p.project == sideload_project(p.app_sha256) && p.family == Family::Felucca);
+  }
+  // The running firmware's project comes from the stored package it matches.
+  CHECK_EQ(lib.identify_app(skiff.app).project, std::string("skiff"));
+  CHECK(lib.identify_app(std::vector<Hash>(kAppSectors, Hash{})).project.empty());
 }
 
 static void test_save_restore_round_trip() {
@@ -454,6 +537,7 @@ int main() {
   test_diff_planner();
   test_capture_save();
   test_decide_data();
+  test_projects();
   test_save_restore_round_trip();
   test_fresh_start();
   test_two_units();

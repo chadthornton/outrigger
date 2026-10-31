@@ -113,7 +113,6 @@ static void test_real_packages() {
     CHECK_EQ(hex(p.app_sha256), want.app);
     CHECK_EQ(hex(p.head_sha256), want.head);
     CHECK_EQ(p.app.size(), size_t(kAppLen));
-    CHECK(p.family == (want.kind == "official-v15" ? Family::Stock : Family::Felucca));
   }
 }
 
@@ -172,9 +171,6 @@ static void test_identities() {
   CHECK(!valid_identity("FM-1_9a30"));
   CHECK(!valid_identity("FM-1_"));
   CHECK(!valid_identity("FM-2_015"));
-  CHECK(family_of("FM-1_015") == Family::Stock);
-  CHECK(family_of("FM-1_714") == Family::Felucca);
-  CHECK(family_of("FM-1_900") == Family::Felucca);
 }
 
 static void test_guard_app() {

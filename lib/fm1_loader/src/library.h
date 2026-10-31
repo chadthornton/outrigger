@@ -17,12 +17,24 @@ namespace fm1_loader {
 // One hash per flash sector of a whole-flash image.
 using FlashHashes = std::vector<Hash>;  // kSectors entries
 
+// A package's project is its Firmware Hub catalog id ("skiff", "felucca",
+// "stock"). Data is kept only within a project, and each project has its own
+// shelf of saves (docs/package-sources.md). A package the catalog doesn't list
+// is sideloaded: its project is "sha:" and the first 16 hex digits of its app hash.
+std::string sideload_project(const Hash &app_sha256);
+// Stock for the catalog's "stock" project, Felucca's ranges for every other.
+Family family_of_project(const std::string &project);
+// Saves from different eras of one project never mix: Skiff 2.0 saves in new
+// formats (FM-1_720 and up). 0 for projects with no known break.
+int data_era(const std::string &project, const std::string &identity);
+
 struct PackageInfo {
   std::string id;  // library name, e.g. "skiff-1.4"
   std::string name, version;  // for the screen, e.g. "Skiff", "1.4" (may be empty)
   bool pinned = false;        // a favorite: never evicted
   std::string identity;
-  Family family = Family::Felucca;
+  std::string project;  // catalog id ("skiff"), or sideload_project() of its app
+  Family family = Family::Felucca;  // family_of_project(project)
   Hash file_sha256{};
   Hash app_sha256{};
   std::vector<Hash> app;  // kAppSectors hashes, from kAppStart
@@ -31,6 +43,7 @@ struct PackageInfo {
 // What a unit runs, as far as the loader knows.
 struct Firmware {
   std::string identity;  // empty when the app area matches no library package
+  std::string project;   // the matched package's project; empty when unknown
   Hash app_sha256{};
   Family family = Family::Felucca;
   bool known() const { return !identity.empty(); }
@@ -65,6 +78,7 @@ struct Unit {
 struct SaveState {
   std::string id;
   std::string unit;
+  std::string project;  // the shelf it's on (docs/package-sources.md)
   std::string identity;
   Hash app_sha256{};
   Family family = Family::Felucca;
@@ -93,7 +107,7 @@ class Library {
   // Parses, checks and stores a .fwsc file under id.
   PackageError add_package(const std::string &id, const uint8_t *data, size_t len,
                            const Hash *expected_sha256 = nullptr, const std::string &name = "",
-                           const std::string &version = "");
+                           const std::string &version = "", const std::string &project = "");
   bool package(const std::string &id, PackageInfo &out);
   std::vector<std::string> package_ids();
   // Refused while a unit has it installed or an unfinished install needs it.
@@ -140,12 +154,11 @@ struct DataDecision {
   bool stock_unmapped = false;   // target is stock: data kept in place, never saved or erased
 };
 
-// The plan's default restore rules (decision 0):
-// - same identity and app as now: keep (no-op install);
-// - a save of this unit with the target's identity and app: restore the newest;
-// - same identity, different app (an update): keep, the autosave is the rollback;
-// - otherwise: fresh start for a Felucca-family target, keep (with a warning)
-//   for stock, whose data map isn't known yet.
+// The trust table (docs/package-sources.md):
+// - the same app as now: keep (no-op install);
+// - another version of the same project, same data era: keep, the autosave is the rollback;
+// - otherwise this unit's newest save on the target project's shelf, same era: restore it;
+// - otherwise: fresh start, or for stock (data map unknown) keep in place with a warning.
 DataDecision decide_data(const std::string &unit_id, const Firmware &current,
                          const PackageInfo &target, const std::vector<SaveState> &saves);
 
