@@ -1,0 +1,29 @@
+# Weekly: each firmware's newest release against the loader (make check-latest).
+# The tests pin exact versions, so this is where a new release that the loader
+# can't parse or install shows up first. A red run means look before anyone
+# installs it; it never blocks a push.
+name: Latest firmware
+
+on:
+  schedule:
+    - cron: "17 6 * * 1"  # Mondays
+  workflow_dispatch:
+    inputs:
+      all:
+        description: Every firmware in the catalog, not just the ones the tests pin
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: tests/fixtures
+          key: fixtures-${{ hashFiles('tools/fetch_fixtures.py') }}
+      - run: make check-latest TEST_CXX=clang++ LATEST_ALL=${{ inputs.all && '1' || '0' }}
