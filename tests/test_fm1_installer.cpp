@@ -54,9 +54,9 @@ static Image base_flash(const Image &app, const char *unit = "unit-A") {
   return f;
 }
 
-static void add(Library &lib, const char *id, const char *file) {
+static void add(Library &lib, const char *id, const char *file, const char *project = "") {
   Image data = read_file(std::string("tests/fixtures/") + file);
-  CHECK(lib.add_package(id, data.data(), data.size()) == PackageError::None);
+  CHECK(lib.add_package(id, data.data(), data.size(), nullptr, "", "", project) == PackageError::None);
 }
 
 struct Rig {
@@ -66,8 +66,8 @@ struct Rig {
   MockRom rom;
   Installer inst{rom, host, lib, blob()};
   explicit Rig(const Image &flash) : rom(flash, blob()) {
-    add(lib, "skiff-1.4", "skiff-1.4.fwsc");
-    add(lib, "sloop-2.8.1", "sloop-2.8.1.fwsc");
+    add(lib, "skiff-1.4", "skiff-1.4.fwsc", "skiff");
+    add(lib, "sloop-2.8.1", "sloop-2.8.1.fwsc", "sloop");
   }
   // "Back up this FM-1", as the board does before an install (the install plans
   // from this backup). Then the mock is an FM-1 back in its firmware, about to
@@ -472,7 +472,7 @@ static void test_refusals_before_the_device() {
 static void test_loader_blob_checked_first() {
   MemoryStorage st;
   Library lib(st);
-  add(lib, "skiff-1.4", "skiff-1.4.fwsc");
+  add(lib, "skiff-1.4", "skiff-1.4.fwsc", "skiff");
   FakeHost host;
   Image bad = blob();
   bad[100] ^= 1;
@@ -778,7 +778,7 @@ static void test_stock_needs_layout_ok() {
   Image f = base_flash(skiff());
   memset(f.data() + 0x97000, 0x41, kSector);  // Skiff data, which stock would read as its own
   Rig r(f);
-  add(r.lib, "stock-v15", "FM-1_015.fwsc");
+  add(r.lib, "stock-v15", "FM-1_015.fwsc", "stock");
   r.back_up();
   r.install("stock-v15");
   CHECK(r.inst.failure() == Failure::NeedsLayoutChangeOk);

@@ -23,7 +23,7 @@ enum class PackageError {
   NoFlashBin,        // no type-0 entry
   FlashBinPastEnd,   // flash.bin runs past the package
   FlashBinShort,     // flash.bin doesn't reach 0x93000
-  BadIdentity,       // identity isn't FM-1_NNN
+  BadIdentity,       // identity isn't FM-1_ and 3-15 digits
   BlankApp,          // the app area is all 0xFF or all 0x00
   HashMismatch,      // the file isn't the one recorded in the library
   BadId,             // library id isn't 1-64 of [A-Za-z0-9._-]
@@ -33,7 +33,6 @@ const char *package_error_text(PackageError e);
 
 struct Package {
   std::string identity;      // e.g. "FM-1_714"
-  Family family = Family::Felucca;
   Hash file_sha256{};
   uint32_t flash_offset = 0;  // flash.bin within the logical image
   uint32_t flash_len = 0;
@@ -47,9 +46,8 @@ struct Package {
 PackageError parse_package(const uint8_t *data, size_t len, Package &out,
                            const Hash *expected_sha256 = nullptr);
 
-// Family from an identity: FM-1_0NN is M-VAVE's stock line, anything else is
-// Felucca-format third-party firmware (fm1_unbrick.py classify()).
-Family family_of(const std::string &identity);
+// FM-1_ and 3 to 15 digits. The family comes from the catalog project
+// (family_of_project, library.h), never from the identity's digits.
 bool valid_identity(const std::string &identity);
 
 }  // namespace fm1_loader

@@ -64,16 +64,49 @@ bool Library::get_manifest(const std::string &key, Manifest &m) {
   return Manifest::parse(std::string(data.begin(), data.end()), m);
 }
 
+std::string sideload_project(const Hash &app_sha256) { return "sha:" + hex(app_sha256).substr(0, 16); }
+
+Family family_of_project(const std::string &project, const std::string &identity) {
+  if (project == "stock") return Family::Stock;
+  // A sideloaded M-VAVE build (FM-1_0NN, not the catalog's V15): stock's data map
+  // isn't known, so its data stays in place as it always has.
+  if (project.compare(0, 4, "sha:") == 0 && identity.size() == 8 && identity.compare(0, 6, "FM-1_0") == 0)
+    return Family::Stock;
+  return Family::Felucca;
+}
+
+namespace {
+// Data-format breaks: from this identity number on, a project's saves are a new era.
+struct FormatBreak {
+  const char *project;
+  unsigned long from;
+};
+constexpr FormatBreak kBreaks[] = {
+    {"skiff", 720},  // Skiff 2.0 "saves in new formats" (its release notes)
+};
+}  // namespace
+
+int data_era(const std::string &project, const std::string &identity) {
+  if (identity.size() <= 5) return 0;
+  const unsigned long n = strtoul(identity.c_str() + 5, nullptr, 10);
+  int era = 0;
+  for (const FormatBreak &b : kBreaks)
+    if (project == b.project) era = n >= b.from ? 2 : 1;
+  return era;
+}
+
 PackageError Library::add_package(const std::string &id, const uint8_t *data, size_t len,
                                   const Hash *expected_sha256, const std::string &name,
-                                  const std::string &version) {
+                                  const std::string &version, const std::string &project) {
   Package p;
   PackageError err = parse_package(data, len, p, expected_sha256);
   if (err != PackageError::None) return err;
-  if (!key_safe(id)) return PackageError::BadId;
+  if (!key_safe(id) || (!project.empty() && !key_safe(project))) return PackageError::BadId;
+  const std::string proj = project.empty() ? sideload_project(p.app_sha256) : project;
   Manifest m;
   m.fields["identity"] = p.identity;
-  m.fields["family"] = family_name(p.family);
+  m.fields["project"] = proj;
+  m.fields["family"] = family_name(family_of_project(proj, p.identity));
   m.fields["file"] = hex(p.file_sha256);
   m.fields["app"] = hex(p.app_sha256);
   if (!name.empty()) m.fields["name"] = clean(name);
@@ -96,9 +129,14 @@ bool Library::package(const std::string &id, PackageInfo &out) {
   out.name = m.get("name");
   out.version = m.get("version");
   out.pinned = m.get("pin") == "1";
-  out.family = parse_family(m.get("family"));
   if (!parse_hash(m.get("file"), out.file_sha256) || !parse_hash(m.get("app"), out.app_sha256))
     return false;
+  // Stored before projects: stock stays stock, the rest are sideloaded until
+  // store-add records their catalog project.
+  out.project = m.get("project");
+  if (out.project.empty())
+    out.project = parse_family(m.get("family")) == Family::Stock ? "stock" : sideload_project(out.app_sha256);
+  out.family = family_of_project(out.project, out.identity);
   for (uint32_t i = 0; i < kAppSectors; ++i) {
     if (m.sectors[i].first != kAppStart + i * kSector) return false;
     out.app.push_back(m.sectors[i].second);
@@ -132,15 +170,18 @@ bool Library::set_pinned(const std::string &id, bool pinned) {
 
 Firmware Library::identify_app(const std::vector<Hash> &app) {
   Firmware fw;
+  // A catalog project wins over a sideloaded copy of the same app (one stored
+  // before projects, say).
   for (const std::string &id : package_ids()) {
     PackageInfo p;
-    if (package(id, p) && p.app == app) {
+    if (package(id, p) && p.app == app && (fw.project.empty() || fw.project.compare(0, 4, "sha:") == 0)) {
       fw.identity = p.identity;
+      fw.project = p.project;
       fw.app_sha256 = p.app_sha256;
       fw.family = p.family;
-      return fw;
     }
   }
+  if (!fw.project.empty()) return fw;
   // Unknown firmware: still worth its app hash, for the record.
   Sha256 s;
   std::vector<uint8_t> buf(kSector);
@@ -293,6 +334,7 @@ bool Library::add_save(Unit &u, SaveState &s) {
   s.id = u.id + "-s" + std::to_string(s.seq);
   Manifest m;
   m.fields["unit"] = s.unit;
+  if (!s.project.empty()) m.fields["project"] = s.project;
   m.fields["identity"] = s.identity;
   m.fields["app"] = hex(s.app_sha256);
   m.fields["family"] = family_name(s.family);
@@ -308,6 +350,13 @@ bool Library::add_save(Unit &u, SaveState &s) {
 }
 
 bool Library::save(const std::string &id, SaveState &out) {
+  std::map<std::string, std::string> app_projects;
+  return read_save(id, out, app_projects);
+}
+
+// A save recorded before projects is on the shelf of the stored package with its
+// app; app_projects caches that lookup across the saves of one listing.
+bool Library::read_save(const std::string &id, SaveState &out, std::map<std::string, std::string> &app_projects) {
   Manifest m;
   if (!get_manifest("m/save/" + id, m)) return false;
   out = SaveState();
@@ -319,14 +368,30 @@ bool Library::save(const std::string &id, SaveState &out) {
   out.seq = uint32_t(strtoul(m.get("seq").c_str(), nullptr, 10));
   if (!parse_hash(m.get("app"), out.app_sha256)) return false;
   out.sectors = m.sectors;
+  // Recorded before projects: the shelf of the stored package with its app.
+  out.project = m.get("project");
+  if (out.project.empty()) {
+    if (app_projects.empty()) {
+      app_projects[""] = "";  // built, even when the store has no packages
+      for (const std::string &pid : package_ids()) {
+        PackageInfo p;
+        if (!package(pid, p)) continue;
+        std::string &known = app_projects[hex(p.app_sha256)];
+        if (known.empty() || known.compare(0, 4, "sha:") == 0) known = p.project;  // a catalog project wins
+      }
+    }
+    auto it = app_projects.find(hex(out.app_sha256));
+    out.project = it != app_projects.end() ? it->second : sideload_project(out.app_sha256);
+  }
   return true;
 }
 
 std::vector<SaveState> Library::saves_of(const std::string &unit_id) {
   std::vector<SaveState> out;
+  std::map<std::string, std::string> app_projects;
   for (const std::string &k : storage_.list("m/save/" + unit_id + "-")) {
     SaveState s;
-    if (save(k.substr(7), s) && s.unit == unit_id) out.push_back(s);
+    if (read_save(k.substr(7), s, app_projects) && s.unit == unit_id) out.push_back(s);
   }
   std::sort(out.begin(), out.end(),
             [](const SaveState &a, const SaveState &b) { return a.seq < b.seq; });
@@ -351,6 +416,7 @@ size_t Library::collect_garbage() {
 SaveState capture_save(const std::string &unit_id, const Firmware &fw, const FlashHashes &flash) {
   SaveState s;
   s.unit = unit_id;
+  s.project = fw.project;
   s.identity = fw.identity;
   s.app_sha256 = fw.app_sha256;
   s.family = fw.family;
@@ -365,18 +431,20 @@ SaveState capture_save(const std::string &unit_id, const Firmware &fw, const Fla
 DataDecision decide_data(const std::string &unit_id, const Firmware &current,
                          const PackageInfo &target, const std::vector<SaveState> &saves) {
   DataDecision d;
-  if (current.known() && current.identity == target.identity &&
-      current.app_sha256 == target.app_sha256)
-    return d;
-  for (auto it = saves.rbegin(); it != saves.rend(); ++it) {
-    if (it->unit == unit_id && it->identity == target.identity &&
-        it->app_sha256 == target.app_sha256 && family_info(target.family).saves_enabled) {
-      d.action = DataAction::Restore;
-      d.save_id = it->id;
-      return d;
+  if (current.known() && current.app_sha256 == target.app_sha256) return d;  // no-op
+  const int era = data_era(target.project, target.identity);
+  if (!current.project.empty() && current.project == target.project &&
+      data_era(current.project, current.identity) == era)
+    return d;  // another version of the same project: the autosave is the rollback
+  if (family_info(target.family).saves_enabled) {
+    for (auto it = saves.rbegin(); it != saves.rend(); ++it) {
+      if (it->unit == unit_id && it->project == target.project && data_era(it->project, it->identity) == era) {
+        d.action = DataAction::Restore;
+        d.save_id = it->id;
+        return d;
+      }
     }
   }
-  if (current.known() && current.identity == target.identity) return d;  // an update
   d.layout_warning = true;
   if (!family_info(target.family).saves_enabled) {
     d.stock_unmapped = true;
@@ -417,9 +485,10 @@ void plan_ranges(Family family, const FlashHashes &flash,
 bool plan_restore(const SaveState &s, const std::string &unit_id, const PackageInfo &target,
                   const FlashHashes &flash, std::vector<SectorOp> &ops) {
   ops.clear();
-  if (s.unit != unit_id || s.identity != target.identity || s.app_sha256 != target.app_sha256 ||
-      s.family != target.family || !family_info(s.family).saves_enabled ||
-      flash.size() != kSectors)
+  // The target project's shelf, same data era (decide_data): any version that wrote it.
+  if (s.unit != unit_id || s.project != target.project ||
+      data_era(s.project, s.identity) != data_era(target.project, target.identity) ||
+      s.family != target.family || !family_info(s.family).saves_enabled || flash.size() != kSectors)
     return false;
   const FamilyInfo &f = family_info(s.family);
   for (const auto &sec : s.sectors)

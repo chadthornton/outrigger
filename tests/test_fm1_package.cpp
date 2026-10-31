@@ -113,7 +113,6 @@ static void test_real_packages() {
     CHECK_EQ(hex(p.app_sha256), want.app);
     CHECK_EQ(hex(p.head_sha256), want.head);
     CHECK_EQ(p.app.size(), size_t(kAppLen));
-    CHECK(p.family == (want.kind == "official-v15" ? Family::Stock : Family::Felucca));
   }
 }
 
@@ -160,13 +159,18 @@ static void test_damaged_packages() {
 }
 
 static void test_identities() {
+  // FM-1_ and 3 to 15 digits: the package marks hold 20 characters. Catalog firmwares
+  // use 3 to 10: Obervave FM-1_9530, x0x FM-1_9010100, mope1 FM-1_6673000300.
   CHECK(valid_identity("FM-1_015"));
+  CHECK(valid_identity("FM-1_9530"));
+  CHECK(valid_identity("FM-1_9010100"));
+  CHECK(valid_identity("FM-1_6673000300"));
+  CHECK(valid_identity("FM-1_123456789012345"));
   CHECK(!valid_identity("FM-1_15"));
-  CHECK(!valid_identity("FM-1_0150"));
+  CHECK(!valid_identity("FM-1_1234567890123456"));
+  CHECK(!valid_identity("FM-1_9a30"));
+  CHECK(!valid_identity("FM-1_"));
   CHECK(!valid_identity("FM-2_015"));
-  CHECK(family_of("FM-1_015") == Family::Stock);
-  CHECK(family_of("FM-1_714") == Family::Felucca);
-  CHECK(family_of("FM-1_900") == Family::Felucca);
 }
 
 static void test_guard_app() {
