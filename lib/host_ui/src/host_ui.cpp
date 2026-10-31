@@ -1077,8 +1077,8 @@ static void build_fm1() {
   Page b = sub_page(&backups_title, nullptr, true);
   backups_screen = b.scr;
   lv_label_set_text(backups_title, "Backups");
-  text(b.content, "A switch checks the FM-1 against its latest backup first, and stops if it changed.", kWhite,
-       base_step());
+  text(b.content, "A switch backs up by itself when the FM-1 changed since its last backup. You don't need to.",
+       kWhite, base_step());
   text(b.content, "A backup reads all 1 MB of the FM-1 twice and keeps it on this board. It writes nothing to the FM-1.",
        kGrey, base_step() - 1);
   backups_latest = text(b.content, "", kGrey, base_step() - 1);

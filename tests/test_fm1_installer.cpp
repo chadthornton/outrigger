@@ -3,6 +3,7 @@
 // against tests/golden/*.txt from the Unbricker and jl-uboot-tool (make golden).
 #include <string.h>
 
+#include "switch_chain.h"
 #include "installer.h"
 #include "support/check.h"
 #include "support/mock_rom.h"
@@ -822,6 +823,130 @@ static void test_midi_not_back() {
   CHECK(memcmp(r.rom.flash.data() + kAppStart, skiff().data(), kAppLen) == 0);
 }
 
+// ---------- A switch's chain (switch_chain.h) ----------
+// The board runs each stage in its own boot; here each stage runs on the same
+// mock FM-1, which goes home between them as the real one does.
+struct ChainRun {
+  std::vector<loader_messages::Chain> stages;  // the stages that ran, in order
+  loader_messages::JobKind last_kind = loader_messages::JobKind::None;
+  loader_messages::Chain last_chain = loader_messages::Chain::First;
+  bool done = false;
+  Failure failure = Failure::None;
+};
+// between(stage): runs before each stage after the first (the FM-1 changing, a flaky read).
+// fresh_ok: the consent the plan's hold carried (the preview's), for every stage.
+template <class Between>
+static ChainRun switch_to(Rig &r, const char *id, Between between, bool fresh_ok = true) {
+  using namespace loader_messages;
+  ChainRun c;
+  JobKind kind = JobKind::Install;
+  Chain chain = Chain::First;
+  for (int stage = 0; stage < 4; ++stage) {
+    if (stage) between(chain);
+    c.stages.push_back(chain);
+    if (kind == JobKind::Backup) {
+      InstallOptions o;
+      o.confirmed = true;
+      r.inst.start_backup(o);
+      r.inst.run();
+    } else {
+      r.install(id, fresh_ok);
+    }
+    c.last_kind = kind;
+    c.last_chain = chain;
+    c.done = r.inst.current() == Step::Done;
+    c.failure = r.inst.failure();
+    const NextJob n = next_after(kind, chain, c.done, c.failure, r.inst.danger());
+    if (!n.restart) break;
+    kind = n.kind;
+    chain = n.chain;
+    r.fresh_rom();
+  }
+  return c;
+}
+static ChainRun switch_to(Rig &r, const char *id) {
+  return switch_to(r, id, [](loader_messages::Chain) {});
+}
+
+// Nothing changed since the backup: the switch writes straight away.
+static void test_switch_unchanged_backs_up_nothing() {
+  Rig r(base_flash(skiff()));
+  r.back_up();
+  const ChainRun c = switch_to(r, "sloop-2.8.1");
+  CHECK(c.done && c.stages.size() == 1);
+  // One read of the flash (the check) before the first erase: no backup's two.
+  CHECK_EQ(r.rom.reads_before_first_erase, int(kSectors * kSector / 512));
+}
+
+// The FM-1 changed (a new song): a stopped visit, a backup, then the install,
+// with Skiff's songs saved from the new backup.
+static void test_switch_changed_backs_up_first() {
+  Image f = base_flash(skiff());
+  memset(f.data() + 0x97000, 0x21, kSector);  // a Skiff project
+  Rig r(f);
+  r.back_up();
+  const std::string before = r.unit().latest_backup;
+  memset(r.rom.flash.data() + 0x97000, 0x22, kSector);  // edited since
+  const ChainRun c = switch_to(r, "sloop-2.8.1");
+  CHECK(c.done);
+  CHECK(c.stages.size() == 3 && c.stages[1] == loader_messages::Chain::Backup &&
+        c.stages[2] == loader_messages::Chain::Install);
+  CHECK(r.unit().latest_backup != before);
+  CHECK(memcmp(r.rom.flash.data() + kAppStart, sloop().data(), kAppLen) == 0);
+  // The save is the edited project, not the one in the old backup.
+  const std::vector<SaveState> saves = r.lib.saves_of(r.unit().id);
+  CHECK(!saves.empty());
+  Image edited(kSector, 0x22);
+  bool found = false;
+  for (const auto &s : saves.back().sectors) found |= s.first == 0x97000 && s.second == sha256(edited.data(), kSector);
+  CHECK(found);
+}
+
+// No backup at all: the switch backs up first instead of stopping.
+static void test_switch_without_backup_backs_up_first() {
+  Rig r(base_flash(skiff()));
+  const ChainRun c = switch_to(r, "sloop-2.8.1");
+  CHECK(c.done && c.stages.size() == 3);
+  CHECK(!r.unit().latest_backup.empty());
+}
+
+// No backup yet, so no plan to agree to: a switch that turns out to need a
+// fresh start backs up, then stops for the user's OK with nothing written.
+static void test_switch_without_backup_asks_before_a_fresh_start() {
+  Rig r(base_flash(skiff()));
+  const ChainRun c = switch_to(r, "sloop-2.8.1", [](loader_messages::Chain) {}, false);
+  CHECK(!c.done && c.failure == Failure::NeedsFreshStartOk && c.last_chain == loader_messages::Chain::Install);
+  CHECK(!r.unit().latest_backup.empty());
+  CHECK(r.rom.lowest_touched < 0 && !r.unit().has_pending);
+}
+
+// It changes again right after its backup: the switch stops, nothing written, no loop.
+static void test_switch_changed_twice_stops() {
+  Rig r(base_flash(skiff()));
+  r.back_up();
+  r.rom.flash[0x97000] ^= 1;
+  const ChainRun c = switch_to(r, "sloop-2.8.1", [&](loader_messages::Chain next) {
+    if (next == loader_messages::Chain::Install) r.rom.flash[0x98000] ^= 1;
+  });
+  CHECK(!c.done && c.failure == Failure::BackupStale && c.last_chain == loader_messages::Chain::Install);
+  CHECK(c.stages.size() == 3);
+  CHECK(r.rom.lowest_touched < 0 && !r.inst.danger() && !r.unit().has_pending);
+}
+
+// The backup in the middle fails: the switch stops with nothing written, and
+// no pending record is left to look like "Install unfinished".
+static void test_switch_failed_backup_stops() {
+  Rig r(base_flash(skiff()));
+  r.back_up();
+  r.rom.flash[0x97000] ^= 1;
+  const ChainRun c = switch_to(r, "sloop-2.8.1", [&](loader_messages::Chain next) {
+    if (next == loader_messages::Chain::Backup) r.rom.flaky_read = 300;  // in the second read
+  });
+  CHECK(!c.done && c.failure == Failure::BackupMismatch && c.last_kind == loader_messages::JobKind::Backup);
+  CHECK(c.stages.size() == 2);
+  CHECK(r.rom.lowest_touched < 0 && !r.unit().has_pending);
+}
+
 int main() {
   test_golden_install();
   test_golden_noop();
@@ -830,6 +955,12 @@ int main() {
   test_golden_identity();
   test_golden_backup_mismatch();
   test_golden_stale_backup();
+  test_switch_unchanged_backs_up_nothing();
+  test_switch_changed_backs_up_first();
+  test_switch_without_backup_backs_up_first();
+  test_switch_without_backup_asks_before_a_fresh_start();
+  test_switch_changed_twice_stops();
+  test_switch_failed_backup_stops();
   test_first_erase_soon_after_the_loader();
   test_stop_before_any_erase_leaves_nothing();
   test_install_needs_a_backup();
