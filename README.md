@@ -109,7 +109,38 @@ make serve    # same, then serve on http://localhost:8088 (Web Serial needs http
 - **Licensing:** our code, LVGL (MIT) and the vendored EspUsbHost (MIT) ship as binaries. JieLi's `wl82loader.bin` must
   never be in a published build: `build_site.py` refuses a file with its name or SHA-256, or containing a 1 KiB piece of
   it (when `tests/fixtures/wl82loader.bin` or `$WL82_BLOB` is present), and deletes the staged firmware if so.
-- Not published anywhere yet. GitHub Pages (or any host) needs Chad's go-ahead.
+
+### Publishing the site
+
+The site is on Cloudflare Pages (project `outrigger`, a Direct Upload project in Chad's account):
+
+| Channel | URL | Deploys |
+|---|---|---|
+| production | https://outrigger.music | `origin/master`'s commit only |
+| beta | https://beta.outrigger.music | any pushed commit |
+
+```
+make deploy-site                     # beta
+make deploy-site CHANNEL=production  # outrigger.music
+```
+
+- **What gets uploaded:** `make deploy-site` runs `make check`, then uploads the `site/` that the check built in its
+  clean clone (`build/check/site`). Nothing uncommitted or unpushed goes live, and every upload passed the merge gate.
+- **What gets checked first:** `tools/deploy_site.py` refuses a dirty tree, an unpushed HEAD, or production from
+  anything but `origin/master`. Before uploading it scans every file again: under Pages' 25 MiB per-file and
+  20,000-file limits, and free of `wl82loader.bin` (by name, SHA-256 and 1 KiB pieces). A local copy of the blob is
+  required for that scan.
+- **Which commit is live:** each upload carries its commit hash, shown in the Pages dashboard under Workers & Pages,
+  then `outrigger`, then Deployments.
+- **Rollback:** in that Deployments list, open an older production deployment and pick "Rollback to this deployment".
+- **Credentials:** `~/.config/cloudflare/outrigger-pages.env` holds `CLOUDFLARE_API_TOKEN` (Account, Cloudflare Pages,
+  Edit) and `CLOUDFLARE_ACCOUNT_ID`. wrangler is pinned in `tools/deploy_site.py` and runs through `npx`.
+- **Domains:** `outrigger.music` is the project's production custom domain. `beta.outrigger.music` is a custom domain
+  whose proxied CNAME points at the beta branch alias, `beta.outrigger.pages.dev`
+  ([Cloudflare's branch-domain guide](https://developers.cloudflare.com/pages/how-to/custom-branch-aliases/)). The
+  zone's MX, SPF and DKIM records belong to Email Routing (feedback@outrigger.music).
+- **One-way choice:** a Direct Upload project can't be switched to Cloudflare building on every push. That would mean a
+  new project.
 
 ## Web diagnostics
 
