@@ -70,6 +70,36 @@ the FM-1, powered from the same hub. That has to be the first sentence.
   works today only on a board set up from a Mac. The page should say "coming" and point builders at the README, not
   sell it to newcomers.
 
+## What the device is for (Chad, 2026-10-30, after the first mocks)
+
+The first mocks pitched a MIDI hub. Chad: the device has gone well past that. He picked layout B ("pick your
+situation") and asked for a pitch built on four things:
+
+1. **A safe, reliable, extensible firmware loader and saver.**
+2. **More MIDI devices**, potentially, for a simple DAWless setup.
+3. **Wi-Fi and well-considered updaters.**
+4. **A "utility player"** that adds extensibility across the FM-1 ecosystem.
+
+Where each stands, from the repo docs (they're newer than the session transcripts):
+
+| Use case | Status | Source |
+|---|---|---|
+| Play the FM-1 from a USB keyboard, no computer | **Works now** (MIDI Hub) | README milestones 1–3 |
+| Switch FM-1 firmware from the board, with a verified backup before every write | **Works after a one-time Mac setup** (Hub + Loader; checkpoint 3 passed 2026-10-30) | loader plan |
+| Save states: songs and presets come back when you switch back to a firmware | **Works after Mac setup** (round trip passed at checkpoint 3) | loader plan |
+| Tell two FM-1s apart, backups and saves per unit | **Works after Mac setup** | loader plan, "Units and save states" |
+| Wi-Fi diagnostics page (`fm1hub.local`) | **Works now**, developers (Everything) | README, "Web diagnostics" |
+| Record the FM-1's audio, take it to a laptop over Wi-Fi | **Proven in a spike**: 44.1 kHz stereo, no dropouts, 30 s takes download in about 83 s | `audio-recording-spike.md` |
+| Firmware downloads over Wi-Fi from the Firmware Hub catalog, upload your own | **Designed**, not built | `package-sources.md` |
+| Backups and saves to a laptop through the web page | **Designed** | loader plan, "Laptop backups" |
+| The board updates itself | **Designed** (recovery app slot reserved) | loader plan |
+| Bluetooth MIDI: keyboard notes travel by Bluetooth, freeing USB channels to play and record at once | **Proposed**, paper math (7 of 8 channels) | `architecture.md`, "BLE MIDI" |
+| More USB MIDI devices on the hub | **Limited by hardware**: 8 host channels; hub + FM-1 + one keyboard fills them. Bluetooth MIDI or the ESP32-P4's 16 channels are the routes out | README, `boards.md` |
+| Bigger screens and other boards, a TF card for the whole catalog | **Planned** | `boards.md`, `architecture.md` |
+
+The page has to put pillar 1 first and still be honest that it needs a Mac today. Every capability carries its
+status where it's shown.
+
 ## How comparable pages explain themselves
 
 | Page | What works | What to borrow |
