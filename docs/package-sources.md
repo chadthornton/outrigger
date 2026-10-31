@@ -14,8 +14,9 @@ unfamiliar firmware can never be installed over another firmware's saved data.
 - **Packages enter the store only from a Mac:** `make store-add` over USB in Computer mode.
 - **The loader handles new releases already:** Skiff 2.0.3, Felucca 1.7.0 and SLOOP 2.8.4 parse and
   install over stock on the mock FM-1 with no code change (`make check-latest`).
-- **The parser rejects 49 of the catalog's 130 firmwares.** It wants an identity of exactly `FM-1_NNN`, but
-  many use 4 to 7 digits (`x0x` is `FM-1_9010100`). One more fails on a short `flash.bin`. 80 pass.
+- **The parser rejected 49 of the catalog's 130 firmwares.** It wanted an identity of exactly `FM-1_NNN`, but
+  catalog firmwares use 3 to 10 digits (`x0x` is `FM-1_9010100`). Step 1 below fixed it: 129 pass. Vesper
+  stays refused: its `flash.bin` doesn't reach the end of the app area.
 - **The family rule is too coarse to be safe.** `family_of()` calls any identity starting `FM-1_0` stock and
   everything else Felucca. Two examples:
   - `bubba` (`FM-1_003`) counts as stock, so installing it would keep stock's data.
@@ -87,8 +88,7 @@ switch loses data, even when it starts fresh.
 
 ## Order of work
 
-1. **Identity parsing:** accept the catalog's 3-8 digit identities. Mac tests; the one short `flash.bin`
-   stays rejected.
+1. ~~**Identity parsing.**~~ Done: `FM-1_` and 3 to 15 digits, all the package marks hold.
 2. **The trust table and project shelves** in the installer's data decision, with tests. Packages still come
    from `make store-add` until step 3; this step only makes installs safer.
 3. **Upload on the web page,** with the catalog hash check and the sideloaded mark. Then a board checkpoint.

@@ -23,7 +23,7 @@ enum class PackageError {
   NoFlashBin,        // no type-0 entry
   FlashBinPastEnd,   // flash.bin runs past the package
   FlashBinShort,     // flash.bin doesn't reach 0x93000
-  BadIdentity,       // identity isn't FM-1_NNN
+  BadIdentity,       // identity isn't FM-1_ and 3-15 digits
   BlankApp,          // the app area is all 0xFF or all 0x00
   HashMismatch,      // the file isn't the one recorded in the library
   BadId,             // library id isn't 1-64 of [A-Za-z0-9._-]
