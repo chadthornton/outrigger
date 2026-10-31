@@ -6,6 +6,8 @@
 #include <math.h>
 #include <string.h>
 
+#include <initializer_list>
+
 using midi_core::Level;
 using midi_core::Tone;
 
@@ -1133,6 +1135,9 @@ void ui_update_loader(const UiLoader &l) {
   if (&l != &last_loader) last_loader = l;
   have_loader = true;
   dot_fm1 = l.unfinished;
+  // A hold that fired but started no job (the Loader refused it): ready again.
+  if (!l.job.active)
+    for (Hold *h : {&plan_hold, &backups_hold, &fm1_hold, &result_hold}) h->fired = false;
   show_dots();
 
   // The FM-1 page: the list, or what stands in its way.

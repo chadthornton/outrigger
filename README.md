@@ -20,7 +20,7 @@ apps ask it for them. See `docs/architecture.md`, and the merge gate below befor
 | `lib/web_core/` | Web UI pieces with no Arduino headers: the diagnostics log (lock-free rings per task, numbered history), the read-only route table, the Host guard, the setup hotspot's channel pick. Tested by `make test`. |
 | `tools/diag.py` | Reads the board's web diagnostics from the Mac: `/status`, `/log`, `/crash`, `/store`, and saves `/coredump` for `esp-coredump`. |
 | `lib/host_ui/` | The LVGL screens (signal chain, settings), laid out from a `BoardProfile`, not fixed pixels. |
-| `tests/ui_shots/` | `make ui-shots`: renders every `host_ui` screen with LVGL on the Mac (S/M/L, hub and hub-loader, 0-6 controllers, Off, a problem, settings, Firmware, Computer mode), taps them with a drifting finger, and fails on a clipped or out-of-safe-area label. PNGs and `sheet.png` in `build/ui-shots/`. Check UI changes here before booking the board. |
+| `tests/ui_shots/` | `make ui-shots`: renders every `host_ui` page (docs/ui-redesign.md) with LVGL on the Mac, on 240×280, 320×480 and 480×320 at S/M/L, hub and hub-loader, plus an encoder board's focus ring, using the firmware's own wording. Taps them with a drifting finger, holds the holds, and fails on a clipped or off-glass label. PNGs, `report.txt` and a `sheet_<board>.png` per board in `build/ui-shots/`. Check UI changes here before booking the board. |
 | `firmware/config/lv_conf.h` | LVGL configuration (fonts, clib malloc so big buffers can use PSRAM). |
 | `site/`, `tools/build_site.py` | Browser installer (ESP Web Tools) and the script that stages firmware into it. |
 | `.github/workflows/ci.yml` | CI: `make test` and `make ui-shots`, then every board × app set built and staged into the site, on every push. |
@@ -35,7 +35,7 @@ change. Check the board's schematic for a USB-C port wired to the ESP32-S3's nat
 
 ```
 make test      # midi_core, platform and fm1_loader tests on the Mac (fetches fixtures once)
-make ui-shots  # render and check every screen; build/ui-shots/sheet.png (needs LVGL 9.6.0, see Makefile)
+make ui-shots  # render and check every page; build/ui-shots/sheet_*.png (needs LVGL 9.6.0, see Makefile)
 make fixtures  # FM-1 packages and wl82loader.bin for the tests, pinned by SHA-256 (gitignored)
 make golden    # regenerate tests/golden/ from the Unbricker and jl-uboot-tool (Python venv in build/)
 make build     # compile one board x app set: BOARD=waveshare_169 (default) APPS=hub|hub-loader|everything
@@ -59,7 +59,7 @@ the sketch keeps its code in `app.cpp`, which skips prototype generation.
 
 Once the firmware runs, the board's only USB port is a host, so the Mac can't reset it. Two ways in:
 
-- **Computer mode (no buttons):** on the board, Settings > **Computer**, tap again within 3 s. It restarts with the USB
+- **Computer mode (no buttons):** on the board, Setup > **Computer mode**, then hold for 2 s. It restarts with the USB
   host off and hands the port to the ESP32-S3's built-in USB-Serial-JTAG device (`303a:1001`), so `make flash` or the web
   installer can reset it into download mode themselves. The request is kept in NVS (namespace `boot`) with the build's
   ELF SHA, so it survives moving the cable. The first boot of a *different* build clears it and runs the host again;
@@ -97,10 +97,10 @@ make serve    # same, then serve on http://localhost:8088 (Web Serial needs http
 ## Web diagnostics
 
 Builds with the Web UI (`everything`, or `hub-loader` with `DIAG_WEB=1`) join Wi-Fi and serve a read-only page at
-`http://fm1hub.local` (the settings page shows the address). With no network saved they open the `fm1hub-setup`
-hotspot (password on the settings page); its page saves a network to NVS `wifi`, the only thing any route writes.
+`http://fm1hub.local` (Setup shows the address). With no network saved they open the `fm1hub-setup`
+hotspot (password on Setup); its page saves a network to NVS `wifi`, the only thing any route writes.
 Everything else is GET: `/status` (build, heap, each task's unused stack, USB devices with their channels and
-refusals, the Firmware page), `/log?since=N` (lines from the USB task, the loader task and the loop), `/crash` (the
+refusals, the FM-1 pages), `/log?since=N` (lines from the USB task, the loader task and the loop), `/crash` (the
 last abnormal reset), `/coredump` (the raw partition) and `/store`. After a crash, safe mode starts Wi-Fi too, so the
 crash can be read without the screen. `tools/diag.py` fetches them from the Mac.
 
@@ -116,7 +116,7 @@ Nothing lands on `master` until all three pass, on the branch's last commit:
       branch changes (MIDI Hub if none).
    2. Put the board back in the rig: hub power brick → hub, hub upstream cable → Waveshare, FM-1 and Launchkey on the
       hub's USB-C ports.
-   3. Pass when the settings page shows the branch's commit, the chain screen is all green at `8/8`, and playing the
+   3. Pass when Setup shows the branch's commit, Play's four lines are green with the hub at `USB 8/8`, and playing the
       Launchkey sounds the FM-1.
 
 There is one Waveshare. A session books it in the shared notes queue before asking Chad to move it, and reflashes the

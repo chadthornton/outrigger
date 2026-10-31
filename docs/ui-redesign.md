@@ -1,7 +1,7 @@
 # UI redesign: nav, Play, switching firmware, errors
 
-**Status:** signed off by Chad, 2026-10-30, after six rounds of review (the full set of mockups below). Mockups only; nothing is in `host_ui` yet. Build it after `loader-session3` merges: ui-polish rewrote `host_ui`, and that merge carries the current
-Firmware page (list → detail, `154d147`).
+**Status:** signed off by Chad, 2026-10-30, after six rounds of review (the full set of mockups below). The light-tier
+parts are built in `host_ui` (see "Built so far" at the end); the chained backup of a switch is not.
 
 - **Review page:** https://claude.ai/artifact/AemH6yE3Nzyeu6GYobHaeg. It shows every screen on every board and
   text size.
@@ -322,3 +322,29 @@ then each line on the page.
 - Safe mode after a crash.
 - Naming a second FM-1 the first time it's seen.
 - The 1.47" button board. Its focus order is described above.
+
+## Built so far
+
+The light-tier parts, in `host_ui` with `make ui-shots` covering every page on each screen shape:
+
+- **Built:** the nav band and rail with the A8 icons and dots, compact Play with `stage_status()`, the sub-page stack,
+  the pinned hold that passes what it runs to `loader_act`, the FM-1 list, plan, Backups, job and result pages, the
+  unfinished-install and not-ready pages, Computer mode with a hold, layout by screen shape, and the focus group with
+  its ring for boards without touch.
+- **The wording:** `firmware/waveshare_169/loader_messages.cpp` holds the table above, tested in
+  `tests/test_loader_messages.cpp`. It's beside `loader_app.cpp` rather than in it, because `loader_app.cpp` needs
+  Arduino and FreeRTOS and can't run on the Mac.
+- **Today's switch, until the chained backup lands:**
+  - **The plan:** says "Checks the FM-1 still matches b50", not "Backs up only if the FM-1 changed".
+  - **A first `BackupStale`:** "The FM-1 changed since b50", with the hold "back up now".
+  - **`NoBackupForInstall`:** still possible, with the same hold.
+  - **The Backups page:** says a switch stops if the FM-1 changed.
+- **The hold's check:** the Loader runs a hold only if its kind (switch, backup, retry) and, for a switch, its row
+  match the last preview, and refuses a backup or a switch while an install is unfinished. A refused hold shows
+  "Nothing started".
+- **Not yet:**
+  - "Rotate screen" waits for a board that can turn.
+  - Nothing produces the "not yet" note, because blocking SLOOP would change what can be written.
+  - No board has keys or an encoder yet: `BoardProfile` takes `read_key` or `read_encoder`, and `ui_shots` drives a
+    simulated encoder.
+

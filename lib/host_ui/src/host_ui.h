@@ -41,6 +41,7 @@ struct UiFrame {
 // and the result after one. Plain fixed-size data: loader_app.cpp copies it
 // under a spinlock, where nothing may allocate.
 constexpr int kLoaderItems = 10;
+constexpr int kLoaderLines = 6;
 
 // What a 2-second hold runs. The Loader refuses a hold whose kind (and, for a
 // switch, firmware) isn't what it last previewed.
@@ -112,7 +113,9 @@ struct UiLoader {
   // For the Web UI's /status only, not drawn: the job's state and today's
   // diagnostic lines (store, blob, unit, hashes ...).
   char title[40];
-  char lines[6][40];
+  uint32_t title_colour;  // 0xRRGGBB
+  uint8_t percent;
+  char lines[kLoaderLines][40];
 };
 
 // What the app does when the user acts. Any hook may be null.

@@ -72,6 +72,8 @@ void describe_result(const JobOutcome &in, UiResult &out);
 
 // The FM-1 page when the store or the loader file is bad.
 void describe_not_ready(bool store_ok, bool blob_ok, bool blob_missing, const char *detail, UiResult &out);
+// A hold that no longer matched what the Loader previewed: nothing ran.
+void describe_refused(UiResult &out);
 // The FM-1 page when an install stopped part-way (resume_pending()).
 void describe_unfinished(const char *firmware, const char *backup, UiResult &out);
 

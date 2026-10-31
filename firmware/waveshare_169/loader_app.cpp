@@ -16,6 +16,7 @@
 #include <atomic>
 
 #include "installer.h"
+#include "loader_messages.h"
 #include "midi_core.h"
 #include "posix_storage.h"
 #include "softkey.h"
@@ -24,6 +25,8 @@
 #endif
 
 using namespace fm1_loader;
+using loader_messages::JobKind;
+using loader_messages::KeyStop;
 
 extern char last_crash[3][40];  // app.cpp: the last abnormal reset, if any
 
@@ -39,21 +42,27 @@ extern char last_crash[3][40];  // app.cpp: the last abnormal reset, if any
 // restarted in place: in checkpoint 3 every USB failure (an ESP-IDF assert,
 // devices that never enumerated, Wi-Fi gone) came after usb.end()/begin(), and
 // the first job after a fresh boot always worked.
-enum class JobKind : uint8_t { None, Backup, Install, Resume };
 struct JobBoot {
   uint32_t magic;
   JobKind kind;
   uint8_t attempt;  // 2, 3: the board restarted after a key because no ROM device showed up
   bool key_sent, fresh_ok, layout_ok, loader_running;
   char package[48], unit[40];
-  // The job's result, for the Firmware page after the boot back to Play.
-  bool has_result;
-  uint32_t result_colour;
-  char result_title[40], result_lines[kLoaderLines][40];
 };
-constexpr uint32_t kJobMagic = 0x10B5EED1;
+// Changed with JobBoot's layout (the result moved to JobResult): a record left
+// by an older build is never read as a job.
+constexpr uint32_t kJobMagic = 0x10B5EED2;
 constexpr uint8_t kKeyTries = 3;  // boots that look for ROM boot, each after a key
 RTC_NOINIT_ATTR JobBoot job_boot;
+
+// The job's result, for the result page after the boot back to Play.
+struct JobResult {
+  uint32_t magic;
+  char package[48];  // the switch's package: its plan is previewed again, for the result's hold
+  UiResult result;
+};
+constexpr uint32_t kResultMagic = 0x2E5017ED;
+RTC_NOINIT_ATTR JobResult job_result;
 
 #if LOADER_SOAK
 // Soak builds back up the FM-1 by themselves, job after job, to make the USB
@@ -210,12 +219,14 @@ class Host : public LoaderHost {
   bool wants_reboot = false;
   std::string identity;
   KeyResult key = KeyResult::NoAnswer;
-  const char *why = "";  // which check stopped the key, for the screen
+  const char *why = "";  // which check stopped the key, for the log and /status
+  KeyStop stop = KeyStop::None;  // the same, for the result page
   bool send_rom_boot_key() override {
     show("Asking the FM-1...", kYellow);
     if (rom_address.load()) {  // left there by an earlier job or the FM-1's own hotkey
       key = KeyResult::SendFailed;
       why = "FM-1 already in ROM boot: power-cycle it";
+      stop = KeyStop::AlreadyInRom;
       return false;
     }
     // EspUsbHost reports a device as connected before its interfaces are
@@ -224,6 +235,7 @@ class Host : public LoaderHost {
     if (!wait_until(kFm1AppearMs, [] { return fm1_midi_address.load() != 0; })) {
       key = KeyResult::NoAnswer;
       why = "no FM-1 on the hub";
+      stop = KeyStop::NoFm1;
       return false;
     }
     if (!wait_until(kFm1AppearMs, [] {
@@ -232,17 +244,20 @@ class Host : public LoaderHost {
         })) {
       key = KeyResult::SendFailed;
       why = "FM-1 MIDI never ready";
+      stop = KeyStop::NotReady;
       return false;
     }
     if (!wait_until(2000, [] { return core.owns_fm1_midi && core.owns_fm1_midi(); })) {
       key = KeyResult::SendFailed;
       why = "broker: Loader doesn't own FM-1 MIDI";
+      stop = KeyStop::NotReady;
       return false;
     }
     UsbMidiLink link;
     CRUMB_LOADER("sending key");
     key = enter_rom_boot(link, identity);
     CRUMB_LOADER("key done");
+    if (key != KeyResult::Sent) stop = KeyStop::Answer;
     if (key == KeyResult::SendFailed) why = "identity query not sent";
     return key == KeyResult::Sent;
   }
@@ -332,10 +347,13 @@ void report_backup(Installer &inst, const Host &host) {
 
 // The list the page shows (loader task only): package ids in row order.
 std::vector<std::string> item_ids;
-std::atomic<int> selected{-1}, pin_request{-1};
-// The selected package by id (empty: the top row), so a re-sorted list keeps it.
+std::atomic<int> selected{-1};
+// The hold that just completed: what its label named, and for a switch its row.
+std::atomic<uint8_t> act_kind{uint8_t(UiAct::None)};
+std::atomic<int> act_index{-1};
+// The selected package by id (empty: none), so a re-sorted list keeps it.
 std::string selected_id;
-// What the selected install was previewed as: the hold agrees to exactly that
+// What the selected switch was previewed as: the hold agrees to exactly that
 // package and that data decision.
 std::string previewed_id;
 DataDecision previewed;
@@ -343,18 +361,18 @@ DataDecision previewed;
 bool in_rom_boot = false;
 // ...and stopped without a reset: the loader still runs in the FM-1's RAM.
 bool loader_left_running = false;
+uint32_t result_seq = 0;  // numbers each result, so the UI opens a new one once
 
 // An install stopped part-way: the unit record says so (it survives a reboot of
 // this board), and the FM-1 isn't back as a MIDI device (a stale record from an
-// install that stopped before writing, say). The top row's hold then retries it
-// instead of backing up.
+// install that stopped before writing, say). Only the retry runs then.
 bool resume_pending() {
   Unit u;
   return kWritesEnabled && fm1_midi_address.load() == 0 && library->unit(library->last_unit(), u) &&
          u.has_pending;
 }
-// What the top row was previewed as: the hold runs that, even if the FM-1 drops
-// off USB while the host restarts in Load mode.
+// What the last preview found: the retry's hold runs only while it's true, even
+// if the FM-1 drops off USB while the host restarts in Load mode.
 bool previewed_retry = false;
 
 int selected_index() {
@@ -362,29 +380,58 @@ int selected_index() {
   return sel >= 0 && sel < int(item_ids.size()) ? sel : -1;
 }
 
-constexpr uint32_t kAct = 1, kSelect = 2, kPin = 4, kFm1Changed = 8;
+constexpr uint32_t kAct = 1, kSelect = 2, kFm1Changed = 8;
 
 std::string label_of(const PackageInfo &p) {
   std::string name = p.name.empty() ? p.id : p.name;
   return p.version.empty() ? name : name + " " + p.version;
 }
 
+// The FM-1 the screen talks about (the unit backed up last): its record, and
+// what its latest backup runs.
+struct Known {
+  bool has_unit = false;
+  Unit unit;
+  Firmware running;
+  std::string running_label;  // the package it matches, or ""
+  char latest[12] = "", first[12] = "";
+};
+Known known_unit() {
+  Known k;
+  FlashHashes flash;
+  k.has_unit = library->unit(library->last_unit(), k.unit) && !k.unit.latest_backup.empty();
+  if (!k.has_unit) return k;
+  loader_messages::backup_name(k.unit.latest_backup.c_str(), k.latest, sizeof k.latest);
+  loader_messages::backup_name(k.unit.baseline_backup.c_str(), k.first, sizeof k.first);
+  if (library->backup(k.unit.latest_backup, flash) && flash.size() == kSectors)
+    k.running = library->identify_app(std::vector<Hash>(flash.begin() + kAppStart / kSector,
+                                                        flash.begin() + kAppEnd / kSector));
+  if (k.running.known())
+    for (const std::string &id : library->package_ids()) {
+      PackageInfo p;
+      if (library->package(id, p) && p.app_sha256 == k.running.app_sha256) k.running_label = label_of(p);
+    }
+  return k;
+}
+
+std::string package_label(const std::string &id) {
+  PackageInfo p;
+  return library->package(id, p) ? label_of(p) : id;
+}
+
 void refresh_items() {
+  const Known k = known_unit();
+  const std::vector<SaveState> saves = k.has_unit ? library->saves_of(k.unit.id) : std::vector<SaveState>();
   std::vector<PackageInfo> pkgs;
   for (const std::string &id : library->package_ids()) {
     PackageInfo p;
     if (library->package(id, p)) pkgs.push_back(p);
   }
-  std::sort(pkgs.begin(), pkgs.end(), [](const PackageInfo &a, const PackageInfo &b) {
-    return a.pinned != b.pinned ? a.pinned : label_of(a) < label_of(b);
+  // The running one first, then by name.
+  auto running = [&](const PackageInfo &p) { return k.running.known() && k.running.app_sha256 == p.app_sha256; };
+  std::sort(pkgs.begin(), pkgs.end(), [&](const PackageInfo &a, const PackageInfo &b) {
+    return running(a) != running(b) ? running(a) : label_of(a) < label_of(b);
   });
-  // What the FM-1 seen last runs, from its latest backup.
-  Firmware running;
-  Unit u;
-  FlashHashes flash;
-  if (library->unit(library->last_unit(), u) && library->backup(u.latest_backup, flash))
-    running = library->identify_app(std::vector<Hash>(flash.begin() + kAppStart / kSector,
-                                                      flash.begin() + kAppEnd / kSector));
   // Built here, then copied under the lock: nothing inside a critical section
   // may allocate (ESP-IDF aborts, and the board reboots in a loop).
   UiLoaderItem items[kLoaderItems] = {};
@@ -394,112 +441,168 @@ void refresh_items() {
     if (count == kLoaderItems) break;
     UiLoaderItem &it = items[count++];
     strlcpy(it.label, label_of(p).c_str(), sizeof it.label);
-    strlcpy(it.note, running.known() && running.app_sha256 == p.app_sha256 ? "running" : p.identity.c_str(),
-            sizeof it.note);
-    it.pinned = p.pinned;
+    // "your songs": a save of this unit for this firmware, which a switch brings back.
+    bool songs = false;
+    for (const SaveState &s : saves) songs |= s.identity == p.identity && s.app_sha256 == p.app_sha256;
+    it.note = running(p) ? UiNote::Running : songs ? UiNote::YourSongs : UiNote::None;
     item_ids.push_back(p.id);
   }
-  // Keep the selection on the same package when the order changes (a pin).
+  // Keep the selection on the same package when the order changes.
   int sel = -1;
   for (size_t i = 0; i < item_ids.size(); ++i)
     if (item_ids[i] == selected_id) sel = int(i);
   selected = sel;
+  char running_label[28], backups[40];
+  strlcpy(running_label, k.running_label.c_str(), sizeof running_label);
+  if (k.has_unit) snprintf(backups, sizeof backups, "Latest %s, first %s", k.latest, k.first);
+  else strlcpy(backups, "No backup yet", sizeof backups);
   taskENTER_CRITICAL(&lock);
   memcpy(shown.items, items, sizeof items);
   shown.item_count = count;
+  memcpy(shown.running, running_label, sizeof running_label);
+  memcpy(shown.backups_note, backups, sizeof backups);
   taskEXIT_CRITICAL(&lock);
 }
 
-// top: the top row's label when it isn't "Back up this FM-1" (the retry).
-void set_preview(const char *l0, const char *l1, const char *action, bool can, const char *top = "") {
+// A result for the result page: numbered, so the UI opens it once.
+void set_result(UiResult &r) {
+  r.seq = ++result_seq;
   taskENTER_CRITICAL(&lock);
-  strlcpy(shown.top_label, top, sizeof shown.top_label);
-  strlcpy(shown.preview[0], l0, sizeof shown.preview[0]);
-  strlcpy(shown.preview[1], l1, sizeof shown.preview[1]);
-  strlcpy(shown.action, action, sizeof shown.action);
-  shown.can_act = can;
-  shown.selected = int8_t(selected.load());
+  shown.result = r;
   taskEXIT_CRITICAL(&lock);
 }
 
 void refresh_preview() {
-  const int sel = selected_index();
   const bool ready = store_ok && blob_ok;
+  const Known k = known_unit();
+  previewed_retry = resume_pending();
   previewed_id.clear();
-  previewed_retry = sel < 0 && resume_pending();
-  if (previewed_retry) {
-    // The top row's hold writes now: its label says so, not "Back up".
-    Unit u;
-    PackageInfo p;
-    char top[40] = "Retry the install";
-    if (library->unit(library->last_unit(), u) && library->package(u.pending.package_id, p))
-      snprintf(top, sizeof top, "Retry %s", label_of(p).c_str());
-    set_preview("An install stopped part-way.", "The FM-1 must be in ROM boot.", "Hold: retry the install",
-                ready && kWritesEnabled, top);
-    return;
+
+  // What stands in the list's way: a store or loader file that's bad, or an
+  // install the FM-1 is still in ROM boot for.
+  UiResult blocked = {};
+  std::string pending_label;
+  if (previewed_retry) pending_label = package_label(k.unit.pending.package_id);
+  if (!ready) loader_messages::describe_not_ready(store_ok, blob_ok, blob.empty(), !store_ok ? store_line : blob_line, blocked);
+  else if (previewed_retry) loader_messages::describe_unfinished(pending_label.c_str(), k.latest, blocked);
+
+  UiPlan plan = {};
+  plan.item = -1;
+  const int sel = selected_index();
+  if (sel >= 0) {
+    const std::string target = package_label(item_ids[sel]);
+    loader_messages::PlanInput in = {};
+    in.target = target.c_str();
+    in.running = k.running_label.c_str();
+    in.backup = k.latest;
+    in.has_unit = k.has_unit;
+    in.ready = ready;
+    in.writes_enabled = kWritesEnabled;
+    in.unfinished = previewed_retry;
+    in.preview = preview_install(*library, library->last_unit(), item_ids[sel]);
+    previewed = in.preview.decision;
+    previewed_id = item_ids[sel];
+    plan.item = int8_t(sel);
+    loader_messages::describe_plan(in, plan);
   }
-  if (sel < 0) {
-    set_preview("Reads the FM-1 twice.", "Writes nothing.", "Hold: back up FM-1", ready);
-    return;
-  }
-  const InstallPreview p = preview_install(*library, library->last_unit(), item_ids[sel]);
-  previewed = p.decision;
-  previewed_id = item_ids[sel];
-  char l0[40], l1[40], action[40];
-  PackageInfo pkg;
-  library->package(item_ids[sel], pkg);
-  snprintf(action, sizeof action, "Hold: install %s", label_of(pkg).c_str());
-  if (!p.ok) {
-    set_preview(p.problem, "", action, false);
-    return;
-  }
-  if (p.app_sectors == 0) snprintf(l0, sizeof l0, "Already installed: 0 sectors");
-  else snprintf(l0, sizeof l0, "Writes %u of %u app sectors", unsigned(p.app_sectors), unsigned(kAppSectors));
-  switch (p.decision.action) {
-    case DataAction::Keep:
-      strlcpy(l1, p.decision.stock_unmapped ? "Keeps old data: may confuse stock" : "Keeps songs and settings",
-              sizeof l1);
-      break;
-    case DataAction::Restore:
-      snprintf(l1, sizeof l1, "Restores its saves (%u sectors)", unsigned(p.data_sectors));
-      break;
-    case DataAction::FreshStart:
-      snprintf(l1, sizeof l1, "Fresh start: erases %u (saved)", unsigned(p.data_sectors));
-      break;
-  }
-  if (!kWritesEnabled) strlcpy(action, "Read-only build", sizeof action);
-  set_preview(l0, l1, action, ready && kWritesEnabled);
+  taskENTER_CRITICAL(&lock);
+  shown.blocked = blocked;
+  shown.unfinished = previewed_retry;
+  shown.plan = plan;
+  shown.can_back_up = ready && !previewed_retry;
+  shown.can_retry = ready && kWritesEnabled && previewed_retry;
+  taskEXIT_CRITICAL(&lock);
 }
 
-void finish(Installer &inst, const Host &host, const UsbScsi &scsi, const char *done_title) {
+// The job page: the job's steps, from where the Installer is.
+void show_job(JobKind kind, Step step, const char *firmware, const char *backup, uint32_t done, uint32_t total,
+              bool danger) {
+  UiJob j;
+  loader_messages::describe_job({kind, step, firmware, backup, done, total, danger}, j);
+  taskENTER_CRITICAL(&lock);
+  shown.job = j;
+  taskEXIT_CRITICAL(&lock);
+}
+
+// What a job is about, for its page and its result.
+struct JobNames {
+  std::string firmware;  // the switch's or the retry's package label
+  char backup[12] = "";  // the unit's latest backup
+};
+JobNames job_names(const JobBoot &j) {
+  JobNames n;
+  if (!store_ok) return n;
+  const Known k = known_unit();
+  strlcpy(n.backup, k.latest, sizeof n.backup);
+  if (j.kind == JobKind::Install) n.firmware = package_label(j.package);
+  else if (j.kind == JobKind::Resume && k.unit.has_pending) n.firmware = package_label(k.unit.pending.package_id);
+  return n;
+}
+
+void finish(Installer &inst, const Host &host, const UsbScsi &scsi, const char *done_title, JobKind kind,
+            const JobNames &names, bool wrote) {
   DLOG_LOADER("job end: %s; %s; %s; key %s, why '%s', danger %d",
               inst.current() == Step::Done ? done_title : failure_text(inst.failure()), inst.failure_detail().c_str(),
               scsi.last_failure, key_result_text(host.key), host.why, int(inst.danger()));
+  // The Web UI's /status keeps today's lines.
+  char buf[40];
   if (inst.current() == Step::Done) {
     show(done_title, kGreen, 100);
     if (host.why[0]) show_line(1, host.why);  // a re-enumeration was needed: worth seeing
-    return;
+  } else {
+    if (inst.failure() == Failure::KeyNotSent) snprintf(buf, sizeof buf, "No ROM boot: %s", key_result_text(host.key));
+    else snprintf(buf, sizeof buf, "Stopped: %s", failure_text(inst.failure()));
+    show(buf, kRed);
+    // Line 2: which step and where; line 3: what USB said (or the FM-1's identity).
+    if (!inst.failure_detail().empty()) show_line(2, inst.failure_detail().c_str());
+    else if (host.why[0]) show_line(2, host.why);
+    if (scsi.last_failure[0]) {
+      show_line(3, scsi.last_failure);
+    } else if (!host.identity.empty()) {
+      snprintf(buf, sizeof buf, "FM-1 answered %s", host.identity.c_str());
+      show_line(3, buf);
+    }
+    if (inst.danger()) {
+      show_line(4, "DON'T unplug or turn off the FM-1");
+      show_line(5, "If the retry fails: Transporter");
+    }
   }
-  char buf[40];
-  if (inst.failure() == Failure::KeyNotSent) snprintf(buf, sizeof buf, "No ROM boot: %s", key_result_text(host.key));
-  else snprintf(buf, sizeof buf, "Stopped: %s", failure_text(inst.failure()));
-  show(buf, kRed);
-  // Line 2: which step and where; line 3: what USB said (or the FM-1's identity).
-  if (!inst.failure_detail().empty()) show_line(2, inst.failure_detail().c_str());
-  else if (host.why[0]) show_line(2, host.why);
-  if (scsi.last_failure[0]) {
-    show_line(3, scsi.last_failure);
-  } else if (!host.identity.empty()) {
-    snprintf(buf, sizeof buf, "FM-1 answered %s", host.identity.c_str());
-    show_line(3, buf);
+
+  // The result page (loader_messages.cpp's table).
+  char detail[96] = "";
+  if (!inst.failure_detail().empty()) {
+    snprintf(detail, sizeof detail, "%s%s%s", inst.failure_detail().c_str(), scsi.last_failure[0] ? "; " : "",
+             scsi.last_failure);
+  } else if (host.why[0]) {
+    strlcpy(detail, host.why, sizeof detail);
+  } else if (scsi.last_failure[0]) {
+    strlcpy(detail, scsi.last_failure, sizeof detail);
   }
-  if (inst.danger()) {
-    show_line(4, "DON'T unplug or turn off the FM-1");
-    show_line(5, "If the retry fails: Transporter");
-  }
+  Unit u;
+  const bool pending = library->unit(library->last_unit(), u) && u.has_pending;
+  const Known k = known_unit();
+  loader_messages::JobOutcome o = {};
+  o.kind = kind;
+  o.done = inst.current() == Step::Done;
+  o.failure = inst.failure();
+  o.key_stop = host.stop;
+  o.key = host.key;
+  o.danger = inst.danger();
+  o.wrote = wrote;
+  o.pending = pending;
+  o.firmware = names.firmware.c_str();
+  o.backup = k.latest[0] ? k.latest : names.backup;
+  o.detail = detail;
+  o.sectors = inst.sectors_done();
+  o.data = inst.decision().action;
+  UiResult r = {};
+  loader_messages::describe_result(o, r);
+  set_result(r);
 }
 
-void run(Installer &inst) {
+// Runs the Installer to its end, keeping the job page current. wrote: a write
+// step was reached (sectors_done() also counts reads, so it can't tell).
+void run(Installer &inst, JobKind kind, const JobNames &names, bool &wrote) {
   Step logged = Step(-1);
   while (inst.step()) {
     if (inst.current() != logged) {
@@ -508,8 +611,11 @@ void run(Installer &inst) {
       DLOG_LOADER("step %d %s, %u of %u sectors", int(logged), step_text(logged), unsigned(inst.sectors_done()),
                   unsigned(inst.sectors_total()));
     }
+    if (inst.current() == Step::WriteApp || inst.current() == Step::WriteData) wrote = true;
     uint8_t percent = inst.sectors_total() ? uint8_t(inst.sectors_done() * 100 / inst.sectors_total()) : 0;
     show(step_text(inst.current()), kYellow, percent);
+    show_job(kind, inst.current(), names.firmware.c_str(), names.backup, inst.sectors_done(), inst.sectors_total(),
+             inst.danger());
   }
 }
 
@@ -541,28 +647,45 @@ const char *job_name(JobKind k) {
   esp_restart();
 }
 
+// A hold whose page no longer matches what the Loader previewed: nothing runs.
+void refuse(const char *why) {
+  DLOG_LOADER("hold refused: %s", why);
+  show("Stopped: the page changed. Check it.", kRed);
+  UiResult r = {};
+  loader_messages::describe_refused(r);
+  set_result(r);
+}
+
 // The hold, on a Play boot (or a Load boot an install stopped in): what the
-// preview showed becomes the job of the next boot.
-void request_job() {
+// preview showed becomes the job of the next boot. The hold says what it ran
+// (its label's kind, and for a switch its row); anything that doesn't match
+// the last preview is refused.
+void request_job(UiAct act, int index) {
   JobBoot j = {};
   j.attempt = 1;
+  const bool pending = resume_pending();
   const int sel = selected_index();
-  if (sel < 0 && previewed_retry) {
+  if (act == UiAct::Retry) {
+    if (!previewed_retry || !pending) return refuse("retry, but no install is unfinished");
     j.kind = JobKind::Resume;
     j.loader_running = loader_left_running;
-  } else if (sel < 0) {
+  } else if (act == UiAct::Backup) {
+    if (pending || previewed_retry) return refuse("backup, but an install is unfinished");
     j.kind = JobKind::Backup;
-  } else {
-    if (item_ids[sel] != previewed_id) {  // the hold agreed to what the preview showed
-      show("Stopped: selection changed. Check it.", kRed);
-      return;
-    }
+  } else if (act == UiAct::Switch) {
+    // The hold agreed to what the preview showed.
+    if (pending || previewed_retry) return refuse("switch, but an install is unfinished");
+    if (sel < 0 || index != sel || item_ids[sel] != previewed_id) return refuse("switch, but the selection changed");
     j.kind = JobKind::Install;
     strlcpy(j.package, previewed_id.c_str(), sizeof j.package);
     strlcpy(j.unit, library->last_unit().c_str(), sizeof j.unit);
     j.fresh_ok = previewed.action == DataAction::FreshStart;
     j.layout_ok = previewed.layout_warning;
+  } else {
+    return refuse("a hold with nothing to run");
   }
+  const JobNames names = job_names(j);
+  show_job(j.kind, Step::Idle, names.firmware.c_str(), names.backup, 0, 0, false);
   restart_for(j, "the hold");
 }
 
@@ -591,31 +714,40 @@ void run_job() {
               j.key_sent ? ", key already sent" : "");
   log_heap("job start");
   for (int i = 1; i < kLoaderLines; ++i) show_line(i, i == 1 ? blob_line : "");
+  const JobNames names = job_names(j);
+  bool wrote = false;
+  show_job(j.kind, Step::Confirm, names.firmware.c_str(), names.backup, 0, 0, false);
   if (j.kind == JobKind::Resume) {
     // The FM-1 is still in ROM boot with an incomplete app: no key, straight to it.
     if (!host.wait_for_rom_device(kRomWaitMs)) {
       show("Stopped: the FM-1 isn't in ROM boot", kRed);
       if (host.why[0]) show_line(2, host.why);
+      UiResult r = {};
+      loader_messages::describe_result({JobKind::Resume, false, Failure::NoRomDevice, KeyStop::None,
+                                        KeyResult::Sent, false, false, true, names.firmware.c_str(), names.backup,
+                                        host.why, 0, DataAction::Keep},
+                                       r);
+      set_result(r);
     } else {
       o.loader_running = j.loader_running;
       inst.start_resume(o);
-      run(inst);
-      finish(inst, host, scsi, "Install finished.");
+      run(inst, j.kind, names, wrote);
+      finish(inst, host, scsi, "Install finished.", j.kind, names, wrote);
     }
   } else if (j.kind == JobKind::Backup) {
     inst.start_backup(o);
-    run(inst);
-    finish(inst, host, scsi, "Backed up. Nothing written.");
+    run(inst, j.kind, names, wrote);
+    finish(inst, host, scsi, "Backed up. Nothing written.", j.kind, names, wrote);
     if (inst.current() == Step::Done) report_backup(inst, host);
   } else {
     o.unit_id = j.unit;  // the unit the preview was for
     o.fresh_start_ok = j.fresh_ok;
     o.layout_change_ok = j.layout_ok;
     inst.start_install(j.package, o);
-    run(inst);
+    run(inst, j.kind, names, wrote);
     char buf[40];
     snprintf(buf, sizeof buf, "Installed: %u sectors written", unsigned(inst.sectors_done()));
-    finish(inst, host, scsi, buf);
+    finish(inst, host, scsi, buf, j.kind, names, wrote);
   }
   log_heap("job end");
 #if LOADER_SOAK
@@ -643,21 +775,20 @@ void run_job() {
   }
   in_rom_boot = inst.danger();
   loader_left_running = inst.danger();
-  if (in_rom_boot) {  // stay: the top row's hold is now the retry
+  if (in_rom_boot) {  // stay: the result page's hold is now the retry
     selected = -1;
     selected_id.clear();
     return;
   }
-  // Back to Play on a fresh boot, with the result kept for the Firmware page.
-  JobBoot done = {};
-  done.has_result = true;
+  // Back to Play on a fresh boot, with the result kept for the result page.
+  JobResult done = {};
+  done.magic = kResultMagic;
+  if (j.kind == JobKind::Install) strlcpy(done.package, j.package, sizeof done.package);
   taskENTER_CRITICAL(&lock);
-  strlcpy(done.result_title, shown.title, sizeof done.result_title);
-  done.result_colour = shown.title_colour;
-  for (int i = 0; i < kLoaderLines; ++i) strlcpy(done.result_lines[i], shown.lines[i], sizeof done.result_lines[i]);
+  done.result = shown.result;
   taskEXIT_CRITICAL(&lock);
-  job_boot = done;
-  job_boot.magic = kJobMagic;
+  job_result = done;
+  job_boot = {};
   DLOG_LOADER("job done: back to Play");
   vTaskDelay(pdMS_TO_TICKS(1500));  // the result stays on screen a moment
   esp_restart();
@@ -735,18 +866,10 @@ void loader_task(void *) {
       const int i = selected_index();
       selected_id = i < 0 ? std::string() : item_ids[i];
     }
-    if (bits & kPin) {
-      const int i = pin_request.exchange(-1);
-      if (i >= 0 && i < int(item_ids.size())) {
-        PackageInfo p;
-        if (library->package(item_ids[i], p)) library->set_pinned(p.id, !p.pinned);
-        refresh_items();
-        publish_store();
-      }
-    }
-    if (bits & (kSelect | kPin | kFm1Changed)) refresh_preview();
+    if (bits & (kSelect | kFm1Changed)) refresh_preview();
     if (!(bits & kAct)) continue;
-    request_job();  // restarts the board, unless the selection changed
+    // Restarts the board, unless the hold no longer matches the preview.
+    request_job(UiAct(act_kind.exchange(uint8_t(UiAct::None))), act_index.load());
     busy = false;
   }
 }
@@ -782,7 +905,7 @@ void loader_begin(EspUsbHost &host, const LoaderCore &c) {
   usb = &host;
   core = c;
   sysex_queue = xQueueCreate(8, sizeof(SysexMsg));
-  shown.selected = -1;
+  shown.plan.item = -1;
   open_store();
   show_line(0, store_line);
   show_line(1, blob_line);
@@ -797,11 +920,19 @@ void loader_begin(EspUsbHost &host, const LoaderCore &c) {
     boot_mode = platform::Mode::Load;
     busy = true;
     show("Load mode: starting the job...", kYellow);
-  } else if (job_valid && job_boot.has_result) {  // the last job's result, after its restart
-    show(job_boot.result_title, job_boot.result_colour);
-    for (int i = 0; i < kLoaderLines; ++i) show_line(i, job_boot.result_lines[i]);
+    const JobNames names = job_names(active_job);
+    show_job(active_job.kind, Step::Confirm, names.firmware.c_str(), names.backup, 0, 0, false);
+  } else if (job_result.magic == kResultMagic && !last_crash[0][0]) {
+    // The last job's result, after its restart: the UI opens it. A failed
+    // switch's plan is previewed again, so the result's hold can run it.
+    result_seq = 1;
+    shown.result = job_result.result;
+    shown.result.seq = result_seq;
+    show(shown.result.headline, shown.result.ok ? kGreen : kRed);
+    if (shown.result.fix == UiAct::Switch) selected_id = job_result.package;
   }
   memset(&job_boot, 0, sizeof job_boot);
+  memset(&job_result, 0, sizeof job_result);
   if (last_crash[0][0]) {  // the board reset abnormally: say where
     for (int i = 0; i < 3; ++i) show_line(2 + i, last_crash[i]);
   }
@@ -846,18 +977,17 @@ void loader_select(int index) {
   xTaskNotify(task, kSelect, eSetBits);
 }
 
-void loader_pin(int index) {
-  if (busy || !task) return;
-  pin_request = index;
-  xTaskNotify(task, kPin, eSetBits);
-}
-
-void loader_act() {
+void loader_act(UiAct act, int index) {
   if (busy || !store_ok || !blob_ok || !task) return;
   taskENTER_CRITICAL(&lock);
-  const bool can = shown.can_act;
+  const bool can = act == UiAct::Switch   ? shown.plan.can_act && shown.plan.item == index
+                   : act == UiAct::Backup ? shown.can_back_up
+                   : act == UiAct::Retry  ? shown.can_retry
+                                          : false;
   taskEXIT_CRITICAL(&lock);
   if (!can) return;
+  act_kind = uint8_t(act);
+  act_index = index;
   busy = true;
   xTaskNotify(task, kAct, eSetBits);
 }
@@ -876,7 +1006,7 @@ void loader_ui(UiLoader &out) {
   taskENTER_CRITICAL(&lock);
   out = shown;
   taskEXIT_CRITICAL(&lock);
-  out.busy = busy;
+  out.job.active = busy;  // a job's boot, or the hold's restart into one
 }
 
 #endif  // APP_LOADER

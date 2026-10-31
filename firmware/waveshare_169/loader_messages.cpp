@@ -389,6 +389,16 @@ void describe_not_ready(bool store_ok, bool blob_ok, bool blob_missing, const ch
   PUT(out.detail, "%s", or_(detail, ""));
 }
 
+void describe_refused(UiResult &out) {
+  const uint32_t seq = out.seq;
+  out = UiResult{};
+  out.seq = seq;
+  PUT(out.headline, "Nothing started");
+  safety(out, UiSafety::NothingWritten);
+  PUT(out.why, "The page changed before the hold finished.");
+  PUT(out.todo, "Check it, then hold again.");
+}
+
 void describe_unfinished(const char *firmware, const char *backup, UiResult &out) {
   out = UiResult{};
   PUT(out.headline, "Install unfinished");

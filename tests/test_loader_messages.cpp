@@ -183,6 +183,9 @@ static void test_not_ready_and_unfinished() {
   describe_not_ready(true, false, false, "", r);
   EXPECT(has(r.why, "damaged"), "blob damaged");
 
+  describe_refused(r);
+  EXPECT(r.safety == UiSafety::NothingWritten && r.fix == UiAct::None && has(r.todo, "hold again"), "refused");
+
   describe_unfinished("Felucca 1.6.1", "b50", r);
   EXPECT(strcmp(r.headline, "Install unfinished") == 0 && r.safety == UiSafety::Danger, "unfinished");
   EXPECT(r.fix == UiAct::Retry && strcmp(r.fix_label, "retry Felucca 1.6.1") == 0, "the hold names the retry");
