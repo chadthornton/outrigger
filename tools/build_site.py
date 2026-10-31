@@ -165,6 +165,30 @@ def check_build_tag(app, app_set):
     return tag
 
 
+def make_manifest(board, app_set, version, tag, parts):
+    """manifest.json for one app set. parts: offset -> bytes."""
+    return {
+        "name": f"{board['name']}: {APP_SETS[app_set]}",
+        "version": version,
+        # What the board will say it runs once installed (site/installer/board.js).
+        "build": tag,
+        # Without this, ESP Web Tools erases the whole chip on every install of
+        # firmware that doesn't speak Improv. With it, the user gets an "Erase
+        # device" box that starts unticked.
+        "new_install_prompt_erase": True,
+        "new_install_improv_wait_time": 0,
+        "builds": [{
+            "chipFamily": board["chip"],
+            "improv": False,
+            # The page checks each download by SHA-256, and each part on the
+            # board by the MD5 the flasher computes after writing.
+            "parts": [{"path": name, "offset": offset,
+                       "md5": hashlib.md5(parts[offset]).hexdigest(),
+                       "sha256": hashlib.sha256(parts[offset]).hexdigest()} for offset, name, _ in PARTS],
+        }],
+    }
+
+
 def check_licensing(files):
     blob = None
     for candidate in (os.environ.get("WL82_BLOB"), ROOT / "tests/fixtures/wl82loader.bin"):
@@ -215,22 +239,7 @@ def main():
     for offset, name, _ in PARTS:
         (out / name).write_bytes(parts[offset])
 
-    manifest = {
-        "name": f"{board['name']}: {APP_SETS[app_set]}",
-        "version": version,
-        # What the board will say it runs once installed (site/installer/board.js).
-        "build": tag,
-        # Without this, ESP Web Tools erases the whole chip on every install of
-        # firmware that doesn't speak Improv. With it, the user gets an "Erase
-        # device" box that starts unticked.
-        "new_install_prompt_erase": True,
-        "new_install_improv_wait_time": 0,
-        "builds": [{
-            "chipFamily": board["chip"],
-            "improv": False,
-            "parts": [{"path": name, "offset": offset} for offset, name, _ in PARTS],
-        }],
-    }
+    manifest = make_manifest(board, app_set, version, tag, parts)
     (out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
     try:

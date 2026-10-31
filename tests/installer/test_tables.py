@@ -2,6 +2,7 @@
 the page's planner runs (plan.test.mjs), so the two checkers can't drift.
 Run by `make test`: python3 -I tests/installer/test_tables.py
 """
+import hashlib
 import json
 import struct
 import sys
@@ -9,7 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
-from build_site import BOARDS, check_build_tag, check_layout, check_table, read_build_tag  # noqa: E402
+from build_site import BOARDS, check_build_tag, check_layout, check_table, make_manifest, read_build_tag  # noqa: E402
 from check_partitions import read_csv  # noqa: E402
 
 CASES = json.loads((ROOT / "tests/installer/tables.json").read_text())
@@ -91,6 +92,20 @@ def check_tags():
     return failures
 
 
+def check_manifest():
+    """The page checks each download by SHA-256 and each write by the board's MD5."""
+    parts = parts_for(CASES["cases"][0])
+    tag = {"commit": "def5678", "dirty": False, "app_set": "hub"}
+    m = make_manifest(BOARD, "hub", "def5678", tag, parts)
+    got = [(p["offset"], p["md5"], p["sha256"]) for p in m["builds"][0]["parts"]]
+    want = [(off, hashlib.md5(parts[off]).hexdigest(), hashlib.sha256(parts[off]).hexdigest())
+            for off in (0x0, 0x8000, 0xE000, 0x10000)]
+    failures = [] if got == want else [f"manifest parts {got} != {want}"]
+    if m.get("build") != tag:
+        failures.append(f"manifest build {m.get('build')} != {tag}")
+    return failures
+
+
 def main():
     failures = []
     for case in CASES["cases"]:
@@ -107,6 +122,7 @@ def main():
         if (refused is None) != (case["expect"] == "ok"):
             failures.append(f"check_layout {'refused' if refused else 'accepted'}: {case['name']} ({refused})")
     failures += check_tags()
+    failures += check_manifest()
     for f in failures:
         print("tables: " + f)
     if failures:
