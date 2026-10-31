@@ -23,10 +23,11 @@ There's room for roughly a dozen firmwares plus their songs. Songs are small.
 twice and writes nothing to it. Back up after you change songs or settings, and before trying something risky.
 (A switch also backs up by itself first whenever the FM-1 changed since its last backup.)
 
-## Don't erase them by accident
+## Reinstalling the board keeps them
 
-**Never tick "Erase device" when you install or update the board.** It wipes every FM-1 backup and every
-song shelf on the board, and nothing can bring them back.
+Installing or updating the board from the Outrigger page never erases your backups or song shelves. The page
+has no erase option. Only a developer command run from a computer, `make flash-store`, wipes them, and nothing
+can bring them back after that.
 
 ## Coming later
 
