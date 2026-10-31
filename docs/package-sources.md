@@ -70,8 +70,8 @@ depend on what a package claims.
 
 ## Checks that keep this honest
 
-- **`make check-latest` weekly** (`.github/workflows/latest.yml`): each pinned firmware's newest release
-  through a mock install. `LATEST_ALL=1` covers the whole catalog.
+- **`make check-latest`,** run at the start of each loader session and before installing a new release: each
+  pinned firmware's newest release through a mock install. `LATEST_ALL=1` covers the whole catalog.
 - **Mac tests for the trust table:** every row, including `bubba`'s `FM-1_003` and a sideloaded file.
 - **A hardware checkpoint** before a project pair joins the allowlist, and before the first Wi-Fi download
   install.

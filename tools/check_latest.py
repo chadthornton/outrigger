@@ -6,7 +6,8 @@ break them. This reads the Firmware Hub's catalog, fetches the newest package of
 each firmware the tests pin (or every catalog firmware, --all) into out_dir,
 checks it against the catalog's SHA-256, and runs build/check_package on it: it
 must parse and install over the stock firmware on a mock FM-1. Exits 1 if any
-package fails, so the weekly workflow (.github/workflows/latest.yml) goes red.
+package fails. Run it (make check-latest) before installing a new release, and
+when a loader session starts.
 
 usage: check_latest.py out_dir [--all]
 """

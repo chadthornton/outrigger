@@ -53,7 +53,7 @@ STORE_OFFSET := 0x3D0000
 FW_VERSION := 0x$(shell git rev-parse --short=7 HEAD)
 FW_DIRTY := $(if $(shell git status --porcelain --untracked-files=no),1,0)
 
-.PHONY: test ui-shots ui-mocks build build-all flash site serve clean fixtures golden store-image flash-store store-add
+.PHONY: test ui-shots ui-mocks build build-all flash site serve clean fixtures golden store-image flash-store store-add check-latest
 
 FM1_SRC := $(wildcard lib/fm1_loader/src/*.cpp)
 FM1_HDR := $(wildcard lib/fm1_loader/src/*.h) $(wildcard tests/support/*.h)
