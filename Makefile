@@ -161,10 +161,15 @@ UI_FLAGS := -DLV_CONF_INCLUDE_SIMPLE -Ifirmware/config -I$(LVGL_DIR) -I$(LVGL_DI
 build/lvgl-obj/%.o: $(LVGL_DIR)/src/%.c firmware/config/lv_conf.h
 	@mkdir -p $(dir $@)
 	@$(CC) -O1 $(UI_FLAGS) -c $< -o $@
-UI_SHOTS_SRC := tests/ui_shots/ui_shots.cpp lib/host_ui/src/host_ui.cpp
-build/ui_shots: $(UI_SHOTS_SRC) $(wildcard tests/ui_shots/*.h tests/ui_shots/stub/*.h lib/host_ui/src/*.h) $(LVGL_OBJ)
+# The shots use the firmware's own wording: Play's statuses (status.cpp) and
+# the FM-1 pages' (loader_messages.cpp, with fm1_loader).
+UI_SHOTS_SRC := tests/ui_shots/ui_shots.cpp lib/host_ui/src/host_ui.cpp lib/midi_core/src/status.cpp \
+	lib/midi_core/src/midi_core.cpp firmware/waveshare_169/loader_messages.cpp $(FM1_SRC)
+build/ui_shots: $(UI_SHOTS_SRC) $(wildcard tests/ui_shots/*.h tests/ui_shots/stub/*.h lib/host_ui/src/*.h lib/midi_core/src/*.h) \
+		firmware/waveshare_169/loader_messages.h $(FM1_HDR) $(LVGL_OBJ)
 	@echo "$(TEST_CXX) ... -o $@"
-	@$(TEST_CXX) -std=c++17 -O1 -Wall -Wextra -Werror -Wno-deprecated-declarations $(UI_FLAGS) -Ilib/host_ui/src -Ilib/midi_core/src \
+	@$(TEST_CXX) -std=c++17 -O1 -Wall -Wextra -Werror -Wno-deprecated-declarations $(UI_FLAGS) -DAPP_LOADER=1 \
+		-Ilib/host_ui/src -Ilib/midi_core/src -Ilib/fm1_loader/src -Ilib/platform/src -Ifirmware/waveshare_169 \
 		-o $@ $(UI_SHOTS_SRC) $(LVGL_OBJ) -lz
 ui-shots: build/ui_shots
 	rm -rf build/ui-shots
