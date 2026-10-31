@@ -116,7 +116,9 @@
       <summary>The one-time Mac setup</summary>
       <p>The loader needs a file from the FM-1's chip maker that this page may not publish. With the board in Computer mode, run
         <code>make flash-store CONFIRM=erase-store</code> from this project, then add firmwares with
-        <code>make store-add PKGS="sloop.fwsc skiff.fwsc"</code>. Until then the board says <em>Store unreadable</em>.</p>
+        <code>make store-add PKGS="sloop.fwsc skiff.fwsc"</code> (it checks each one against the Firmware Hub, so the Mac needs
+        internet). Until then the board says <em>Store unreadable</em>. Each firmware keeps its own songs: switching never
+        mixes them.</p>
     </details>
   </section>
 
