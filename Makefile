@@ -53,7 +53,7 @@ STORE_OFFSET := 0x3D0000
 FW_VERSION := 0x$(shell git rev-parse --short=7 HEAD)
 FW_DIRTY := $(if $(shell git status --porcelain --untracked-files=no),1,0)
 
-.PHONY: check test ui-shots ui-mocks build build-all flash site serve clean fixtures golden store-image flash-store store-add check-latest
+.PHONY: check test ui-shots ui-mocks build build-all flash site serve clean fixtures golden store-image flash-store store-add check-latest deploy-site
 
 FM1_SRC := $(wildcard lib/fm1_loader/src/*.cpp)
 FM1_HDR := $(wildcard lib/fm1_loader/src/*.h) $(wildcard tests/support/*.h)
@@ -76,6 +76,9 @@ test: build/check_package build/test_fm1_interop build/test_midi_core build/test
 		tests/fixtures/sloop-2.8.1.fwsc tests/fixtures/FM-1_015.fwsc
 	./build/test_fm1_interop build/interop
 	python3 -I tools/check_partitions.py firmware/$(BOARD)/partitions.csv
+	python3 -I tests/installer/test_tables.py
+	node --test tests/installer/
+	python3 -I tests/test_deploy_site.py
 
 # The Mac tests may write the mock FM-1 (FM1_LOADER_WRITES=1); test_fm1_locked
 # is built without it, as every firmware build is until hardware checkpoint 3.
@@ -249,7 +252,7 @@ check:
 	@grep -E "passed|keeps the install|Sketch uses" $(CHECK_DIR).log
 	@echo "check passed at $$(git rev-parse --short HEAD) (clean clone; log: $(CHECK_DIR).log)"
 
-# Stage the firmware into site/ for the browser installer (ESP Web Tools).
+# Stage the firmware into site/ for the browser installer (site/installer/).
 # fixtures brings wl82loader.bin, so build_site can scan for pieces of it.
 site: build-all fixtures
 	for b in $(BOARDS); do for a in $(APP_SETS); do \
@@ -259,6 +262,15 @@ site: build-all fixtures
 # Web Serial needs a secure context; http://localhost counts.
 serve: site
 	python3 -m http.server $(SITE_PORT) --bind 127.0.0.1 --directory site
+
+# Publish the site on Cloudflare Pages: CHANNEL=beta (beta.outrigger.music, any
+# pushed commit) or CHANNEL=production (outrigger.music, origin/master only).
+# Uploads the site make check built in its clean clone. README, "Publishing the site".
+CHANNEL ?= beta
+deploy-site:
+	python3 -I tools/deploy_site.py guard $(CHANNEL)
+	$(MAKE) check
+	python3 -I tools/deploy_site.py deploy $(CHANNEL) $(CHECK_DIR)/site
 
 clean:
 	rm -rf build

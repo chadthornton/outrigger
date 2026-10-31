@@ -13,18 +13,28 @@
 #define APP_WEB_UI 0
 #endif
 
+// Short label for the settings page and the build tag (build_tag.h), next to
+// the firmware commit. A string literal, so the tag can hold it as an array.
+#if APP_LOADER && APP_RECORDER && APP_WEB_UI
+#define APP_SET_LABEL "all"
+#elif APP_LOADER && !APP_RECORDER && !APP_WEB_UI
+#define APP_SET_LABEL "hub+L"
+#elif APP_LOADER && !APP_RECORDER && APP_WEB_UI
+#define APP_SET_LABEL "hub+LW"
+#elif !APP_LOADER && !APP_RECORDER && APP_WEB_UI
+#define APP_SET_LABEL "hub+W"
+#elif !APP_LOADER && !APP_RECORDER && !APP_WEB_UI
+#define APP_SET_LABEL "hub"
+#else
+#define APP_SET_LABEL "custom"
+#endif
+
 namespace platform {
 
 constexpr bool kHasLoader = APP_LOADER;
 constexpr bool kHasRecorder = APP_RECORDER;
 constexpr bool kHasWebUi = APP_WEB_UI;
 
-// Short label for the settings page, next to the firmware commit.
-constexpr const char *kAppSetLabel = kHasLoader && kHasRecorder && kHasWebUi ? "all"
-                                     : kHasLoader && !kHasRecorder && !kHasWebUi ? "hub+L"
-                                     : kHasLoader && !kHasRecorder && kHasWebUi ? "hub+LW"
-                                     : !kHasLoader && !kHasRecorder && kHasWebUi ? "hub+W"
-                                     : !kHasLoader && !kHasRecorder && !kHasWebUi ? "hub"
-                                                                                  : "custom";
+constexpr const char *kAppSetLabel = APP_SET_LABEL;
 
 }  // namespace platform

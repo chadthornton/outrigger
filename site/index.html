@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>usb-midi-host for the M-VAVE FM-1</title>
-<script type="module" src="vendor/esp-web-tools-10.4.0/install-button.js"></script>
+<script type="module" src="installer/area.js"></script>
 <style>
   /* Type-led: a dark masthead with one big claim, then four short paths. No font host: system faces only. */
   :root {
@@ -46,13 +46,23 @@
   ol { margin: 0; padding-left: 1.3em; display: grid; gap: 8px; }
   .act { display: grid; gap: 10px; justify-items: start; }
   .row { display: flex; flex-wrap: wrap; gap: 10px; }
-  .erase { margin: 0; font-weight: 600; color: var(--warn); }
-  esp-web-install-button { --esp-tools-button-color: var(--accent); --esp-tools-button-text-color: var(--accent-fg);
-                           --esp-tools-button-border-radius: 8px; display: inline-block; }
-  esp-web-install-button button { background: var(--accent); color: var(--accent-fg); border: 0; border-radius: 8px;
-                                  padding: 13px 22px; font: inherit; font-weight: 700; cursor: pointer; }
-  .alt esp-web-install-button button { background: transparent; color: var(--fg); box-shadow: inset 0 0 0 2px var(--line); }
-  esp-web-install-button span { color: var(--muted); font-size: .95rem; }
+  /* The install area (installer/area.js): buttons, then the board readout, progress and result in the same place. */
+  .install { display: grid; gap: 10px; justify-items: start; }
+  .install button { background: var(--accent); color: var(--accent-fg); border: 0; border-radius: 8px;
+                    padding: 13px 22px; font: inherit; font-weight: 700; cursor: pointer; }
+  .install button.alt { background: transparent; color: var(--fg); box-shadow: inset 0 0 0 2px var(--line); }
+  .install p { margin: 0; }
+  .install-note { color: var(--muted); font-size: .95rem; }
+  .install-read { font-weight: 600; }
+  .install-error { font-weight: 600; color: var(--warn); }
+  .install-done { display: grid; gap: 6px; border-left: 3px solid var(--accent); padding-left: 12px; }
+  .install-version { font-size: .75rem; color: var(--muted); }
+  .install-log { border: 0; padding: 0; font-size: .85rem; color: var(--muted); }
+  .install-log pre { margin: 6px 0 0; max-height: 14em; overflow: auto; white-space: pre-wrap; font: .8rem ui-monospace, "SF Mono", Menlo, monospace; }
+  .install .check { display: flex; gap: 8px; align-items: baseline; }
+  .install progress { width: 100%; accent-color: var(--accent); }
+  footer .install { margin-bottom: 6px; }
+  footer .install button { padding: 6px 12px; font-size: .85rem; }
   details { border-top: 1px solid var(--line); padding-top: 12px; }
   summary { cursor: pointer; font-weight: 600; }
   details > :not(summary) { margin: 10px 0 0; }
@@ -91,27 +101,17 @@
       <li>Click Install and pick <em>USB JTAG/serial debug unit</em>.</li>
       <li>Move the board to the hub, with your keyboard and the FM-1 in its USB-C ports. Play.</li>
     </ol>
-    <div class="act">
-      <esp-web-install-button manifest="firmware/waveshare-esp32-s3-touch-lcd-1.69/hub/manifest.json">
-        <button slot="activate">Install</button>
-        <span slot="unsupported">This browser can't install. Use Chrome or Edge on a computer.</span>
-        <span slot="not-allowed">Installing needs a secure page: open this over https:// or from localhost.</span>
-      </esp-web-install-button>
-      <p class="erase">Never tick “Erase device”. It wipes every FM-1 backup on the board.</p>
-    </div>
+    <div class="install" data-builds='[{"label":"Install","manifest":"firmware/waveshare-esp32-s3-touch-lcd-1.69/hub/manifest.json"}]' data-help="#no-port">
+        <p class="install-note">Installing needs Chrome or Edge on a computer, with JavaScript on.</p>
+      </div>
   </section>
 
   <section class="path" id="switch" role="tabpanel" aria-labelledby="tab-switch">
     <p>Install the loader, set it up once from a Mac, then switch from the board's screen. It checks the FM-1, backs it up,
       writes only the firmware and reads every byte back.</p>
-    <div class="act">
-      <esp-web-install-button manifest="firmware/waveshare-esp32-s3-touch-lcd-1.69/hub-loader/manifest.json">
-        <button slot="activate">Install with loader</button>
-        <span slot="unsupported">This browser can't install. Use Chrome or Edge on a computer.</span>
-        <span slot="not-allowed">Installing needs a secure page: open this over https:// or from localhost.</span>
-      </esp-web-install-button>
-      <p class="erase">Never tick “Erase device”. It wipes every FM-1 backup on the board.</p>
-    </div>
+    <div class="install" data-builds='[{"label":"Install with loader","manifest":"firmware/waveshare-esp32-s3-touch-lcd-1.69/hub-loader/manifest.json"}]' data-help="#no-port">
+        <p class="install-note">Installing needs Chrome or Edge on a computer, with JavaScript on.</p>
+      </div>
     <details>
       <summary>The one-time Mac setup</summary>
       <p>The loader needs a file from the FM-1's chip maker that this page may not publish. With the board in Computer mode, run
@@ -125,21 +125,9 @@
   <section class="path" id="update" role="tabpanel" aria-labelledby="tab-update">
     <p>On the board, open Settings, tap <b>Computer</b>, and tap it again within 3 seconds. Plug it into this computer and
       install the build it already runs. Settings shows which.</p>
-    <div class="act">
-      <div class="row">
-        <esp-web-install-button manifest="firmware/waveshare-esp32-s3-touch-lcd-1.69/hub/manifest.json">
-          <button slot="activate">Update</button>
-          <span slot="unsupported">This browser can't install. Use Chrome or Edge on a computer.</span>
-          <span slot="not-allowed">Installing needs a secure page: open this over https:// or from localhost.</span>
-        </esp-web-install-button>
-        <span class="alt"><esp-web-install-button manifest="firmware/waveshare-esp32-s3-touch-lcd-1.69/hub-loader/manifest.json">
-          <button slot="activate">Update with loader</button>
-          <span slot="unsupported"></span>
-          <span slot="not-allowed"></span>
-        </esp-web-install-button></span>
+    <div class="install" data-builds='[{"label":"Update","manifest":"firmware/waveshare-esp32-s3-touch-lcd-1.69/hub/manifest.json"},{"label":"Update with loader","manifest":"firmware/waveshare-esp32-s3-touch-lcd-1.69/hub-loader/manifest.json"}]' data-help="#no-port">
+        <p class="install-note">Installing needs Chrome or Edge on a computer, with JavaScript on.</p>
       </div>
-      <p class="erase">Never tick “Erase device”. It wipes every FM-1 backup on the board.</p>
-    </div>
   </section>
 
   <section class="path" id="stuck" role="tabpanel" aria-labelledby="tab-stuck">
@@ -150,7 +138,7 @@
       <a href="https://github.com/Quixotic7/MvaveFM1Unbricker/blob/main/TRANSPORTER-GUIDE.md">Transporter</a>.</p>
   </section>
 
-  <details>
+  <details id="no-port">
     <summary>No port shows up</summary>
     <p>Try another cable: charge-only ones never show up. Or hold <kbd>BOOT</kbd>, tap <kbd>RST</kbd>, let go of
       <kbd>BOOT</kbd>, and click Install again. Tap <kbd>RST</kbd> once when it's done.</p>
@@ -166,15 +154,13 @@
   <div class="wrap">
     <p>Installing changes the board, never the FM-1. A keyboard with a 5-pin or 3.5 mm MIDI out doesn't need this: a cable into
       the FM-1's MIDI IN does the job.</p>
-    <p>For developers:
-      <esp-web-install-button manifest="firmware/waveshare-esp32-s3-touch-lcd-1.69/everything/manifest.json">
-        <button slot="activate" style="all: unset; text-decoration: underline; cursor: pointer;">install Everything</button>
-        <span slot="unsupported"></span>
-        <span slot="not-allowed"></span>
-      </esp-web-install-button>
-      (adds a Wi-Fi status page; its loader can't write).</p>
-    <p>Installs with <a href="https://github.com/esphome/esp-web-tools">ESP Web Tools</a> 10.4.0 (Apache-2.0), served from this
-      site. The firmware includes LVGL (MIT) and EspUsbHost (MIT).</p>
+    <p>For developers: Everything adds a Wi-Fi status page; its loader can't write.</p>
+    <div class="install" data-builds='[{"label":"Install Everything","manifest":"firmware/waveshare-esp32-s3-touch-lcd-1.69/everything/manifest.json"}]' data-help="#no-port">
+      <p class="install-note">Installing needs Chrome or Edge on a computer, with JavaScript on.</p>
+    </div>
+    <p>Installs with <a href="https://github.com/espressif/esptool-js">esptool-js</a> 0.7.0 (Apache-2.0), served from this
+      site. It writes only the program and its startup parts, never your settings or the backup store. The firmware includes
+      LVGL (MIT) and EspUsbHost (MIT).</p>
   </div>
 </footer>
 
@@ -189,6 +175,10 @@
   }
   tabs.forEach(t => t.addEventListener('click', () => pick(t)));
   pick(tabs[0]);
+  // "No board listed?" in an install area opens the help below.
+  const help = () => { if (location.hash === '#no-port') document.getElementById('no-port').open = true; };
+  addEventListener('hashchange', help);
+  help();
 </script>
 </body>
 </html>
