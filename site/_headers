@@ -1,5 +1,0 @@
-# Cloudflare Pages response headers (developers.cloudflare.com/pages/configuration/headers/).
-# Firmware file names never change between releases, so a cached app.bin could pair
-# with a newer manifest.json. Revalidate them like the page and manifests.
-/firmware/*
-  Cache-Control: public, max-age=0, must-revalidate
