@@ -16,6 +16,7 @@
 #include <lwip/sockets.h>
 #include <stdarg.h>
 
+#include <atomic>
 #include <new>
 #include <utility>
 
@@ -108,6 +109,11 @@ static httpd_handle_t server = nullptr;
 static DNSServer dns;
 static bool mdns_on = false, joining_from_setup = false, ever_online = false;
 static uint32_t join_at = 0, retry_saved_at = 0, connect_started = 0, online_since = 0, last_drain = 0;
+// The station's last disconnect reason, from Wi-Fi's event task; the loop logs
+// it. The first join after a boot sometimes stalls with no reason at all
+// (2026-10-30), and these lines say which kind of failure a slow boot was.
+static std::atomic<uint8_t> disconnect_reason{0};
+static std::atomic<uint32_t> disconnects{0};
 static volatile bool drain_queued = false;
 struct Seen {
   char ssid[33];
@@ -764,6 +770,12 @@ void web_begin(bool safe_mode) {
   strlcpy(saved_pass, wifi_prefs.getString("pass", "").c_str(), sizeof saved_pass);
   WiFi.persistent(false);  // credentials live in our own NVS namespace
   WiFi.setHostname(kHostname);
+  WiFi.onEvent(
+      [](arduino_event_id_t, arduino_event_info_t info) {
+        disconnect_reason = info.wifi_sta_disconnected.reason;
+        ++disconnects;
+      },
+      ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
   if (saved_ssid[0]) {
     WiFi.mode(WIFI_STA);
     join(saved_ssid, saved_pass);
@@ -826,7 +838,20 @@ void web_loop(uint32_t now) {
   }
   if (ap_on) dns.processNextRequest();
 
-  const bool connected = WiFi.status() == WL_CONNECTED;
+  const wl_status_t status = WiFi.status();
+  static wl_status_t logged_status = WL_NO_SHIELD;
+  if (status != logged_status) {
+    DLOG_LOOP("wifi: status %d -> %d", int(logged_status), int(status));
+    logged_status = status;
+  }
+  static uint32_t logged_disconnects = 0;
+  if (disconnects.load() != logged_disconnects) {
+    logged_disconnects = disconnects.load();
+    const uint8_t r = disconnect_reason.load();
+    DLOG_LOOP("wifi: station disconnected, reason %u %s (%lu so far)", r,
+              WiFi.disconnectReasonName(wifi_err_reason_t(r)), (unsigned long)logged_disconnects);
+  }
+  const bool connected = status == WL_CONNECTED;
   if (connected && net != Net::Online) {
     net = Net::Online;
     online_since = now;
