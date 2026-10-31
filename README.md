@@ -90,13 +90,16 @@ make serve    # same, then serve on http://localhost:8088 (Web Serial needs http
 - **What the board runs.** Each build carries a 20-byte tag at flash 0x10120 (`lib/platform/src/build_tag.h`): commit,
   dirty flag, app set. The page reads it before installing; `build_site.py` refuses an app without one. Boards running a
   build from before the tag show as "an earlier usb-midi-host build".
-- **Backups to the laptop.** When the board has a store, the page offers to save it first (ticked): the whole 12.1 MB
-  partition as a `.bin`, about 80 s over USB. `tools/store_dump.py <file>` turns it back into 1 MiB FM-1 dumps the
+- **Backups to the laptop.** When the board has a store, the page offers to save it first (unticked): the whole 12.1 MB
+  partition as a `.bin`, about 8 min in the browser (64-byte reads, below; esptool from a Mac takes 79 s). `tools/store_dump.py <file>` turns it back into 1 MiB FM-1 dumps the
   Transporter or Unbricker can restore; the page can't write it back.
 - **Checks.** Each download is checked against the manifest's SHA-256, each written part against the board's MD5 of it.
   Flash mode, frequency and size are kept as built. Afterwards an RTC watchdog reset starts the program.
 - **The board's USB port** stalls about 30 s on any single write of 4 KiB or more, so `site/installer/serial.js` sends
-  1 KiB at a time.
+  1 KiB at a time. In Chrome and Brave on macOS its longer replies also stop partway (after 616 bytes of a 1 KiB flash
+  read, measured 2026-10-31; Node on the same Mac never lost a byte), so reads ask for 64-byte packets, one at a time.
+- **Checked on the Waveshare (2026-10-31, installer 2026-10-31.6):** MIDI Hub installed from Chrome from Computer mode and
+  from BOOT+RST; both restarted by themselves; the 12.1 MB store read back byte-identical before and after.
 - **App sets:** each tab's buttons name an app set (MIDI Hub, Hub + Loader, Everything), each with its own manifest. Hub +
   Loader ships with the Loader's writes on (`WRITES` defaults to 1 for `hub-loader`; `WRITES=0` builds it read-only);
   Everything's loader stays read-only. The settings page shows which set is running next to the commit (`hub`,
