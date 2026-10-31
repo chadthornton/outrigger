@@ -3,6 +3,7 @@
     python3 -I tests/test_deploy_site.py
 """
 import hashlib
+import shutil
 import sys
 import tempfile
 import unittest
@@ -44,8 +45,12 @@ class SiteProblemsTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.site = Path(self.tmp.name)
         (self.site / "index.html").write_text("<!doctype html>")
-        (self.site / "firmware").mkdir()
-        (self.site / "firmware" / "app.bin").write_bytes(b"\x01" * 4096)
+        for app_set in deploy_site.APP_SETS:
+            out = self.site / "firmware" / "board" / app_set
+            out.mkdir(parents=True)
+            (out / "app.bin").write_bytes(b"\x01" * 4096)
+            (out / "manifest.json").write_text('{"builds": [{"parts": [{"path": "app.bin", "offset": 65536}]}]}')
+        self.app = self.site / "firmware" / "board" / "hub" / "app.bin"
         self.blob = bytes(range(256)) * 8  # 2 KiB stand-in for wl82loader.bin
 
     def tearDown(self):
@@ -62,15 +67,23 @@ class SiteProblemsTest(unittest.TestCase):
         self.assertTrue(any("index.html" in p for p in self.problems()))
 
     def test_missing_firmware_refused(self):
-        (self.site / "firmware" / "app.bin").unlink()
+        shutil.rmtree(self.site / "firmware")
         self.assertTrue(any("firmware" in p for p in self.problems()))
 
+    def test_manifest_missing_a_part_refused(self):
+        self.app.unlink()
+        self.assertTrue(any("app.bin" in p for p in self.problems()))
+
+    def test_missing_app_set_refused(self):
+        shutil.rmtree(self.site / "firmware" / "board" / "everything")
+        self.assertTrue(any("everything" in p for p in self.problems()))
+
     def test_file_over_the_per_file_limit_refused(self):
-        (self.site / "firmware" / "app.bin").write_bytes(b"\0" * 2048)
+        self.app.write_bytes(b"\0" * 2048)
         self.assertTrue(any("app.bin" in p for p in self.problems(max_file=1024)))
 
     def test_too_many_files_refused(self):
-        self.assertTrue(any("files" in p for p in self.problems(max_files=1)))
+        self.assertTrue(any("files" in p for p in self.problems(max_files=3)))
 
     def test_file_with_the_blob_sha_refused(self):
         sha = hashlib.sha256(self.blob).hexdigest()
@@ -78,7 +91,7 @@ class SiteProblemsTest(unittest.TestCase):
         self.assertTrue(any("x.bin" in p for p in deploy_site.site_problems(self.site, None, sha=sha)))
 
     def test_file_containing_a_piece_of_the_blob_refused(self):
-        (self.site / "firmware" / "app.bin").write_bytes(b"\x01" * 100 + self.blob[512:1536] + b"\x02" * 100)
+        self.app.write_bytes(b"\x01" * 100 + self.blob[512:1536] + b"\x02" * 100)
         self.assertTrue(any("app.bin" in p for p in self.problems()))
 
     def test_file_named_like_the_blob_refused(self):
@@ -87,6 +100,15 @@ class SiteProblemsTest(unittest.TestCase):
 
     def test_no_local_blob_refused(self):
         self.assertTrue(any("wl82loader.bin" in p for p in deploy_site.site_problems(self.site, None)))
+
+
+class CredentialsTest(unittest.TestCase):
+    def test_reads_quoted_and_exported_values(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp, "pages.env")
+            path.write_text('# comment\nexport CLOUDFLARE_API_TOKEN="tok"\nCLOUDFLARE_ACCOUNT_ID=acct\n')
+            env = deploy_site.read_env(path)
+            self.assertEqual((env["CLOUDFLARE_API_TOKEN"], env["CLOUDFLARE_ACCOUNT_ID"]), ("tok", "acct"))
 
 
 class StageTest(unittest.TestCase):

@@ -14,6 +14,7 @@ Credentials: ~/.config/cloudflare/outrigger-pages.env (CLOUDFLARE_API_TOKEN with
 Account > Cloudflare Pages > Edit, and CLOUDFLARE_ACCOUNT_ID). Never printed.
 """
 import hashlib
+import json
 import os
 import shutil
 import subprocess
@@ -22,7 +23,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from build_site import WL82_CHUNK, WL82_SHA256  # noqa: E402
+from build_site import APP_SETS, WL82_CHUNK, WL82_SHA256  # noqa: E402
 
 PROJECT = "outrigger"
 # Pages branch per channel. The project's production branch is master; beta.outrigger.music
@@ -59,8 +60,19 @@ def site_problems(site, blob, sha=WL82_SHA256, max_file=MAX_FILE, max_files=MAX_
     problems = []
     if not (site / "index.html").is_file():
         problems.append("no index.html")
-    if not any(p.suffix == ".bin" for p in files if "firmware" in p.relative_to(site).parts):
+    boards = [d for d in (site / "firmware").glob("*") if d.is_dir()]
+    if not boards:
         problems.append("no firmware under firmware/; run make site")
+    for board in boards:
+        for app_set in APP_SETS:
+            manifest = board / app_set / "manifest.json"
+            if not manifest.is_file():
+                problems.append(f"no {manifest.relative_to(site)}; make site stopped partway?")
+                continue
+            for build in json.loads(manifest.read_text())["builds"]:
+                for part in build["parts"]:
+                    if not (manifest.parent / part["path"]).is_file():
+                        problems.append(f"{manifest.relative_to(site)} names {part['path']}, which is missing")
     if len(files) > max_files:
         problems.append(f"{len(files)} files, Pages takes {max_files}")
     if blob is None:
@@ -84,7 +96,10 @@ def stage(src, dst):
 
 
 def git(*args, cwd=ROOT):
-    return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True).stdout.strip()
+    run = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True)
+    if run.returncode:
+        fail(f"git {' '.join(args)} failed: {run.stderr.strip()}")
+    return run.stdout.strip()
 
 
 def guard(channel):
@@ -98,14 +113,20 @@ def guard(channel):
     return head
 
 
+def read_env(path):
+    """KEY=value lines of a shell env file (optionally `export`ed and quoted)."""
+    env = {}
+    for line in path.read_text().splitlines():
+        key, sep, value = line.strip().removeprefix("export ").partition("=")
+        if sep and not key.startswith("#"):
+            env[key.strip()] = value.strip().strip('"\'')
+    return env
+
+
 def load_credentials():
     if not ENV_FILE.is_file():
         fail(f"missing {ENV_FILE}; see README, 'Publishing the site'")
-    env = dict(os.environ)
-    for line in ENV_FILE.read_text().splitlines():
-        key, sep, value = line.partition("=")
-        if sep and not key.startswith("#"):
-            env[key.strip()] = value.strip().strip('"')
+    env = dict(os.environ, **read_env(ENV_FILE))
     if not env.get("CLOUDFLARE_API_TOKEN") or not env.get("CLOUDFLARE_ACCOUNT_ID"):
         fail(f"{ENV_FILE} needs CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID")
     return env
