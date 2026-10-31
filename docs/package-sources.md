@@ -1,6 +1,6 @@
 # Package sources: getting new FM-1 firmware onto the board
 
-Draft for Chad's review, 2026-10-30. Nothing here is built yet. This is guarded work: it decides what the
+Agreed with Chad 2026-10-31 (decisions at the end). Nothing here is built yet. This is guarded work: it decides what the
 board may write to an FM-1 and what happens to the user's songs and settings.
 
 ## Goal
@@ -53,15 +53,24 @@ A package whose hash matches no catalog entry is stored as **sideloaded** and st
 What an install may do with the FM-1's songs and settings depends on what the loader knows. It doesn't
 depend on what a package claims.
 
+**Every project gets its own shelf.** Before any install, the board backs up the flash and autosaves the
+running firmware's data into the store, filed under its catalog project. Installing a project whose shelf
+holds a save restores the latest one. So Felucca → Melodee → Felucca brings the Felucca songs back, and no
+switch loses data, even when it starts fresh.
+
 | Installing | Data |
 |---|---|
-| A newer or older version of the **same catalog project** (matched by `ident`) the FM-1 runs now | Keep, unless the versions cross a known data-format break (a table we keep, starting with Skiff 1.x → 2.x) |
-| A project on our **allowlist** of proven pairs (to start: Felucca ↔ Skiff, which checkpoint 3 ran both ways) | Keep or restore, as today |
-| Any other catalog firmware | **Fresh start** only: the backup and an autosave go to the store first, so the old data can come back by reinstalling the old firmware |
-| A sideloaded file, or firmware no catalog entry matches | Fresh start only, behind an extra "not from the catalog" warning |
-| Back to **stock** | Fresh start, unless the FM-1 ran stock before (then restore its stock save) |
+| A newer or older version of the **same catalog project** (matched by `ident`) the FM-1 runs now | Keep, unless the versions cross a known data-format break (a table we keep, starting with Skiff 1.x → 2.x: fresh start) |
+| A **different** catalog project with a save on its shelf | Restore that project's latest save |
+| A **different** catalog project with an empty shelf | **Fresh start** (the old project's data waits on its own shelf) |
+| A sideloaded file, or firmware no catalog entry matches | Fresh start only, behind an extra "not from the catalog" warning; its shelf is its file hash |
+| Back to **stock** | Restore stock's shelf, or fresh start if it's empty |
 
-- **A pair joins the allowlist only after a hardware checkpoint** shows data surviving in both directions.
+- **No data is kept across projects at launch, not even Felucca ↔ Skiff** (Chad, 2026-10-31). A pair can
+  later join an allowlist that keeps data across it, after a board test shows the data surviving both ways
+  (about 10 minutes per pair).
+- **A shelf belongs to a project, not an identity.** Felucca 1.6.1 reports `FM-1_916` and 1.7.0 `FM-1_917`:
+  same project, same shelf. Today's saves are keyed by identity, so this changes the save key.
 - **Identity becomes a lookup, not a digit test.** The installed project comes from matching the FM-1's
   identity against the catalog's `ident` patterns (stored with the backup). `family_of()`'s digit test goes.
 - **No downgrades offered as updates.** "Update available" means a strictly newer catalog version of the
@@ -73,24 +82,24 @@ depend on what a package claims.
 - **`make check-latest`,** run at the start of each loader session and before installing a new release: each
   pinned firmware's newest release through a mock install. `LATEST_ALL=1` covers the whole catalog.
 - **Mac tests for the trust table:** every row, including `bubba`'s `FM-1_003` and a sideloaded file.
-- **A hardware checkpoint** before a project pair joins the allowlist, and before the first Wi-Fi download
-  install.
+- **A hardware checkpoint** before the first upload install, before the first Wi-Fi download install, and
+  before any project pair joins the allowlist.
 
 ## Order of work
 
 1. **Identity parsing:** accept the catalog's 3-8 digit identities. Mac tests; the one short `flash.bin`
    stays rejected.
-2. **The trust table** in the installer's data decision, with tests. Until steps 3 and 4 exist, packages
-   still come from `make store-add`; this step only makes installs safer.
-3. **Upload on the web page,** with the catalog hash check and the sideloaded mark.
-4. **Catalog and Wi-Fi download,** with the last-known-good cache and "Check for updates".
+2. **The trust table and project shelves** in the installer's data decision, with tests. Packages still come
+   from `make store-add` until step 3; this step only makes installs safer.
+3. **Upload on the web page,** with the catalog hash check and the sideloaded mark. Then a board checkpoint.
+4. **Catalog and Wi-Fi download,** with the last-known-good cache, "Check for updates" and the prerelease
+   setting.
 5. **Then the session 3b robustness items:** USB read recovery, then MFLR.
 
-## Decisions for Chad
+## Decisions (Chad, 2026-10-31)
 
-1. **Unknown firmware:** offer it with fresh start (as above), or hide it until it's on the allowlist?
-2. **First way in:** upload on the web page first (smaller, no TLS on the board), or download first?
-3. **Prereleases:** the catalog lists betas (`bubba-0.10.0-beta`, `melodee-1.6.0-rc.7`). Show them, hide
-   them, or behind a setting?
-4. **Starting allowlist:** Felucca ↔ Skiff only, or also SLOOP ↔ Felucca once its data map is known (it's
-   the known brick pattern today)?
+1. **Firmware never tested on hardware:** offered, with a fresh start (its old data waits on its shelf).
+2. **First way in:** upload on the web page; Wi-Fi download after.
+3. **Prereleases:** behind a setting, off by default; a beta shows only when it's newer than the stable release.
+4. **Data across projects:** none at launch. Same project only keeps data; every other switch restores that
+   project's shelf or starts fresh.
