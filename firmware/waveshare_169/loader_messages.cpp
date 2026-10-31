@@ -329,8 +329,13 @@ void describe_result(const JobOutcome &in, UiResult &out) {
       }
       break;
     case Failure::NoRomDevice:
-      PUT(out.why, "The FM-1 took the key but didn't show up in ROM boot.");
-      PUT(out.todo, "Switch it off and on, then try again.");
+      if (resume) {  // a retry sends no key: the FM-1 just wasn't there in ROM boot
+        PUT(out.why, "The FM-1 wasn't in ROM boot.");
+        PUT(out.todo, "Leave it plugged in and switched on, then try again.");
+      } else {
+        PUT(out.why, "The FM-1 took the key but didn't show up in ROM boot.");
+        PUT(out.todo, "Switch it off and on, then try again.");
+      }
       break;
     case Failure::BackupStale:
       // Today's switch: it stops instead of backing up by itself.

@@ -114,6 +114,11 @@ static void test_nothing_written_rows() {
   r = result(switch_failed(Failure::LoaderTooSlow));
   EXPECT(has(r.why, "too slow") && r.fix == UiAct::Switch, "too slow: the same job");
 
+  JobOutcome retry = switch_failed(Failure::NoRomDevice);
+  retry.kind = JobKind::Resume;
+  r = result(retry);
+  EXPECT(!has(r.why, "key") && !has(r.todo, "off and on") && r.fix == UiAct::Retry, "a retry sends no key");
+
   r = result(switch_failed(Failure::IdentityMismatch));
   EXPECT(has(r.why, "Chip key") && strcmp(r.todo, "Try again.") == 0, "anything else: failure_text, try again");
   EXPECT(r.safety == UiSafety::NothingWritten && r.fix == UiAct::Switch, "anything else: the same job");

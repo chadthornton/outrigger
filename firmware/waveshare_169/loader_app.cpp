@@ -61,7 +61,9 @@ struct JobResult {
   char package[48];  // the switch's package: its plan is previewed again, for the result's hold
   UiResult result;
 };
-constexpr uint32_t kResultMagic = 0x2E5017ED;
+// With the struct's size in it: a build whose UiResult differs never reads an
+// older build's record.
+constexpr uint32_t kResultMagic = 0x2E5017ED ^ uint32_t(sizeof(UiResult));
 RTC_NOINIT_ATTR JobResult job_result;
 
 #if LOADER_SOAK
@@ -483,8 +485,10 @@ void refresh_preview() {
   UiResult blocked = {};
   std::string pending_label;
   if (previewed_retry) pending_label = package_label(k.unit.pending.package_id);
-  if (!ready) loader_messages::describe_not_ready(store_ok, blob_ok, blob.empty(), !store_ok ? store_line : blob_line, blocked);
-  else if (previewed_retry) loader_messages::describe_unfinished(pending_label.c_str(), k.latest, blocked);
+  // An unfinished install comes first: its card says not to unplug the FM-1,
+  // even when the retry can't run (can_retry is off then).
+  if (previewed_retry) loader_messages::describe_unfinished(pending_label.c_str(), k.latest, blocked);
+  else if (!ready) loader_messages::describe_not_ready(store_ok, blob_ok, blob.empty(), !store_ok ? store_line : blob_line, blocked);
 
   UiPlan plan = {};
   plan.item = -1;
@@ -743,6 +747,7 @@ void run_job() {
     finish(inst, host, scsi, buf, j.kind, names, wrote);
   }
   log_heap("job end");
+  DLOG_LOADER("loader task stack left %u", unsigned(uxTaskGetStackHighWaterMark(nullptr)));
 #if LOADER_SOAK
   // This boot's count: each job runs in its own boot, so the RTC record sums them.
   if (usb) soak.deferrals += usb->disconnectDeferrals();
@@ -900,6 +905,10 @@ void loader_begin(EspUsbHost &host, const LoaderCore &c) {
   sysex_queue = xQueueCreate(8, sizeof(SysexMsg));
   shown.plan.item = -1;
   open_store();
+  // The FM-1 page's reason when the store can't be read: refresh_preview, which
+  // needs the store, keeps it current otherwise.
+  if (!store_ok || !blob_ok)
+    loader_messages::describe_not_ready(store_ok, blob_ok, blob.empty(), !store_ok ? store_line : blob_line, shown.blocked);
   show_line(0, store_line);
   show_line(1, blob_line);
   const bool ready = store_ok && blob_ok;
@@ -919,7 +928,11 @@ void loader_begin(EspUsbHost &host, const LoaderCore &c) {
     // The last job's result, after its restart: the UI opens it. A failed
     // switch's plan is previewed again, so the result's hold can run it.
     result_seq = 1;
-    shown.result = job_result.result;
+    UiResult &r = job_result.result;
+    r.headline[sizeof r.headline - 1] = r.safety_text[sizeof r.safety_text - 1] = r.why[sizeof r.why - 1] = 0;
+    r.todo[sizeof r.todo - 1] = r.detail[sizeof r.detail - 1] = r.fix_label[sizeof r.fix_label - 1] = 0;
+    job_result.package[sizeof job_result.package - 1] = 0;
+    shown.result = r;
     shown.result.seq = result_seq;
     show(shown.result.headline, shown.result.ok ? kGreen : kRed);
     if (shown.result.fix == UiAct::Switch) selected_id = job_result.package;
@@ -981,6 +994,11 @@ void loader_act(UiAct act, int index) {
   if (!can) return;
   act_kind = uint8_t(act);
   act_index = index;
+  // The job page opens now, before the loader task names the job's steps.
+  taskENTER_CRITICAL(&lock);
+  shown.job = UiJob{};
+  strlcpy(shown.job.title, "Starting", sizeof shown.job.title);
+  taskEXIT_CRITICAL(&lock);
   busy = true;
   xTaskNotify(task, kAct, eSetBits);
 }
