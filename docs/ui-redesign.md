@@ -1,8 +1,6 @@
 # UI redesign: nav, Play, switching firmware, errors
 
-**Status:** 2026-10-30. Chad approved the nav as the header, one column on every board, compact Play, and
-switching that backs up only when the FM-1 changed. The remaining pages (results, errors, manual backup, Computer
-mode) are drawn in the same style and await his review. Mockups only; nothing is in `host_ui` yet. Build it after `loader-session3` merges: ui-polish rewrote `host_ui`, and that merge carries the current
+**Status:** signed off by Chad, 2026-10-30, after six rounds of review (the full set of mockups below). Mockups only; nothing is in `host_ui` yet. Build it after `loader-session3` merges: ui-polish rewrote `host_ui`, and that merge carries the current
 Firmware page (list → detail, `154d147`).
 
 - **Review page:** https://claude.ai/artifact/AemH6yE3Nzyeu6GYobHaeg. It shows every screen on every board and
@@ -313,16 +311,11 @@ then each line on the page.
 - **`status.h`:** a one-line status per stage for Play.
 - **`ui_shots`:** gains the new pages and drops the old Firmware states.
 
-## Open for Chad
+## Decided at sign-off
 
-1. **Icons:** do the MIDI socket and the cartridge read right? (Recommended: keep both.)
-2. **Panel chips:** which display driver and touch controller do the 320×480 panels have? The board profiles need
-   them.
-3. **Recommended defaults** to confirm when building:
-   - The nav scrolls away in portrait (Chad's proposal).
-   - Landscape by default on the 320×480 panels.
-   - Computer mode is a hold.
-   - The result page opens after a job.
+- **Signed off:** the full set, including the icons and the defaults it shows. In portrait the nav scrolls away;
+  the 320×480 panels default to landscape; Computer mode is a hold; the result page opens after a job.
+- **Still needed before the 320×480 board profiles:** each panel's display driver and touch controller.
 
 ## Not mocked
 
