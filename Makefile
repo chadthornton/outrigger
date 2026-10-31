@@ -76,6 +76,8 @@ test: build/check_package build/test_fm1_interop build/test_midi_core build/test
 		tests/fixtures/sloop-2.8.1.fwsc tests/fixtures/FM-1_015.fwsc
 	./build/test_fm1_interop build/interop
 	python3 -I tools/check_partitions.py firmware/$(BOARD)/partitions.csv
+	python3 -I tests/installer/test_tables.py
+	node --test tests/installer/
 	python3 -I tests/test_deploy_site.py
 
 # The Mac tests may write the mock FM-1 (FM1_LOADER_WRITES=1); test_fm1_locked
@@ -250,7 +252,7 @@ check:
 	@grep -E "passed|keeps the install|Sketch uses" $(CHECK_DIR).log
 	@echo "check passed at $$(git rev-parse --short HEAD) (clean clone; log: $(CHECK_DIR).log)"
 
-# Stage the firmware into site/ for the browser installer (ESP Web Tools).
+# Stage the firmware into site/ for the browser installer (site/installer/).
 # fixtures brings wl82loader.bin, so build_site can scan for pieces of it.
 site: build-all fixtures
 	for b in $(BOARDS); do for a in $(APP_SETS); do \

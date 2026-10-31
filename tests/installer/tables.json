@@ -1,0 +1,25 @@
+{
+  "_about": "Shared cases for the two install checkers: tools/build_site.py (Python, when staging) and site/installer/plan.js (the page, before writing). Tables are name -> [offset, size]; \"ours\" means firmware/waveshare_169/partitions.csv. A table without \"_replace\" changes only the entries it names in \"ours\". Parts are offset -> length in bytes, overriding default_parts; null removes the part. expect is \"ok\" or a phrase the refusal must contain. table_ok is what check_table() says about new_table alone.",
+  "flash_bytes": 16777216,
+  "default_parts": {"0x0": 20000, "0x8000": 3072, "0xe000": 8192, "0x10000": 1012000},
+  "cases": [
+    {"name": "blank board", "new_table": "ours", "board_table": null, "table_ok": true, "expect": "ok"},
+    {"name": "board already has our layout", "new_table": "ours", "board_table": "ours", "table_ok": true, "expect": "ok"},
+    {"name": "board on Arduino's default table, no store", "new_table": "ours",
+     "board_table": {"_replace": true, "nvs": [36864, 20480], "otadata": [57344, 8192], "app0": [65536, 1310720], "app1": [1376256, 1310720], "spiffs": [2686976, 1441792], "coredump": [4128768, 65536]},
+     "table_ok": true, "expect": "ok"},
+    {"name": "board's store is somewhere else", "new_table": "ours", "board_table": {"store": [4063232, 12713984]}, "table_ok": true, "expect": "backup store"},
+    {"name": "board's store is a different size", "new_table": "ours", "board_table": {"store": [3997696, 8388608]}, "table_ok": true, "expect": "backup store"},
+    {"name": "new table moves NVS", "new_table": {"nvs": [40960, 16384]}, "board_table": "ours", "table_ok": false, "expect": "nvs"},
+    {"name": "new table puts the store inside app0", "new_table": {"store": [69632, 4096]}, "board_table": null, "table_ok": false, "expect": "store"},
+    {"name": "new table shrinks app0", "new_table": {"app0": [65536, 1048576]}, "board_table": null, "table_ok": false, "expect": "app0"},
+    {"name": "app fills app0 exactly", "new_table": "ours", "board_table": "ours", "parts": {"0x10000": 3145728}, "table_ok": true, "expect": "ok"},
+    {"name": "app one byte past app0", "new_table": "ours", "board_table": "ours", "parts": {"0x10000": 3145729}, "table_ok": true, "expect": "app0"},
+    {"name": "bootloader runs into the partition table", "new_table": "ours", "board_table": null, "parts": {"0x0": 32769}, "table_ok": true, "expect": "0x8000"},
+    {"name": "partition table part longer than one sector reaches NVS", "new_table": "ours", "board_table": null, "parts": {"0x8000": 4097}, "table_ok": true, "expect": "nvs"},
+    {"name": "boot_app0 longer than otadata", "new_table": "ours", "board_table": null, "parts": {"0xe000": 8193}, "table_ok": true, "expect": "0xe000"},
+    {"name": "a part at an offset not on the list", "new_table": "ours", "board_table": null, "parts": {"0x9000": 4096}, "table_ok": true, "expect": "0x9000"},
+    {"name": "a part missing", "new_table": "ours", "board_table": null, "parts": {"0xe000": null}, "table_ok": true, "expect": "missing"},
+    {"name": "an empty part", "new_table": "ours", "board_table": null, "parts": {"0x10000": 0}, "table_ok": true, "expect": "empty"}
+  ]
+}

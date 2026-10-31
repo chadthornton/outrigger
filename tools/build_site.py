@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stage firmware into site/ for the ESP Web Tools installer.
+"""Stage firmware into site/ for the browser installer (site/installer/).
 
     tools/build_site.py <board sketch> <app set> <arduino build dir> <boot_app0.bin> <version>
 
@@ -7,8 +7,8 @@ Writes site/firmware/<board-id>/<app set>/{bootloader,partitions,boot_app0,app}.
 and its manifest.json. The board is named by its sketch (waveshare_169), the
 app set by the Makefile's APPS= (docs/architecture.md, "App sets and builds").
 
-Why four parts and not one merged image: the ESP Web Tools docs merge so that
-esptool can patch flash mode/size into the bootloader header. Arduino already
+Why four parts and not one merged image: esptool can patch flash mode/size
+into a merged image's bootloader header, but Arduino already
 writes the right header (dio, 80 MHz, 16 MB). A merged image starting at 0x0
 also fills 0x9000-0xDFFF with 0xFF, which erases NVS (settings, Wi-Fi, the
 loader's unit data). Arduino's own .merged.bin is worse: padded to 16 MB, it
@@ -57,6 +57,16 @@ APP_SETS = {
     "hub-loader": "MIDI Hub + Firmware Loader",
     "everything": "Everything",
 }
+
+
+# Each app set's label in the build tag (lib/platform/src/apps.h kAppSetLabel).
+# hub-loader may carry the Wi-Fi diagnostics page (DIAG_WEB=1).
+APP_SET_LABELS = {"hub": {"hub"}, "hub-loader": {"hub+L", "hub+LW"}, "everything": {"all"}}
+
+# The build tag (lib/platform/src/build_tag.h), right after esp_app_desc_t at
+# app image offset 0x120. The page reads it off a board to name the build it
+# runs; tests/installer/tags.json holds the cases both readers run.
+TAG_OFFSET, TAG_MAGIC, TAG_LAYOUT = 0x120, 0x54484D55, 1
 
 
 def fail(msg):
@@ -121,12 +131,56 @@ def check_layout(parts, board):
         fail("a part overlaps NVS")
     if len(parts[0x0]) > 0x8000:
         fail("bootloader runs into the partition table")
+    if 0xE000 + len(parts[0xE000]) > 0x10000:
+        fail("boot_app0 runs past otadata into app0 at 0x10000")
+    for offset, data in parts.items():
+        if not data:
+            fail(f"the part at {offset:#x} is empty")
     header = parts[0x0][:4]
     if header[0] != 0xE9:
         fail("bootloader has no image header")
     size_code = header[3] >> 4  # 0=1MB, 1=2MB, 2=4MB, 3=8MB, 4=16MB
     if (1 << size_code) * 1024 * 1024 != board["flash_bytes"]:
         fail(f"bootloader header says {1 << size_code} MB flash")
+
+
+def read_build_tag(app):
+    """{commit, dirty, app_set} from an app image, or None without a tag."""
+    tag = app[TAG_OFFSET:TAG_OFFSET + 20]
+    if len(tag) < 20:
+        return None
+    magic, layout, dirty, _, commit = struct.unpack("<IHBBI", tag[:12])
+    if magic != TAG_MAGIC or layout != TAG_LAYOUT:
+        return None
+    return {"commit": f"{commit:07x}", "dirty": bool(dirty), "app_set": tag[12:].split(b"\0")[0].decode()}
+
+
+def check_build_tag(app, app_set):
+    """The tag the page will read off a board; refuses a build without one."""
+    tag = read_build_tag(app)
+    if tag is None:
+        fail(f"the app has no build tag at {TAG_OFFSET:#x}; the installer couldn't name it on a board")
+    if tag["app_set"] not in APP_SET_LABELS[app_set]:
+        fail(f"the app's build tag says {tag['app_set']!r}, staged as {app_set}")
+    return tag
+
+
+def make_manifest(board, app_set, version, tag, parts):
+    """manifest.json for one app set. parts: offset -> bytes."""
+    return {
+        "name": f"{board['name']}: {APP_SETS[app_set]}",
+        "version": version,
+        # What the board will say it runs once installed (site/installer/board.js).
+        "build": tag,
+        "builds": [{
+            "chipFamily": board["chip"],
+            # The page checks each download by SHA-256, and each part on the
+            # board by the MD5 the flasher computes after writing.
+            "parts": [{"path": name, "offset": offset,
+                       "md5": hashlib.md5(parts[offset]).hexdigest(),
+                       "sha256": hashlib.sha256(parts[offset]).hexdigest()} for offset, name, _ in PARTS],
+        }],
+    }
 
 
 def check_licensing(files):
@@ -167,6 +221,7 @@ def main():
             fail(f"missing {path}; run `make build` first")
         parts[offset] = path.read_bytes()
     check_layout(parts, board)
+    tag = check_build_tag(parts[0x10000], app_set)
 
     out = SITE / "firmware" / board_id / app_set
     # Builds before app sets were staged flat in the board folder; don't keep serving them.
@@ -178,20 +233,7 @@ def main():
     for offset, name, _ in PARTS:
         (out / name).write_bytes(parts[offset])
 
-    manifest = {
-        "name": f"{board['name']}: {APP_SETS[app_set]}",
-        "version": version,
-        # Without this, ESP Web Tools erases the whole chip on every install of
-        # firmware that doesn't speak Improv. With it, the user gets an "Erase
-        # device" box that starts unticked.
-        "new_install_prompt_erase": True,
-        "new_install_improv_wait_time": 0,
-        "builds": [{
-            "chipFamily": board["chip"],
-            "improv": False,
-            "parts": [{"path": name, "offset": offset} for offset, name, _ in PARTS],
-        }],
-    }
+    manifest = make_manifest(board, app_set, version, tag, parts)
     (out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
     try:
