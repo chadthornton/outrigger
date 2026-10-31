@@ -22,9 +22,9 @@ EspUsbHost 2.10.1, lib/EspUsbHost/ (in the firmware)
   Copyright (c) 2026 TANAKA Masayuki. MIT License: lib/EspUsbHost/LICENSE.
   Patched: ESP_USB_HOST_MAX_SERIAL_PORTS is overridable (see README).
 
-ESP Web Tools 10.4.0, site/vendor/esp-web-tools-10.4.0/ (the installer page)
-  By the ESPHome project (esphome/esp-web-tools). Apache License 2.0:
-  site/vendor/esp-web-tools-10.4.0/LICENSE.
+esptool-js 0.7.0, site/vendor/esptool-js-0.7.0/ (the installer page)
+  By Espressif Systems (espressif/esptool-js). Apache License 2.0:
+  site/vendor/esptool-js-0.7.0/LICENSE.
 
 
 Ported into this repository

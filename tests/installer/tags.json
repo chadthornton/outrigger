@@ -1,0 +1,48 @@
+{
+  "_about": "The build tag each firmware build carries right after esp_app_desc_t: app image offset 0x120, flash 0x10120 (lib/platform/src/build_tag.h). Little-endian: u32 magic 'UMHT', u16 layout 1, u8 dirty, u8 reserved, u32 commit, char[8] app set label. Read by tools/build_site.py (read_build_tag) and site/installer/board.js (readBuildTag); both run these cases.",
+  "offset": 288,
+  "cases": [
+    {
+      "name": "clean Hub + Loader build",
+      "hex": "554d4854010000003412bc0a6875622b4c000000",
+      "expect": {
+        "commit": "abc1234",
+        "dirty": false,
+        "app_set": "hub+L"
+      }
+    },
+    {
+      "name": "dirty MIDI Hub build",
+      "hex": "554d485401000100785634006875620000000000",
+      "expect": {
+        "commit": "0345678",
+        "dirty": true,
+        "app_set": "hub"
+      }
+    },
+    {
+      "name": "Everything",
+      "hex": "554d4854010000000000000a616c6c0000000000",
+      "expect": {
+        "commit": "a000000",
+        "dirty": false,
+        "app_set": "all"
+      }
+    },
+    {
+      "name": "no tag (a build from before tags, or other firmware)",
+      "hex": "ffffffffffffffffffffffffffffffffffffffff",
+      "expect": null
+    },
+    {
+      "name": "a later tag layout",
+      "hex": "554d4854020000003412bc0a6875622b4c000000",
+      "expect": null
+    },
+    {
+      "name": "too short",
+      "hex": "554d4854",
+      "expect": null
+    }
+  ]
+}

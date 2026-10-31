@@ -60,8 +60,7 @@ write path.
 | Component | Where | License | In the firmware? | Obligation |
 |---|---|---|---|---|
 | EspUsbHost 2.10.1 | `lib/EspUsbHost/` (vendored, one patch) | MIT, TANAKA Masayuki | yes | notice; LICENSE kept |
-| ESP Web Tools 10.4.0 | `site/vendor/` | Apache-2.0 | no (site) | LICENSE kept |
-| esptool-js 0.7.0 | `site/vendor/` on the `esptool-installer` branch | Apache-2.0 | no (site) | LICENSE kept there |
+| esptool-js 0.7.0 | `site/vendor/` (replaced ESP Web Tools 10.4.0 when `esptool-installer` merged) | Apache-2.0 | no (site) | LICENSE kept |
 | MvaveFM1Unbricker | ported: `softkey.*`, `package.*`, part of `crypto.*`, `mock_rom.*`, `tools/fm1lib.py`, `tools/catalog_dedupe.py` | MIT, Michael P Jones | yes | notice: **added** (NOTICE plus a header line in each file) |
 | jl-uboot-tool | ported: `rom.*`, part of `crypto.*`; `make golden` imports it from a checkout | MIT, Andrey Grigoryev | yes | notice: **added** |
 | LVGL 9.6.0 | Arduino library; `lv_conf.h` is its edited template | MIT | yes | notice: **added** |
@@ -102,7 +101,7 @@ The alternatives were MIT with the `ota.c` risk noted, or asking Quixotic7 first
 |---|---|---|
 | README described CI as off because Actions minutes cost money | `README.md` lines 26 and 112 | **Fixed:** says CI is free once the repo is public and still not part of the gate. |
 | README said the site is "not published anywhere yet" | `README.md` Licensing section | **Fixed:** names beta.outrigger.music. |
-| `deploy_site.py` repeats `build_site.py`'s `wl82loader.bin` scan | `tools/deploy_site.py` (from PR #12, now on `master`) and `tools/build_site.py` | Not fixed here: `esptool-installer` also changes the site build. Share one scan function once it merges. Reported to the orchestrator. |
+| `deploy_site.py` repeats `build_site.py`'s `wl82loader.bin` scan | `tools/deploy_site.py` (from PR #12, now on `master`) and `tools/build_site.py` | Not fixed here: a follow-up can share one scan function now that PR #12 and `esptool-installer` are both on `master`. Reported to the orchestrator. |
 | Re-enable CI after going public | `.github/workflows/ci.yml` | Optional: `gh workflow enable CI` as an extra, free signal. The gate stays `make check`. |
 
 ## History rewrite: optional, not recommended
