@@ -59,6 +59,16 @@ APP_SETS = {
 }
 
 
+# Each app set's label in the build tag (lib/platform/src/apps.h kAppSetLabel).
+# hub-loader may carry the Wi-Fi diagnostics page (DIAG_WEB=1).
+APP_SET_LABELS = {"hub": {"hub"}, "hub-loader": {"hub+L", "hub+LW"}, "everything": {"all"}}
+
+# The build tag (lib/platform/src/build_tag.h), right after esp_app_desc_t at
+# app image offset 0x120. The page reads it off a board to name the build it
+# runs; tests/installer/tags.json holds the cases both readers run.
+TAG_OFFSET, TAG_MAGIC, TAG_LAYOUT = 0x120, 0x54484D55, 1
+
+
 def fail(msg):
     sys.exit(f"build_site: {msg}")
 
@@ -134,6 +144,27 @@ def check_layout(parts, board):
         fail(f"bootloader header says {1 << size_code} MB flash")
 
 
+def read_build_tag(app):
+    """{commit, dirty, app_set} from an app image, or None without a tag."""
+    tag = app[TAG_OFFSET:TAG_OFFSET + 20]
+    if len(tag) < 20:
+        return None
+    magic, layout, dirty, _, commit = struct.unpack("<IHBBI", tag[:12])
+    if magic != TAG_MAGIC or layout != TAG_LAYOUT:
+        return None
+    return {"commit": f"{commit:07x}", "dirty": bool(dirty), "app_set": tag[12:].split(b"\0")[0].decode()}
+
+
+def check_build_tag(app, app_set):
+    """The tag the page will read off a board; refuses a build without one."""
+    tag = read_build_tag(app)
+    if tag is None:
+        fail(f"the app has no build tag at {TAG_OFFSET:#x}; the installer couldn't name it on a board")
+    if tag["app_set"] not in APP_SET_LABELS[app_set]:
+        fail(f"the app's build tag says {tag['app_set']!r}, staged as {app_set}")
+    return tag
+
+
 def check_licensing(files):
     blob = None
     for candidate in (os.environ.get("WL82_BLOB"), ROOT / "tests/fixtures/wl82loader.bin"):
@@ -172,6 +203,7 @@ def main():
             fail(f"missing {path}; run `make build` first")
         parts[offset] = path.read_bytes()
     check_layout(parts, board)
+    tag = check_build_tag(parts[0x10000], app_set)
 
     out = SITE / "firmware" / board_id / app_set
     # Builds before app sets were staged flat in the board folder; don't keep serving them.
@@ -186,6 +218,8 @@ def main():
     manifest = {
         "name": f"{board['name']}: {APP_SETS[app_set]}",
         "version": version,
+        # What the board will say it runs once installed (site/installer/board.js).
+        "build": tag,
         # Without this, ESP Web Tools erases the whole chip on every install of
         # firmware that doesn't speak Improv. With it, the user gets an "Erase
         # device" box that starts unticked.

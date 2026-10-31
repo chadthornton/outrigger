@@ -9,10 +9,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
-from build_site import BOARDS, check_layout, check_table  # noqa: E402
+from build_site import BOARDS, check_build_tag, check_layout, check_table, read_build_tag  # noqa: E402
 from check_partitions import read_csv  # noqa: E402
 
 CASES = json.loads((ROOT / "tests/installer/tables.json").read_text())
+TAGS = json.loads((ROOT / "tests/installer/tags.json").read_text())
 OURS = read_csv(ROOT / "firmware/waveshare_169/partitions.csv")
 BOARD = BOARDS["waveshare-esp32-s3-touch-lcd-1.69"]
 
@@ -57,6 +58,39 @@ def parts_for(case):
     return parts
 
 
+def app_with(tag_hex):
+    tag = bytes.fromhex(tag_hex)
+    head = bytearray(b"\xff" * (TAGS["offset"] + 20 + 64))
+    head[TAGS["offset"]:TAGS["offset"] + len(tag)] = tag
+    return bytes(head[:TAGS["offset"] + len(tag)]) if len(tag) < 20 else bytes(head)
+
+
+def refuses(fn, *args):
+    try:
+        fn(*args)
+    except SystemExit:
+        return True
+    return False
+
+
+def check_tags():
+    failures = []
+    for case in TAGS["cases"]:
+        got = read_build_tag(app_with(case["hex"]))
+        if got != case["expect"]:
+            failures.append(f"read_build_tag {case['name']}: {got} != {case['expect']}")
+    loader = app_with(TAGS["cases"][0]["hex"])  # hub+L
+    hub = app_with(TAGS["cases"][1]["hex"])  # hub
+    untagged = app_with("ff" * 20)
+    if refuses(check_build_tag, loader, "hub-loader") or refuses(check_build_tag, hub, "hub"):
+        failures.append("check_build_tag refused a matching tag")
+    if not refuses(check_build_tag, untagged, "hub"):
+        failures.append("check_build_tag accepted an app with no tag")
+    if not refuses(check_build_tag, hub, "hub-loader"):
+        failures.append("check_build_tag accepted a MIDI Hub app staged as hub-loader")
+    return failures
+
+
 def main():
     failures = []
     for case in CASES["cases"]:
@@ -72,11 +106,12 @@ def main():
             refused = str(e)
         if (refused is None) != (case["expect"] == "ok"):
             failures.append(f"check_layout {'refused' if refused else 'accepted'}: {case['name']} ({refused})")
+    failures += check_tags()
     for f in failures:
         print("tables: " + f)
     if failures:
         return 1
-    print(f"tables: build_site agrees on {len(CASES['cases'])} shared install cases")
+    print(f"tables: build_site agrees on {len(CASES['cases'])} shared install cases and {len(TAGS['cases'])} build tags")
     return 0
 
 
