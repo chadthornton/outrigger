@@ -17,6 +17,8 @@ apps ask it for them. See `docs/architecture.md`, and the merge gate below befor
 | `lib/midi_core/` | Board-independent MIDI logic (formatting, line log). No Arduino headers. |
 | `tests/` | Mac-side tests for `midi_core`, `platform` and `fm1_loader`: `make test`. `tests/golden/` holds the loader's golden vectors. |
 | `lib/fm1_loader/` | FM-1 firmware loader core (no Arduino headers): packages, address guard, sector store, units and save states, ROM-boot install state machine. Plan: `docs/firmware-loader-plan.md`. |
+| `lib/web_core/` | Web UI pieces with no Arduino headers: the diagnostics log (lock-free rings per task, numbered history), the read-only route table, the Host guard, the setup hotspot's channel pick. Tested by `make test`. |
+| `tools/diag.py` | Reads the board's web diagnostics from the Mac: `/status`, `/log`, `/crash`, `/store`, and saves `/coredump` for `esp-coredump`. |
 | `lib/host_ui/` | The LVGL screens (signal chain, settings), laid out from a `BoardProfile`, not fixed pixels. |
 | `tests/ui_shots/` | `make ui-shots`: renders every `host_ui` screen with LVGL on the Mac (S/M/L, hub and hub-loader, 0-6 controllers, Off, a problem, settings, Firmware, Computer mode), taps them with a drifting finger, and fails on a clipped or out-of-safe-area label. PNGs and `sheet.png` in `build/ui-shots/`. Check UI changes here before booking the board. |
 | `firmware/config/lv_conf.h` | LVGL configuration (fonts, clib malloc so big buffers can use PSRAM). |
@@ -38,6 +40,8 @@ make fixtures  # FM-1 packages and wl82loader.bin for the tests, pinned by SHA-2
 make golden    # regenerate tests/golden/ from the Unbricker and jl-uboot-tool (Python venv in build/)
 make build     # compile one board x app set: BOARD=waveshare_169 (default) APPS=hub|hub-loader|everything
 make build-all # every board x app set, into build/<board>/<app set>/
+make build APPS=hub-loader DIAG_WEB=1  # hub-loader plus the read-only web diagnostics (build/<board>/hub-loader-web/)
+python3 tools/diag.py all              # status, log, crash and store into build/diag/<time>/, plus the core dump
 make flash     # flash BOARD/APPS; PORT=/dev/cu.usbmodemXXXX to pick the port
 make serve     # web installer on http://localhost:8088
 make store-image                    # the store partition's first setup (LittleFS image with the loader blob, in build/)
@@ -80,14 +84,25 @@ make serve    # same, then serve on http://localhost:8088 (Web Serial needs http
   overlap NVS or overflow app0.
 - **No erase by default.** ESP Web Tools erases the whole chip for firmware without Improv unless the manifest sets
   `new_install_prompt_erase`; ours does, so the user sees an "Erase device" box that starts unticked.
-- **App sets:** one Install button per app set (MIDI Hub, Hub + Loader, Everything), each with its own manifest. Until
-  the Loader, Recorder and Web UI have firmware code, all three install the same hub; the settings page shows which set
-  is running next to the commit (`hub`, `hub+L`, `all`).
+- **App sets:** one Install button per app set (MIDI Hub, Hub + Loader, Everything), each with its own manifest. Hub +
+  Loader ships with the Loader's writes on (`WRITES` defaults to 1 for `hub-loader`; `WRITES=0` builds it read-only);
+  Everything's loader stays read-only. The settings page shows which set is running next to the commit (`hub`,
+  `hub+L`, `all`).
 - **Adding a board:** see Layout.
 - **Licensing:** our code, LVGL (MIT) and the vendored EspUsbHost (MIT) ship as binaries. JieLi's `wl82loader.bin` must
   never be in a published build: `build_site.py` refuses a file with its name or SHA-256, or containing a 1 KiB piece of
   it (when `tests/fixtures/wl82loader.bin` or `$WL82_BLOB` is present), and deletes the staged firmware if so.
 - Not published anywhere yet. GitHub Pages (or any host) needs Chad's go-ahead.
+
+## Web diagnostics
+
+Builds with the Web UI (`everything`, or `hub-loader` with `DIAG_WEB=1`) join Wi-Fi and serve a read-only page at
+`http://fm1hub.local` (the settings page shows the address). With no network saved they open the `fm1hub-setup`
+hotspot (password on the settings page); its page saves a network to NVS `wifi`, the only thing any route writes.
+Everything else is GET: `/status` (build, heap, each task's unused stack, USB devices with their channels and
+refusals, the Firmware page), `/log?since=N` (lines from the USB task, the loader task and the loop), `/crash` (the
+last abnormal reset), `/coredump` (the raw partition) and `/store`. After a crash, safe mode starts Wi-Fi too, so the
+crash can be read without the screen. `tools/diag.py` fetches them from the Mac.
 
 ## Merge gate
 

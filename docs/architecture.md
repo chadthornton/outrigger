@@ -259,6 +259,14 @@ every mode.
 
 ### Web UI (`spike/web-ui`, `docs/web-ui-spike.md`; not on `master`)
 
+**First slice built (branch `web-diag`, 2026-10-27): read-only diagnostics.** Wi-Fi station plus the setup hotspot,
+mDNS, `httpd` on core 0 at priority 3, and GET routes only (`lib/web_core/src/routes.h`, tested): `/status`, `/log`,
+`/crash`, `/coredump`, `/store`, and the page. No pairing, settings or WebSocket yet. The server reads only copies:
+the loop publishes its frame, devices, tasks and the Firmware page under a mutex, and the loader task publishes the
+store summary, so `httpd` never touches EspUsbHost, the broker, `Library` or LittleFS. Each logging task has its own
+lock-free ring (`log_ring.h`), drained by `httpd`. The radio manager doesn't exist yet: Wi-Fi is on whenever the
+build carries the Web UI.
+
 - **Claims:** no USB interface. A Wi-Fi lease, the `httpd` task (core 0, priority 3, below the USB host's 5), NVS
   `web`.
 - **Interface to the core:** reads the registry and the chain view; writes only settings; any FM-1 action becomes a

@@ -131,9 +131,107 @@ So it splits in two.
      - **Locked builds:** the hold stays off ("read-only build").
   3. **Checkpoint 2, no-op:** a build with `FM1_LOADER_WRITES=1` installs Skiff over Skiff. The plan must show
      0 sectors, and nothing is erased.
-  4. **Checkpoint 3, real install:** Skiff → SLOOP → Skiff, with the Transporter wired and ready. This includes the
+     - **Passed 2026-10-27** (build `b81773c`, writes on). After a fresh backup, the browser marked Skiff 1.4 "running"
+       (all 143 backed-up app sectors equal the package's) and previewed 0 sectors with data kept. The install wrote
+       nothing, and the FM-1 came back on its own.
+     - **Found on the way:**
+       - **A reboot loop with packages in the store:** the loop task's 8 KB stack overflowed in LVGL's redraw. Found
+         from the core dump on the `coredump` partition (`esp-coredump`). The loop task now has 16 KB, and the page's
+         data is off its stack.
+       - **Allocation inside a critical section:** now fixed.
+       - **Crash breadcrumbs and a safe mode:** after a crash the board starts without the USB host, shows where it
+         died, and hands the port to the Mac.
+       - **store-add mounts by version:** the board had upgraded its littlefs to disk version 2.1, so store-add finds
+         the version by mounting instead of parsing.
+  4. **Checkpoint 3, real install:** Skiff → Felucca 1.6.1 → Skiff, with the Transporter wired and ready.
+     - **Why not SLOOP (Chad, 2026-10-27):** SLOOP is Felucca 0.9-based, and Skiff (1.6.1) over 0.9 data is the
+       known brick pattern. SLOOP waits until store dumps (`tools/store_dump.py`) show where it keeps data outside
+       the Felucca table. This includes the
      save states (a Skiff project survives the round trip).
   5. **Then:** `hub-loader` ships with writes on, and the README and site say so. Code-review at high effort.
+- **Checkpoint 3, first attempt (2026-10-27): stopped safely.**
+  - **What happened:** Skiff → Felucca 1.6.1 stopped with "the FM-1 stopped answering" during the write phase. The
+    FM-1 restarted on its own, and wasn't reset by the board.
+  - **Then:** a key on the next attempt didn't bring up a ROM device, and the FM-1 went dark. After a power cycle, a
+    backup showed the app area byte-for-byte Skiff, so nothing had been written.
+  - **Suspects:** the FM-1's battery (erase current), or a loader or USB fault that the screen can't name.
+  - **Before retrying:**
+    - Charge the FM-1 fully.
+    - Get logs from `web-diag`, the session building read-only `/status`, `/log`, `/crash` and `/coredump` pages on
+      branch `web-diag` off `loader-session3`.
+    - Make the failure name its command, address and sector count.
+  - **Also fix:** `status.cpp`'s fallback line "It may not be class-compliant", which showed for a Launchkey whose
+    MIDI simply didn't reopen after many host restarts.
+- **Checkpoint 3, second session (2026-10-27/29, builds `c42d5f0` to `b4a4d71`):**
+  - **Leg 1 done, Skiff → Felucca 1.6.1, but through the retry.** The board booted with the FM-1 in ROM boot and
+    found the first attempt's pending record. The top row's hold became "retry the install" while the row still
+    read "Back up this FM-1", and Chad held it as a backup. It ran the first attempt's confirmed plan (fresh start,
+    143 + 6 sectors) as a resume. The Skiff saves stayed in the store. Fixed: the row now reads
+    "Retry the … install", and `/status` shows the top row, quoted to Chad before every hold.
+  - **Leg 2 stopped twice before any erase:** the FM-1 left ROM boot on its own about 8.5 s after the loader
+    started (two backup reads, then the plan). A resume reaches its first erase 3.3 s in and wrote for 9 s without
+    a stop. Leading hypothesis: a loader watchdog that erases and writes feed and reads don't. Fixed in `d860144`:
+    an install plans from the stored backup before the key, then reads once (compared with that backup) and
+    erases, with a 6 s budget. A stop before any erase leaves no danger flag and no pending record.
+  - **The board's USB host failed after in-place restarts:** an ESP-IDF `hcd_urb_dequeue` assert (twice, with app
+    hub requests in flight), ROM devices never seen, devices not re-enumerating, and once Wi-Fi gone too. Every
+    first job after a fresh boot worked. Fixed in `74033a9`: a job is its own boot (RTC `JobBoot`, then
+    `esp_restart`), and loader builds send no hub requests. The log tail now survives any reset (`/crash`).
+- **Checkpoint 3: passed 2026-10-30** (build `fc72748`, writes on).
+  - **Leg 2, Felucca 1.6.1 → Skiff 1.4:** the preview read "Writes 143 of 143 app sectors / Restores its saves
+    (6 sectors)". The install verified all 149 sectors, autosaved Felucca's data first (s9), and cleared its
+    pending record. A backup afterwards found the FM-1 running `FM-1_714` (Skiff 1.4), with the boot head and the
+    Bluetooth and voice data still equal to the 2026-10-25 dump.
+  - **Marked round trip, the same day:** Chad set Skiff's tempo to 137 and changed a pattern step, then
+    backed up (b50) and went Skiff → Felucca → Skiff. Both changes came back. The restored save (s51) was
+    captured from b50, and the install read back each of its 6 sectors. The first erase came 2.1 s after the
+    loader started.
+  - **Found on the way:** a finished install doesn't update the unit's latest backup, so the page's "running"
+    mark and the next preview describe the firmware from before the install. A second Felucca hold was correctly
+    refused by the check read ("the FM-1 changed since its backup"). Fix: after a verified install, record the
+    written flash as the latest backup.
+  - **Skiff calls itself "Felucca" on USB** (`1209:0001 Felucca`), so the FM-1's name doesn't tell the two apart;
+    only a backup does.
+- **Soak tests (`make build ... SOAK=1`, `tools/soak_watch.py`):** the board backs up the FM-1 by itself, job after
+  job, and the Mac keeps every crash's log tail and core dump.
+  - **Baseline (`a616453`):** 6 runs, 3 ok, 2 ROM devices missed, 2 `hcd_urb_dequeue` crashes, all as the FM-1
+    left USB after the key.
+  - **Hub tracking off in job boots (`77ff4ec`):** 9 runs, 7 ok, 1 crash (same assert), 2 runs where the FM-1
+    restarted into its firmware instead of ROM boot. `fc72748` sends the key again in that case.
+  - **Root cause, fixed in `417f316`:** a use-after-free in EspUsbHost's disconnect teardown. ESP-IDF flushes
+    the FM-1's MIDI IN transfer onto the pipe's done list and then posts DEV_GONE. When the client pass had checked
+    for pending endpoints before that flush, `handleDeviceGone` freed the transfer IDF still held, and the next
+    pass's `hcd_urb_dequeue` read reused memory and asserted. App hub requests were ruled out: the failing path
+    serves only non-control endpoints. Now the endpoints are stopped at DEV_GONE and freed in
+    `finalizeDisconnectedDevice` once IDF releases every interface (it refuses while a transfer is in flight).
+  - **Soak with the fix (`417f316`, 2026-10-30):** 24 runs, 24 ok, 0 crashes, 12 deferrals (client loops where
+    the release had to wait: the race happened and was absorbed). Stopped at run 24 for the merge gate. Notes:
+    `urb-dequeue-crash.md` in the session notes.
+- **Session 3a finish (2026-10-30):**
+  1. ~~The failure detail and the status line.~~ Done in `605c522`.
+  2. ~~Merge `web-diag`.~~ Done (`c42d5f0`).
+  3. ~~Checkpoint 3.~~ Passed (above).
+  4. ~~The Firmware page fit.~~ `154d147`: a list, then a detail screen with the hold; `make ui-shots` clean.
+  5. ~~The crash.~~ Fixed and soaked (above).
+  6. ~~`code-review` at high effort, one round over `d2284ba..`~~ 7 findings: 2 fixed in `c690895` (no Computer
+     mode while a job runs; an install keeps the backup it planned from when that holds firmware no package has),
+     1 comment fix, 4 dismissed (a retry across a board restart: ROM boot survives it and the resume re-uploads the
+     loader; "already installed" from the stored backup: nothing is written and the next real install's check read
+     catches a changed FM-1; no Mac test for the EspUsbHost teardown: no IDF harness, the soak is the check; a
+     selection race the hold's preview check already refuses).
+  7. Merge with `hub-loader` writes on (`WRITES` defaults to 1 for `hub-loader`; README and site say so).
+  - **Open:** the loader watchdog (confirm by timing a backup that stops reading for 9 s). Hub port polls stay off
+    in loader builds until PR #2's hub-poll timeout fix lands; the first boot's Wi-Fi join is sometimes missed
+    (web-diag's notes).
+- **Long term, in order:**
+  1. **3b:** the Web UI with install requests and laptop `.fm1bak`/`.fm1save` export and import, building on
+     `web-diag`.
+  2. **SLOOP and other Felucca 0.9 firmwares:** diff store dumps for data outside the Felucca table first.
+  3. **Store packing:** per-sector files cost about 2.6× space; 4 packages took 4.3 MB.
+  4. **The stock V15 data map.**
+  5. **Catalog downloads over Wi-Fi.**
+  6. **The recovery app and self-update.**
+
 - **3b. Web UI app and web install (its own session after 3a):**
   - **The Web UI first:** land the Web UI as an app from `spike/web-ui`, with the radio manager, pairing, the `web`
     and `wifi` NVS namespaces, and the 3 MB slot that's now there.

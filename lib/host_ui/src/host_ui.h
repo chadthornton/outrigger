@@ -33,15 +33,29 @@ struct UiFrame {
   uint32_t sent, blocked;
 };
 
-// The Firmware page (the Loader's, in builds that carry it).
+// The Firmware page (the Loader's, in builds that carry it): what the loader
+// is doing, a list of actions (back up, then each library package), the
+// selected one's preview, and a 2-second hold that runs it.
 constexpr int kLoaderLines = 6;
+constexpr int kLoaderItems = 10;
+struct UiLoaderItem {
+  char label[28];  // "Skiff 1.4"
+  char note[20];   // "running", "FM-1_900"...
+  bool pinned;     // a favorite: drawn with a filled star
+};
 struct UiLoader {
   char title[40];                     // what the loader is doing, or its last result
   uint32_t title_colour;              // 0xRRGGBB
   char lines[kLoaderLines][40];       // store, blob, unit, hashes ...
+  UiLoaderItem items[kLoaderItems];   // library packages, favorites first
+  uint8_t item_count;
+  int8_t selected;                    // -1: "Back up this FM-1"; else an item
+  char preview[2][40];                // what the selected action would do
+  char action[40];                    // the hold's label, e.g. "Hold: install SLOOP"
+  char top_label[40];                 // the top row, if not "Back up this FM-1" (a retry)
   uint8_t percent;                    // progress while busy
   bool busy;                          // a job is running: the hold is off
-  bool can_back_up;                   // store and blob are ready
+  bool can_act;                       // the selected action can run now
 };
 
 // What the app does when the user acts. Any hook may be null.
@@ -49,9 +63,10 @@ struct UiHooks {
   void (*settings_changed)(const UiSettings &);
   void (*connect_computer)();  // settings page: restart with the USB host off
   void (*back_to_host)();      // computer screen: restart as the MIDI host
-  // Firmware page, after a 2-second hold: back up the FM-1 on the hub. Null
-  // in builds without the Loader: no Firmware page then.
-  void (*back_up_fm1)();
+  // Firmware page. Null in builds without the Loader: no Firmware page then.
+  void (*loader_select)(int index);  // a row was tapped (-1: back up)
+  void (*loader_pin)(int index);     // a row's star was tapped
+  void (*loader_act)();              // the 2-second hold completed
 };
 
 // Sets up LVGL, the display and touch, and builds the screens.
@@ -60,9 +75,14 @@ bool ui_begin(const BoardProfile &board, const UiSettings &settings, const UiHoo
 // Shows the computer-mode screen instead of the chain (USB host not running).
 // info: the running firmware's commit, so an update can be confirmed.
 void ui_show_computer_mode(const char *info);
+// Opens the Firmware page (a loader job's boot shows its progress there).
+void ui_show_firmware();
 // Refreshes the chain screen; cheap when nothing changed.
 void ui_update(const UiFrame &frame);
 // Refreshes the Firmware page; cheap when nothing changed.
 void ui_update_loader(const UiLoader &loader);
+// The network line on the settings and computer-mode screens (the Web UI's
+// address, or how to reach its setup hotspot). Empty hides it.
+void ui_set_network(const char *line);
 // Runs LVGL; call often (every few ms).
 void ui_tick();

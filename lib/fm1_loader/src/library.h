@@ -19,6 +19,8 @@ using FlashHashes = std::vector<Hash>;  // kSectors entries
 
 struct PackageInfo {
   std::string id;  // library name, e.g. "skiff-1.4"
+  std::string name, version;  // for the screen, e.g. "Skiff", "1.4" (may be empty)
+  bool pinned = false;        // a favorite: never evicted
   std::string identity;
   Family family = Family::Felucca;
   Hash file_sha256{};
@@ -90,11 +92,13 @@ class Library {
 
   // Parses, checks and stores a .fwsc file under id.
   PackageError add_package(const std::string &id, const uint8_t *data, size_t len,
-                           const Hash *expected_sha256 = nullptr);
+                           const Hash *expected_sha256 = nullptr, const std::string &name = "",
+                           const std::string &version = "");
   bool package(const std::string &id, PackageInfo &out);
   std::vector<std::string> package_ids();
   // Refused while a unit has it installed or an unfinished install needs it.
   bool remove_package(const std::string &id);
+  bool set_pinned(const std::string &id, bool pinned);
   // What an app area with these sector hashes is (identity empty if unknown).
   Firmware identify_app(const std::vector<Hash> &app);
 
@@ -109,6 +113,8 @@ class Library {
   // SHA-256 of flash [start, end) as a backup holds it (sector-aligned).
   bool region_sha256(const std::string &backup_id, uint32_t start, uint32_t end, Hash &out);
 
+  // The unit whose backup was recorded last: the FM-1 the screen talks about.
+  std::string last_unit();
   bool add_save(Unit &u, SaveState &s);  // assigns id and seq; synced
   bool save(const std::string &id, SaveState &out);
   std::vector<SaveState> saves_of(const std::string &unit_id);
@@ -142,6 +148,18 @@ struct DataDecision {
 //   for stock, whose data map isn't known yet.
 DataDecision decide_data(const std::string &unit_id, const Firmware &current,
                          const PackageInfo &target, const std::vector<SaveState> &saves);
+
+// What installing a package on a unit would do, from the unit's latest backup:
+// shown before the hold. The install itself plans again from a fresh backup.
+struct InstallPreview {
+  bool ok = false;
+  const char *problem = "";  // when !ok
+  Firmware current;          // what the unit ran at its latest backup
+  DataDecision decision;
+  uint32_t app_sectors = 0, data_sectors = 0;
+};
+class Library;
+InstallPreview preview_install(Library &lib, const std::string &unit_id, const std::string &package_id);
 
 // App sectors that differ between the unit's flash and the package.
 std::vector<SectorOp> plan_app(const FlashHashes &flash, const PackageInfo &target);

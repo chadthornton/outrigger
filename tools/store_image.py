@@ -30,6 +30,26 @@ GEOMETRY = dict(block_size=BLOCK, read_size=128, prog_size=128, block_cycles=512
                 name_max=64, disk_version=0x00020000)
 
 
+def mount(image):
+    """Mounts a store image as the board's littlefs wrote it: (fs, disk_version).
+
+    littlefs refuses an image whose on-disk version is newer than the one it is
+    configured for, and one whose block count doesn't match, so the oldest
+    version that mounts is the image's own. Writing back with it never
+    upgrades the store past what the board reads. None if neither mounts.
+    """
+    for version in (0x00020000, 0x00020001):
+        fs = littlefs.LittleFS(block_count=len(image) // BLOCK, mount=False,
+                               **dict(GEOMETRY, disk_version=version))
+        fs.context.buffer[:] = image
+        try:
+            fs.mount()
+            return fs, version
+        except Exception:
+            continue
+    return None
+
+
 def store_partition(csv_path):
     for line in Path(csv_path).read_text().splitlines():
         fields = [f.strip() for f in line.split("#", 1)[0].split(",")]

@@ -2535,6 +2535,20 @@ public:
   // callable from the USB client task.
   bool mscRawCommand(uint8_t address, const uint8_t *cdb, uint8_t cdbLength, uint8_t *data,
                      size_t dataLength, bool dataIn, size_t &actual, uint32_t timeoutMs);
+  // usb-midi-host patch: why the last mscRawCommand() went wrong, for the
+  // diagnostics log. Reset at the start of each call; read it on the same task.
+  struct MscRawResult
+  {
+    enum Stage : uint8_t { None, NoDevice, Cbw, Csw, CswInvalid, CswStatus } stage = None;
+    // The failed transfer's usb_transfer_status_t, or -1 timed out, -2 not
+    // submitted, -3 no memory for the transfer (DMA-capable internal RAM).
+    int8_t transferStatus = 0;
+    int8_t dataStatus = 0;  // the data phase's, when it failed but the CSW was still read
+    uint8_t cswStatus = 0;
+    uint32_t cswResidue = 0;
+    size_t moved = 0;  // data bytes moved
+  };
+  const MscRawResult &mscRawLastResult() const { return mscRawResult_; }
 
   void onDeviceConnected(DeviceCallback callback);
   void onDeviceDisconnected(DeviceCallback callback);
@@ -3136,6 +3150,10 @@ public:
   // Defaults to on. Set it before begin() to take effect from the first scan.
   void setHubTrackingEnabled(bool enabled);
   bool hubTrackingEnabled() const;
+  // Client loops on which a gone device's interfaces couldn't be released yet
+  // because ESP-IDF still held one of its transfers (its endpoints are freed
+  // only after that). Nonzero shows the disconnect race happened and was waited out.
+  uint32_t disconnectDeferrals() const;
   bool getHubPortStatus(uint8_t hubAddress, uint8_t port, uint16_t &status, uint16_t &change);
   bool networkOpen(uint8_t address = ESP_USB_HOST_ANY_ADDRESS);
   bool networkOpen(const EspUsbHostNetworkInterfaceInfo &network);
@@ -4204,6 +4222,7 @@ private:
   uint32_t defaultAudioSampleRate_ = 48000;
   uint8_t nextHubIndex_ = 1;
   bool hubTrackingEnabled_ = true;
+  volatile uint32_t disconnectDeferrals_ = 0;
   uint32_t lastHostDeviceScanMs_ = 0;
 
   EndpointState endpoints_[16];
@@ -4232,6 +4251,7 @@ private:
   esp_err_t currentClaimResult_ = ESP_OK;
   ClaimPlanner claimPlanner_ = nullptr;  // usb-midi-host patch
   ClaimFilter claimFilter_ = nullptr;    // usb-midi-host patch
+  MscRawResult mscRawResult_;            // usb-midi-host patch
   // Direction of the MIDI Streaming bulk endpoint the scan just passed, so the
   // class-specific endpoint descriptor that follows can be attributed to it.
   // ESP_USB_HOST_MIDI_ENDPOINT_NONE while the scan is not directly after one.

@@ -4,8 +4,13 @@
 // small piece of work (one sector at most) so the UI can show progress.
 //
 // Order of an install:
-//   Confirm, SendKey, WaitRom, Identify, UploadLoader, ReadIds, Backup, Plan,
-//   WriteApp, WriteData, Reset, WaitMidi, Done.
+//   Confirm (plans from the unit's latest stored backup, records the pending
+//   install), SendKey, WaitRom, Identify, UploadLoader, ReadIds, Check (one read,
+//   compared with that backup), WriteApp, WriteData, Reset, WaitMidi, Done.
+// Planning before the key keeps the loader's time before the first erase to one
+// read of the flash: in checkpoint 3 the FM-1 restarted itself about 8.5 s after
+// the loader started when no erase came. With nothing to write, there's no key.
+// A backup: Confirm, SendKey ... ReadIds, Backup (two reads), Reset, WaitMidi.
 // A resume starts at Identify, then reads the unit (ResumeRead) and finishes the
 // install its unit record says was pending, using the stored verified backup.
 #pragma once
@@ -33,12 +38,17 @@ class LoaderHost {
   virtual bool wait_for_rom_device(uint32_t timeout_ms) = 0;
   // After the reset: waits for the FM-1 to come back as a USB-MIDI device.
   virtual bool wait_for_midi_return(uint32_t timeout_ms) = 0;
+  // A millisecond clock, for the time from the loader's start to the first erase.
+  virtual uint32_t now_ms() { return 0; }
 };
 
 enum class Step {
   Idle, Confirm, SendKey, WaitRom, Identify, UploadLoader, ReadIds, Backup, ResumeRead, Plan,
-  WriteApp, WriteData, Reset, WaitMidi, Done, Failed,
+  WriteApp, WriteData, Reset, WaitMidi, Done, Failed, Check,
 };
+
+// An install stops before its first erase if the loader has run this long.
+constexpr uint32_t kLoaderBudgetMs = 6000;
 
 enum class Failure {
   None,
@@ -52,6 +62,9 @@ enum class Failure {
   IdentityMismatch,    // chip key or flash ID isn't the FM-1's
   DeviceLost,          // a command failed: unplugged, or the device stopped answering
   BackupMismatch,      // the two backup reads differ
+  NoBackupForInstall,  // install: no stored backup of this FM-1 to plan from
+  BackupStale,         // install: the FM-1 differs from the backup the install planned from
+  LoaderTooSlow,       // install: the first erase would come too late after the loader started
   BlankUnitSector,     // 0xE9000 is blank: can't tell this FM-1 apart
   StorageFailed,       // the Waveshare's storage couldn't record the backup or plan
   PackageMissing,      // the package isn't in the library, or a sector of it is gone
@@ -72,6 +85,15 @@ struct InstallOptions {
   bool fresh_start_ok = false;  // the user agreed to erase data for a clean start
   bool layout_change_ok = false;  // the user saw the data-layout warning and went on
   std::string unit_name;        // for a unit seen for the first time
+  // Install: the unit the preview was for (empty: the unit backed up last).
+  std::string unit_id;
+  // Resume only: this board may have left its loader running in the FM-1 (it
+  // stopped the install itself and didn't reset). The resume asks the loader
+  // first and skips the upload when it answers.
+  bool loader_running = false;
+  // The key went out before the board restarted (no ROM device showed up): the
+  // job runs again from waiting for ROM boot, without a second key.
+  bool key_sent = false;
   uint32_t rom_timeout_ms = 10000;
   uint32_t midi_timeout_ms = 15000;
 };
@@ -96,6 +118,10 @@ class Installer {
   bool danger() const { return danger_; }
   const Unit &unit() const { return unit_; }
   const std::string &backup_id() const { return backup_id_; }  // the backup this run recorded
+  // Where a failure happened, for the screen and the log: the command, the
+  // flash address and how far it got ("erase 0x5A000 try 1, sector 3 of 140").
+  // Empty unless the last run failed.
+  const std::string &failure_detail() const { return detail_; }
   const DataDecision &decision() const { return decision_; }
   uint32_t sectors_done() const { return done_; }
   uint32_t sectors_total() const { return total_; }
@@ -115,6 +141,10 @@ class Installer {
   void do_plan();
   void do_write(std::vector<SectorOp> &ops, Step next);
   bool check_ops(const std::vector<SectorOp> &ops);
+  bool prepare_install();
+  bool plan_ops();
+  bool autosave();
+  void do_check();
 
   RomClient rom_;
   LoaderHost &host_;
@@ -124,11 +154,16 @@ class Installer {
   bool resume_ = false;
   bool backup_only_ = false;
   std::string backup_id_;
+  std::string detail_;
   std::string package_id_;
 
   Step step_ = Step::Idle;
   Failure failure_ = Failure::None;
   bool danger_ = false;
+  bool in_rom_ = false;      // the FM-1 is in ROM boot: a reset sends it home
+  bool erased_ = false;      // an erase may have reached the FM-1
+  bool pending_set_ = false;  // this run recorded the unit's pending install
+  uint32_t loader_ms_ = 0;   // when the loader started (host clock)
   uint32_t chunk_ = 512;
   uint32_t index_ = 0;  // sector being worked on in Backup/ResumeRead/Write*
   int pass_ = 1;

@@ -13,11 +13,34 @@ APPS ?= hub
 APP_FLAGS_hub :=
 APP_FLAGS_hub-loader := -DAPP_LOADER=1
 APP_FLAGS_everything := -DAPP_LOADER=1 -DAPP_RECORDER=1 -DAPP_WEB_UI=1
+# WRITES=1 lets the Loader write the FM-1's flash (FM1_LOADER_WRITES, rom.h).
+# hub-loader ships with writes on (checkpoints 2 and 3 passed, and the USB host
+# crash at the FM-1's disconnect is fixed); WRITES=0 builds it read-only.
+# `everything` stays read-only until its own checkpoint.
+WRITES_DEFAULT_hub-loader := 1
+WRITES ?= $(or $(WRITES_DEFAULT_$(APPS)),0)
+WRITE_FLAGS := $(if $(filter 1,$(WRITES)),-DFM1_LOADER_WRITES=1) $(if $(filter 1,$(DIAG)),-DLOADER_DIAG=1)
+# SOAK=1 (with DIAG_WEB=1): the board backs up the FM-1 by itself, over and over,
+# for hunting USB host crashes unattended (loader_app.cpp, LOADER_SOAK). Never a release.
+WRITE_FLAGS += $(if $(filter 1,$(SOAK)),-DLOADER_SOAK=1)
 APP_LIBS_hub :=
 APP_LIBS_hub-loader := --library lib/fm1_loader
-APP_LIBS_everything := --library lib/fm1_loader
+APP_LIBS_everything := --library lib/fm1_loader --library lib/web_core
+# DIAG_WEB=1 adds the Web UI's read-only diagnostics (Wi-Fi, GET /status, /log,
+# /crash, /coredump, /store) to hub-loader, which the board runs for loader
+# checkpoints. `everything` always has them.
+ifeq ($(DIAG_WEB),1)
+ifneq ($(APPS),everything)
+APP_FLAGS_$(APPS) += -DAPP_WEB_UI=1
+APP_LIBS_$(APPS) += --library lib/web_core
+BUILD_SUFFIX := -web
+endif
+endif
+ifeq ($(SOAK),1)
+BUILD_SUFFIX := $(BUILD_SUFFIX)-soak
+endif
 SKETCH := firmware/$(BOARD)
-BUILD := build/$(BOARD)/$(APPS)
+BUILD := build/$(BOARD)/$(APPS)$(BUILD_SUFFIX)
 # Mac tests use the Mac's clang; CI sets clang++ too (GCC's -Wformat-truncation
 # objects to the deliberate cut-off of screen lines).
 TEST_CXX ?= c++
@@ -30,20 +53,27 @@ STORE_OFFSET := 0x3D0000
 FW_VERSION := 0x$(shell git rev-parse --short=7 HEAD)
 FW_DIRTY := $(if $(shell git status --porcelain --untracked-files=no),1,0)
 
-.PHONY: test ui-shots build build-all flash site serve clean fixtures golden store-image flash-store
+.PHONY: test ui-shots build build-all flash site serve clean fixtures golden store-image flash-store store-add
 
 FM1_SRC := $(wildcard lib/fm1_loader/src/*.cpp)
 FM1_HDR := $(wildcard lib/fm1_loader/src/*.h) $(wildcard tests/support/*.h)
 FM1_TESTS := build/test_fm1_package build/test_fm1_library build/test_fm1_installer \
 	build/test_fm1_softkey build/test_fm1_posix build/test_fm1_locked build/test_fm1_library_posix
 
-test: build/test_midi_core build/test_status build/test_boot_mode build/test_broker build/test_describe $(FM1_TESTS) fixtures
+test: build/test_fm1_interop build/test_midi_core build/test_status build/test_boot_mode build/test_broker build/test_describe build/test_web_core build/test_store_json $(FM1_TESTS) fixtures
 	./build/test_midi_core
 	./build/test_status
 	./build/test_boot_mode
 	./build/test_broker
 	./build/test_describe
+	./build/test_web_core
+	./build/test_store_json build/store.json
+	python3 -I -c "import json; json.load(open('build/store.json'))"
 	for t in $(FM1_TESTS); do ./$$t || exit 1; done
+	python3 -c "import shutil; shutil.rmtree('build/interop', ignore_errors=True)"
+	python3 -I tools/fm1lib.py selftest build/interop tests/fixtures/skiff-1.4.fwsc \
+		tests/fixtures/sloop-2.8.1.fwsc tests/fixtures/FM-1_015.fwsc
+	./build/test_fm1_interop build/interop
 	python3 -I tools/check_partitions.py firmware/$(BOARD)/partitions.csv
 
 # The Mac tests may write the mock FM-1 (FM1_LOADER_WRITES=1); test_fm1_locked
@@ -97,6 +127,16 @@ build/test_describe: tests/test_describe.cpp lib/platform/src/describe.cpp lib/p
 	mkdir -p build
 	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -Ilib/platform/src -Ilib/midi_core/src -o $@ tests/test_describe.cpp lib/platform/src/describe.cpp lib/platform/src/broker.cpp lib/midi_core/src/midi_core.cpp
 
+WEB_CORE_SRC := $(wildcard lib/web_core/src/*.cpp)
+build/test_web_core: tests/test_web_core.cpp $(WEB_CORE_SRC) $(wildcard lib/web_core/src/*.h)
+	mkdir -p build
+	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -pthread -Ilib/web_core/src -o $@ tests/test_web_core.cpp $(WEB_CORE_SRC)
+
+build/test_store_json: tests/test_store_json.cpp firmware/waveshare_169/store_json.cpp firmware/waveshare_169/store_json.h $(FM1_TEST_SRC) $(FM1_HDR) $(WEB_CORE_SRC)
+	mkdir -p build
+	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -DAPP_LOADER=1 -DAPP_WEB_UI=1 -Ilib/fm1_loader/src -Ilib/web_core/src \
+		-Ilib/platform/src -Ifirmware/waveshare_169 -Itests -o $@ $< firmware/waveshare_169/store_json.cpp $(FM1_TEST_SRC) $(WEB_CORE_SRC)
+
 # Renders every host_ui screen with LVGL itself, on the Mac or in CI, writes
 # PNGs and a contact sheet to build/ui-shots/, and fails on layout problems
 # (tests/ui_shots/ui_shots.cpp). It uses the Arduino library's LVGL; CI clones
@@ -126,10 +166,10 @@ build:
 	$(if $(filter $(APPS),$(APP_SETS)),,$(error APPS=$(APPS); known: $(APP_SETS)))
 	arduino-cli compile --fqbn $(FQBN) --build-property "tools.ctags.path=$(CTAGS_DIR)" \
 		--build-property "upload.maximum_size=$(APP_SLOT)" \
-		--build-property "compiler.cpp.extra_flags=-DFW_VERSION=$(FW_VERSION) -DFW_DIRTY=$(FW_DIRTY) -DESP_USB_HOST_MAX_SERIAL_PORTS=0 $(APP_FLAGS_$(APPS)) -DLV_CONF_INCLUDE_SIMPLE -I$(CURDIR)/firmware/config" \
+		--build-property "compiler.cpp.extra_flags=-DFW_VERSION=$(FW_VERSION) -DFW_DIRTY=$(FW_DIRTY) -DESP_USB_HOST_MAX_SERIAL_PORTS=0 $(APP_FLAGS_$(APPS)) $(WRITE_FLAGS) -DLV_CONF_INCLUDE_SIMPLE -I$(CURDIR)/firmware/config" \
 		--build-property "compiler.c.extra_flags=-DLV_CONF_INCLUDE_SIMPLE -I$(CURDIR)/firmware/config" \
 		--library lib/midi_core --library lib/EspUsbHost --library lib/host_ui --library lib/platform $(APP_LIBS_$(APPS)) \
-		--output-dir $(BUILD) $(SKETCH)
+		--build-path $(CURDIR)/build/cache/$(BOARD)/$(APPS)$(BUILD_SUFFIX) --output-dir $(BUILD) $(SKETCH)
 
 build-all:
 	for b in $(BOARDS); do for a in $(APP_SETS); do $(MAKE) build BOARD=$$b APPS=$$a || exit 1; done; done
@@ -151,6 +191,13 @@ flash-store: store-image
 	$(if $(filter erase-store,$(CONFIRM)),,$(error flash-store erases every backup in the store: add CONFIRM=erase-store))
 	$(firstword $(wildcard $(ESP32_CORE)/../../../tools/esptool_py/*/esptool)) --chip esp32s3 --port $(PORT) \
 		write-flash $(STORE_OFFSET) build/store/store.bin
+
+# Adds packages to the board's store without losing its backups and saves:
+# reads the store back (kept in build/store/), adds, checks nothing else changed,
+# writes it back. Board in Computer mode. make store-add PKGS="a.fwsc b.fwsc" [PIN=1]
+store-add: $(TOOLS_PY)
+	$(if $(PKGS)$(LIST),,$(error PKGS="file.fwsc ..." names the packages to add; LIST=1 only lists))
+	$(TOOLS_PY) tools/store_add.py firmware/$(BOARD)/partitions.csv $(PORT) $(if $(PIN),--pin) $(if $(LIST),--list) $(PKGS)
 
 # Stage the firmware into site/ for the browser installer (ESP Web Tools).
 # fixtures brings wl82loader.bin, so build_site can scan for pieces of it.

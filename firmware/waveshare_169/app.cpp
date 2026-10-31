@@ -19,11 +19,14 @@
 #include <EspUsbHost.h>
 #include <Preferences.h>
 #include <esp_app_desc.h>
+#include <esp_heap_caps.h>
 #include <soc/rtc_cntl_reg.h>
 #include <soc/system_reg.h>
 #include <soc/usb_serial_jtag_reg.h>
 
 #include "apps.h"
+#include "crumbs.h"
+#include "diag.h"
 #include "board_profile.h"
 #include "boot_mode.h"
 #include "broker.h"
@@ -33,6 +36,9 @@
 #include "status.h"
 #if APP_LOADER
 #include "loader_app.h"
+#endif
+#if APP_WEB_UI
+#include "web.h"
 #endif
 
 extern const BoardProfile kBoard;
@@ -46,6 +52,35 @@ static Preferences prefs;
 #define FW_DIRTY 0    // 1 when built with uncommitted changes
 #endif
 static bool host_running = false;
+#if APP_LOADER && LOADER_SOAK
+static uint32_t soak_restart_at = 0;  // safe mode in a soak build: carry on after this
+#endif
+// LVGL redraws recurse through nested objects; with the USB host up and the
+// Firmware page built, 8 KB wasn't enough (checkpoint 2 core dump: loopTask
+// stack overflow inside lv_obj_redraw). 16 KB leaves room.
+SET_LOOP_TASK_STACK_SIZE(16 * 1024);
+RTC_NOINIT_ATTR Crumbs crumbs;
+// The last abnormal reset, for the Firmware page (empty after a normal boot).
+char last_crash[3][40] = {};
+
+static void read_crumbs() {
+  const esp_reset_reason_t r = esp_reset_reason();
+  const bool abnormal = r == ESP_RST_PANIC || r == ESP_RST_INT_WDT || r == ESP_RST_TASK_WDT ||
+                        r == ESP_RST_WDT || r == ESP_RST_BROWNOUT;
+  if (abnormal && crumbs.magic == kCrumbMagic) {
+    snprintf(last_crash[0], sizeof last_crash[0], "Last reset: %s",
+             r == ESP_RST_PANIC ? "crash" : r == ESP_RST_BROWNOUT ? "brownout" : "watchdog");
+    snprintf(last_crash[1], sizeof last_crash[1], "loop:%s usb:%s", crumbs.loop, crumbs.usb);
+    snprintf(last_crash[2], sizeof last_crash[2], "loader:%s", crumbs.loader);
+  }
+  if (crumbs.magic == kCrumbMagic) {
+    // The tail carries on (crumbs.h); only the steps start over.
+    crumbs.loop[0] = crumbs.loader[0] = crumbs.usb[0] = 0;
+  } else {  // power-on: RTC memory holds noise
+    memset(&crumbs, 0, sizeof crumbs);
+    crumbs.magic = kCrumbMagic;
+  }
+}
 
 // ---------- State shared between the USB task and loop() ----------
 // Every EspUsbHost callback runs on the USB client task; loop() copies what it
@@ -61,7 +96,7 @@ static LastMessage last_by_address[128];   // per source device
 static LastMessage fm1_own;                // latest message the FM-1 itself sent
 static LastMessage fm1_in;                 // latest message delivered to the FM-1
 static char fm1_in_tag[4] = "";
-static uint32_t sent_count = 0, blocked_count = 0;
+static uint32_t sent_count = 0, blocked_count = 0, failed_count = 0;
 static uint32_t changes = 0;               // bumped on anything worth redrawing
 
 static midi_core::Router router;           // USB task only
@@ -75,7 +110,17 @@ static platform::Reason refused_why[128];  // per address, under shared_lock
 constexpr int kMaxHubs = 2;
 static volatile uint8_t hub_addresses[kMaxHubs] = {};
 
+// The USB task's crumb names the device too: "conn #2 1209:0001".
+static void crumb_device(const char *what, const EspUsbHostDeviceInfo &d) {
+  char buf[24];
+  snprintf(buf, sizeof buf, "%s #%u %04x:%04x", what, d.address, d.vid, d.pid);
+  CRUMB_USB(buf);
+}
+
 static void on_connected(const EspUsbHostDeviceInfo &d) {
+  crumb_device("conn", d);
+  DLOG_USB("connected #%u %04x:%04x %s%s port %02x", d.address, d.vid, d.pid, d.product, d.isHub ? " (hub)" : "",
+           d.portId);
   router.device_connected(d.address, d.vid, d.pid);
 #if APP_LOADER
   loader_device_connected(d);
@@ -92,12 +137,14 @@ static void on_connected(const EspUsbHostDeviceInfo &d) {
 // EspUsbHost's claim planner: runs before any of the device's interfaces is
 // claimed, so the broker sees the whole device first.
 static void plan_claims(const EspUsbHostDeviceInfo &d, bool is_hub, const uint8_t *config, uint16_t length) {
+  CRUMB_USB("plan_claims");
   char tag[4];
   midi_core::make_tag(d.product, tag);
   platform::DeviceDesc desc;
   // A descriptor that runs past its end still plans the interfaces read so far.
   platform::describe_device(d.address, d.vid, d.pid, is_hub, tag, config, length, desc);
   const platform::DevicePlan &plan = broker.attach(desc);
+  if (plan.reason.line1[0]) DLOG_USB("refused #%u %s: %s", d.address, tag, plan.reason.line1);
 #if APP_LOADER
   loader_has_fm1_midi = broker.owner(platform::Fm1Part::Midi) == platform::App::Loader;
 #endif
@@ -112,6 +159,8 @@ static bool claim_filter(uint8_t address, uint8_t interface_number) {
 }
 
 static void on_disconnected(const EspUsbHostDeviceInfo &d) {
+  crumb_device("disc", d);
+  DLOG_USB("disconnected #%u %04x:%04x", d.address, d.vid, d.pid);
   router.device_disconnected(d.address);
 #if APP_LOADER
   loader_device_disconnected(d);
@@ -132,6 +181,7 @@ static void on_disconnected(const EspUsbHostDeviceInfo &d) {
 }
 
 static void on_midi(const EspUsbHostMidiMessage &m) {
+  CRUMB_USB("midi");
   // Code index 0 and 1 are reserved: padding and cable events, not MIDI.
   if (m.codeIndex <= 1) return;
 
@@ -147,6 +197,7 @@ static void on_midi(const EspUsbHostMidiMessage &m) {
         router.route(m.address, m.cable, m.codeIndex, m.status, m.data1, m.data2, packet, &why);
     // midiSend() only submits the transfer, so it is safe on the USB task.
     mark = dest == 0 ? why : usb.midiSend(packet, sizeof packet, dest) ? '>' : '!';
+    if (mark == '!') DLOG_USB("midiSend to #%u failed: %02x %02x %02x", dest, m.status, m.data1, m.data2);
   }
   LastMessage msg{};
   midi_core::format_message(m.status, m.data1, m.data2, m.raw, m.length, msg.text);
@@ -168,6 +219,8 @@ static void on_midi(const EspUsbHostMidiMessage &m) {
       memcpy(fm1_in_tag, tag, sizeof fm1_in_tag);
     } else if (mark == 's') {
       ++blocked_count;
+    } else if (mark == '!') {
+      ++failed_count;
     }
   }
   ++changes;
@@ -312,8 +365,16 @@ static void build_frame(UiFrame &f) {
 // A claim can't be taken back without re-enumerating, so a mode change restarts
 // the USB host and every device enumerates again under the new mode's rules
 // (docs/architecture.md, "Resource broker"). Runs on loop(), never on a USB task.
+// When the USB host last started: the hub's ports aren't polled for a while
+// after, while devices come and go.
+static uint32_t host_started_ms = 0;
+
 static void restart_host(platform::Mode mode) {
+  DLOG_LOOP("host: restarting in %s mode",
+            mode == platform::Mode::Load ? "Load" : mode == platform::Mode::Record ? "Record" : "Play");
+  CRUMB_LOOP("usb.end");
   usb.end();
+  CRUMB_LOOP("usb.end done");
   broker.set_mode(mode);
 #if APP_LOADER
   loader_has_fm1_midi = false;
@@ -326,7 +387,10 @@ static void restart_host(platform::Mode mode) {
   fm1_own = fm1_in = {};
   ++changes;
   taskEXIT_CRITICAL(&shared_lock);
+  CRUMB_LOOP("usb.begin");
   usb.begin();
+  CRUMB_LOOP("usb.begin done");
+  host_started_ms = millis();
 }
 
 #if APP_LOADER
@@ -336,6 +400,50 @@ static void device_refusal(uint8_t address, char *out, size_t len) {
   const platform::Reason why = refused_why[address & 0x7F];
   taskEXIT_CRITICAL(&shared_lock);
   snprintf(out, len, "%s", why.line1);
+}
+#endif
+
+#if APP_WEB_UI
+// What GET /status shows: the frame the screen just drew, every device with
+// its channel cost and the broker's refusal, and the Firmware page. Loop only.
+static void publish_diag(const UiFrame *frame) {
+  static uint32_t last = 0;
+  if (frame && millis() - last < 250) return;  // /status is polled once a second
+  last = millis();
+  static DiagState *copy = static_cast<DiagState *>(heap_caps_calloc(1, sizeof(DiagState), MALLOC_CAP_SPIRAM));
+  if (!copy) return;
+  DiagState &d = *copy;
+  d.host_running = host_running;
+  d.mode = broker.mode();
+  if (frame) d.frame = *frame;
+  d.device_count = 0;
+  if (host_running) {
+    EspUsbHostDeviceInfo devices[8];
+    const size_t n = usb.getDevices(devices, 8);
+    for (size_t i = 0; i < n; ++i) {
+      const EspUsbHostDeviceInfo &dev = devices[i];
+      DiagDevice &out = d.devices[d.device_count++];
+      out = {};
+      out.address = dev.address;
+      out.vid = dev.vid;
+      out.pid = dev.pid;
+      out.hub = dev.isHub;
+      strlcpy(out.name, dev.product, sizeof out.name);
+      out.channels = uint8_t(usb.estimatedHcdChannelCount(dev.address));
+      EspUsbHostInterfaceInfo itfs[8];
+      out.interfaces = uint8_t(usb.getInterfaces(dev.address, itfs, 8));
+      for (uint8_t k = 0; k < out.interfaces; ++k) out.claimed += itfs[k].claimed ? 1 : 0;
+    }
+  }
+  taskENTER_CRITICAL(&shared_lock);
+  for (int i = 0; i < d.device_count; ++i) d.devices[i].refusal = refused_why[d.devices[i].address & 0x7F];
+  d.failed_sends = failed_count;
+  taskEXIT_CRITICAL(&shared_lock);
+#if APP_LOADER
+  d.has_loader = true;
+  loader_ui(d.loader);
+#endif
+  web_publish(d);
 }
 #endif
 
@@ -355,6 +463,10 @@ static const char *this_build() {
 }
 
 static void connect_computer() {
+#if APP_LOADER
+  // Not while a job runs: a restart mid-install leaves the FM-1's app half-written.
+  if (loader_busy()) return;
+#endif
   Preferences boot;
   boot.begin("boot", false);
   boot.putString("computer", this_build());
@@ -397,6 +509,7 @@ static void hand_usb_to_serial_jtag() {
 }
 
 void setup() {
+  read_crumbs();
   const midi_core::BootMode mode = read_boot_mode();
   prefs.begin("ui", false);
   // An old "typeface" key from builds with a Pixel font stays in NVS, unread.
@@ -404,12 +517,31 @@ void setup() {
   static char firmware[24];
   snprintf(firmware, sizeof firmware, "v %07lx%s %s", (unsigned long)FW_VERSION, FW_DIRTY ? "+" : "",
            platform::kAppSetLabel);
-  UiHooks hooks = {save_settings, connect_computer, back_to_host, nullptr};
+  UiHooks hooks = {save_settings, connect_computer, back_to_host, nullptr, nullptr, nullptr};
 #if APP_LOADER
-  hooks.back_up_fm1 = loader_request_backup;
+  hooks.loader_select = loader_select;
+  hooks.loader_pin = loader_pin;
+  hooks.loader_act = loader_act;
 #endif
   ui_begin(kBoard, settings, hooks, firmware);
 
+  if (last_crash[0][0] && mode != midi_core::BootMode::Computer) {
+    // Safe mode after a crash or watchdog reset: no USB host (a crash loop would
+    // otherwise repeat every few seconds), the port goes to the computer so the
+    // board can be reflashed without BOOT+RST, and the screen says where it died.
+    hand_usb_to_serial_jtag();
+    char info[160];
+    snprintf(info, sizeof info, "%s\n%s\n%s\nRST to try again.", last_crash[0], last_crash[1], last_crash[2]);
+    ui_show_computer_mode(info);
+#if APP_WEB_UI
+    web_begin(true);  // so /crash and /coredump can be read without the screen
+#endif
+#if APP_LOADER && LOADER_SOAK
+    loader_soak_crashed();
+    soak_restart_at = millis() + 90000;  // time for the Mac to fetch /crash and /coredump
+#endif
+    return;
+  }
   if (mode == midi_core::BootMode::Computer) {
     // The USB host is never installed; the port goes to the chip's
     // USB-Serial-JTAG device so the computer can reset it into download mode.
@@ -419,13 +551,38 @@ void setup() {
     ui_show_computer_mode(info);
     return;
   }
+#if APP_LOADER && LOADER_DIAG
+  // Diagnostic build (make ... DIAG=1): the USB host never starts, so the port
+  // stays a serial console and a crash's reason and backtrace reach the Mac;
+  // the store, the loader task and the Firmware page run as usual.
+  hand_usb_to_serial_jtag();
+  delay(3000);
+  printf("diag: loader_begin\n");
+  loader_begin(usb, {loader_owns_fm1_midi, device_refusal});
+  printf("diag: loader_begin returned\n");
+  return;
+#endif
   usb.setClaimPlanner(plan_claims);
   usb.setClaimFilter(claim_filter);
   usb.onDeviceConnected(on_connected);
   usb.onDeviceDisconnected(on_disconnected);
   usb.onMidiMessage(on_midi);
+#if APP_WEB_UI
+  CRUMB_LOOP("web_begin");
+  web_begin(false);
+#endif
 #if APP_LOADER
   loader_begin(usb, {loader_owns_fm1_midi, device_refusal});
+  broker.set_mode(loader_boot_mode());  // a job's boot runs in Load mode from the start
+  if (loader_boot_mode() == platform::Mode::Load) {
+    ui_show_firmware();
+    // EspUsbHost's hub tracking opens and closes every unknown device every
+    // 500 ms on the client task. A job doesn't need it, and it races the FM-1
+    // leaving for ROM boot and the ROM device arriving. (It raised the rate of
+    // checkpoint 3's hcd_urb_dequeue assert; the cause, a transfer freed while
+    // IDF held it, is fixed in EspUsbHost's disconnect teardown.)
+    usb.setHubTrackingEnabled(false);
+  }
 #endif
   usb.begin();
   host_running = true;
@@ -434,20 +591,49 @@ void setup() {
 void loop() {
   static uint32_t last_poll = 0, last_frame = 0, framed_changes = UINT32_MAX;
   static UiFrame frame;
+#if APP_WEB_UI
+  CRUMB_LOOP("web_loop");
+  web_loop(millis());
+  static uint32_t last_net = 0;
+  if (millis() - last_net > 1000) {
+    last_net = millis();
+    ui_set_network(web_network_line());
+    if (!host_running) publish_diag(nullptr);
+  }
+#endif
   if (!host_running) {  // computer mode: only the UI runs
+#if APP_LOADER && LOADER_SOAK
+    if (soak_restart_at && int32_t(millis() - soak_restart_at) > 0) esp_restart();
+#endif
+#if APP_LOADER && LOADER_DIAG
+    static uint32_t last_diag = 0;
+    if (millis() - last_diag > 500) {
+      last_diag = millis();
+      static UiLoader loader;
+      loader_ui(loader);
+      ui_update_loader(loader);
+    }
+#endif
     ui_tick();
     delay(5);
     return;
   }
-#if APP_LOADER
-  if (loader_wanted_mode() != broker.mode() || loader_wants_restart()) {
-    restart_host(loader_wanted_mode());
-    loader_mode_changed(broker.mode());
-  }
-#endif
   const uint32_t now = millis();
-  if (now - last_poll > 1000) {
+  // Hub port polls are control transfers on the hub, sent from this task. Not
+  // in Load mode or around a host restart: checkpoint 3 crashed in ESP-IDF
+  // (hcd_urb_dequeue assert) with a poll in flight as the FM-1 left for ROM
+  // boot, and a timed-out poll abandons its transfer still queued.
+  bool poll_ok = now - host_started_ms > 3000 && broker.mode() == platform::Mode::Play;
+#if APP_LOADER
+  // Loader builds don't poll yet: the polls ran in Play mode right up to
+  // checkpoint 3's hcd_urb_dequeue crashes. That crash's cause is fixed in
+  // EspUsbHost's disconnect teardown; turning the polls back on waits for the
+  // hub-poll timeout fix (PR #2). Only the port letters on the chain screen are lost.
+  poll_ok = false;
+#endif
+  if (poll_ok && now - last_poll > 1000) {
     last_poll = now;
+    CRUMB_LOOP("poll_hub_ports");
     poll_hub_ports();
   }
   uint32_t c;
@@ -459,14 +645,22 @@ void loop() {
   if ((c != framed_changes && now - last_frame > 50) || now - last_frame > 500) {
     framed_changes = c;
     last_frame = now;
+    CRUMB_LOOP("build_frame");
     build_frame(frame);
+    CRUMB_LOOP("ui_update");
     ui_update(frame);
 #if APP_LOADER
-    UiLoader loader;
+    static UiLoader loader;  // ~900 bytes: kept off the loop task's stack
     loader_ui(loader);
+    CRUMB_LOOP("ui_update_loader");
     ui_update_loader(loader);
 #endif
+#if APP_WEB_UI
+    CRUMB_LOOP("publish_diag");
+    publish_diag(&frame);
+#endif
   }
+  CRUMB_LOOP("ui_tick");
   ui_tick();
   delay(5);
 }

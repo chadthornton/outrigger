@@ -10,6 +10,10 @@ What is the Unbricker's code, and what is composed here from it:
   open_real_device, check_identity. Exactly the Unbricker's open sequence,
   except that the diagnostic retained-RAM read (FD07) is left out.
 - backup: read_flash(0, 1 MiB) twice and compare, as take_backup does.
+- install: planned from the stored backup before the key (nothing differs:
+  no ROM boot at all), then one read_flash(0, 1 MiB) compared with that
+  backup, then the writes. Checkpoint 3 found the FM-1 restarting itself when
+  the loader had read for about 8.5 s without an erase.
 - write: the Unbricker's write_and_verify erases and writes the whole app
   area and retries the whole area. The loader writes only the 4 KiB sectors
   that differ, so per sector this calls the Unbricker's own erase_range,
@@ -146,22 +150,23 @@ def write_app(dev, current_app, target_app):
     return True
 
 
-def install(jl, scsi, target_app):
+def install(jl, scsi, target_app, stored):
+    if stored[fu.FW_START:fu.FW_END] == target_app:
+        return "done"                                  # planned from the backup: nothing to write
     dev, why = identify(jl, scsi)
     if dev is None:
         return why
-    a = fu.read_flash(dev, 0, fu.FLASH_SIZE, None)
-    b = fu.read_flash(dev, 0, fu.FLASH_SIZE, None)
-    if a != b:
-        dev.ldr.run_app(RESET_ARG)
-        return "backup-mismatch"
-    if not write_app(dev, a[fu.FW_START:fu.FW_END], target_app):
+    for addr in range(0, fu.FLASH_SIZE, SECTOR):    # stops at the first sector that differs
+        if fu.read_flash(dev, addr, SECTOR, None) != stored[addr:addr + SECTOR]:
+            dev.ldr.run_app(RESET_ARG)
+            return "backup-stale"
+    if not write_app(dev, stored[fu.FW_START:fu.FW_END], target_app):
         return "write-failed"
     dev.ldr.run_app(RESET_ARG)
     return "done"
 
 
-def backup(jl, scsi, target_app):
+def backup(jl, scsi, target_app, stored):
     """Back up this FM-1 ("Save now"): identify, the double read, reset. Writes nothing."""
     dev, why = identify(jl, scsi)
     if dev is None:
@@ -172,7 +177,7 @@ def backup(jl, scsi, target_app):
     return "done" if a == b else "backup-mismatch"
 
 
-def resume(jl, scsi, target_app):
+def resume(jl, scsi, target_app, stored):
     dev, why = identify(jl, scsi)
     if dev is None:
         return why
@@ -208,8 +213,9 @@ def scenarios(pkgs):
         ("wrong_key", base_flash(sloop), {"chip_key": 0x1234}, install, skiff, "UBOOT1.00"),
         ("wrong_flash_id", base_flash(sloop), {"flash_id": 0x856015}, install, skiff,
          "UBOOT1.00"),
-        ("backup_mismatch", base_flash(sloop), {"flaky_read": 2048 + 7}, install, skiff,
+        ("backup_mismatch", base_flash(sloop), {"flaky_read": 2048 + 7}, backup, None,
          "UBOOT1.00"),
+        ("stale", base_flash(sloop), {"flaky_read": 7}, install, skiff, "UBOOT1.00"),
         ("resume", base_flash(bytes(half)), {}, resume, skiff, "UBOOT1.00"),
         ("backup", base_flash(skiff), {}, backup, None, "UBOOT1.00"),
     ]
@@ -237,8 +243,9 @@ def main():
     for name, flash, kw, entry, target, product in scenarios(pkgs):
         m = fu.MockUboot(image=bytes(flash), **kw)
         scsi = GoldenScsi(jl, m, blob, product)
-        result = entry(jl, scsi, target)
-        text = "\n".join(scsi.log) + "\n# flash %s\n# result %s\n" % (sha(bytes(m.flash)), result)
+        result = entry(jl, scsi, target, bytes(flash))  # the stored backup: the flash as it was
+        text = "".join(line + "\n" for line in scsi.log)
+        text += "# flash %s\n# result %s\n" % (sha(bytes(m.flash)), result)
         (out / ("%s.txt" % name)).write_text(text)
         print("golden: %-16s %5d commands, %s" % (name, len(scsi.log), result))
 

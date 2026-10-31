@@ -161,6 +161,8 @@ static bool tap_button(lv_obj_t *scr, const char *text, int hold_ms = 80, int dr
     fail("no '%s' button", text);
     return false;
   }
+  lv_obj_scroll_to_view_recursive(b, LV_ANIM_OFF);  // a page that scrolls: bring it up first
+  run(20);
   lv_area_t a;
   lv_obj_get_coords(b, &a);
   tap((a.x1 + a.x2) / 2, (a.y1 + a.y2) / 2, hold_ms, drift);
@@ -199,7 +201,9 @@ static void shoot(const char *build, char size, const char *screen) {
 static int computer_calls, backup_calls, saved_size;
 static void on_settings(const UiSettings &s) { saved_size = s.text_size; }
 static void on_computer() { ++computer_calls; }
-static void on_backup() { ++backup_calls; }
+static void on_backup() { ++backup_calls; }  // the hold (loader_act)
+static void on_select(int) {}
+static void on_pin(int) {}
 
 static UiFrame frame(int controllers) {
   UiFrame f{};
@@ -226,26 +230,59 @@ static UiFrame frame(int controllers) {
 
 // The Firmware page in the states loader_app.cpp shows, with its own wording
 // and its longest lines.
-enum class Page { Ready, Busy, Done, NotReady };
+enum class Page { Ready, Install, Retry, Busy, Done, NotReady };
 static UiLoader loader_page(Page page) {
   UiLoader l{};
-  const char *lines[kLoaderLines] = {"Store 2.6 of 2.9 MB free, 3 units", "Loader blob ok"};
+  const char *lines[kLoaderLines] = {"Store 7.8 of 12.1 MB free, 1 units", "Loader blob ok"};
+  // The library as checkpoint 3 had it, Felucca running and Skiff pinned.
+  const UiLoaderItem items[] = {{"Skiff 1.4", "FM-1_714", true},
+                                {"Felucca 1.6.1", "running", false},
+                                {"M-VAVE stock V15", "FM-1_015", false},
+                                {"SLOOP 2.8.1", "FM-1_900", false}};
+  memcpy(l.items, items, sizeof items);
+  l.item_count = 4;
+  l.selected = -1;
+  strcpy(l.preview[0], "Reads the FM-1 twice.");
+  strcpy(l.preview[1], "Writes nothing.");
+  strcpy(l.action, "Hold: back up FM-1");
   switch (page) {
     case Page::Ready:
-      strcpy(l.title, "Ready. Read-only build.");
-      l.title_colour = 0xF2F2F2;
-      l.can_back_up = true;
+      strcpy(l.title, "Ready. Writes are on.");
+      l.title_colour = 0xFFE14A;
+      l.can_act = true;
+      break;
+    case Page::Install:
+      strcpy(l.title, "Ready. Writes are on.");
+      l.title_colour = 0xFFE14A;
+      l.can_act = true;
+      l.selected = 0;
+      strcpy(l.preview[0], "Writes 143 of 143 app sectors");
+      strcpy(l.preview[1], "Restores its saves (6 sectors)");
+      strcpy(l.action, "Hold: install Skiff 1.4");
+      break;
+    case Page::Retry:
+      strcpy(l.title, "Stopped: the FM-1 stopped answering");
+      l.title_colour = 0xFF4A4A;
+      l.can_act = true;
+      strcpy(l.top_label, "Retry Felucca 1.6.1");
+      strcpy(l.preview[0], "An install stopped part-way.");
+      strcpy(l.preview[1], "The FM-1 must be in ROM boot.");
+      strcpy(l.action, "Hold: retry the install");
+      lines[2] = "erase 0x5A000 try 1, sector 3 of 149";
+      lines[3] = "USB: FB01 ESP_FAIL 0/16";
+      lines[4] = "DON'T unplug or turn off the FM-1";
+      lines[5] = "If the retry fails: Transporter";
       break;
     case Page::Busy:
       strcpy(l.title, "Backing up (2 reads)...");
       l.title_colour = 0xFFE14A;
       l.percent = 42;
-      l.busy = l.can_back_up = true;
+      l.busy = l.can_act = true;
       break;
     case Page::Done:
       strcpy(l.title, "Backed up. Nothing written.");
       l.title_colour = 0x22DD44;
-      l.can_back_up = true;
+      l.can_act = true;
       lines[1] = "re-enumerated after ROM boot";
       lines[2] = "Unit 4a3f09c2e1 (dump's)";
       lines[3] = "Running FM-1 1.0.4";
@@ -257,7 +294,7 @@ static UiLoader loader_page(Page page) {
       l.title_colour = 0xFF4A4A;
       lines[0] = "Store unreadable: make flash-store";
       lines[1] = "Loader blob missing";
-      lines[5] = "FM-1 left in ROM boot: power-cycle it";
+      lines[5] = "Free RAM 96 KB internal, 8071 KB PSRAM";
       break;
   }
   for (int i = 0; i < kLoaderLines; ++i) snprintf(l.lines[i], sizeof l.lines[i], "%s", lines[i] ? lines[i] : "");
@@ -267,7 +304,8 @@ static UiLoader loader_page(Page page) {
 static void run_build(bool loader, int size) {
   const char *build = loader ? "hub-loader" : "hub";
   const char sz = "SML"[size];
-  ui_begin(kBoard, {uint8_t(size)}, {on_settings, on_computer, nullptr, loader ? on_backup : nullptr}, kFirmware);
+  ui_begin(kBoard, {uint8_t(size)}, {on_settings, on_computer, nullptr, loader ? on_select : nullptr, loader ? on_pin : nullptr,
+                                      loader ? on_backup : nullptr}, kFirmware);
   lv_obj_t *chain = lv_screen_active();
 
   for (int n = 0; n <= int(midi_core::kMaxDevices); ++n) {
@@ -339,11 +377,25 @@ static void run_build(bool loader, int size) {
     ui_update_loader(loader_page(Page::Ready));
     run(100);
     shoot(build, sz, "firmware");
+    // A row opens the detail: what the action does, and the hold.
+    if (!tap_button(firmware, "Back up", 80, 8)) return;
+    lv_obj_t *detail = lv_screen_active();
+    if (detail == firmware) {
+      fail("Back up didn't open the detail");
+      return;
+    }
+    shoot(build, sz, "backup");
     backup_calls = 0;
-    tap_button(firmware, "Hold", 80, 8);
+    tap_button(detail, "Hold", 80, 8);
     if (backup_calls) fail("a quick tap on Hold started a backup");
-    tap_button(firmware, "Hold", 2200, 8);
+    tap_button(detail, "Hold", 2200, 8);
     if (backup_calls != 1) fail("a 2 s hold gave %d backups, not 1", backup_calls);
+    ui_update_loader(loader_page(Page::Install));
+    run(100);
+    shoot(build, sz, "install");
+    ui_update_loader(loader_page(Page::Retry));
+    run(100);
+    shoot(build, sz, "retry");
     ui_update_loader(loader_page(Page::Busy));
     run(100);
     shoot(build, sz, "busy");
@@ -353,6 +405,12 @@ static void run_build(bool loader, int size) {
     ui_update_loader(loader_page(Page::NotReady));
     run(100);
     shoot(build, sz, "notready");
+    tap_button(detail, LV_SYMBOL_LEFT, 80, 8);
+    if (lv_screen_active() != firmware) fail("Back on the detail didn't return to the list");
+    // The list after a stopped install: its reason, and the retry on top.
+    ui_update_loader(loader_page(Page::Retry));
+    run(100);
+    shoot(build, sz, "stopped");
     tap_button(firmware, "Done", 80, 8);
     if (lv_screen_active() != settings) fail("Done on Firmware didn't return to settings");
   }
@@ -365,7 +423,7 @@ static void run_build(bool loader, int size) {
 }
 
 static void run_computer() {
-  ui_begin(kBoard, {1}, {on_settings, on_computer, nullptr, nullptr}, kFirmware);
+  ui_begin(kBoard, {1}, {on_settings, on_computer, nullptr, nullptr, nullptr, nullptr}, kFirmware);
   ui_show_computer_mode("Firmware 4d1d09e+ hub+L");
   run(100);
   shoot("hub", '-', "computer");
@@ -375,7 +433,8 @@ static void run_computer() {
 // One row per build x size, one column per screen, then Computer mode;
 // captions drawn by LVGL.
 static const char *const kColumns[] = {"chain0", "chain1", "chain2", "chain3", "chain4", "chain5",   "chain6",
-                                       "off",    "problem", "settings", "armed", "firmware", "busy", "done", "notready"};
+                                       "off",    "problem", "settings", "armed", "firmware", "stopped", "backup", "install",
+                                       "retry",  "busy",    "done",     "notready"};
 constexpr int kCols = sizeof kColumns / sizeof *kColumns, kGap = 8, kCaption = 18;
 static uint8_t caption_rgb[W * kCaption * 3];
 

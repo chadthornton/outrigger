@@ -30,6 +30,9 @@ class ScsiTransport {
   virtual ~ScsiTransport() = default;
   // False when the device refuses the command or is gone.
   virtual bool execute(const uint8_t *cdb, size_t cdb_len, Dir dir, uint8_t *data, size_t len) = 0;
+  // False when the last failed command never reached the device (it was gone
+  // before it was sent), so it can't have done anything.
+  virtual bool reached_device() const { return true; }
 };
 
 constexpr uint32_t kLoaderAddr = 0x1C02000;  // usb-loaders.yaml, wl82
@@ -54,6 +57,8 @@ enum Cmd : uint16_t {
 class RomClient {
  public:
   explicit RomClient(ScsiTransport &t) : t_(t) {}
+  // After a failed command: false when it never reached the device.
+  bool reached_device() const { return t_.reached_device(); }
 
   bool inquiry(std::string &vendor, std::string &product, std::string &revision);
   // UBOOT1.00: write RAM (with the data's CRC-16) and jump there with an argument.

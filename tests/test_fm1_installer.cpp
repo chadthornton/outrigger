@@ -16,9 +16,11 @@ using Image = std::vector<uint8_t>;
 struct FakeHost : LoaderHost {
   bool rom_ok = true, midi_ok = true;
   int keys = 0;
+  uint32_t ms = 0, tick = 0;  // the clock: each reading advances it by tick
   bool send_rom_boot_key() override { return ++keys, true; }
   bool wait_for_rom_device(uint32_t) override { return rom_ok; }
   bool wait_for_midi_return(uint32_t) override { return midi_ok; }
+  uint32_t now_ms() override { return ms += tick; }
 };
 
 static const Image &blob() {
@@ -66,6 +68,28 @@ struct Rig {
     add(lib, "skiff-1.4", "skiff-1.4.fwsc");
     add(lib, "sloop-2.8.1", "sloop-2.8.1.fwsc");
   }
+  // "Back up this FM-1", as the board does before an install (the install plans
+  // from this backup). Then the mock is an FM-1 back in its firmware, about to
+  // be keyed again, with a clean command log for the install's golden stream.
+  void back_up(const char *unit_name = "") {
+    fresh_rom();
+    InstallOptions o;
+    o.confirmed = true;
+    o.unit_name = unit_name;
+    inst.start_backup(o);
+    inst.run();
+    CHECK(inst.current() == Step::Done);
+    fresh_rom();
+  }
+  void fresh_rom() {
+    rom.was_reset = false;
+    rom.loader_running = false;
+    rom.log.clear();
+    rom.reads = rom.writes = rom.commands = 0;
+    rom.lowest_touched = -1;
+    rom.reads_before_first_erase = -1;
+    host.keys = 0;
+  }
   void install(const char *id, bool fresh_ok = true, bool layout_ok = false) {
     InstallOptions o;
     o.confirmed = true;
@@ -73,6 +97,11 @@ struct Rig {
     o.layout_change_ok = layout_ok;
     inst.start_install(id, o);
     inst.run();
+  }
+  Unit unit() {
+    Unit u;
+    CHECK(lib.unit(lib.last_unit(), u));
+    return u;
   }
 };
 
@@ -116,6 +145,7 @@ static size_t first_difference() {
 
 static void test_golden_install() {
   Rig r(base_flash(sloop()));
+  r.back_up();
   r.install("skiff-1.4");
   CHECK(r.inst.current() == Step::Done);
   CHECK(!r.inst.danger());
@@ -130,15 +160,19 @@ static void test_golden_install() {
 
 static void test_golden_noop() {
   Rig r(base_flash(skiff()));
+  r.back_up();
   r.install("skiff-1.4");
   CHECK(r.inst.current() == Step::Done);
   CHECK_EQ(r.inst.sectors_total(), uint32_t(0));
   CHECK_EQ(r.rom.writes, 0);
+  CHECK_EQ(r.host.keys, 0);  // planned from the backup: nothing to write, no ROM boot
+  CHECK(r.unit().installed_package == "skiff-1.4" && !r.unit().has_pending);
   check_golden("noop", r, "done");
 }
 
 static void test_golden_retry_once() {
   Rig r(base_flash(sloop()));
+  r.back_up();
   r.rom.flaky_write = 3;
   r.install("skiff-1.4");
   CHECK(r.inst.current() == Step::Done);
@@ -147,6 +181,7 @@ static void test_golden_retry_once() {
 
 static void test_golden_retry_fails() {
   Rig r(base_flash(sloop()));
+  r.back_up();
   r.rom.bad_cell = long(kAppStart + first_difference() + 0x123);
   r.install("skiff-1.4");
   CHECK(r.inst.failure() == Failure::WriteVerifyFailed);
@@ -160,6 +195,7 @@ static void test_golden_retry_fails() {
 static void test_golden_identity() {
   {
     Rig r(base_flash(sloop()));
+    r.back_up();
     r.rom.key = 0x1234;
     r.install("skiff-1.4");
     CHECK(r.inst.failure() == Failure::IdentityMismatch);
@@ -168,6 +204,7 @@ static void test_golden_identity() {
   }
   {
     Rig r(base_flash(sloop()));
+    r.back_up();
     r.rom.id = 0x856015;
     r.install("skiff-1.4");
     CHECK(r.inst.failure() == Failure::IdentityMismatch);
@@ -178,11 +215,154 @@ static void test_golden_identity() {
 static void test_golden_backup_mismatch() {
   Rig r(base_flash(sloop()));
   r.rom.flaky_read = 2048 + 7;
-  r.install("skiff-1.4");
+  InstallOptions o;
+  o.confirmed = true;
+  r.inst.start_backup(o);
+  r.inst.run();
   CHECK(r.inst.failure() == Failure::BackupMismatch);
   CHECK(r.rom.was_reset && r.rom.lowest_touched < 0);
   CHECK(r.lib.unit_ids().empty());  // no unit is named from an unverified read
   check_golden("backup_mismatch", r, "backup-mismatch");
+}
+
+// The install reads the FM-1 once and compares it with the backup it planned
+// from: a difference stops it before any erase, with the FM-1 sent home.
+static void test_golden_stale_backup() {
+  Rig r(base_flash(sloop()));
+  r.back_up();
+  r.rom.flaky_read = 7;
+  r.install("skiff-1.4");
+  CHECK(r.inst.failure() == Failure::BackupStale);
+  CHECK(r.rom.was_reset && r.rom.lowest_touched < 0 && !r.inst.danger());
+  CHECK(!r.unit().has_pending);
+  CHECK(r.inst.failure_detail().find("0x00000") != std::string::npos);
+  check_golden("stale", r, "backup-stale");
+  // The FM-1 changed since its backup (a new song): the same.
+  Rig s(base_flash(sloop()));
+  s.back_up();
+  s.rom.flash[0x97000] ^= 1;
+  s.install("skiff-1.4");
+  CHECK(s.inst.failure() == Failure::BackupStale);
+  CHECK(s.rom.lowest_touched < 0 && !s.unit().has_pending);
+}
+
+// Checkpoint 3: the FM-1 left ROM boot on its own about 8.5 s after the loader
+// started, when the install's two backup reads delayed the first erase. The
+// first erase now follows one read of the flash.
+static void test_first_erase_soon_after_the_loader() {
+  Rig r(base_flash(sloop()));
+  r.back_up();
+  r.install("skiff-1.4");
+  CHECK(r.inst.current() == Step::Done);
+  const int one_pass = int(kSectors * kSector / 512);
+  printf("  reads before the first erase: %d (one pass is %d)\n", r.rom.reads_before_first_erase, one_pass);
+  CHECK(r.rom.reads_before_first_erase >= 0 && r.rom.reads_before_first_erase <= one_pass);
+  // Too slow anyway (a slow USB link): it stops before the first erase.
+  Rig t(base_flash(sloop()));
+  t.back_up();
+  t.host.tick = 7000;
+  t.install("skiff-1.4");
+  CHECK(t.inst.failure() == Failure::LoaderTooSlow);
+  CHECK(t.rom.lowest_touched < 0 && t.rom.was_reset && !t.inst.danger() && !t.unit().has_pending);
+}
+
+// An install that stops before any erase reached the FM-1 leaves nothing: no
+// danger, no pending record, and the board doesn't hold the FM-1 in Load mode.
+static void test_stop_before_any_erase_leaves_nothing() {
+  Rig r(base_flash(sloop()));
+  r.back_up();
+  r.rom.gone_at_first_erase = true;  // the FM-1 restarted itself before the erase was sent
+  r.install("skiff-1.4");
+  CHECK(r.inst.failure() == Failure::DeviceLost);
+  CHECK(!r.inst.danger() && r.rom.lowest_touched < 0);
+  CHECK(!r.unit().has_pending);
+  // Once an erase may have happened, the record stays: test_disconnect_mid_write.
+}
+
+// A verified install records what it wrote as the unit's latest backup, so the
+// page's "running" mark and the next preview describe the FM-1 as it is now
+// (checkpoint 3: a second Felucca hold was planned from the backup before the first).
+static void test_install_records_the_written_flash() {
+  Image f = base_flash(skiff());
+  memset(f.data() + 0x97000, 0x21, kSector);  // a Skiff project
+  Rig r(f);
+  r.back_up();
+  r.install("sloop-2.8.1");
+  CHECK(r.inst.current() == Step::Done);
+  Unit u = r.unit();
+  FlashHashes latest;
+  CHECK(r.lib.backup(u.latest_backup, latest));
+  bool same = latest.size() == kSectors;
+  for (uint32_t i = 0; same && i < kSectors; ++i)
+    same = latest[i] == sha256(r.rom.flash.data() + i * kSector, kSector);
+  CHECK(same);
+  CHECK(u.baseline_backup != u.latest_backup);  // the baseline stays the first backup
+  // The preview for the same package now says there's nothing to write, and a
+  // second install of it doesn't send the key.
+  InstallPreview p = preview_install(r.lib, u.id, "sloop-2.8.1");
+  CHECK(p.ok && p.app_sectors == 0 && p.current.app_sha256 == r.lib.identify_app(
+      std::vector<Hash>(latest.begin() + kAppStart / kSector, latest.begin() + kAppEnd / kSector)).app_sha256);
+  r.fresh_rom();
+  r.install("sloop-2.8.1");
+  CHECK(r.inst.current() == Step::Done);
+  CHECK_EQ(r.host.keys, 0);
+  // And straight back to Skiff, with no backup in between: its check read passes.
+  r.fresh_rom();
+  r.install("skiff-1.4");
+  CHECK(r.inst.current() == Step::Done);
+  CHECK(r.rom.flash[0x97000] == 0x21);  // the Skiff project came back
+}
+
+// The backup an install planned from holds the FM-1's only copy of firmware no
+// package has (flashed by Transporter, say): the install's own record doesn't
+// replace it. One of a known package still goes, so the store stays small.
+static void test_install_keeps_the_only_copy_of_unknown_firmware() {
+  Rig r(base_flash(skiff()));
+  r.back_up();  // the baseline
+  memcpy(r.rom.flash.data() + kAppStart, synth("custom-fw", kAppLen).data(), kAppLen);
+  r.back_up();
+  const std::string unknown = r.unit().latest_backup;
+  CHECK(unknown != r.unit().baseline_backup);
+  r.install("sloop-2.8.1");
+  CHECK(r.inst.current() == Step::Done);
+  FlashHashes kept;
+  CHECK(r.lib.backup(unknown, kept));
+  CHECK(r.unit().latest_backup != unknown);
+
+  const std::string known = r.unit().latest_backup;  // Sloop: a package
+  r.fresh_rom();
+  r.install("skiff-1.4");
+  CHECK(r.inst.current() == Step::Done);
+  CHECK(!r.lib.backup(known, kept));
+  CHECK(r.lib.backup(unknown, kept));
+}
+
+// The board restarted after the key because no ROM device showed up: the job
+// runs again without a second key, straight to waiting for ROM boot.
+static void test_key_already_sent() {
+  Rig r(base_flash(sloop()));
+  r.back_up();
+  InstallOptions o;
+  o.confirmed = true;
+  o.fresh_start_ok = true;
+  o.key_sent = true;
+  r.inst.start_install("skiff-1.4", o);
+  r.inst.run();
+  CHECK(r.inst.current() == Step::Done);
+  CHECK_EQ(r.host.keys, 0);
+  r.fresh_rom();
+  r.inst.start_backup(o);
+  r.inst.run();
+  CHECK(r.inst.current() == Step::Done);
+  CHECK_EQ(r.host.keys, 0);
+}
+
+// No backup of this FM-1 yet: nothing to plan from, so no key either.
+static void test_install_needs_a_backup() {
+  Rig r(base_flash(sloop()));
+  r.install("skiff-1.4");
+  CHECK(r.inst.failure() == Failure::NoBackupForInstall);
+  CHECK(r.host.keys == 0 && r.rom.log.empty());
 }
 
 // The unit record a crashed install leaves: a verified backup and the pending install.
@@ -273,12 +453,14 @@ static void test_refusals_before_the_device() {
   }
   {
     Rig r(base_flash(sloop()));
+    r.back_up();
     r.install("nope");
     CHECK(r.inst.failure() == Failure::PackageMissing);
     CHECK(r.host.keys == 0 && r.rom.log.empty());
   }
   {
     Rig r(base_flash(sloop()));
+    r.back_up();
     r.host.rom_ok = false;
     r.install("skiff-1.4");
     CHECK(r.inst.failure() == Failure::NoRomDevice);
@@ -309,6 +491,7 @@ static void test_loader_blob_checked_first() {
 
 static void test_not_an_fm1() {
   Rig r(base_flash(sloop()));
+  r.back_up();
   r.rom.loader_running = true;  // not UBOOT1.00 and the loader doesn't answer either
   r.rom.loader_product = "UDISK";
   r.rom.disconnect_after = 1;
@@ -320,6 +503,7 @@ static void test_not_an_fm1() {
 // Host restart in the middle of the app write, then the resume entry.
 static void host_restart(const char *loader_product, bool expect_done) {
   Rig r(base_flash(sloop()));
+  r.back_up();
   InstallOptions o;
   o.confirmed = true;
   o.fresh_start_ok = true;
@@ -345,6 +529,55 @@ static void host_restart(const char *loader_product, bool expect_done) {
 static void test_resume_after_host_restart() {
   host_restart("LOADER", true);
   host_restart("UBOOT1.00", false);
+}
+
+// The board itself stopped the install (not a crash): it knows its loader is
+// still running in the FM-1, so the retry skips the upload whatever inquiry says.
+static void test_resume_with_loader_running() {
+  Rig r(base_flash(sloop()));
+  r.back_up();
+  InstallOptions o;
+  o.confirmed = true;
+  o.fresh_start_ok = true;
+  r.inst.start_install("skiff-1.4", o);
+  while (r.rom.writes < 200 && r.inst.step()) {
+  }
+  r.rom.loader_product = "UBOOT1.00";  // the unknown case
+  const size_t before = r.rom.log.size();
+  Installer again(r.rom, r.host, r.lib, blob());
+  o.loader_running = true;
+  again.start_resume(o);
+  again.run();
+  CHECK(again.current() == Step::Done);
+  CHECK(memcmp(r.rom.flash.data() + kAppStart, skiff().data(), kAppLen) == 0);
+  for (size_t i = before; i < r.rom.log.size(); ++i) CHECK(r.rom.log[i].compare(0, 4, "fb06") != 0);
+  CHECK(r.rom.violations.empty());
+  // The hint is only a hint: a loader that's gone (the FM-1 was reset back to
+  // its ROM) doesn't answer, and the upload runs as usual.
+  {
+    Rig g(base_flash(sloop()));
+    g.back_up();
+    InstallOptions go;
+    go.confirmed = true;
+    go.fresh_start_ok = true;
+    g.inst.start_install("skiff-1.4", go);
+    while (g.rom.writes < 200 && g.inst.step()) {
+    }
+    g.rom.loader_running = false;  // lost: the ROM answers again
+    Installer retry(g.rom, g.host, g.lib, blob());
+    go.loader_running = true;
+    retry.start_resume(go);
+    retry.run();
+    CHECK(retry.current() == Step::Done);
+    CHECK(memcmp(g.rom.flash.data() + kAppStart, skiff().data(), kAppLen) == 0);
+  }
+  // A fresh install ignores the hint: the FM-1 just entered ROM boot.
+  Rig f(base_flash(sloop()));
+  f.back_up();
+  f.inst.start_install("skiff-1.4", o);
+  f.inst.run();
+  CHECK(f.inst.current() == Step::Done);
+  check_golden("install", f, "done");
 }
 
 static void test_resume_refusals() {
@@ -381,28 +614,73 @@ static void test_resume_refusals() {
 
 static void test_disconnect_mid_write() {
   Rig r(base_flash(sloop()));
-  r.rom.disconnect_after = 4149 + 40;  // after identify + backup, a few sectors in
+  r.back_up();
+  r.rom.disconnect_after = 2101 + 40;  // after identify + the check read, a few sectors in
   r.install("skiff-1.4");
   CHECK(r.inst.failure() == Failure::DeviceLost);
   CHECK(r.inst.danger() && !r.rom.was_reset);
   Unit u;
   CHECK(r.lib.unit(r.inst.unit().id, u) && u.has_pending);
+  // The failure names the command, the address and how far it got.
+  const std::string d = r.inst.failure_detail();
+  printf("  detail: %s\n", d.c_str());
+  CHECK(d.compare(0, 6, "erase ") == 0 || d.compare(0, 6, "write ") == 0 || d.compare(0, 5, "read ") == 0);
+  CHECK(d.find(" 0x") != std::string::npos && d.find("sector ") != std::string::npos);
+  // During the check read: what and where, and nothing left behind.
+  Rig b(base_flash(sloop()));
+  b.back_up();
+  b.rom.disconnect_after = 100;
+  b.install("skiff-1.4");
+  CHECK(b.inst.failure() == Failure::DeviceLost);
+  CHECK(b.inst.failure_detail().find("check read at") != std::string::npos);
+  CHECK(!b.inst.danger() && !b.unit().has_pending);
+  // And during a backup.
+  Rig k(base_flash(sloop()));
+  k.rom.disconnect_after = 100;
+  InstallOptions ko;
+  ko.confirmed = true;
+  k.inst.start_backup(ko);
+  k.inst.run();
+  CHECK(k.inst.failure_detail().find("backup read 1") != std::string::npos);
+  // A sector that won't verify says which.
+  Rig v(base_flash(sloop()));
+  v.back_up();
+  v.rom.bad_cell = long(kAppStart + first_difference() + 0x123);
+  v.install("skiff-1.4");
+  CHECK(v.inst.failure_detail().find("verify") != std::string::npos);
+  // No failure, no detail.
+  Rig ok(base_flash(skiff()));
+  ok.back_up();
+  ok.install("skiff-1.4");
+  CHECK(ok.inst.failure_detail().empty());
 }
 
 static void test_storage_failures() {
+  InstallOptions o;
+  o.confirmed = true;
   {
     Rig r(base_flash(sloop()));
     r.storage.fail_writes_after = 2;  // dies on the third new sector of the backup
-    r.install("skiff-1.4");
+    r.inst.start_backup(o);
+    r.inst.run();
     CHECK(r.inst.failure() == Failure::StorageFailed);
     CHECK(r.rom.was_reset && r.rom.lowest_touched < 0);
   }
   {
     Rig r(base_flash(sloop()));
     r.storage.fail_sync = true;  // the backup can't be made durable
-    r.install("skiff-1.4");
+    r.inst.start_backup(o);
+    r.inst.run();
     CHECK(r.inst.failure() == Failure::StorageFailed);
     CHECK(r.rom.was_reset && r.rom.lowest_touched < 0);
+  }
+  {
+    Rig r(base_flash(sloop()));
+    r.back_up();
+    r.storage.fail_sync = true;  // the pending record can't be made durable: no key
+    r.install("skiff-1.4");
+    CHECK(r.inst.failure() == Failure::StorageFailed);
+    CHECK(r.host.keys == 0 && r.rom.log.empty());
   }
 }
 
@@ -410,9 +688,10 @@ static void test_fresh_start_needs_ok() {
   Image f = base_flash(sloop());
   memset(f.data() + 0x97000, 0x11, kSector);  // SLOOP data
   Rig r(f);
+  r.back_up();
   r.install("skiff-1.4", false);
   CHECK(r.inst.failure() == Failure::NeedsFreshStartOk);
-  CHECK(r.rom.was_reset && r.rom.lowest_touched < 0);
+  CHECK(r.host.keys == 0 && r.rom.log.empty());  // refused from the backup, before the key
   CHECK(r.inst.decision().layout_warning);
 }
 
@@ -425,6 +704,7 @@ static void test_save_states_end_to_end() {
   Rig r(f);
 
   // Skiff -> SLOOP: autosave Skiff, start fresh.
+  r.back_up();
   r.install("sloop-2.8.1");
   CHECK(r.inst.current() == Step::Done);
   CHECK(r.inst.decision().action == DataAction::FreshStart);
@@ -433,9 +713,8 @@ static void test_save_states_end_to_end() {
   CHECK_EQ(r.lib.saves_of(r.inst.unit().id).size(), size_t(1));
 
   // Make a SLOOP song, then go back to Skiff: the Skiff save comes back.
-  r.rom.was_reset = false;
-  r.rom.loader_running = false;
   memset(r.rom.flash.data() + 0x98000, 0x31, kSector);
+  r.back_up();
   r.install("skiff-1.4");
   CHECK(r.inst.current() == Step::Done);
   CHECK(r.inst.decision().action == DataAction::Restore);
@@ -458,6 +737,7 @@ static void test_save_states_end_to_end() {
 
 static void test_two_units() {
   Rig a(base_flash(sloop(), "unit-A"));
+  a.back_up();
   a.install("skiff-1.4");
   std::string id_a = a.inst.unit().id;
   // Same storage, the other FM-1.
@@ -467,7 +747,12 @@ static void test_two_units() {
   o.confirmed = true;
   o.fresh_start_ok = true;
   o.unit_name = "B";
-  inst_b.start_install("skiff-1.4", o);
+  inst_b.start_backup(o);
+  inst_b.run();
+  CHECK(inst_b.current() == Step::Done);
+  rom_b.was_reset = false;
+  rom_b.loader_running = false;
+  inst_b.start_install("skiff-1.4", o);  // B was backed up last: the install is for B
   inst_b.run();
   CHECK(inst_b.current() == Step::Done);
   CHECK(inst_b.unit().id != id_a);
@@ -480,7 +765,10 @@ static void test_blank_unit_sector() {
   Image f = base_flash(sloop());
   memset(f.data() + kUnitSector, 0xFF, kSector);
   Rig r(f);
-  r.install("skiff-1.4");
+  InstallOptions o;
+  o.confirmed = true;
+  r.inst.start_backup(o);
+  r.inst.run();
   CHECK(r.inst.failure() == Failure::BlankUnitSector);
   CHECK(r.rom.was_reset && r.rom.lowest_touched < 0);
 }
@@ -490,12 +778,11 @@ static void test_stock_needs_layout_ok() {
   memset(f.data() + 0x97000, 0x41, kSector);  // Skiff data, which stock would read as its own
   Rig r(f);
   add(r.lib, "stock-v15", "FM-1_015.fwsc");
+  r.back_up();
   r.install("stock-v15");
   CHECK(r.inst.failure() == Failure::NeedsLayoutChangeOk);
   CHECK(r.inst.decision().stock_unmapped);
-  CHECK(r.rom.was_reset && r.rom.lowest_touched < 0);
-  r.rom.was_reset = false;
-  r.rom.loader_running = false;
+  CHECK(r.host.keys == 0 && r.rom.lowest_touched < 0);
   r.install("stock-v15", true, true);
   CHECK(r.inst.current() == Step::Done);
   CHECK(r.rom.flash[0x97000] == 0x41 && r.rom.flash[0x93000] == 0xFF);  // data kept as it was
@@ -517,9 +804,9 @@ static void test_resume_with_nothing_left() {
 
 static void test_autosave_not_repeated() {
   Rig r(base_flash(skiff()));
+  r.back_up();
   r.install("skiff-1.4");
-  r.rom.was_reset = false;
-  r.rom.loader_running = false;
+  r.back_up();
   r.install("skiff-1.4");
   CHECK(r.inst.current() == Step::Done);
   CHECK_EQ(r.lib.saves_of(r.inst.unit().id).size(), size_t(1));
@@ -527,6 +814,7 @@ static void test_autosave_not_repeated() {
 
 static void test_midi_not_back() {
   Rig r(base_flash(sloop()));
+  r.back_up();
   r.host.midi_ok = false;
   r.install("skiff-1.4");
   CHECK(r.inst.failure() == Failure::MidiNotBack);
@@ -541,12 +829,20 @@ int main() {
   test_golden_retry_fails();
   test_golden_identity();
   test_golden_backup_mismatch();
+  test_golden_stale_backup();
+  test_first_erase_soon_after_the_loader();
+  test_stop_before_any_erase_leaves_nothing();
+  test_install_needs_a_backup();
+  test_key_already_sent();
+  test_install_records_the_written_flash();
+  test_install_keeps_the_only_copy_of_unknown_firmware();
   test_golden_resume();
   test_golden_backup();
   test_refusals_before_the_device();
   test_loader_blob_checked_first();
   test_not_an_fm1();
   test_resume_after_host_restart();
+  test_resume_with_loader_running();
   test_resume_refusals();
   test_disconnect_mid_write();
   test_storage_failures();

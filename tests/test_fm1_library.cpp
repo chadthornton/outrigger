@@ -397,12 +397,59 @@ static void test_two_units() {
   CHECK_EQ(lib.unit_ids().size(), size_t(2));
 }
 
+static void test_install_preview() {
+  TestStorage st;
+  Library lib(st);
+  PackageInfo skiff = load(lib, "skiff-1.4", "skiff-1.4.fwsc");
+  load(lib, "sloop-2.8.1", "sloop-2.8.1.fwsc");
+  CHECK(!preview_install(lib, "", "skiff-1.4").ok);  // no unit seen yet
+  Image img = unit_image(9);
+  put_app(lib, img, skiff);
+  fill(img, 0x97000, kSector, 1);  // a Skiff project
+  Unit u;
+  u.id = unit_id_of(img.data() + kUnitSector);
+  std::string b;
+  CHECK(lib.add_backup(u, store_image(lib, img), b));
+  CHECK_EQ(lib.last_unit(), u.id);
+
+  InstallPreview p = preview_install(lib, u.id, "skiff-1.4");  // what it runs: nothing to do
+  CHECK(p.ok && p.app_sectors == 0 && p.data_sectors == 0);
+  CHECK(p.current.identity == "FM-1_714" && p.decision.action == DataAction::Keep);
+
+  p = preview_install(lib, u.id, "sloop-2.8.1");  // another firmware: fresh start
+  CHECK(p.ok && p.app_sectors > 100 && p.decision.action == DataAction::FreshStart);
+  CHECK_EQ(p.data_sectors, uint32_t(1));  // the project sector gets erased
+  CHECK(p.decision.layout_warning);
+
+  // With a Skiff save on record, coming back from SLOOP restores it.
+  SaveState s = capture_save(u.id, lib.identify_app(skiff.app), store_image(lib, img));
+  CHECK(lib.add_save(u, s));
+  Image on_sloop = img;
+  PackageInfo sloop;
+  CHECK(lib.package("sloop-2.8.1", sloop));
+  put_app(lib, on_sloop, sloop);
+  memset(on_sloop.data() + 0x97000, 0xFF, kSector);
+  CHECK(lib.add_backup(u, store_image(lib, on_sloop), b));
+  p = preview_install(lib, u.id, "skiff-1.4");
+  CHECK(p.ok && p.decision.action == DataAction::Restore && p.data_sectors == 1);
+
+  CHECK(!preview_install(lib, u.id, "nope").ok);
+  CHECK(!preview_install(lib, "0000000000000000", "skiff-1.4").ok);
+  // Pins.
+  CHECK(lib.set_pinned("skiff-1.4", true));
+  PackageInfo got;
+  CHECK(lib.package("skiff-1.4", got) && got.pinned);
+  CHECK(lib.set_pinned("skiff-1.4", false) && lib.package("skiff-1.4", got) && !got.pinned);
+  CHECK(!lib.set_pinned("nope", true));
+}
+
 int main() {
   test_sector_store();
   test_manifest();
   test_packages();
   test_unit_ids();
   test_remove_package();
+  test_install_preview();
   test_backups();
   test_diff_planner();
   test_capture_save();

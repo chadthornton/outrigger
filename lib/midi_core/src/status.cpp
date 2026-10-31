@@ -65,7 +65,7 @@ ChainView evaluate(const HostSnapshot &s) {
       set_problem(v, unopened->why1, unopened->why2);
     } else {
       snprintf(buf, sizeof buf, "%s: MIDI not opened.", unopened->name);
-      set_problem(v, buf, s.channels_used >= 8 ? "USB full: FM-1 + 1 controller." : "It may not be class-compliant.");
+      set_problem(v, buf, s.channels_used >= 8 ? "USB full: FM-1 + 1 controller." : "Unplug it and plug it back in.");
     }
     if (unopened->role == Role::Target) v.target = Level::Bad;
   } else if (anything && s.device_count == 0) {

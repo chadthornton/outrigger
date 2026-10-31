@@ -65,8 +65,12 @@ static lv_obj_t *computer_button, *computer_label, *version_label;
 // fitted for, so it refits only when the screen's shape changes.
 static int chain_shrink;
 static uint32_t fitted_shape = UINT32_MAX;
-static lv_obj_t *firmware_screen, *firmware_title, *firmware_lines[kLoaderLines], *hold_button, *hold_label,
-    *hold_bar;
+static lv_obj_t *network_labels[2];  // settings screen, computer-mode screen
+static char network_text[48] = "";
+// The Firmware page is two screens: the list (back up, then each package) and
+// the selected action's detail (status lines, preview and the hold).
+static lv_obj_t *firmware_screen, *firmware_title, *detail_screen, *detail_title, *firmware_lines[kLoaderLines],
+    *hold_button, *hold_label, *hold_bar;
 static uint32_t hold_started;  // millis() when the hold began, 0 when not held
 static bool hold_fired, hold_enabled;
 static lv_timer_t *computer_disarm;
@@ -363,6 +367,18 @@ static void computer_tapped(lv_event_t *) {
   if (hooks.connect_computer) hooks.connect_computer();
 }
 
+// One small wrapping line, hidden while empty (ui_set_network).
+static lv_obj_t *network_label(lv_obj_t *parent) {
+  lv_obj_t *l = lv_label_create(parent);
+  lv_obj_set_width(l, lv_pct(100));
+  lv_label_set_long_mode(l, LV_LABEL_LONG_MODE_WRAP);
+  lv_obj_set_style_text_font(l, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(l, c(kGrey), 0);
+  lv_label_set_text(l, network_text);
+  if (!network_text[0]) lv_obj_add_flag(l, LV_OBJ_FLAG_HIDDEN);
+  return l;
+}
+
 // A full-width button, kButtonH tall.
 static lv_obj_t *wide_button(lv_obj_t *parent, const char *text, lv_event_cb_t on_click, lv_obj_t **label_out) {
   lv_obj_t *b = lv_button_create(parent);
@@ -397,6 +413,7 @@ static void build_settings_screen() {
   lv_obj_set_style_text_color(version_label, c(kGrey), 0);
   lv_label_set_text(version_label, firmware);
   size_version();
+  network_labels[0] = network_label(settings_screen);
 
   // Text size: three buttons sharing the width, each lettered in the size it
   // picks, so the letters are the preview.
@@ -431,7 +448,7 @@ static void build_settings_screen() {
   lv_obj_set_height(buttons, LV_SIZE_CONTENT);
   lv_obj_set_flex_flow(buttons, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_style_pad_row(buttons, 8, 0);
-  if (hooks.back_up_fm1) {
+  if (hooks.loader_act) {
     lv_obj_t *fw = wide_button(buttons, LV_SYMBOL_DRIVE " Firmware", open_firmware, nullptr);
     lv_obj_set_style_bg_color(fw, c(kDim), 0);
   }
@@ -444,7 +461,10 @@ static void build_settings_screen() {
 // Anything that acts on the FM-1 needs a 2-second hold, never a single tap
 // (loader safety rule 7). The bar fills while the finger stays down.
 static constexpr uint32_t kHoldMs = 2000;
-static const char kHoldIdle[] = "Hold: back up FM-1";
+
+static lv_obj_t *item_rows[kLoaderItems + 1];   // [0] is "Back up this FM-1"
+static lv_obj_t *item_labels[kLoaderItems + 1], *item_stars[kLoaderItems + 1], *preview_lines[2];
+static int8_t shown_selected = -2;
 
 static void hold_event(lv_event_t *e) {
   const lv_event_code_t code = lv_event_get_code(e);
@@ -458,7 +478,7 @@ static void hold_event(lv_event_t *e) {
       hold_fired = true;
       hold_started = 0;
       lv_label_set_text(hold_label, "Starting...");
-      if (hooks.back_up_fm1) hooks.back_up_fm1();
+      if (hooks.loader_act) hooks.loader_act();
     }
   } else if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
     hold_started = 0;
@@ -466,41 +486,101 @@ static void hold_event(lv_event_t *e) {
   }
 }
 
-static void close_firmware(lv_event_t *) { lv_screen_load(settings_screen); }
+static void row_tapped(lv_event_t *e) {
+  const int row = int(reinterpret_cast<intptr_t>(lv_event_get_user_data(e)));
+  if (hooks.loader_select) hooks.loader_select(row - 1);
+  lv_screen_load(detail_screen);
+}
 
-static void build_firmware_screen() {
-  firmware_screen = lv_obj_create(nullptr);
-  lv_obj_set_style_bg_color(firmware_screen, c(0x000000), 0);
-  scroll_only_if_needed(firmware_screen);
+static void star_tapped(lv_event_t *e) {
+  const int row = int(reinterpret_cast<intptr_t>(lv_event_get_user_data(e)));
+  lv_event_stop_bubbling(e);
+  if (hooks.loader_pin && row > 0) hooks.loader_pin(row - 1);
+}
+
+static void close_firmware(lv_event_t *) { lv_screen_load(settings_screen); }
+static void close_detail(lv_event_t *) { lv_screen_load(firmware_screen); }
+
+static lv_obj_t *small_label(lv_obj_t *parent, uint32_t colour) {
+  lv_obj_t *l = lv_label_create(parent);
+  lv_obj_set_width(l, lv_pct(100));
+  lv_label_set_long_mode(l, LV_LABEL_LONG_MODE_CLIP);
+  lv_obj_set_style_text_font(l, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(l, c(colour), 0);
+  lv_label_set_text(l, "");
+  return l;
+}
+
+// A Firmware screen: black, padded to the safe area, a column under a title
+// that wraps (a stopped install's reason takes two lines).
+static lv_obj_t *firmware_page(lv_obj_t **title, int gap) {
+  lv_obj_t *scr = lv_obj_create(nullptr);
+  lv_obj_set_style_bg_color(scr, c(0x000000), 0);
+  scroll_only_if_needed(scr);
   int side, top;
   safe_padding(&side, &top);
-  lv_obj_set_style_pad_hor(firmware_screen, side, 0);
-  lv_obj_set_style_pad_ver(firmware_screen, top, 0);
-  lv_obj_set_flex_flow(firmware_screen, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_style_pad_row(firmware_screen, 4, 0);
+  lv_obj_set_style_pad_hor(scr, side, 0);
+  lv_obj_set_style_pad_ver(scr, top, 0);
+  lv_obj_set_flex_flow(scr, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_style_pad_row(scr, gap, 0);
+  *title = lv_label_create(scr);
+  lv_obj_set_width(*title, lv_pct(100));
+  lv_label_set_long_mode(*title, LV_LABEL_LONG_MODE_WRAP);
+  lv_obj_set_style_text_font(*title, &lv_font_montserrat_16, 0);
+  lv_obj_set_style_text_color(*title, c(kWhite), 0);
+  lv_label_set_text(*title, "Firmware");
+  return scr;
+}
 
-  firmware_title = lv_label_create(firmware_screen);
-  lv_obj_set_width(firmware_title, lv_pct(100));
-  lv_label_set_long_mode(firmware_title, LV_LABEL_LONG_MODE_WRAP);
-  lv_obj_set_style_text_font(firmware_title, &lv_font_montserrat_16, 0);
-  lv_obj_set_style_text_color(firmware_title, c(kWhite), 0);
-  lv_label_set_text(firmware_title, "Firmware");
-  for (int i = 0; i < kLoaderLines; ++i) {
-    firmware_lines[i] = lv_label_create(firmware_screen);
-    lv_obj_set_width(firmware_lines[i], lv_pct(100));
-    lv_label_set_long_mode(firmware_lines[i], LV_LABEL_LONG_MODE_CLIP);
-    lv_obj_set_style_text_font(firmware_lines[i], &lv_font_montserrat_12, 0);
-    lv_obj_set_style_text_color(firmware_lines[i], c(kGrey), 0);
-    lv_label_set_text(firmware_lines[i], "");
+static void build_firmware_screen() {
+  // The list: one row per action, back up then each package. A tap selects
+  // and opens the detail; the star pins.
+  firmware_screen = firmware_page(&firmware_title, 4);
+  for (int r = 0; r <= kLoaderItems; ++r) {
+    lv_obj_t *row = lv_button_create(firmware_screen);
+    lv_obj_set_width(row, lv_pct(100));
+    lv_obj_set_height(row, LV_SIZE_CONTENT);
+    lv_obj_set_style_pad_all(row, 6, 0);
+    lv_obj_set_style_bg_color(row, c(kDim), 0);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_add_event_cb(row, row_tapped, LV_EVENT_CLICKED, reinterpret_cast<void *>(intptr_t(r)));
+    item_labels[r] = lv_label_create(row);
+    lv_obj_set_flex_grow(item_labels[r], 1);
+    lv_label_set_long_mode(item_labels[r], LV_LABEL_LONG_MODE_CLIP);
+    lv_obj_set_style_text_font(item_labels[r], &lv_font_montserrat_14, 0);
+    lv_label_set_text(item_labels[r], r == 0 ? LV_SYMBOL_DOWNLOAD " Back up this FM-1" : "");
+    item_stars[r] = lv_label_create(row);
+    lv_obj_set_style_text_font(item_stars[r], &lv_font_montserrat_16, 0);
+    lv_obj_set_style_pad_hor(item_stars[r], 6, 0);
+    lv_label_set_text(item_stars[r], r == 0 ? "" : "*");
+    if (r > 0) {
+      lv_obj_add_flag(item_stars[r], LV_OBJ_FLAG_CLICKABLE);
+      lv_obj_add_event_cb(item_stars[r], star_tapped, LV_EVENT_CLICKED, reinterpret_cast<void *>(intptr_t(r)));
+      lv_obj_add_flag(row, LV_OBJ_FLAG_HIDDEN);
+    }
+    item_rows[r] = row;
   }
+  wide_button(firmware_screen, "Done", close_firmware, nullptr);
 
-  lv_obj_t *spacer = box(firmware_screen);
-  lv_obj_set_width(spacer, lv_pct(100));
-  lv_obj_set_flex_grow(spacer, 1);
+  // The detail: status lines, what the selected action does, then Back and
+  // the hold side by side.
+  detail_screen = firmware_page(&detail_title, 3);
+  for (int i = 0; i < kLoaderLines; ++i) firmware_lines[i] = small_label(detail_screen, kGrey);
+  for (int i = 0; i < 2; ++i) preview_lines[i] = small_label(detail_screen, kWhite);
 
-  hold_button = lv_button_create(firmware_screen);
-  lv_obj_set_width(hold_button, lv_pct(100));
-  lv_obj_set_height(hold_button, 44);
+  lv_obj_t *row = box(detail_screen);
+  lv_obj_set_width(row, lv_pct(100));
+  lv_obj_set_height(row, LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+  lv_obj_set_style_pad_column(row, 4, 0);
+  lv_obj_t *back = wide_button(row, LV_SYMBOL_LEFT, close_detail, nullptr);
+  lv_obj_set_width(back, kButtonH);
+  lv_obj_set_style_bg_color(back, c(kDim), 0);
+
+  hold_button = lv_button_create(row);
+  lv_obj_set_flex_grow(hold_button, 1);
+  lv_obj_set_height(hold_button, kButtonH);
   lv_obj_set_style_bg_color(hold_button, c(kDim), 0);
   lv_obj_set_style_pad_all(hold_button, 0, 0);
   hold_bar = lv_bar_create(hold_button);
@@ -511,34 +591,65 @@ static void build_firmware_screen() {
   lv_obj_set_style_bg_opa(hold_bar, LV_OPA_50, LV_PART_INDICATOR);
   lv_obj_remove_flag(hold_bar, LV_OBJ_FLAG_CLICKABLE);
   lv_bar_set_range(hold_bar, 0, 100);
+  // Two lines when the package name is long: "Hold: install / Felucca 1.6.1".
   hold_label = lv_label_create(hold_button);
-  lv_obj_set_style_text_font(hold_label, &lv_font_montserrat_16, 0);
-  lv_label_set_text(hold_label, kHoldIdle);
+  lv_obj_set_width(hold_label, lv_pct(100));
+  lv_label_set_long_mode(hold_label, LV_LABEL_LONG_MODE_WRAP);
+  lv_obj_set_style_text_align(hold_label, LV_TEXT_ALIGN_CENTER, 0);
+  lv_obj_set_style_text_font(hold_label, &lv_font_montserrat_14, 0);
+  lv_label_set_text(hold_label, "");
   lv_obj_center(hold_label);
   lv_obj_add_event_cb(hold_button, hold_event, LV_EVENT_ALL, nullptr);
-
-  lv_obj_t *row = box(firmware_screen);
-  lv_obj_set_width(row, lv_pct(100));
-  lv_obj_set_height(row, LV_SIZE_CONTENT);
-  lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
-  wide_button(row, "Done", close_firmware, nullptr);
 }
 
 static void open_firmware(lv_event_t *) { lv_screen_load(firmware_screen); }
 
 void ui_update_loader(const UiLoader &l) {
   if (!firmware_screen) return;
-  set_text(firmware_title, l.title);
-  set_colour(firmware_title, l.title_colour);
-  for (int i = 0; i < kLoaderLines; ++i) set_text(firmware_lines[i], l.lines[i]);
-  hold_enabled = l.can_back_up && !l.busy;
+  lv_obj_t *const titles[] = {firmware_title, detail_title};
+  for (lv_obj_t *t : titles) {
+    set_text(t, l.title);
+    set_colour(t, l.title_colour);
+  }
+  for (int i = 0; i < kLoaderLines; ++i) {
+    set_text(firmware_lines[i], l.lines[i]);
+    if (l.lines[i][0]) lv_obj_remove_flag(firmware_lines[i], LV_OBJ_FLAG_HIDDEN);
+    else lv_obj_add_flag(firmware_lines[i], LV_OBJ_FLAG_HIDDEN);
+  }
+  char buf[64];
+  for (int r = 1; r <= kLoaderItems; ++r) {
+    const int i = r - 1;
+    if (i >= l.item_count) {
+      lv_obj_add_flag(item_rows[r], LV_OBJ_FLAG_HIDDEN);
+      continue;
+    }
+    lv_obj_remove_flag(item_rows[r], LV_OBJ_FLAG_HIDDEN);
+    snprintf(buf, sizeof buf, "%s  %s", l.items[i].label, l.items[i].note);
+    set_text(item_labels[r], buf);
+    set_text(item_stars[r], l.items[i].pinned ? LV_SYMBOL_OK : "*");
+    set_colour(item_stars[r], l.items[i].pinned ? kYellow : kGrey);
+  }
+  // The top row: "Back up this FM-1", or the retry its hold now runs.
+  if (l.top_label[0]) {
+    snprintf(buf, sizeof buf, LV_SYMBOL_WARNING " %s", l.top_label);
+    set_text(item_labels[0], buf);
+  } else {
+    set_text(item_labels[0], LV_SYMBOL_DOWNLOAD " Back up this FM-1");
+  }
+  if (l.selected != shown_selected) {
+    for (int r = 0; r <= kLoaderItems; ++r)
+      set_colour(item_rows[r], r - 1 == l.selected ? kSpine : kDim, false);
+    shown_selected = l.selected;
+  }
+  set_text(preview_lines[0], l.preview[0]);
+  set_text(preview_lines[1], l.preview[1]);
+  hold_enabled = l.can_act && !l.busy;
   if (l.busy) {
-    char buf[24];
     snprintf(buf, sizeof buf, "Working... %u%%", l.percent);
     set_text(hold_label, buf);
     lv_bar_set_value(hold_bar, l.percent, LV_ANIM_OFF);
   } else if (!hold_started) {
-    set_text(hold_label, l.can_back_up ? kHoldIdle : "Not ready");
+    set_text(hold_label, l.action);
     lv_bar_set_value(hold_bar, 0, LV_ANIM_OFF);
   }
   set_colour(hold_label, hold_enabled || l.busy ? kWhite : kGrey);
@@ -578,6 +689,7 @@ static lv_obj_t *build_computer_screen(const char *info) {
   lv_obj_set_style_text_font(ver, &lv_font_montserrat_14, 0);
   lv_obj_set_style_text_color(ver, c(kGrey), 0);
   lv_label_set_text(ver, info);
+  network_labels[1] = network_label(scr);
 
   lv_obj_t *spacer = box(scr);
   lv_obj_set_width(spacer, lv_pct(100));
@@ -645,13 +757,29 @@ bool ui_begin(const BoardProfile &b, const UiSettings &s, const UiHooks &h, cons
 
   build_chain_screen();
   apply_fonts(0);  // again, now the chain exists: gaps and dots
-  if (hooks.back_up_fm1) build_firmware_screen();
+  if (hooks.loader_act) build_firmware_screen();
   build_settings_screen();
   lv_screen_load(chain_screen);
   return true;
 }
 
 void ui_show_computer_mode(const char *info) { lv_screen_load(build_computer_screen(info)); }
+
+void ui_show_firmware() {
+  // A job's boot shows its progress and result: the detail, not the list.
+  if (detail_screen) lv_screen_load(detail_screen);
+}
+
+void ui_set_network(const char *line) {
+  if (strcmp(line, network_text) == 0) return;
+  strlcpy(network_text, line, sizeof network_text);
+  for (lv_obj_t *l : network_labels) {
+    if (!l) continue;
+    lv_label_set_text(l, network_text);
+    if (network_text[0]) lv_obj_remove_flag(l, LV_OBJ_FLAG_HIDDEN);
+    else lv_obj_add_flag(l, LV_OBJ_FLAG_HIDDEN);
+  }
+}
 
 void ui_tick() {
 #if UI_TOUCH_PROBE

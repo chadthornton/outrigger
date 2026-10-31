@@ -26,6 +26,7 @@ class MockRom : public ScsiTransport {
   int flaky_write = -1;   // the Nth flash write programs data[0] ^ 1
   long bad_cell = -1;     // this byte never programs correctly
   int disconnect_after = -1;  // commands after this many are refused: the device is gone
+  bool gone_at_first_erase = false;  // the FM-1 leaves just before the first erase arrives
   std::string loader_product = "UBOOT1.00";
   bool loader_running = false;
 
@@ -35,11 +36,18 @@ class MockRom : public ScsiTransport {
   bool was_reset = false;
   uint16_t jump_arg = 0;
   long lowest_touched = -1;
+  // Flash reads between the loader's start and the first erase (-1: no erase).
+  // Checkpoint 3: the FM-1 restarted itself ~8.5 s after the loader started
+  // when no erase came, so an install keeps this to one pass.
+  int reads_before_first_erase = -1;
+  bool reached_device() const override { return reached_; }
 
  private:
   bool handle(const uint8_t *cdb, size_t cdb_len, Dir dir, uint8_t *data, size_t len);
   void touched(uint32_t addr);
   std::vector<uint8_t> blob_;
+  bool reached_ = true;
+  int reads_at_jump_ = 0;
   std::map<uint32_t, std::vector<uint8_t>> ram_;
 };
 
