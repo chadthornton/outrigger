@@ -53,7 +53,7 @@ STORE_OFFSET := 0x3D0000
 FW_VERSION := 0x$(shell git rev-parse --short=7 HEAD)
 FW_DIRTY := $(if $(shell git status --porcelain --untracked-files=no),1,0)
 
-.PHONY: test ui-shots build build-all flash site serve clean fixtures golden store-image flash-store store-add
+.PHONY: test ui-shots ui-mocks build build-all flash site serve clean fixtures golden store-image flash-store store-add
 
 FM1_SRC := $(wildcard lib/fm1_loader/src/*.cpp)
 FM1_HDR := $(wildcard lib/fm1_loader/src/*.h) $(wildcard tests/support/*.h)
@@ -143,7 +143,7 @@ build/test_store_json: tests/test_store_json.cpp firmware/waveshare_169/store_js
 # the same pinned tag into build/lvgl and sets LVGL_DIR.
 LVGL_VERSION := 9.6.0
 LVGL_DIR ?= $(HOME)/Documents/Arduino/libraries/lvgl
-ifneq ($(filter ui-shots build/ui_shots,$(MAKECMDGOALS)),)
+ifneq ($(filter ui-shots build/ui_shots ui-mocks build/ui_mocks,$(MAKECMDGOALS)),)
 ifeq ($(shell grep -qx 'version=$(LVGL_VERSION)' $(LVGL_DIR)/library.properties 2>/dev/null && echo ok),)
 $(error ui-shots needs LVGL $(LVGL_VERSION) in LVGL_DIR=$(LVGL_DIR): git clone --depth 1 --branch v$(LVGL_VERSION) https://github.com/lvgl/lvgl build/lvgl, then add LVGL_DIR=build/lvgl)
 endif
@@ -161,6 +161,16 @@ build/ui_shots: $(UI_SHOTS_SRC) $(wildcard tests/ui_shots/*.h tests/ui_shots/stu
 ui-shots: build/ui_shots
 	rm -rf build/ui-shots
 	./build/ui_shots build/ui-shots
+
+# Design mockups for the UI redesign (docs/ui-redesign.md), rendered with the
+# same LVGL and checks; nothing here ships.
+build/ui_mocks: tests/ui_mocks/ui_mocks.cpp tests/ui_shots/png.h $(LVGL_OBJ)
+	@echo "$(TEST_CXX) ... -o $@"
+	@$(TEST_CXX) -std=c++17 -O1 -Wall -Wextra -Werror -Wno-deprecated-declarations $(UI_FLAGS) \
+		-o $@ tests/ui_mocks/ui_mocks.cpp $(LVGL_OBJ) -lz
+ui-mocks: build/ui_mocks
+	rm -rf build/ui-mocks
+	./build/ui_mocks build/ui-mocks
 
 build:
 	$(if $(filter $(APPS),$(APP_SETS)),,$(error APPS=$(APPS); known: $(APP_SETS)))
