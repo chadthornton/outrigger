@@ -6,12 +6,26 @@
 //
 // Without JavaScript, or in a browser without Web Serial, the area says so and
 // the text around it still reads on its own.
-import { ESPLoader, Transport } from "../vendor/esptool-js-0.7.0/bundle.js";
+import { ESPLoader } from "../vendor/esptool-js-0.7.0/bundle.js";
+import { ChunkedTransport } from "./serial.js";
 import { describeBoard, buildName } from "./board.js";
 import { readBoard, fetchBuild, install, backupStore, finish } from "./install.js";
 
 // The ESP32-S3's own USB port (USB-Serial-JTAG), in Computer mode or BOOT+RST.
 const PORT_FILTER = [{ usbVendorId: 0x303a, usbProductId: 0x1001 }];
+// The board's own USB port runs at full USB speed whatever baud rate is set,
+// and asking its ROM to change baud hangs the connection, so stay at 115200.
+const BAUD = 115200;
+const READ_TIMEOUT_MS = 30000;
+// esptool-js's progress lines go to the browser console, for a stuck install.
+const CONSOLE = {
+  clean() {},
+  writeLine: (line) => console.debug("esptool:", line),
+  write: (text) => console.debug("esptool:", text),
+};
+const withTimeout = (promise, ms, what) => Promise.race([promise,
+  new Promise((_, reject) => setTimeout(() => reject(new Error(`${what} took longer than ${ms / 1000} s.`)), ms))]);
+
 const KEEPS = "Installing replaces the program only. Settings, Wi-Fi and FM-1 backups stay.";
 
 const h = (tag, attrs = {}, ...kids) => {
@@ -72,8 +86,8 @@ class InstallArea {
     this.busy = true;
     this.show(h("p", { class: "install-note", role: "status" }, "Reading the board…"));
     try {
-      const [build] = await Promise.all([fetchBuild(choice.manifest), this.open(port)]);
-      const board = await readBoard(this.loader);
+      const [build, board] = await withTimeout(Promise.all([fetchBuild(choice.manifest),
+        this.open(port).then(() => readBoard(this.loader))]), READ_TIMEOUT_MS, "Reading the board");
       this.confirm(choice, build, board);
     } catch (e) {
       await this.close();
@@ -84,8 +98,8 @@ class InstallArea {
   }
 
   async open(port) {
-    this.transport = new Transport(port);
-    this.loader = new ESPLoader({ transport: this.transport, baudrate: 921600, romBaudrate: 115200, terminal: null });
+    this.transport = new ChunkedTransport(port);
+    this.loader = new ESPLoader({ transport: this.transport, baudrate: BAUD, romBaudrate: BAUD, terminal: CONSOLE });
     const chip = await this.loader.main();
     if (!/ESP32-S3/.test(chip)) throw new Error(`That's an ${chip}, not the Waveshare's ESP32-S3.`);
   }
