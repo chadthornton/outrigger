@@ -44,7 +44,7 @@ class InstallArea {
   }
 
   show(...kids) {
-    this.el.replaceChildren(...kids);
+    this.el.replaceChildren(...kids.filter((k) => k != null));
   }
 
   ready(note) {
