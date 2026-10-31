@@ -74,11 +74,12 @@ test("readFlashInPieces: 1 KiB packets, one at a time, every byte in order", asy
   const flash = Uint8Array.from({ length: 0x20000 }, (_, i) => (i * 31) & 0xff);
   const { loader, sent } = fakeStub(flash);
   const progress = [];
-  const got = await readFlashInPieces(loader, 0x8000, 0xc00 + 5, (done, total) => progress.push([done, total]));
+  // esptool-js's readFlash callback shape, so the page can swap it in for loader.readFlash
+  const got = await readFlashInPieces(loader, 0x8000, 0xc00 + 5, (packet, done, total) => progress.push([packet.length, done, total]));
   assert.deepEqual(got, flash.slice(0x8000, 0x8000 + 0xc05));
   assert.deepEqual(sent.commands, [{ op: 0xd2, addr: 0x8000, size: 0xc05, block: READ_BLOCK, inFlight: 1 }]);
   assert.ok(READ_BLOCK <= 64);
   assert.equal(sent.acks.length, Math.ceil(3077 / READ_BLOCK));
   assert.equal(sent.acks.at(-1), 3077);
-  assert.deepEqual(progress.at(-1), [3077, 3077]);
+  assert.deepEqual(progress.at(-1), [3077 % READ_BLOCK || READ_BLOCK, 3077, 3077]);
 });

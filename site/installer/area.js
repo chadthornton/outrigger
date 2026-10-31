@@ -13,7 +13,7 @@ import { readBoard, fetchBuild, install, backupStore, finish } from "./install.j
 
 // Shown under each install area and in Details, so a bug report says which
 // installer ran. Bump it with every change to site/installer/.
-export const INSTALLER_VERSION = "2026-10-31.6";
+export const INSTALLER_VERSION = "2026-10-31.7";
 
 // The ESP32-S3's own USB port (USB-Serial-JTAG), in Computer mode or BOOT+RST.
 const PORT_FILTER = [{ usbVendorId: 0x303a, usbProductId: 0x1001 }];
@@ -38,8 +38,17 @@ const logLine = (line) => {
   onLogLine(text);
 };
 const TERMINAL = { clean() {}, writeLine: logLine, write: logLine };
-const withTimeout = (promise, ms, what) => Promise.race([promise,
-  new Promise((_, reject) => setTimeout(() => reject(new Error(`${what} took longer than ${ms / 1000} s.`)), ms))]);
+async function withTimeout(promise, ms, what) {
+  let timer;
+  try {
+    return await Promise.race([promise,
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(`${what} took longer than ${ms / 1000} s.`)), ms); })]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+// One install at a time on the page: every area shares the one board and the log.
+let busy = false;
 
 const KEEPS = "Installing replaces the program only. Settings, Wi-Fi and FM-1 backups stay.";
 
@@ -68,7 +77,6 @@ class InstallArea {
     this.el = el;
     this.builds = JSON.parse(el.dataset.builds);
     this.helpHref = el.dataset.help || "#no-port";
-    this.busy = false;
     this.trace = "";
     this.ready();
   }
@@ -95,26 +103,37 @@ class InstallArea {
   }
 
   async connect(choice) {
-    if (this.busy) return;
+    if (busy) return;
     let port;
     try {
       port = await navigator.serial.requestPort({ filters: PORT_FILTER });
     } catch {
       return; // closed the picker
     }
-    this.busy = true;
-    const step = h("span", {});
-    this.show(h("p", { class: "install-note", role: "status" }, "Reading the board… ", step));
-    onLogLine = (text) => { if (!text.startsWith("Debug")) step.textContent = text; };
+    busy = true;
     try {
-      const [build, board] = await withTimeout(Promise.all([fetchBuild(choice.manifest),
-        this.open(port).then(() => readBoard(this.loader))]), READ_TIMEOUT_MS, "Reading the board");
-      this.confirm(choice, build, board);
-    } catch (e) {
-      await this.close();
-      this.ready(this.explain(e, "Couldn't read the board."));
+      this.show(h("p", { class: "install-note", role: "status" }, "Downloading the firmware…"));
+      let build;
+      try {
+        build = await fetchBuild(choice.manifest);
+      } catch (e) {
+        return this.ready(this.explain(e, "Couldn't download the firmware."));
+      }
+      const step = h("span", {});
+      this.show(h("p", { class: "install-note", role: "status" }, "Reading the board… ", step));
+      onLogLine = (text) => { if (!text.startsWith("Debug")) step.textContent = text; };
+      try {
+        // Only the board read is timed: a slow download isn't a cable problem.
+        const reading = this.open(port).then((loader) => readBoard(loader));
+        reading.catch(() => {}); // after a timeout it fails against the closed port; nothing waits for it
+        const board = await withTimeout(reading, READ_TIMEOUT_MS, "Reading the board");
+        this.confirm(choice, build, board);
+      } catch (e) {
+        await this.close();
+        this.ready(this.explain(e, "Couldn't read the board."));
+      }
     } finally {
-      this.busy = false;
+      busy = false;
       onLogLine = () => {};
     }
   }
@@ -123,10 +142,10 @@ class InstallArea {
     this.transport = new ChunkedTransport(port, true); // trace: kept for Details when something fails
     this.loader = new ESPLoader({ transport: this.transport, baudrate: BAUD, romBaudrate: BAUD, serialOptions: SERIAL_OPTIONS, terminal: TERMINAL });
     const loader = this.loader;
-    loader.readFlash = (addr, size, onPacket) =>
-      readFlashInPieces(loader, addr, size, (done, total) => onPacket && onPacket(null, done, total));
-    const chip = await this.loader.main();
+    loader.readFlash = (addr, size, onPacket) => readFlashInPieces(loader, addr, size, onPacket || undefined);
+    const chip = await loader.main();
     if (!/ESP32-S3/.test(chip)) throw new Error(`That's an ${chip}, not the Waveshare's ESP32-S3.`);
+    return loader;
   }
 
   async close() {
@@ -144,7 +163,7 @@ class InstallArea {
   confirm(choice, build, board) {
     const words = describeBoard(board, build.manifest.build);
     const save = board.store
-      ? h("label", { class: "check" }, h("input", { type: "checkbox", id: "save-store" }),
+      ? h("label", { class: "check" }, h("input", { type: "checkbox" }),
         ` Save a copy of my backups to this computer first (${mb(board.storeRange.size)} MB, about ${Math.ceil(board.storeRange.size / 1048576 * 41 / 60)} min)`)
       : null;
     const name = buildName(build.manifest.build.app_set);
@@ -164,8 +183,8 @@ class InstallArea {
   }
 
   async run(build, board, saveFirst) {
-    if (this.busy) return;
-    this.busy = true;
+    if (busy) return;
+    busy = true;
     try {
       if (saveFirst) {
         const t0 = performance.now();
@@ -188,7 +207,7 @@ class InstallArea {
       await this.close();
       this.ready(this.explain(e, "The install stopped."));
     } finally {
-      this.busy = false;
+      busy = false;
     }
   }
 
@@ -201,7 +220,7 @@ class InstallArea {
 
   explain(e, lead) {
     const msg = String(e && e.message ? e.message : e);
-    if (/Nothing was written|didn't read back|didn't download|not the Waveshare/.test(msg)) return `${lead} ${msg}`;
+    if (/Nothing was written|didn't read back|download|not the Waveshare/.test(msg)) return `${lead} ${msg}`;
     return `${lead} Check the cable is a data cable and the board is in Computer mode (or BOOT+RST), then try again. (${msg})`;
   }
 }

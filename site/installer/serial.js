@@ -27,9 +27,11 @@ export class ChunkedTransport extends Transport {
 // for 64-byte packets (one USB packet), one at a time: the stub sends the
 // next only after the host acknowledges the running total, then ends with
 // the data's MD5. From the Mac: 1 MiB in 41 s (256-byte packets: 15.6 s).
+// onPacket(packet, done, total) is esptool-js's readFlash callback, so this
+// can stand in for loader.readFlash.
 export const READ_BLOCK = 64;
 
-export async function readFlashInPieces(loader, addr, size, onProgress = () => {}, block = READ_BLOCK) {
+export async function readFlashInPieces(loader, addr, size, onPacket = () => {}, block = READ_BLOCK) {
   const int = (n) => loader._intToByteArray(n);
   const res = await loader.checkCommand("read flash", loader.ESP_READ_FLASH,
     Uint8Array.from([...int(addr), ...int(size), ...int(block), ...int(1)]));
@@ -42,7 +44,7 @@ export async function readFlashInPieces(loader, addr, size, onProgress = () => {
     out.set(packet.subarray(0, size - got), got);
     got += packet.length;
     await loader.transport.write(Uint8Array.from(int(Math.min(got, size))));
-    onProgress(Math.min(got, size), size);
+    onPacket(packet, Math.min(got, size), size);
   }
   await loader.transport.read(loader.FLASH_READ_TIMEOUT); // the stub's MD5 of what it sent
   return out;
