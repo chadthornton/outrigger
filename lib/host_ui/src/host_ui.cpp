@@ -3,9 +3,13 @@
 #include <Arduino.h>
 #include <esp_heap_caps.h>
 #include <lvgl.h>
+#include <math.h>
 #include <string.h>
 
+#include <initializer_list>
+
 using midi_core::Level;
+using midi_core::Tone;
 
 // Build with -DUI_TOUCH_PROBE=1 to draw a dot where the touch lands.
 #ifndef UI_TOUCH_PROBE
@@ -28,9 +32,11 @@ static const lv_font_t *font_for(int step) {
 // ---------- Colours ----------
 static lv_color_t c(uint32_t hex) { return lv_color_hex(hex); }
 // kGrey is the detail text: near white, so it reads on the panel at a glance.
-static const uint32_t kWhite = 0xF2F2F2, kGrey = 0xCFCFCF, kDim = 0x333333, kGreen = 0x22DD44,
+static const uint32_t kWhite = 0xF2F2F2, kGrey = 0xCFCFCF, kMuted = 0x8A8A8A, kDim = 0x333333, kGreen = 0x22DD44,
                       kSpine = 0x1D6B2C, kYellow = 0xFFE14A, kOrange = 0xFFA53A, kRed = 0xFF4A4A,
-                      kMagenta = 0xFF6AF0, kProblemBg = 0x2A1508, kProblemEdge = 0x6A3A10;
+                      kMagenta = 0xFF6AF0, kBlue = 0x2196F3, kRow = 0x1A1A1A, kRunningRow = 0x10301A,
+                      kBand = 0x171717, kIconOff = 0x7A7A7A, kWarnBg = 0x2A1508, kWarnEdge = 0x6A3A10,
+                      kDangerBg = 0x3A0A0A, kDangerEdge = 0x8A1A1A, kOkBg = 0x0A2A12, kOkEdge = 0x1D6B2C;
 
 static uint32_t level_hex(Level l) {
   switch (l) {
@@ -41,39 +47,44 @@ static uint32_t level_hex(Level l) {
   }
 }
 
+static uint32_t tone_hex(Tone t) {
+  switch (t) {
+    case Tone::Live: return kGreen;
+    case Tone::Full: return kYellow;
+    case Tone::Warn: return kOrange;
+    case Tone::Bad: return kRed;
+    default: return kGrey;
+  }
+}
+
 // ---------- State ----------
 static const BoardProfile *board;
 static UiSettings settings;
 static UiHooks hooks;
 static const char *firmware = "";
+static bool has_fm1() { return hooks.loader_act != nullptr; }
 
-static lv_style_t plain, title_style, detail_style;
+// The screen's shape decides the layout (docs/ui-redesign.md, "Screen shapes"):
+// a rail down the left in landscape, a band across the top otherwise; and on
+// boards 320 px and wider, taller lines and bigger icons.
+static bool landscape() { return board->width > board->height; }
+static bool wide() { return board->width >= 320 && board->height >= 320; }
 
-struct Node {
-  lv_obj_t *row, *rail, *content, *dot, *line, *title, *detail, *extra;
-};
-constexpr int kNodes = 5;  // Power, Hub, Controllers, Router, FM-1
-static Node nodes[kNodes];
-static lv_obj_t *controller_rows[midi_core::kMaxDevices];
-static lv_obj_t *controller_dots[midi_core::kMaxDevices];
-static lv_obj_t *controller_labels[midi_core::kMaxDevices];
-static lv_obj_t *usb_label, *problem_box, *problem_1, *problem_2;
-static lv_obj_t *chain_screen, *chain_column, *settings_screen;
-static lv_obj_t *size_buttons[3];
-static lv_obj_t *computer_button, *computer_label, *version_label;
-// Steps the chain gave up to fit the screen (see fit_chain), and what it was
-// fitted for, so it refits only when the screen's shape changes.
-static int chain_shrink;
-static uint32_t fitted_shape = UINT32_MAX;
-static lv_obj_t *network_labels[2];  // settings screen, computer-mode screen
-static char network_text[48] = "";
-// The Firmware page is two screens: the list (back up, then each package) and
-// the selected action's detail (status lines, preview and the hold).
-static lv_obj_t *firmware_screen, *firmware_title, *detail_screen, *detail_title, *firmware_lines[kLoaderLines],
-    *hold_button, *hold_label, *hold_bar;
-static uint32_t hold_started;  // millis() when the hold began, 0 when not held
-static bool hold_fired, hold_enabled;
-static lv_timer_t *computer_disarm;
+// Insets that keep content inside the glass: rounded corners eat the edges,
+// a circle needs a much bigger margin, a square bezel a little.
+static void safe_padding(int *side, int *top) {
+  switch (board->shape) {
+    case ScreenShape::Rounded: *side = board->corner_radius * 3 / 10 + 4; *top = board->corner_radius / 3 + 4; break;
+    case ScreenShape::Circle: *side = board->width * 15 / 100; *top = board->height * 8 / 100; break;
+    default: *side = 10; *top = 8; break;
+  }
+}
+
+static int base_step() { return settings.text_size * 2 + board->font_boost; }  // S=0, M=2, L=4
+// Headings: a step or two up, but never past 20 px: at L, 24 px titles take a
+// line each and push pages into scrolling.
+static int heading(int up) { return base_step() + up < 5 ? base_step() + up : 5; }
+
 #if UI_TOUCH_PROBE
 static lv_obj_t *probe_label;
 #endif
@@ -98,605 +109,1248 @@ static void touch_cb(lv_indev_t *, lv_indev_data_t *data) {
   }
 }
 
-// ---------- Layout helpers ----------
-// Insets that keep content inside the glass: rounded corners eat the edges,
-// a circle needs a much bigger margin.
-static void safe_padding(int *side, int *top) {
-  switch (board->shape) {
-    case ScreenShape::Rounded: *side = board->corner_radius * 3 / 10 + 4; *top = board->corner_radius / 3 + 4; break;
-    case ScreenShape::Circle: *side = board->width * 15 / 100; *top = board->height * 8 / 100; break;
-    default: *side = 6; *top = 6; break;
-  }
+static void encoder_cb(lv_indev_t *, lv_indev_data_t *data) {
+  bool pressed = false;
+  data->enc_diff = board->read_encoder ? board->read_encoder(&pressed) : 0;
+  data->state = pressed ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
 }
+
+static void keys_cb(lv_indev_t *, lv_indev_data_t *data) {
+  static uint32_t last = LV_KEY_ENTER;
+  const UiKey k = board->read_key ? board->read_key() : UiKey::None;
+  switch (k) {
+    case UiKey::Next: last = LV_KEY_NEXT; break;
+    case UiKey::Prev: last = LV_KEY_PREV; break;
+    case UiKey::Left: last = LV_KEY_LEFT; break;
+    case UiKey::Right: last = LV_KEY_RIGHT; break;
+    case UiKey::Enter: last = LV_KEY_ENTER; break;
+    default: break;
+  }
+  data->key = last;  // the key being released is the one last pressed
+  data->state = k == UiKey::None ? LV_INDEV_STATE_RELEASED : LV_INDEV_STATE_PRESSED;
+}
+
+// ---------- Building blocks ----------
+static lv_style_t plain;
 
 static lv_obj_t *box(lv_obj_t *parent) {
   lv_obj_t *o = lv_obj_create(parent);
   lv_obj_add_style(o, &plain, 0);
   lv_obj_remove_flag(o, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_remove_flag(o, LV_OBJ_FLAG_CLICKABLE);  // taps fall through to the screen
+  lv_obj_remove_flag(o, LV_OBJ_FLAG_CLICKABLE);  // taps fall through to what's under it
   return o;
 }
+static lv_obj_t *column(lv_obj_t *parent, int gap = 0) {
+  lv_obj_t *o = box(parent);
+  lv_obj_set_size(o, lv_pct(100), LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(o, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_style_pad_row(o, gap, 0);
+  return o;
+}
+static lv_obj_t *row(lv_obj_t *parent, int gap = 0) {
+  lv_obj_t *o = box(parent);
+  lv_obj_set_size(o, lv_pct(100), LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(o, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(o, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_column(o, gap, 0);
+  return o;
+}
+// Wrapping text: never cut, it takes the lines it needs.
+static lv_obj_t *text(lv_obj_t *parent, const char *s, uint32_t colour, int step) {
+  lv_obj_t *l = lv_label_create(parent);
+  lv_obj_set_width(l, lv_pct(100));
+  lv_label_set_long_mode(l, LV_LABEL_LONG_MODE_WRAP);
+  lv_obj_set_style_text_font(l, font_for(step), 0);
+  lv_obj_set_style_text_color(l, c(colour), 0);
+  lv_label_set_text(l, s);
+  return l;
+}
+// One line that sizes to its text (for rows).
+static lv_obj_t *word(lv_obj_t *parent, const char *s, uint32_t colour, int step) {
+  lv_obj_t *l = lv_label_create(parent);
+  lv_obj_set_style_text_font(l, font_for(step), 0);
+  lv_obj_set_style_text_color(l, c(colour), 0);
+  lv_label_set_text(l, s);
+  return l;
+}
+// A word that takes the rest of its row and is cut with "..." if it must be.
+static lv_obj_t *grow_word(lv_obj_t *parent, const char *s, uint32_t colour, int step) {
+  lv_obj_t *l = word(parent, s, colour, step);
+  lv_obj_set_width(l, 1);
+  lv_obj_set_flex_grow(l, 1);
+  lv_label_set_long_mode(l, LV_LABEL_LONG_MODE_DOTS);
+  lv_label_set_max_lines(l, 1);
+  return l;
+}
 
-// Pages are laid out to fit, so normally nothing scrolls, and LVGL starts a
-// scroll only when there is somewhere to scroll to: a drifting finger can't
-// eat a tap. If a page ever does overflow (a long loader line, a bigger
-// font), it scrolls rather than hiding what's below. No springy overscroll,
-// and the bar shows only while scrolling.
+// Only touch LVGL when something really changed, so idle frames cost nothing.
+static void set_text(lv_obj_t *l, const char *s) {
+  if (strcmp(lv_label_get_text(l), s) != 0) lv_label_set_text(l, s);
+}
+static void set_colour(lv_obj_t *o, uint32_t hex) {
+  if (lv_color_to_u32(lv_obj_get_style_text_color(o, LV_PART_MAIN)) != lv_color_to_u32(c(hex)))
+    lv_obj_set_style_text_color(o, c(hex), 0);
+}
+static void set_bg(lv_obj_t *o, uint32_t hex) {
+  if (lv_color_to_u32(lv_obj_get_style_bg_color(o, LV_PART_MAIN)) != lv_color_to_u32(c(hex)))
+    lv_obj_set_style_bg_color(o, c(hex), 0);
+}
+static void show_if(lv_obj_t *o, bool shown) {
+  if (shown == lv_obj_has_flag(o, LV_OBJ_FLAG_HIDDEN)) {
+    if (shown) lv_obj_remove_flag(o, LV_OBJ_FLAG_HIDDEN);
+    else lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN);
+  }
+}
+
+// A bordered card, for status and errors.
+static lv_obj_t *card(lv_obj_t *parent, uint32_t bg, uint32_t edge) {
+  lv_obj_t *k = column(parent, 3);
+  lv_obj_set_style_bg_opa(k, LV_OPA_COVER, 0);
+  lv_obj_set_style_bg_color(k, c(bg), 0);
+  lv_obj_set_style_border_color(k, c(edge), 0);
+  lv_obj_set_style_border_width(k, 1, 0);
+  lv_obj_set_style_radius(k, 8, 0);
+  lv_obj_set_style_pad_all(k, 7, 0);
+  return k;
+}
+
+// ---------- Focus without touch ----------
+// Every screen works by focus too: an LVGL group holds the screen's focusable
+// objects in reading order (the nav icons, then each line). The ring is drawn
+// only in LV_STATE_FOCUS_KEY, which LVGL sets for keypad and encoder focus, so
+// touch boards never show it. It's a border always present but transparent
+// (or an outline, outside the object), so nothing moves when focus arrives.
+static lv_group_t *group;
+constexpr lv_obj_flag_t kFocusable = LV_OBJ_FLAG_USER_1;
+enum class Ring { Border, Outline };
+static void key_event(lv_event_t *e);
+static void pressed_bg(lv_obj_t *o, uint32_t hex) { lv_obj_set_style_bg_color(o, c(hex), LV_STATE_PRESSED); }
+
+static void focusable(lv_obj_t *o, Ring ring) {
+  lv_obj_add_flag(o, kFocusable);
+  lv_obj_add_flag(o, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_remove_flag(o, LV_OBJ_FLAG_SCROLLABLE);  // an encoder's press would edit a scrollable object
+  lv_obj_set_style_outline_width(o, 0, LV_STATE_FOCUS_KEY);  // not the theme's ring as well
+  if (ring == Ring::Border) {
+    lv_obj_set_style_border_width(o, 2, 0);
+    lv_obj_set_style_border_color(o, c(kBlue), 0);
+    lv_obj_set_style_border_opa(o, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_opa(o, LV_OPA_COVER, LV_STATE_FOCUS_KEY);
+  } else {
+    lv_obj_set_style_outline_width(o, 2, LV_STATE_FOCUS_KEY);
+    lv_obj_set_style_outline_color(o, c(kBlue), LV_STATE_FOCUS_KEY);
+    lv_obj_set_style_outline_pad(o, 3, LV_STATE_FOCUS_KEY);
+  }
+  lv_obj_add_event_cb(o, key_event, LV_EVENT_KEY, nullptr);
+}
+
+static bool really_shown(lv_obj_t *o) {
+  for (; o; o = lv_obj_get_parent(o))
+    if (lv_obj_has_flag(o, LV_OBJ_FLAG_HIDDEN)) return false;
+  return true;
+}
+static void add_focusables(lv_obj_t *o) {
+  for (uint32_t i = 0; i < lv_obj_get_child_count(o); ++i) {
+    lv_obj_t *ch = lv_obj_get_child(o, i);
+    if (lv_obj_has_flag(ch, LV_OBJ_FLAG_HIDDEN)) continue;
+    if (lv_obj_has_flag(ch, kFocusable)) lv_group_add_obj(group, ch);
+    add_focusables(ch);
+  }
+}
+// Fills the group from the active screen, keeping the focus where it was.
+static void refresh_group() {
+  if (!group) return;
+  lv_obj_t *had = lv_group_get_focused(group);
+  lv_group_remove_all_objs(group);
+  add_focusables(lv_screen_active());
+  if (had && lv_obj_get_group(had) == group && really_shown(had)) lv_group_focus_obj(had);
+}
+
+// ---------- Pages: sections, sub-pages, job pages ----------
+// The three sections carry the nav. A sub-page has a back row instead, and a
+// stack remembers the way back. Job pages have neither: a job's boot routes
+// nothing, and there's nowhere to go.
+enum Section { kPlay, kFm1, kSetup, kSections };
+static lv_obj_t *section_screens[kSections];
+static int section = kPlay;
+static lv_obj_t *stack[4];
+static int depth;
+static bool job_showing;
+
+static void show(lv_obj_t *scr) {
+  lv_screen_load(scr);
+  refresh_group();
+}
+static void go_section(int s) {
+  section = s;
+  depth = 1;
+  stack[0] = section_screens[s];
+  show(stack[0]);
+}
+static void push(lv_obj_t *scr) {
+  if (depth < 4) stack[depth++] = scr;
+  show(scr);
+}
+static void go_back() {
+  if (depth > 1) --depth;
+  show(stack[depth - 1]);
+}
+static bool on_section_page() { return !job_showing && depth == 1 && lv_screen_active() == stack[0]; }
+
+// Left and right: the next section on a section page, back on a sub-page.
+static int next_section(int from, int dir) {
+  for (int s = (from + dir + kSections) % kSections; s != from; s = (s + dir + kSections) % kSections)
+    if (section_screens[s]) return s;
+  return from;
+}
+static void key_event(lv_event_t *e) {
+  const uint32_t key = lv_event_get_key(e);
+  if (key != LV_KEY_LEFT && key != LV_KEY_RIGHT) return;
+  if (on_section_page()) go_section(next_section(section, key == LV_KEY_RIGHT ? 1 : -1));
+  else if (!job_showing && depth > 1 && key == LV_KEY_LEFT) go_back();
+}
+
+// ---------- The nav icons ----------
+// A8 images drawn once at start-up, so the icon's colour is its recolor: white
+// when active, grey otherwise. Each pixel is the shape's coverage, 4x4 samples.
+static int icon_size() { return wide() ? 30 : 24; }
+static uint8_t icon_pixels[2][30 * 30];
+static lv_image_dsc_t icon_dsc[2];
+
+static bool in_round_rect(float x, float y, float x0, float y0, float w, float h, float r) {
+  if (x < x0 || y < y0 || x > x0 + w || y > y0 + h) return false;
+  const float cx = x < x0 + r ? x0 + r : x > x0 + w - r ? x0 + w - r : x;
+  const float cy = y < y0 + r ? y0 + r : y > y0 + h - r ? y0 + h - r : y;
+  return (x - cx) * (x - cx) + (y - cy) * (y - cy) <= r * r;
+}
+static bool in_frame(float x, float y, float x0, float y0, float w, float h, float r, float t) {
+  return in_round_rect(x, y, x0, y0, w, h, r) && !in_round_rect(x, y, x0 + t, y0 + t, w - 2 * t, h - 2 * t, r > t ? r - t : 0);
+}
+
+// Play: a 5-pin MIDI DIN socket, pins round the top, key at the bottom.
+static bool midi_shape(float x, float y, int s) {
+  const float m = s / 2.0f, bw = s >= 28 ? 3 : 2, dx = x - m, dy = y - m, d2 = dx * dx + dy * dy;
+  if (d2 <= m * m && d2 >= (m - bw) * (m - bw)) return true;
+  const float pin = (s >= 28 ? 4 : 3) / 2.0f, r = s * 0.26f;
+  for (int i = 0; i < 5; ++i) {
+    const float a = 3.14159265f * (1.0f + i * 0.25f);  // left, upper left, top, upper right, right
+    const float px = m + r * cosf(a), py = m + r * sinf(a) + s / 10.0f;
+    if ((x - px) * (x - px) + (y - py) * (y - py) <= pin * pin) return true;
+  }
+  const float kw = s / 4.0f, kh = s / 7.0f;
+  return in_round_rect(x, y, (s - kw) / 2, s * 0.7f, kw, kh, 1);
+}
+
+// FM-1: a cartridge: a wide shell with its label, and a narrower connector tab
+// with contacts underneath.
+static bool cart_shape(float x, float y, int s) {
+  const float bw = s >= 28 ? 3 : 2, sh = s * 0.64f, tw = s * 0.66f, tx = (s - tw) / 2, top = s / 12.0f;
+  if (in_frame(x, y, 0, top, s, sh, 3, bw)) return true;
+  if (in_round_rect(x, y, bw + 3, top + bw + 3, s - 2 * (bw + 3), sh - 2 * (bw + 3), 1)) return true;  // the label
+  if (y >= top + sh && in_frame(x, y, tx, top + sh - bw, tw, s - top - sh + bw, 2, bw)) return true;
+  const float inner = tw - 2 * (bw + 2);
+  for (int i = 0; i < 3; ++i) {  // contacts
+    const float cx = tx + bw + 2 + i * (inner - 2) / 2;
+    if (x >= cx && x <= cx + 2 && y >= top + sh + 1 && y <= s - bw - 1) return true;
+  }
+  return false;
+}
+
+static void draw_icon(int which, bool (*shape)(float, float, int)) {
+  const int s = icon_size();
+  for (int y = 0; y < s; ++y)
+    for (int x = 0; x < s; ++x) {
+      int hits = 0;
+      for (int sy = 0; sy < 4; ++sy)
+        for (int sx = 0; sx < 4; ++sx) hits += shape(x + (sx + 0.5f) / 4, y + (sy + 0.5f) / 4, s);
+      icon_pixels[which][y * s + x] = uint8_t(hits * 255 / 16);
+    }
+  lv_image_dsc_t &d = icon_dsc[which];
+  d = lv_image_dsc_t{};
+  d.header.magic = LV_IMAGE_HEADER_MAGIC;
+  d.header.cf = LV_COLOR_FORMAT_A8;
+  d.header.w = s;
+  d.header.h = s;
+  d.header.stride = s;
+  d.data_size = uint32_t(s * s);
+  d.data = icon_pixels[which];
+}
+
+// One nav per section page: each cell is an icon, a bar that marks the active
+// section, and an attention dot.
+struct NavCell {
+  lv_obj_t *cell, *icon, *bar, *dot;
+};
+static NavCell nav[kSections][kSections];  // [page][item]
+static bool dot_play, dot_fm1;              // orange: a chain problem; red: an install unfinished
+
+static void nav_tapped(lv_event_t *e) {
+  const int s = int(reinterpret_cast<intptr_t>(lv_event_get_user_data(e)));
+  if (s != section || !on_section_page()) go_section(s);
+}
+
+static void nav_item(lv_obj_t *band, int page, int which) {
+  const int s = icon_size();
+  const bool active = which == page;
+  NavCell &n = nav[page][which];
+  n.cell = box(band);
+  lv_obj_set_size(n.cell, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(n.cell, landscape() ? LV_FLEX_FLOW_ROW : LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_flex_align(n.cell, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_row(n.cell, 5, 0);
+  lv_obj_set_style_pad_column(n.cell, 10, 0);
+  lv_obj_set_style_pad_hor(n.cell, landscape() ? 0 : 8, 0);
+  lv_obj_set_style_radius(n.cell, 8, 0);
+  lv_obj_set_ext_click_area(n.cell, 6);
+  focusable(n.cell, Ring::Outline);
+  lv_obj_add_event_cb(n.cell, nav_tapped, LV_EVENT_CLICKED, reinterpret_cast<void *>(intptr_t(which)));
+
+  n.bar = box(n.cell);
+  lv_obj_set_size(n.bar, landscape() ? 3 : s, landscape() ? s + 6 : 3);
+  lv_obj_set_style_radius(n.bar, 1, 0);
+  lv_obj_set_style_bg_color(n.bar, c(kBlue), 0);
+  lv_obj_set_style_bg_opa(n.bar, active ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
+
+  // The icon in a box of its own, so the dot can sit on its corner.
+  lv_obj_t *holder = box(n.cell);
+  lv_obj_set_size(holder, s, s);
+  lv_obj_add_flag(holder, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+  const uint32_t col = active ? kWhite : kIconOff;
+  if (which == kSetup) {
+    n.icon = word(holder, LV_SYMBOL_SETTINGS, col, wide() ? 8 : 6);
+    lv_obj_center(n.icon);
+  } else {
+    n.icon = lv_image_create(holder);
+    lv_image_set_src(n.icon, &icon_dsc[which == kPlay ? 0 : 1]);
+    lv_obj_set_style_image_recolor(n.icon, c(col), 0);
+    lv_obj_set_style_image_recolor_opa(n.icon, LV_OPA_COVER, 0);
+  }
+  if (!landscape()) lv_obj_move_to_index(n.bar, -1);  // under the icon
+  n.dot = box(holder);
+  lv_obj_add_flag(n.dot, LV_OBJ_FLAG_IGNORE_LAYOUT);
+  lv_obj_set_pos(n.dot, s - 7, -2);
+  lv_obj_set_size(n.dot, 9, 9);
+  lv_obj_set_style_radius(n.dot, LV_RADIUS_CIRCLE, 0);
+  lv_obj_set_style_bg_opa(n.dot, LV_OPA_COVER, 0);
+  lv_obj_set_style_bg_color(n.dot, c(which == kFm1 ? kRed : kOrange), 0);
+  lv_obj_set_style_border_width(n.dot, 2, 0);
+  lv_obj_set_style_border_color(n.dot, c(kBand), 0);
+  lv_obj_add_flag(n.dot, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void show_dots() {
+  for (int p = 0; p < kSections; ++p) {
+    if (!section_screens[p]) continue;
+    if (nav[p][kPlay].dot) show_if(nav[p][kPlay].dot, dot_play);
+    if (nav[p][kFm1].dot) show_if(nav[p][kFm1].dot, dot_fm1);
+  }
+}
+
+// A section page: the nav, then the content, which scrolls (taking the band
+// with it in portrait) only if it must. A pinned hold goes in foot.
+struct Page {
+  lv_obj_t *scr, *page, *content, *foot;
+};
+
 static void scroll_only_if_needed(lv_obj_t *page) {
+  lv_obj_add_flag(page, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_scroll_dir(page, LV_DIR_VER);
   lv_obj_remove_flag(page, LV_OBJ_FLAG_SCROLL_ELASTIC);
   lv_obj_set_scrollbar_mode(page, LV_SCROLLBAR_MODE_ACTIVE);
 }
 
-static lv_obj_t *label(lv_obj_t *parent, lv_style_t *style, uint32_t colour) {
-  lv_obj_t *l = lv_label_create(parent);
-  lv_obj_add_style(l, style, 0);
-  lv_obj_set_style_text_color(l, c(colour), 0);
-  lv_obj_set_width(l, lv_pct(100));
-  // One line, cut with "...": a content-height label would wrap instead.
-  lv_label_set_long_mode(l, LV_LABEL_LONG_MODE_DOTS);
-  lv_label_set_max_lines(l, 1);
-  lv_label_set_text(l, "");
-  return l;
+static lv_obj_t *black_screen() {
+  lv_obj_t *scr = lv_obj_create(nullptr);
+  lv_obj_set_style_bg_color(scr, c(0x000000), 0);
+  lv_obj_set_style_pad_all(scr, 0, 0);
+  lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+  return scr;
 }
 
-// Only touch LVGL when the text really changed, so idle frames cost nothing.
-static void set_text(lv_obj_t *l, const char *s) {
-  if (strcmp(lv_label_get_text(l), s) != 0) lv_label_set_text(l, s);
-}
-static void set_colour(lv_obj_t *o, uint32_t hex, bool text = true) {
-  if (text) lv_obj_set_style_text_color(o, c(hex), 0);
-  else lv_obj_set_style_bg_color(o, c(hex), 0);
-}
-
-static int base_step() { return settings.text_size * 2 + board->font_boost; }  // S=0, M=2, L=4
-
-// Text size works like a zoom on the chain: the gaps between nodes follow the
-// text, the dots grow only a little. shrink 0 is the chosen size; when the
-// chain doesn't fit, the constant Power line goes first (1), then the gaps
-// tighten (2, 3), and only then does the text get smaller (4 on), so L keeps
-// L-sized text as long as it can.
-constexpr int kMaxShrink = 3 + 4;
-static void apply_fonts(int shrink) {
-  const int detail = base_step() - (shrink > 3 ? shrink - 3 : 0);
-  const lv_font_t *title_font = font_for(detail + 3), *detail_font = font_for(detail);
-  lv_style_set_text_font(&title_style, title_font);
-  lv_style_set_text_font(&detail_style, detail_font);
-  lv_obj_report_style_change(&title_style);
-  lv_obj_report_style_change(&detail_style);
-  if (!chain_column) return;  // fonts set before the chain exists
-  if (shrink >= 1) lv_obj_add_flag(nodes[0].detail, LV_OBJ_FLAG_HIDDEN);
-  else lv_obj_remove_flag(nodes[0].detail, LV_OBJ_FLAG_HIDDEN);
-
-  static const int kGapEighths[] = {6, 6, 3, 1};  // of a detail line: S 8, M 12, L 15 px at full
-  const int gap = lv_font_get_line_height(detail_font) * kGapEighths[shrink < 3 ? shrink : 3] / 8;
-  const int dot = 9 + (detail > 0 ? detail : 0) / 2;               // S 9, M 10, L 11
-  for (int n = 0; n < kNodes; ++n) {
-    // The gap sits inside the row, under its text, so the spine runs through it.
-    lv_obj_set_style_pad_bottom(nodes[n].content, n + 1 < kNodes ? gap : 0, 0);
-    lv_obj_set_size(nodes[n].dot, dot, dot);
-    lv_obj_set_style_pad_top(nodes[n].rail, (lv_font_get_line_height(title_font) - dot) / 2, 0);
-  }
-  const int small_dot = dot * 6 / 10;
-  for (lv_obj_t *d : controller_dots) lv_obj_set_size(d, small_dot, small_dot);
-}
-
-// Rows are as tall as their content, so a chain taller than the screen runs
-// off the bottom; shrink until nothing does.
-static bool chain_overflows() {
-  // Two passes: rows size from their children, which only take their new
-  // heights in the first pass.
-  lv_obj_update_layout(chain_screen);
-  lv_obj_mark_layout_as_dirty(chain_column);
-  lv_obj_update_layout(chain_screen);
-  return lv_obj_get_scroll_bottom(chain_column) > 0;
-}
-
-static void fit_chain() {
-  for (chain_shrink = 0; chain_shrink < kMaxShrink; ++chain_shrink) {
-    apply_fonts(chain_shrink);
-    if (!chain_overflows()) return;
-  }
-  apply_fonts(chain_shrink);
-}
-
-// ---------- Chain screen ----------
-static void open_settings(lv_event_t *) { lv_screen_load(settings_screen); }
-static void open_firmware(lv_event_t *);
-
-static void build_chain_screen() {
-  chain_screen = lv_obj_create(nullptr);
-  lv_obj_set_style_bg_color(chain_screen, c(0x000000), 0);
-  lv_obj_remove_flag(chain_screen, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_add_event_cb(chain_screen, open_settings, LV_EVENT_CLICKED, nullptr);
-
+static Page section_page(int which) {
   int side, top;
   safe_padding(&side, &top);
-  lv_obj_t *column = chain_column = box(chain_screen);
-  lv_obj_set_size(column, lv_pct(100), lv_pct(100));
-  lv_obj_set_style_pad_hor(column, side, 0);
-  lv_obj_set_style_pad_ver(column, top, 0);
-  lv_obj_set_flex_flow(column, LV_FLEX_FLOW_COLUMN);
+  Page t;
+  t.scr = section_screens[which] = black_screen();
+  lv_obj_set_flex_flow(t.scr, landscape() ? LV_FLEX_FLOW_ROW : LV_FLEX_FLOW_COLUMN);
+  lv_obj_t *band;
+  if (landscape()) {
+    band = box(t.scr);  // the rail: bleeds off the left, top and bottom edges
+    lv_obj_set_size(band, LV_SIZE_CONTENT, lv_pct(100));
+    lv_obj_set_flex_flow(band, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(band, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    lv_obj_set_style_pad_top(band, 14, 0);
+    lv_obj_set_style_pad_left(band, board->shape == ScreenShape::Rect ? 0 : side - 6, 0);
+    lv_obj_set_style_pad_right(band, 12, 0);
+    lv_obj_set_style_pad_row(band, 22, 0);
+    t.foot = column(t.scr);
+    lv_obj_set_height(t.foot, lv_pct(100));
+    lv_obj_set_width(t.foot, 1);
+    lv_obj_set_flex_grow(t.foot, 1);
+    t.page = box(t.foot);
+    lv_obj_set_width(t.page, lv_pct(100));
+    lv_obj_set_flex_grow(t.page, 1);
+  } else {
+    t.page = box(t.scr);
+    lv_obj_set_width(t.page, lv_pct(100));
+    lv_obj_set_flex_grow(t.page, 1);
+    band = box(t.page);  // bleeds off the top and both sides
+    lv_obj_set_size(band, lv_pct(100), LV_SIZE_CONTENT);
+    lv_obj_set_flex_flow(band, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(band, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    lv_obj_set_style_pad_top(band, board->shape == ScreenShape::Rect ? 10 : 9, 0);
+    lv_obj_set_style_pad_bottom(band, 4, 0);
+    lv_obj_set_style_pad_column(band, wide() ? 34 : 18, 0);
+    t.foot = t.scr;
+  }
+  lv_obj_set_style_bg_opa(band, LV_OPA_COVER, 0);
+  lv_obj_set_style_bg_color(band, c(kBand), 0);
+  for (int i = 0; i < kSections; ++i)
+    if (i != kFm1 || has_fm1()) nav_item(band, which, i);
 
-  static const char *const kTitles[kNodes] = {"Power", "Hub", "Controller", "Router", "FM-1"};
-  static const uint32_t kTitleColours[kNodes] = {kWhite, kWhite, kYellow, kWhite, kMagenta};
-  for (int n = 0; n < kNodes; ++n) {
-    Node &node = nodes[n];
-    // Each node is as tall as its lines plus the gap (apply_fonts); the chain
-    // starts at the top and spare height stays at the bottom.
-    node.row = box(column);
-    lv_obj_set_width(node.row, lv_pct(100));
-    lv_obj_set_height(node.row, LV_SIZE_CONTENT);
-    lv_obj_set_flex_flow(node.row, LV_FLEX_FLOW_ROW);
-    lv_obj_set_style_pad_left(node.row, 12 + 8, 0);
+  lv_obj_set_flex_flow(t.page, LV_FLEX_FLOW_COLUMN);
+  scroll_only_if_needed(t.page);
+  t.content = column(t.page, 6);
+  lv_obj_set_style_pad_hor(t.content, landscape() ? 12 : side, 0);
+  lv_obj_set_style_pad_top(t.content, landscape() ? top + 6 : 10, 0);
+  lv_obj_set_style_pad_bottom(t.content, top, 0);
+  if (landscape()) lv_obj_set_style_pad_right(t.content, side + 4, 0);
+  return t;
+}
 
-    // Rail: the dot, then the spine segment down to the next node. Floating,
-    // so its full-row height doesn't count as the row's content.
-    lv_obj_t *rail = node.rail = box(node.row);
-    lv_obj_add_flag(rail, LV_OBJ_FLAG_FLOATING);
-    lv_obj_set_style_translate_x(rail, -(12 + 8), 0);
-    lv_obj_set_width(rail, 12);
-    lv_obj_set_height(rail, lv_pct(100));
+// A page under a section: a back row on top (none on a job's page), a
+// scrolling middle, and the foot for a pinned hold or a button.
+static void back_tapped(lv_event_t *) { go_back(); }
+
+static Page sub_page(lv_obj_t **title, lv_obj_t **back_row, bool back) {
+  int side, top;
+  safe_padding(&side, &top);
+  Page t;
+  t.scr = black_screen();
+  lv_obj_set_flex_flow(t.scr, LV_FLEX_FLOW_COLUMN);
+  lv_obj_t *head = column(t.scr);
+  lv_obj_set_style_pad_hor(head, board->shape == ScreenShape::Rounded ? board->corner_radius / 2 + 4 : side, 0);
+  lv_obj_set_style_pad_top(head, top, 0);
+  lv_obj_t *r = row(head, 6);
+  lv_obj_set_style_radius(r, 8, 0);
+  lv_obj_set_style_pad_ver(r, 2, 0);
+  lv_obj_t *arrow = word(r, LV_SYMBOL_LEFT, kMuted, base_step() + 1);
+  *title = grow_word(r, "", kWhite, heading(2));
+  lv_label_set_long_mode(*title, LV_LABEL_LONG_MODE_WRAP);  // "Switching to Felucca 1.6.1" takes two lines
+  lv_label_set_max_lines(*title, 0);
+  if (back) {
+    focusable(r, Ring::Border);
+    lv_obj_set_ext_click_area(r, 4);
+    lv_obj_add_event_cb(r, back_tapped, LV_EVENT_CLICKED, nullptr);
+  } else {
+    lv_obj_add_flag(arrow, LV_OBJ_FLAG_HIDDEN);
+  }
+  if (back_row) *back_row = r;
+  t.page = box(t.scr);
+  lv_obj_set_width(t.page, lv_pct(100));
+  lv_obj_set_flex_grow(t.page, 1);
+  lv_obj_set_flex_flow(t.page, LV_FLEX_FLOW_COLUMN);
+  scroll_only_if_needed(t.page);
+  t.content = column(t.page, 6);
+  lv_obj_set_style_pad_hor(t.content, side, 0);
+  lv_obj_set_style_pad_top(t.content, 8, 0);
+  lv_obj_set_style_pad_bottom(t.content, top, 0);
+  t.foot = t.scr;
+  return t;
+}
+
+// The foot's box: under the scrolling page, so what's in it never scrolls away.
+static lv_obj_t *foot_box(Page &t) {
+  int side, top;
+  safe_padding(&side, &top);
+  lv_obj_t *f = column(t.foot);
+  lv_obj_set_style_pad_hor(f, landscape() && t.foot != t.scr ? 12 : side, 0);
+  if (landscape() && t.foot != t.scr) lv_obj_set_style_pad_right(f, side + 4, 0);
+  lv_obj_set_style_pad_bottom(f, top, 0);
+  lv_obj_set_style_pad_top(f, 4, 0);
+  return f;
+}
+
+static lv_obj_t *plain_button(lv_obj_t *parent, const char *what, lv_event_cb_t on_click) {
+  lv_obj_t *b = box(parent);
+  lv_obj_set_size(b, lv_pct(100), 40);
+  lv_obj_set_style_radius(b, 8, 0);
+  lv_obj_set_style_bg_opa(b, LV_OPA_COVER, 0);
+  lv_obj_set_style_bg_color(b, c(kDim), 0);
+  pressed_bg(b, 0x5A5A5A);
+  focusable(b, Ring::Border);
+  lv_obj_t *l = word(b, what, kWhite, settings.text_size == 0 ? 1 : 2 + board->font_boost);
+  lv_obj_center(l);
+  lv_obj_add_event_cb(b, on_click, LV_EVENT_CLICKED, nullptr);
+  return b;
+}
+
+// A tappable row that opens a sub-page: a title, one quieter line, a chevron.
+static lv_obj_t *nav_row(lv_obj_t *parent, const char *title, lv_obj_t **sub, lv_event_cb_t on_click) {
+  lv_obj_t *r = row(parent, 6);
+  lv_obj_set_style_bg_opa(r, LV_OPA_COVER, 0);
+  lv_obj_set_style_bg_color(r, c(0x1E1E1E), 0);
+  pressed_bg(r, 0x3A3A3A);
+  lv_obj_set_style_radius(r, 8, 0);
+  lv_obj_set_style_pad_all(r, 7, 0);
+  focusable(r, Ring::Border);
+  lv_obj_add_event_cb(r, on_click, LV_EVENT_CLICKED, nullptr);
+  lv_obj_t *col = column(r, 1);
+  lv_obj_set_width(col, 1);
+  lv_obj_set_flex_grow(col, 1);
+  text(col, title, kWhite, base_step() + 1);
+  lv_obj_t *s = text(col, "", kMuted, base_step() - 1);
+  if (sub) *sub = s;
+  word(r, LV_SYMBOL_RIGHT, kMuted, base_step());
+  return r;
+}
+
+// ---------- The hold ----------
+// Anything that touches the FM-1 or stops MIDI needs a 2-second hold, never a
+// single tap (loader safety rule 7). Its label always names exactly what it
+// runs; the bar fills while the finger (or the encoder's press, or ENTER)
+// stays down.
+static constexpr uint32_t kHoldMs = 2000;
+struct Hold {
+  lv_obj_t *button, *bar, *label;
+  char text[48];
+  bool enabled;
+  uint32_t started;  // millis() when the hold began, 0 when not held
+  bool fired;
+  void (*run)(Hold &);
+  UiAct act;
+  int index;
+};
+static Hold plan_hold, backups_hold, fm1_hold, result_hold, computer_hold;
+
+static void hold_draw(Hold &h) {
+  char buf[56];
+  snprintf(buf, sizeof buf, "Hold: %s", h.text);
+  if (!h.started && !h.fired) {
+    set_text(h.label, buf);
+    lv_bar_set_value(h.bar, 0, LV_ANIM_OFF);
+  }
+  set_colour(h.label, h.enabled ? kWhite : kMuted);
+  lv_obj_set_style_border_opa(h.button, h.enabled ? LV_OPA_COVER : LV_OPA_30, 0);
+}
+
+static void hold_set(Hold &h, const char *what, bool enabled) {
+  if (strcmp(h.text, what) != 0) {
+    strlcpy(h.text, what, sizeof h.text);
+    h.fired = false;  // a new action: the hold is fresh
+  }
+  h.enabled = enabled;
+  hold_draw(h);
+}
+
+// LVGL sends PRESSING only for a pointer; an encoder or a key sends PRESSED
+// and RELEASED. So a timer fills the bar while the hold's button is down.
+static Hold *holding;  // the hold being held, if any
+static lv_timer_t *hold_timer;
+
+static void hold_tick(lv_timer_t *) {
+  Hold *h = holding;
+  if (!h || !h->started || h->fired) return;
+  const uint32_t held = millis() - h->started;
+  lv_bar_set_value(h->bar, held >= kHoldMs ? 100 : int32_t(held * 100 / kHoldMs), LV_ANIM_OFF);
+  if (held < kHoldMs) return;
+  h->fired = true;
+  h->started = 0;
+  holding = nullptr;
+  lv_label_set_text(h->label, "Starting...");
+  if (h->run) h->run(*h);
+}
+
+static void hold_event(lv_event_t *e) {
+  Hold &h = *static_cast<Hold *>(lv_event_get_user_data(e));
+  const lv_event_code_t code = lv_event_get_code(e);
+  if (code == LV_EVENT_PRESSED) {
+    h.started = h.enabled && !h.fired ? (millis() ? millis() : 1) : 0;
+    holding = h.started ? &h : nullptr;
+  } else if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST || code == LV_EVENT_DELETE) {
+    h.started = 0;
+    if (holding == &h) holding = nullptr;
+    if (!h.fired && code != LV_EVENT_DELETE) lv_bar_set_value(h.bar, 0, LV_ANIM_OFF);
+  }
+}
+
+static void hold_widget(lv_obj_t *parent, Hold &h, uint32_t fill, void (*run)(Hold &)) {
+  h = Hold{};
+  h.run = run;
+  h.index = -1;
+  h.button = box(parent);
+  lv_obj_set_size(h.button, lv_pct(100), 44);
+  lv_obj_set_style_radius(h.button, 8, 0);
+  lv_obj_set_style_bg_opa(h.button, LV_OPA_COVER, 0);
+  lv_obj_set_style_bg_color(h.button, c(0x3A3A2A), 0);
+  lv_obj_set_style_border_color(h.button, c(fill), 0);
+  lv_obj_set_style_border_width(h.button, 1, 0);
+  lv_obj_set_style_clip_corner(h.button, true, 0);
+  lv_obj_set_ext_click_area(h.button, 3);
+  focusable(h.button, Ring::Outline);
+  h.bar = lv_bar_create(h.button);
+  lv_obj_set_size(h.bar, lv_pct(100), lv_pct(100));
+  lv_obj_set_style_radius(h.bar, 0, LV_PART_MAIN);
+  lv_obj_set_style_radius(h.bar, 0, LV_PART_INDICATOR);
+  lv_obj_set_style_bg_opa(h.bar, LV_OPA_TRANSP, LV_PART_MAIN);
+  lv_obj_set_style_bg_color(h.bar, c(fill), LV_PART_INDICATOR);
+  lv_obj_set_style_bg_opa(h.bar, LV_OPA_50, LV_PART_INDICATOR);
+  lv_obj_remove_flag(h.bar, LV_OBJ_FLAG_CLICKABLE);
+  lv_bar_set_range(h.bar, 0, 100);
+  h.label = lv_label_create(h.button);
+  lv_obj_set_width(h.label, lv_pct(94));
+  lv_label_set_long_mode(h.label, LV_LABEL_LONG_MODE_WRAP);
+  lv_obj_set_style_text_align(h.label, LV_TEXT_ALIGN_CENTER, 0);
+  // 12 px on the 1.69", so "Hold: switch to Felucca 1.6.1" stays on one line.
+  lv_obj_set_style_text_font(h.label, font_for(wide() ? 2 + board->font_boost : 1), 0);
+  lv_label_set_text(h.label, "");
+  lv_obj_center(h.label);
+  lv_obj_add_event_cb(h.button, hold_event, LV_EVENT_ALL, &h);
+  if (!hold_timer) hold_timer = lv_timer_create(hold_tick, 20, nullptr);
+}
+
+static void run_loader_hold(Hold &h) {
+  if (hooks.loader_act) hooks.loader_act(h.act, h.index);
+}
+
+// ---------- The error pattern ----------
+// What happened (the page's title), is the FM-1 safe, why, what to do, then
+// the detail for us, small and last.
+struct ProblemView {
+  lv_obj_t *headline, *card, *icon, *safety, *why, *todo, *detail;
+};
+static ProblemView problem_view(lv_obj_t *parent, bool with_headline) {
+  ProblemView v{};
+  if (with_headline) v.headline = text(parent, "", kOrange, heading(2));
+  v.card = card(parent, kOkBg, kOkEdge);
+  lv_obj_t *r = row(v.card, 6);
+  v.icon = word(r, LV_SYMBOL_OK, kGreen, base_step());
+  v.safety = text(r, "", kWhite, base_step());
+  lv_obj_set_width(v.safety, 1);
+  lv_obj_set_flex_grow(v.safety, 1);
+  v.why = text(parent, "", kGrey, base_step());
+  v.todo = text(parent, "", kWhite, base_step());
+  v.detail = text(parent, "", kMuted, base_step() - 2);
+  return v;
+}
+static uint32_t headline_hex(const UiResult &r) {
+  return r.ok ? kGreen : r.safety == UiSafety::Danger ? kRed : kOrange;
+}
+static void fill_problem(ProblemView &v, const UiResult &r) {
+  if (v.headline) {
+    set_text(v.headline, r.headline);
+    set_colour(v.headline, headline_hex(r));
+  }
+  const bool danger = r.safety == UiSafety::Danger;
+  set_bg(v.card, danger ? kDangerBg : kOkBg);
+  lv_obj_set_style_border_color(v.card, c(danger ? kDangerEdge : kOkEdge), 0);
+  set_text(v.icon, danger ? LV_SYMBOL_WARNING : LV_SYMBOL_OK);
+  set_colour(v.icon, danger ? kRed : kGreen);
+  set_text(v.safety, r.safety_text);
+  set_text(v.why, r.why);
+  set_text(v.todo, r.todo);
+  set_text(v.detail, r.detail);
+  show_if(v.why, r.why[0]);
+  show_if(v.todo, r.todo[0]);
+  show_if(v.detail, r.detail[0]);
+}
+
+// One step of a job, or of a plan: done, now, or to come.
+struct StepRow {
+  lv_obj_t *row, *icon, *text;
+};
+static StepRow step_row(lv_obj_t *parent) {
+  StepRow s;
+  s.row = row(parent, 6);
+  lv_obj_set_flex_align(s.row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+  s.icon = word(s.row, "-", kMuted, base_step());
+  lv_obj_set_width(s.icon, 16);
+  s.text = text(s.row, "", kMuted, base_step());
+  lv_obj_set_width(s.text, 1);
+  lv_obj_set_flex_grow(s.text, 1);
+  return s;
+}
+static void fill_step(StepRow &s, UiStepState state, const char *what) {
+  set_text(s.icon, state == UiStepState::Done ? LV_SYMBOL_OK : state == UiStepState::Now ? LV_SYMBOL_RIGHT : "-");
+  set_colour(s.icon, state == UiStepState::Done ? kGreen : state == UiStepState::Now ? kYellow : kMuted);
+  set_text(s.text, what);
+  set_colour(s.text, state == UiStepState::Next ? kMuted : state == UiStepState::Now ? kWhite : kGrey);
+}
+
+// ---------- Play: one line per stage ----------
+// Hub, Controllers, Router, FM-1: a dot, a name and one status. Tapping a line
+// opens that stage's detail (today's lines, wrapping), one at a time; a second
+// tap closes it. A problem opens its own stage, with the fix card.
+using midi_core::kStages;
+struct StageLine {
+  lv_obj_t *up, *dot, *spine, *head, *title, *status, *chevron, *detail, *problem, *problem_1, *problem_2;
+  lv_obj_t *lines[midi_core::kMaxDevices + 1];
+  int line_count;
+};
+static StageLine stages[kStages];
+static lv_obj_t *play_page;
+static int open_stage = -1;
+static uint32_t problem_seen;  // what the last problem was, so a new one opens its stage once
+static UiFrame last_frame;
+static bool have_frame;
+static UiLoader last_loader;
+static bool have_loader;
+static int play_shrink;
+static uint32_t fitted_play = UINT32_MAX;
+static bool stacked() { return !wide() && settings.text_size == 2; }  // the 1.69" at L: status under the name
+
+static void fit_play();
+static void stage_tapped(lv_event_t *e) {
+  const int i = int(reinterpret_cast<intptr_t>(lv_event_get_user_data(e)));
+  open_stage = open_stage == i ? -1 : i;
+  if (have_frame) ui_update(last_frame);
+  refresh_group();
+}
+
+static void build_play() {
+  Page t = section_page(kPlay);
+  play_page = t.page;
+  lv_obj_set_style_pad_row(t.content, 0, 0);
+  static const char *const kTitles[kStages] = {"Hub", "Controllers", "Router", "FM-1"};
+  static const uint32_t kTitleColours[kStages] = {kWhite, kYellow, kWhite, kMagenta};
+  const int dot = wide() ? 14 : 12;
+  for (int i = 0; i < kStages; ++i) {
+    StageLine &s = stages[i];
+    lv_obj_t *r = row(t.content, 0);
+    lv_obj_set_flex_align(r, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    // The rail: the spine from the stage above, the dot, then the spine down
+    // to the next stage.
+    lv_obj_t *rail = box(r);
+    lv_obj_add_flag(rail, LV_OBJ_FLAG_IGNORE_LAYOUT);
+    lv_obj_set_size(rail, dot, lv_pct(100));
     lv_obj_set_flex_flow(rail, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(rail, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    node.dot = box(rail);
-    lv_obj_set_style_radius(node.dot, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_bg_opa(node.dot, LV_OPA_COVER, 0);
-    node.line = box(rail);
-    lv_obj_set_width(node.line, 2);
-    lv_obj_set_flex_grow(node.line, 1);
-    lv_obj_set_style_bg_opa(node.line, LV_OPA_COVER, 0);
-    if (n == kNodes - 1) lv_obj_add_flag(node.line, LV_OBJ_FLAG_HIDDEN);
+    s.up = box(rail);
+    lv_obj_set_width(s.up, 2);
+    lv_obj_set_style_bg_opa(s.up, i > 0 ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
+    lv_obj_set_style_bg_color(s.up, c(kDim), 0);
+    s.dot = box(rail);
+    lv_obj_set_size(s.dot, dot, dot);
+    lv_obj_set_style_radius(s.dot, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_opa(s.dot, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(s.dot, c(kDim), 0);
+    s.spine = box(rail);
+    lv_obj_set_width(s.spine, 2);
+    lv_obj_set_flex_grow(s.spine, 1);
+    lv_obj_set_style_bg_opa(s.spine, i + 1 < kStages ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
+    lv_obj_set_style_bg_color(s.spine, c(kDim), 0);
 
-    lv_obj_t *content = node.content = box(node.row);
-    lv_obj_set_flex_grow(content, 1);
-    lv_obj_set_height(content, LV_SIZE_CONTENT);
-    lv_obj_set_flex_flow(content, LV_FLEX_FLOW_COLUMN);
-    node.title = label(content, &title_style, kTitleColours[n]);
-    lv_label_set_text(node.title, kTitles[n]);
-    if (n == 2) {
-      // Controller group: one row per device, created up front and shown as needed.
-      for (int i = 0; i < (int)midi_core::kMaxDevices; ++i) {
-        controller_rows[i] = box(content);
-        lv_obj_set_width(controller_rows[i], lv_pct(100));
-        lv_obj_set_height(controller_rows[i], LV_SIZE_CONTENT);
-        lv_obj_set_flex_flow(controller_rows[i], LV_FLEX_FLOW_ROW);
-        lv_obj_set_flex_align(controller_rows[i], LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-        lv_obj_set_style_pad_column(controller_rows[i], 6, 0);
-        controller_dots[i] = box(controller_rows[i]);
-        lv_obj_set_style_radius(controller_dots[i], LV_RADIUS_CIRCLE, 0);
-        lv_obj_set_style_bg_opa(controller_dots[i], LV_OPA_COVER, 0);
-        controller_labels[i] = label(controller_rows[i], &detail_style, kGrey);
-        lv_obj_set_flex_grow(controller_labels[i], 1);
-        lv_obj_add_flag(controller_rows[i], LV_OBJ_FLAG_HIDDEN);
-      }
-      node.detail = label(content, &detail_style, kGrey);  // "none" when empty
-    } else {
-      node.detail = label(content, &detail_style, kGrey);
+    lv_obj_t *col = column(r, 2);
+    lv_obj_set_style_pad_left(col, dot + 8, 0);
+    s.head = stacked() ? column(col, 0) : row(col, 8);
+    lv_obj_set_style_pad_hor(s.head, 6, 0);
+    lv_obj_set_style_pad_ver(s.head, stacked() ? 4 : 0, 0);
+    lv_obj_set_style_radius(s.head, 8, 0);
+    lv_obj_set_style_bg_color(s.head, c(kRow), 0);
+    pressed_bg(s.head, 0x2A2A2A);
+    lv_obj_set_style_bg_opa(s.head, LV_OPA_COVER, LV_STATE_PRESSED);
+    focusable(s.head, Ring::Border);
+    lv_obj_add_event_cb(s.head, stage_tapped, LV_EVENT_CLICKED, reinterpret_cast<void *>(intptr_t(i)));
+    s.title = word(s.head, kTitles[i], kTitleColours[i], heading(1));
+    s.status = word(s.head, "", kGrey, base_step() - 1);
+    if (!stacked()) {
+      lv_obj_set_width(s.status, 1);
+      lv_obj_set_flex_grow(s.status, 1);
+      lv_obj_set_style_text_align(s.status, LV_TEXT_ALIGN_RIGHT, 0);
+      lv_label_set_long_mode(s.status, LV_LABEL_LONG_MODE_DOTS);
+      lv_label_set_max_lines(s.status, 1);
     }
-    node.extra = label(content, &detail_style, kGrey);
-    lv_obj_add_flag(node.extra, LV_OBJ_FLAG_HIDDEN);
+    s.chevron = wide() ? word(s.head, LV_SYMBOL_DOWN, kIconOff, base_step() - 2) : nullptr;
+
+    s.detail = column(col, 1);
+    lv_obj_set_style_pad_left(s.detail, 6, 0);
+    lv_obj_set_style_pad_bottom(s.detail, 8, 0);
+    const int lines = i == 1 ? int(midi_core::kMaxDevices) + 1 : 3;
+    s.line_count = lines;
+    for (int l = 0; l < lines; ++l) s.lines[l] = text(s.detail, "", kGrey, base_step() - 1);
+    s.problem = card(s.detail, kWarnBg, kWarnEdge);
+    s.problem_1 = text(s.problem, "", kOrange, base_step());
+    s.problem_2 = text(s.problem, "", kWhite, base_step());
+    lv_obj_add_flag(s.problem, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(s.detail, LV_OBJ_FLAG_HIDDEN);
+  }
+}
+
+// Lines 36 px tall on the 1.69", 44 on 320+: each is a real hit target. When
+// Play doesn't fit, the gaps tighten first; on the 1.69" the text gets smaller
+// after that (shrink 3 on), as today. Wider boards scroll instead.
+static void size_play(int shrink) {
+  const int line_h = (wide() ? 44 : 36) - (shrink >= 1 ? 6 : 0) - (shrink >= 2 ? 4 : 0);
+  const int drop = shrink > 2 ? shrink - 2 : 0;
+  const int dot = wide() ? 14 : 12;
+  for (StageLine &s : stages) {
+    if (!stacked()) lv_obj_set_height(s.head, line_h);
+    lv_obj_set_style_text_font(s.title, font_for(heading(1) - drop), 0);
+    lv_obj_set_style_text_font(s.status, font_for(base_step() - 1 - drop), 0);
+    for (int l = 0; l < s.line_count; ++l) lv_obj_set_style_text_font(s.lines[l], font_for(base_step() - 1 - drop), 0);
+    lv_obj_set_style_pad_bottom(s.detail, shrink >= 1 ? 4 : 8, 0);
+    const int line = stacked() ? lv_font_get_line_height(font_for(heading(1) - drop)) + 8 : line_h;
+    lv_obj_set_height(s.up, stacked() ? 8 : (line - dot) / 2);
+  }
+}
+
+static bool play_overflows() {
+  lv_obj_t *scr = lv_obj_get_screen(play_page);
+  lv_obj_update_layout(scr);
+  lv_obj_mark_layout_as_dirty(play_page);
+  lv_obj_update_layout(scr);
+  return lv_obj_get_scroll_bottom(play_page) > 0;
+}
+
+static void fit_play() {
+  const int max_shrink = wide() ? 2 : 2 + (base_step() < 4 ? base_step() : 4);
+  for (play_shrink = 0; play_shrink < max_shrink; ++play_shrink) {
+    size_play(play_shrink);
+    if (!play_overflows()) return;
+  }
+  size_play(play_shrink);
+}
+
+static void set_line(StageLine &s, int i, const char *text_, uint32_t colour) {
+  set_text(s.lines[i], text_);
+  set_colour(s.lines[i], colour);
+  show_if(s.lines[i], text_[0]);
+}
+
+void ui_update(const UiFrame &f) {
+  if (&f != &last_frame) last_frame = f;
+  have_frame = true;
+  const midi_core::ChainView &v = f.view;
+  dot_play = v.has_problem;
+  show_dots();
+
+  // A new problem opens its own stage, once: after that the stages are the user's.
+  uint32_t key = 0;
+  if (v.has_problem) {
+    key = 1u + uint32_t(v.problem_stage);
+    for (const char *p = v.problem.line1; *p; ++p) key = key * 31 + uint8_t(*p);
+  }
+  if (key != problem_seen) {
+    problem_seen = key;
+    if (v.has_problem && v.problem_stage < kStages) open_stage = v.problem_stage;
   }
 
-  problem_box = box(column);
-  lv_obj_set_width(problem_box, lv_pct(100));
-  lv_obj_set_height(problem_box, LV_SIZE_CONTENT);
-  lv_obj_set_flex_flow(problem_box, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_style_bg_color(problem_box, c(kProblemBg), 0);
-  lv_obj_set_style_bg_opa(problem_box, LV_OPA_COVER, 0);
-  lv_obj_set_style_border_color(problem_box, c(kProblemEdge), 0);
-  lv_obj_set_style_border_width(problem_box, 1, 0);
-  lv_obj_set_style_radius(problem_box, 6, 0);
-  lv_obj_set_style_pad_all(problem_box, 6, 0);
-  problem_1 = label(problem_box, &detail_style, kOrange);
-  problem_2 = label(problem_box, &detail_style, kWhite);
-  lv_obj_t *const problem_lines[] = {problem_1, problem_2};
-  for (lv_obj_t *l : problem_lines) {
-    lv_label_set_long_mode(l, LV_LABEL_LONG_MODE_WRAP);
-    lv_label_set_max_lines(l, 0);
+  const Level levels[kStages] = {v.hub, v.controllers, v.router, v.target};
+  for (int i = 0; i < kStages; ++i) {
+    StageLine &s = stages[i];
+    set_bg(s.dot, level_hex(levels[i]));
+    set_bg(s.spine, i + 2 < v.first_broken ? kSpine : kDim);  // node i + 1 to the next
+    set_bg(s.up, i + 1 < v.first_broken ? kSpine : kDim);
+    set_text(s.status, f.stages[i].text);
+    set_colour(s.status, tone_hex(f.stages[i].tone));
+    const bool open = i == open_stage;
+    show_if(s.detail, open);
+    lv_obj_set_style_bg_opa(s.head, open ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
+    if (s.chevron) set_text(s.chevron, open ? LV_SYMBOL_UP : LV_SYMBOL_DOWN);
+    const bool problem_here = v.has_problem && v.problem_stage == i;
+    show_if(s.problem, problem_here);
+    if (problem_here) {
+      set_text(s.problem_1, v.problem.line1);
+      set_text(s.problem_2, v.problem.line2);
+    }
   }
-  lv_obj_add_flag(problem_box, LV_OBJ_FLAG_HIDDEN);
 
-  usb_label = lv_label_create(chain_screen);
-  lv_obj_add_style(usb_label, &detail_style, 0);
-  lv_obj_add_flag(usb_label, LV_OBJ_FLAG_FLOATING);
-  lv_obj_align(usb_label, LV_ALIGN_TOP_RIGHT, -side, top);
-  lv_label_set_text(usb_label, "");
-}
+  char buf[64];
+  StageLine &hub = stages[midi_core::kStageHub];
+  set_line(hub, 0, f.hub_detail, kGrey);
+  snprintf(buf, sizeof buf, "%u of 8 USB channels in use", unsigned(f.snapshot.channels_used));
+  set_line(hub, 1, buf, f.snapshot.channels_used >= 8 ? kYellow : kGrey);
+  set_line(hub, 2, "", kGrey);
 
-// ---------- Settings screen ----------
-// Everything here is sized to fit: while a page fits, no scroll can start,
-// so a finger that drifts a few pixels still taps (see scroll_only_if_needed).
-static constexpr int kButtonH = 44;
-static void disarm_computer(lv_timer_t *);
-
-static void back_to_chain(lv_event_t *) {
-  if (computer_disarm) {  // leaving Settings cancels a half-done Computer tap
-    lv_timer_delete(computer_disarm);
-    disarm_computer(nullptr);
+  StageLine &ctl = stages[midi_core::kStageControllers];
+  set_text(ctl.title, f.controller_count > 1 ? "Controllers" : "Controller");
+  for (int i = 0; i < int(midi_core::kMaxDevices); ++i) {
+    if (i >= f.controller_count) {
+      set_line(ctl, i, "", kGrey);
+      continue;
+    }
+    const UiDeviceLine &d = f.controllers[i];
+    snprintf(buf, sizeof buf, "%s  %s", d.tag, d.detail);
+    set_line(ctl, i, buf, !d.open ? kRed : d.fresh ? kGreen : kGrey);
   }
-  lv_screen_load(chain_screen);
+  set_line(ctl, int(midi_core::kMaxDevices), f.controller_count ? "" : "none", kGrey);
+
+  StageLine &router = stages[midi_core::kStageRouter];
+  snprintf(buf, sizeof buf, "%lu passed", (unsigned long)f.sent);
+  set_line(router, 0, buf, kGrey);
+  snprintf(buf, sizeof buf, "%lu SysEx blocked", (unsigned long)f.blocked);
+  set_line(router, 1, buf, kGrey);
+  set_line(router, 2, "", kGrey);
+
+  StageLine &fm1 = stages[midi_core::kStageFm1];
+  if (have_loader && last_loader.running[0] && v.target == Level::Ok) snprintf(buf, sizeof buf, "runs %s", last_loader.running);
+  else buf[0] = 0;
+  set_line(fm1, 0, buf, kWhite);
+  set_line(fm1, 1, f.fm1_in, v.target == Level::Ok ? (f.fm1_in_fresh ? kGreen : kGrey) : level_hex(v.target));
+  set_line(fm1, 2, f.fm1_own, kGrey);
+
+  // What decides Play's height: the open stage, its lines, and the problem's
+  // wrapped text. Refit only when that changes.
+  uint32_t shape = uint32_t(open_stage + 1) | (uint32_t(f.controller_count) << 4);
+  if (v.has_problem) shape |= 0x100 | (strlen(v.problem.line1) << 12) | (strlen(v.problem.line2) << 20);
+  if (shape != fitted_play) {
+    fitted_play = shape;
+    fit_play();
+  }
 }
 
-static void size_version() {
-  // S 12, M 16, L 18: at 20 the hub-loader label wraps and the page overflows.
-  const int step = base_step() + 1;
-  lv_obj_set_style_text_font(version_label, font_for(step < 4 ? step : 4), 0);
+// ---------- FM-1: the firmware list ----------
+struct ItemRow {
+  lv_obj_t *row, *mark, *name, *note;
+};
+static ItemRow item_rows[kLoaderItems];
+static lv_obj_t *fm1_list, *fm1_blocked, *backups_sub, *fm1_foot;
+static ProblemView fm1_problem;
+static lv_obj_t *plan_screen, *plan_title, *plan_lines[kPlanLines], *backups_screen, *backups_latest;
+static StepRow plan_steps[kPlanLines];
+static int wanted_plan = -1;  // the row whose plan was opened
+
+static void item_tapped(lv_event_t *e) {
+  const int i = int(reinterpret_cast<intptr_t>(lv_event_get_user_data(e)));
+  wanted_plan = i;
+  if (hooks.loader_select) hooks.loader_select(i);
+  if (have_loader) ui_update_loader(last_loader);
+  push(plan_screen);
+}
+static void backups_tapped(lv_event_t *) { push(backups_screen); }
+
+static void build_fm1() {
+  Page t = section_page(kFm1);
+  fm1_list = column(t.content, 6);
+  for (int i = 0; i < kLoaderItems; ++i) {
+    ItemRow &r = item_rows[i];
+    // On the 1.69" at L the note drops under the name, as Play's status does.
+    r.row = row(fm1_list, 8);
+    lv_obj_set_height(r.row, stacked() ? LV_SIZE_CONTENT : wide() ? 44 : 34);
+    if (stacked()) {
+      lv_obj_set_flex_flow(r.row, LV_FLEX_FLOW_ROW_WRAP);
+      lv_obj_set_style_pad_ver(r.row, 5, 0);
+      lv_obj_set_style_pad_row(r.row, 0, 0);
+    }
+    lv_obj_set_style_bg_opa(r.row, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(r.row, c(kRow), 0);
+    pressed_bg(r.row, 0x3A3A3A);
+    lv_obj_set_style_radius(r.row, 8, 0);
+    lv_obj_set_style_pad_hor(r.row, 8, 0);
+    focusable(r.row, Ring::Border);
+    lv_obj_add_event_cb(r.row, item_tapped, LV_EVENT_CLICKED, reinterpret_cast<void *>(intptr_t(i)));
+    r.mark = word(r.row, LV_SYMBOL_PLAY, kGreen, base_step() - 1);
+    r.name = grow_word(r.row, "", kWhite, heading(1));
+    r.note = word(r.row, "", kMuted, base_step() - 1);
+    if (stacked()) {
+      lv_obj_set_width(r.name, LV_SIZE_CONTENT);
+      lv_obj_set_flex_grow(r.name, 0);
+      lv_obj_add_flag(r.note, LV_OBJ_FLAG_FLEX_IN_NEW_TRACK);
+    }
+    lv_obj_add_flag(r.row, LV_OBJ_FLAG_HIDDEN);
+  }
+  lv_obj_t *gap = box(fm1_list);
+  lv_obj_set_size(gap, 1, 4);
+  nav_row(fm1_list, "Backups", &backups_sub, backups_tapped);
+
+  // An unfinished install, or a store that can't be read: instead of the list.
+  fm1_blocked = column(t.content, 6);
+  fm1_problem = problem_view(fm1_blocked, true);
+  lv_obj_add_flag(fm1_blocked, LV_OBJ_FLAG_HIDDEN);
+  fm1_foot = foot_box(t);
+  hold_widget(fm1_foot, fm1_hold, kRed, run_loader_hold);
+  fm1_hold.act = UiAct::Retry;
+  lv_obj_add_flag(fm1_foot, LV_OBJ_FLAG_HIDDEN);
+
+  // The plan: what holding "switch to X" does.
+  Page p = sub_page(&plan_title, nullptr, true);
+  plan_screen = p.scr;
+  for (int i = 0; i < kPlanLines; ++i) {
+    plan_lines[i] = text(p.content, "", kWhite, base_step());
+    plan_steps[i] = step_row(p.content);
+  }
+  hold_widget(foot_box(p), plan_hold, kYellow, run_loader_hold);
+  plan_hold.act = UiAct::Switch;
+
+  // Backups: reached from the quiet row at the bottom of the list.
+  lv_obj_t *backups_title;
+  Page b = sub_page(&backups_title, nullptr, true);
+  backups_screen = b.scr;
+  lv_label_set_text(backups_title, "Backups");
+  text(b.content, "A switch checks the FM-1 against its latest backup first, and stops if it changed.", kWhite,
+       base_step());
+  text(b.content, "A backup reads all 1 MB of the FM-1 twice and keeps it on this board. It writes nothing to the FM-1.",
+       kGrey, base_step() - 1);
+  backups_latest = text(b.content, "", kGrey, base_step() - 1);
+  text(b.content, "Back up after you change songs or settings, before a switch, or before trying something risky.",
+       kMuted, base_step() - 1);
+  hold_widget(foot_box(b), backups_hold, kYellow, run_loader_hold);
+  backups_hold.act = UiAct::Backup;
 }
 
-static void show_size_choice() {
-  for (int i = 0; i < 3; ++i) lv_obj_set_state(size_buttons[i], LV_STATE_CHECKED, i == settings.text_size);
+// ---------- Results, and the job page ----------
+static lv_obj_t *result_screen, *result_title, *result_back, *result_foot, *result_ok;
+static ProblemView result_problem;
+static uint32_t shown_result_seq;
+static lv_obj_t *job_screen, *job_title, *job_danger, *job_bar, *job_note;
+static StepRow job_steps[kJobSteps];
+
+static void result_done(lv_event_t *) { go_section(kFm1); }
+
+static void build_results() {
+  Page r = sub_page(&result_title, &result_back, true);
+  result_screen = r.scr;
+  lv_obj_remove_event_cb(result_back, back_tapped);
+  lv_obj_add_event_cb(result_back, result_done, LV_EVENT_CLICKED, nullptr);
+  result_problem = problem_view(r.content, false);
+  result_foot = foot_box(r);
+  hold_widget(result_foot, result_hold, kYellow, run_loader_hold);
+  result_ok = plain_button(result_foot, "OK", result_done);
+
+  lv_obj_t *back_row;
+  Page j = sub_page(&job_title, &back_row, false);
+  job_screen = j.scr;
+  job_danger = card(j.content, kDangerBg, kDangerEdge);
+  text(job_danger, LV_SYMBOL_WARNING " Don't unplug or switch off the FM-1", kWhite, base_step() - 1);
+  for (StepRow &s : job_steps) s = step_row(j.content);
+  job_bar = lv_bar_create(j.content);
+  lv_obj_set_size(job_bar, lv_pct(100), 8);
+  lv_obj_set_style_bg_color(job_bar, c(kDim), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(job_bar, c(kYellow), LV_PART_INDICATOR);
+  lv_bar_set_range(job_bar, 0, 100);
+  job_note = text(j.content, "", kMuted, base_step() - 1);
 }
 
+static bool fix_enabled(const UiLoader &l, const UiResult &r) {
+  switch (r.fix) {
+    case UiAct::Switch: return l.plan.can_act;
+    case UiAct::Backup: return l.can_back_up;
+    case UiAct::Retry: return l.can_retry;
+    default: return false;
+  }
+}
+
+void ui_update_loader(const UiLoader &l) {
+  if (!has_fm1() || !section_screens[kFm1]) return;
+  if (&l != &last_loader) last_loader = l;
+  have_loader = true;
+  dot_fm1 = l.unfinished;
+  // A hold that fired but started no job (the Loader refused it): ready again.
+  if (!l.job.active)
+    for (Hold *h : {&plan_hold, &backups_hold, &fm1_hold, &result_hold}) h->fired = false;
+  show_dots();
+
+  // The FM-1 page: the list, or what stands in its way.
+  const bool blocked = l.blocked.headline[0];
+  show_if(fm1_list, !blocked);
+  show_if(fm1_blocked, blocked);
+  show_if(fm1_foot, blocked && l.blocked.fix == UiAct::Retry);
+  if (blocked) {
+    fill_problem(fm1_problem, l.blocked);
+    hold_set(fm1_hold, l.blocked.fix_label, l.can_retry && !l.job.active);
+  }
+  for (int i = 0; i < kLoaderItems; ++i) {
+    ItemRow &r = item_rows[i];
+    show_if(r.row, i < l.item_count);
+    if (i >= l.item_count) continue;
+    const UiLoaderItem &it = l.items[i];
+    const bool running = it.note == UiNote::Running;
+    set_text(r.name, it.label);
+    show_if(r.mark, running);
+    set_bg(r.row, running ? kRunningRow : kRow);
+    set_text(r.note, it.note == UiNote::Running ? "running" : it.note == UiNote::YourSongs ? "your songs"
+                     : it.note == UiNote::NotYet  ? "not yet" : "");
+    set_colour(r.note, running ? kGreen : kMuted);
+    show_if(r.note, it.note != UiNote::None);
+  }
+  set_text(backups_sub, l.backups_note);
+  set_text(backups_latest, l.backups_note);
+
+  // The plan, once the Loader has made it for the row that was opened.
+  const bool planned = l.plan.item >= 0 && l.plan.item == wanted_plan;
+  const int lines = planned ? l.plan.line_count : 1;
+  set_text(plan_title, planned ? l.plan.title : wanted_plan >= 0 && wanted_plan < l.item_count ? l.items[wanted_plan].label : "");
+  for (int i = 0; i < kPlanLines; ++i) {
+    // The first and last lines are plain text; the ones between, the steps it runs.
+    const bool shown = i < lines;
+    const bool warn = planned && i >= l.plan.warn_from;
+    const bool as_step = shown && !warn && i > 0 && i + 1 < lines;
+    show_if(plan_lines[i], shown && !as_step);
+    show_if(plan_steps[i].row, as_step);
+    const char *s = planned ? l.plan.lines[i] : "Planning...";
+    if (as_step) {
+      fill_step(plan_steps[i], UiStepState::Next, s);
+    } else if (shown) {
+      set_text(plan_lines[i], s);
+      set_colour(plan_lines[i], warn ? kOrange : i == 0 ? kWhite : kMuted);
+    }
+  }
+  plan_hold.index = l.plan.item;
+  hold_set(plan_hold, planned ? l.plan.hold : "switch", planned && l.plan.can_act && !l.job.active);
+  hold_set(backups_hold, "back up now", l.can_back_up && !l.job.active);
+
+  // The result page.
+  const UiResult &r = l.result;
+  set_text(result_title, r.headline);
+  set_colour(result_title, headline_hex(r));
+  fill_problem(result_problem, r);
+  const bool danger = r.safety == UiSafety::Danger;
+  // The FM-1 is in ROM boot: the retry is the way on, so no way back.
+  show_if(lv_obj_get_child(result_back, 0), !danger);
+  if (danger) lv_obj_remove_flag(result_back, LV_OBJ_FLAG_CLICKABLE);
+  else lv_obj_add_flag(result_back, LV_OBJ_FLAG_CLICKABLE);
+  if (danger == lv_obj_has_flag(result_back, kFocusable)) {
+    if (danger) lv_obj_remove_flag(result_back, kFocusable);
+    else lv_obj_add_flag(result_back, kFocusable);
+  }
+  show_if(result_hold.button, r.fix != UiAct::None);
+  show_if(result_ok, r.fix == UiAct::None);
+  result_hold.act = r.fix;
+  result_hold.index = r.fix == UiAct::Switch ? l.plan.item : -1;
+  lv_obj_set_style_border_color(result_hold.button, c(danger ? kRed : kYellow), 0);
+  lv_obj_set_style_bg_color(result_hold.bar, c(danger ? kRed : kYellow), LV_PART_INDICATOR);
+  hold_set(result_hold, r.fix_label, fix_enabled(l, r) && !l.job.active);
+
+  // The job page.
+  const UiJob &j = l.job;
+  set_text(job_title, j.title);
+  set_colour(job_title, kYellow);
+  show_if(job_danger, j.danger);
+  for (int i = 0; i < kJobSteps; ++i) {
+    show_if(job_steps[i].row, i < j.step_count);
+    if (i < j.step_count) fill_step(job_steps[i], j.steps[i].state, j.steps[i].text);
+  }
+  lv_bar_set_value(job_bar, j.percent, LV_ANIM_OFF);
+  set_text(job_note, j.note);
+  show_if(job_note, j.note[0]);
+
+  // Which page: a running job takes the whole screen; after it, a new result
+  // opens once, and its OK returns to the list.
+  if (j.active && !job_showing) {
+    job_showing = true;
+    depth = 0;
+    show(job_screen);
+  } else if (!j.active && job_showing) {
+    job_showing = false;
+    if (r.seq == shown_result_seq) go_section(kFm1);
+  }
+  if (!j.active && r.seq && r.seq != shown_result_seq) {
+    shown_result_seq = r.seq;
+    go_section(kFm1);
+    push(result_screen);
+  }
+  if (lv_screen_active() != job_screen) refresh_group();
+}
+
+// ---------- Setup and Computer mode ----------
+static lv_obj_t *size_buttons[3], *version_label, *computer_screen_confirm;
+static lv_obj_t *network_labels[2];  // Setup, the Computer mode screen
+static char network_text[48] = "";
+
+static void rebuild(void *);
 static void size_tapped(lv_event_t *e) {
   const uint8_t picked = static_cast<uint8_t>(reinterpret_cast<uintptr_t>(lv_event_get_user_data(e)));
   if (picked == settings.text_size) return;
   settings.text_size = picked;
-  show_size_choice();
-  size_version();
-  fitted_shape = UINT32_MAX;  // refit the chain at the new size
-  fit_chain();
   if (hooks.settings_changed) hooks.settings_changed(settings);
-}
-
-// Pressed buttons go lighter, so a tap shows the moment the finger lands.
-static void style_pressed(lv_obj_t *b) {
-  lv_obj_set_style_bg_color(b, c(0x5A5A5A), LV_STATE_PRESSED);
-  lv_obj_set_style_bg_color(b, c(0x2F8FE8), LV_STATE_CHECKED | LV_STATE_PRESSED);
-}
-
-// Restarting stops MIDI, so the first tap only arms the button; a second tap
-// within a few seconds restarts.
-static const char kComputerIdle[] = LV_SYMBOL_USB " Computer";
-static const char kComputerArmed[] = "Tap again to restart";
-
-static void disarm_computer(lv_timer_t *) {
-  lv_label_set_text(computer_label, kComputerIdle);
-  lv_obj_set_style_bg_color(computer_button, c(kDim), 0);
-  computer_disarm = nullptr;
-}
-
-static void computer_tapped(lv_event_t *) {
-  if (!computer_disarm) {
-    lv_label_set_text(computer_label, kComputerArmed);
-    lv_obj_set_style_bg_color(computer_button, c(0x8A5A10), 0);
-    computer_disarm = lv_timer_create(disarm_computer, 3000, nullptr);
-    lv_timer_set_repeat_count(computer_disarm, 1);
-    return;
-  }
-  if (hooks.connect_computer) hooks.connect_computer();
+  lv_async_call(rebuild, nullptr);  // not from inside the button's own event
 }
 
 // One small wrapping line, hidden while empty (ui_set_network).
 static lv_obj_t *network_label(lv_obj_t *parent) {
-  lv_obj_t *l = lv_label_create(parent);
-  lv_obj_set_width(l, lv_pct(100));
-  lv_label_set_long_mode(l, LV_LABEL_LONG_MODE_WRAP);
-  lv_obj_set_style_text_font(l, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(l, c(kGrey), 0);
-  lv_label_set_text(l, network_text);
-  if (!network_text[0]) lv_obj_add_flag(l, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_t *l = text(parent, network_text, kMuted, base_step() - 1);
+  show_if(l, network_text[0]);
   return l;
 }
 
-// A full-width button, kButtonH tall.
-static lv_obj_t *wide_button(lv_obj_t *parent, const char *text, lv_event_cb_t on_click, lv_obj_t **label_out) {
-  lv_obj_t *b = lv_button_create(parent);
-  lv_obj_set_size(b, lv_pct(100), kButtonH);
-  lv_obj_set_ext_click_area(b, 3);
-  style_pressed(b);
-  lv_obj_t *l = lv_label_create(b);
-  lv_obj_set_style_text_font(l, &lv_font_montserrat_16, 0);
-  lv_label_set_text(l, text);
-  lv_obj_center(l);
-  lv_obj_add_event_cb(b, on_click, LV_EVENT_CLICKED, nullptr);
-  if (label_out) *label_out = l;
-  return b;
+static void computer_tapped(lv_event_t *) { push(computer_screen_confirm); }
+static void run_computer_hold(Hold &) {
+  if (hooks.connect_computer) hooks.connect_computer();
 }
 
-static void build_settings_screen() {
-  settings_screen = lv_obj_create(nullptr);
-  lv_obj_set_style_bg_color(settings_screen, c(0x000000), 0);
-  scroll_only_if_needed(settings_screen);
-  int side, top;
-  safe_padding(&side, &top);
-  lv_obj_set_style_pad_hor(settings_screen, side, 0);
-  lv_obj_set_style_pad_ver(settings_screen, top, 0);
-  lv_obj_set_flex_flow(settings_screen, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_style_pad_row(settings_screen, 8, 0);
-
-  // The page's first line is the running firmware, at the chosen text size
-  // (a "Settings" title said nothing the buttons don't).
-  version_label = lv_label_create(settings_screen);
-  lv_obj_set_width(version_label, lv_pct(100));
-  lv_label_set_long_mode(version_label, LV_LABEL_LONG_MODE_WRAP);
-  lv_obj_set_style_text_color(version_label, c(kGrey), 0);
-  lv_label_set_text(version_label, firmware);
-  size_version();
-  network_labels[0] = network_label(settings_screen);
-
+static void build_setup() {
+  Page t = section_page(kSetup);
+  version_label = text(t.content, firmware, kGrey, base_step());
+  network_labels[0] = network_label(t.content);
   // Text size: three buttons sharing the width, each lettered in the size it
   // picks, so the letters are the preview.
-  lv_obj_t *sizes = box(settings_screen);
-  lv_obj_set_size(sizes, lv_pct(100), kButtonH + 4);
-  lv_obj_set_flex_flow(sizes, LV_FLEX_FLOW_ROW);
-  lv_obj_set_style_pad_column(sizes, 6, 0);
+  lv_obj_t *sizes = row(t.content, 6);
+  lv_obj_set_height(sizes, 40);
   static const char *const kSizes[] = {"S", "M", "L"};
   for (int i = 0; i < 3; ++i) {
-    lv_obj_t *b = size_buttons[i] = lv_button_create(sizes);
+    lv_obj_t *b = size_buttons[i] = box(sizes);
     lv_obj_set_height(b, lv_pct(100));
     lv_obj_set_flex_grow(b, 1);
-    lv_obj_set_style_bg_color(b, c(kDim), 0);
-    lv_obj_set_style_bg_color(b, c(0x2196F3), LV_STATE_CHECKED);
-    style_pressed(b);
-    lv_obj_t *l = lv_label_create(b);
-    lv_obj_set_style_text_font(l, font_for(i * 2 + board->font_boost + 3), 0);
-    lv_label_set_text(l, kSizes[i]);
-    lv_obj_center(l);
+    lv_obj_set_style_radius(b, 8, 0);
+    lv_obj_set_style_bg_opa(b, LV_OPA_COVER, 0);
+    lv_obj_set_style_bg_color(b, c(i == settings.text_size ? kBlue : kDim), 0);
+    pressed_bg(b, 0x5A5A5A);
+    focusable(b, Ring::Outline);
+    lv_obj_center(word(b, kSizes[i], kWhite, i * 2 + 3 + board->font_boost));
     lv_obj_add_event_cb(b, size_tapped, LV_EVENT_CLICKED, reinterpret_cast<void *>(static_cast<uintptr_t>(i)));
   }
-  show_size_choice();
+  // Rotate screen comes with the first board that can turn (a rect panel).
+  lv_obj_t *sub;
+  nav_row(t.content, LV_SYMBOL_USB " Computer mode", &sub, computer_tapped);
+  lv_label_set_text(sub, "For updates over USB");
 
-  lv_obj_t *spacer = box(settings_screen);
-  lv_obj_set_width(spacer, lv_pct(100));
-  lv_obj_set_flex_grow(spacer, 1);
-
-  // Firmware (Loader builds), Computer, then Done at the very bottom, each the
-  // full width.
-  lv_obj_t *buttons = box(settings_screen);
-  lv_obj_set_width(buttons, lv_pct(100));
-  lv_obj_set_height(buttons, LV_SIZE_CONTENT);
-  lv_obj_set_flex_flow(buttons, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_style_pad_row(buttons, 8, 0);
-  if (hooks.loader_act) {
-    lv_obj_t *fw = wide_button(buttons, LV_SYMBOL_DRIVE " Firmware", open_firmware, nullptr);
-    lv_obj_set_style_bg_color(fw, c(kDim), 0);
-  }
-  computer_button = wide_button(buttons, kComputerIdle, computer_tapped, &computer_label);
-  lv_obj_set_style_bg_color(computer_button, c(kDim), 0);
-  wide_button(buttons, "Done", back_to_chain, nullptr);
+  // Computer mode: its own page, and a hold, since it stops MIDI.
+  lv_obj_t *title;
+  Page p = sub_page(&title, nullptr, true);
+  computer_screen_confirm = p.scr;
+  lv_label_set_text(title, "Computer mode");
+  text(p.content, "Restarts this board with MIDI off, so a computer can update it over USB.", kWhite, base_step());
+  text(p.content, "Open the installer page in Chrome or Edge. After an update it goes back to MIDI by itself.", kGrey,
+       base_step() - 1);
+  hold_widget(foot_box(p), computer_hold, kYellow, run_computer_hold);
+  hold_set(computer_hold, "restart in Computer mode", true);
 }
 
-// ---------- Firmware screen (the Loader) ----------
-// Anything that acts on the FM-1 needs a 2-second hold, never a single tap
-// (loader safety rule 7). The bar fills while the finger stays down.
-static constexpr uint32_t kHoldMs = 2000;
-
-static lv_obj_t *item_rows[kLoaderItems + 1];   // [0] is "Back up this FM-1"
-static lv_obj_t *item_labels[kLoaderItems + 1], *item_stars[kLoaderItems + 1], *preview_lines[2];
-static int8_t shown_selected = -2;
-
-static void hold_event(lv_event_t *e) {
-  const lv_event_code_t code = lv_event_get_code(e);
-  if (code == LV_EVENT_PRESSED) {
-    hold_started = hold_enabled ? millis() : 0;
-    hold_fired = false;
-  } else if (code == LV_EVENT_PRESSING && hold_started && !hold_fired) {
-    const uint32_t held = millis() - hold_started;
-    lv_bar_set_value(hold_bar, held >= kHoldMs ? 100 : int32_t(held * 100 / kHoldMs), LV_ANIM_OFF);
-    if (held >= kHoldMs) {
-      hold_fired = true;
-      hold_started = 0;
-      lv_label_set_text(hold_label, "Starting...");
-      if (hooks.loader_act) hooks.loader_act();
-    }
-  } else if (code == LV_EVENT_RELEASED || code == LV_EVENT_PRESS_LOST) {
-    hold_started = 0;
-    if (!hold_fired) lv_bar_set_value(hold_bar, 0, LV_ANIM_OFF);
-  }
-}
-
-static void row_tapped(lv_event_t *e) {
-  const int row = int(reinterpret_cast<intptr_t>(lv_event_get_user_data(e)));
-  if (hooks.loader_select) hooks.loader_select(row - 1);
-  lv_screen_load(detail_screen);
-}
-
-static void star_tapped(lv_event_t *e) {
-  const int row = int(reinterpret_cast<intptr_t>(lv_event_get_user_data(e)));
-  lv_event_stop_bubbling(e);
-  if (hooks.loader_pin && row > 0) hooks.loader_pin(row - 1);
-}
-
-static void close_firmware(lv_event_t *) { lv_screen_load(settings_screen); }
-static void close_detail(lv_event_t *) { lv_screen_load(firmware_screen); }
-
-static lv_obj_t *small_label(lv_obj_t *parent, uint32_t colour) {
-  lv_obj_t *l = lv_label_create(parent);
-  lv_obj_set_width(l, lv_pct(100));
-  lv_label_set_long_mode(l, LV_LABEL_LONG_MODE_CLIP);
-  lv_obj_set_style_text_font(l, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(l, c(colour), 0);
-  lv_label_set_text(l, "");
-  return l;
-}
-
-// A Firmware screen: black, padded to the safe area, a column under a title
-// that wraps (a stopped install's reason takes two lines).
-static lv_obj_t *firmware_page(lv_obj_t **title, int gap) {
-  lv_obj_t *scr = lv_obj_create(nullptr);
-  lv_obj_set_style_bg_color(scr, c(0x000000), 0);
-  scroll_only_if_needed(scr);
-  int side, top;
-  safe_padding(&side, &top);
-  lv_obj_set_style_pad_hor(scr, side, 0);
-  lv_obj_set_style_pad_ver(scr, top, 0);
-  lv_obj_set_flex_flow(scr, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_style_pad_row(scr, gap, 0);
-  *title = lv_label_create(scr);
-  lv_obj_set_width(*title, lv_pct(100));
-  lv_label_set_long_mode(*title, LV_LABEL_LONG_MODE_WRAP);
-  lv_obj_set_style_text_font(*title, &lv_font_montserrat_16, 0);
-  lv_obj_set_style_text_color(*title, c(kWhite), 0);
-  lv_label_set_text(*title, "Firmware");
-  return scr;
-}
-
-static void build_firmware_screen() {
-  // The list: one row per action, back up then each package. A tap selects
-  // and opens the detail; the star pins.
-  firmware_screen = firmware_page(&firmware_title, 4);
-  for (int r = 0; r <= kLoaderItems; ++r) {
-    lv_obj_t *row = lv_button_create(firmware_screen);
-    lv_obj_set_width(row, lv_pct(100));
-    lv_obj_set_height(row, LV_SIZE_CONTENT);
-    lv_obj_set_style_pad_all(row, 6, 0);
-    lv_obj_set_style_bg_color(row, c(kDim), 0);
-    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_add_event_cb(row, row_tapped, LV_EVENT_CLICKED, reinterpret_cast<void *>(intptr_t(r)));
-    item_labels[r] = lv_label_create(row);
-    lv_obj_set_flex_grow(item_labels[r], 1);
-    lv_label_set_long_mode(item_labels[r], LV_LABEL_LONG_MODE_CLIP);
-    lv_obj_set_style_text_font(item_labels[r], &lv_font_montserrat_14, 0);
-    lv_label_set_text(item_labels[r], r == 0 ? LV_SYMBOL_DOWNLOAD " Back up this FM-1" : "");
-    item_stars[r] = lv_label_create(row);
-    lv_obj_set_style_text_font(item_stars[r], &lv_font_montserrat_16, 0);
-    lv_obj_set_style_pad_hor(item_stars[r], 6, 0);
-    lv_label_set_text(item_stars[r], r == 0 ? "" : "*");
-    if (r > 0) {
-      lv_obj_add_flag(item_stars[r], LV_OBJ_FLAG_CLICKABLE);
-      lv_obj_add_event_cb(item_stars[r], star_tapped, LV_EVENT_CLICKED, reinterpret_cast<void *>(intptr_t(r)));
-      lv_obj_add_flag(row, LV_OBJ_FLAG_HIDDEN);
-    }
-    item_rows[r] = row;
-  }
-  wide_button(firmware_screen, "Done", close_firmware, nullptr);
-
-  // The detail: status lines, what the selected action does, then Back and
-  // the hold side by side.
-  detail_screen = firmware_page(&detail_title, 3);
-  for (int i = 0; i < kLoaderLines; ++i) firmware_lines[i] = small_label(detail_screen, kGrey);
-  for (int i = 0; i < 2; ++i) preview_lines[i] = small_label(detail_screen, kWhite);
-
-  lv_obj_t *row = box(detail_screen);
-  lv_obj_set_width(row, lv_pct(100));
-  lv_obj_set_height(row, LV_SIZE_CONTENT);
-  lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
-  lv_obj_set_style_pad_column(row, 4, 0);
-  lv_obj_t *back = wide_button(row, LV_SYMBOL_LEFT, close_detail, nullptr);
-  lv_obj_set_width(back, kButtonH);
-  lv_obj_set_style_bg_color(back, c(kDim), 0);
-
-  hold_button = lv_button_create(row);
-  lv_obj_set_flex_grow(hold_button, 1);
-  lv_obj_set_height(hold_button, kButtonH);
-  lv_obj_set_style_bg_color(hold_button, c(kDim), 0);
-  lv_obj_set_style_pad_all(hold_button, 0, 0);
-  hold_bar = lv_bar_create(hold_button);
-  lv_obj_set_size(hold_bar, lv_pct(100), lv_pct(100));
-  lv_obj_set_style_radius(hold_bar, 0, LV_PART_MAIN);
-  lv_obj_set_style_bg_opa(hold_bar, LV_OPA_TRANSP, LV_PART_MAIN);
-  lv_obj_set_style_bg_color(hold_bar, c(kYellow), LV_PART_INDICATOR);
-  lv_obj_set_style_bg_opa(hold_bar, LV_OPA_50, LV_PART_INDICATOR);
-  lv_obj_remove_flag(hold_bar, LV_OBJ_FLAG_CLICKABLE);
-  lv_bar_set_range(hold_bar, 0, 100);
-  // Two lines when the package name is long: "Hold: install / Felucca 1.6.1".
-  hold_label = lv_label_create(hold_button);
-  lv_obj_set_width(hold_label, lv_pct(100));
-  lv_label_set_long_mode(hold_label, LV_LABEL_LONG_MODE_WRAP);
-  lv_obj_set_style_text_align(hold_label, LV_TEXT_ALIGN_CENTER, 0);
-  lv_obj_set_style_text_font(hold_label, &lv_font_montserrat_14, 0);
-  lv_label_set_text(hold_label, "");
-  lv_obj_center(hold_label);
-  lv_obj_add_event_cb(hold_button, hold_event, LV_EVENT_ALL, nullptr);
-}
-
-static void open_firmware(lv_event_t *) { lv_screen_load(firmware_screen); }
-
-void ui_update_loader(const UiLoader &l) {
-  if (!firmware_screen) return;
-  lv_obj_t *const titles[] = {firmware_title, detail_title};
-  for (lv_obj_t *t : titles) {
-    set_text(t, l.title);
-    set_colour(t, l.title_colour);
-  }
-  for (int i = 0; i < kLoaderLines; ++i) {
-    set_text(firmware_lines[i], l.lines[i]);
-    if (l.lines[i][0]) lv_obj_remove_flag(firmware_lines[i], LV_OBJ_FLAG_HIDDEN);
-    else lv_obj_add_flag(firmware_lines[i], LV_OBJ_FLAG_HIDDEN);
-  }
-  char buf[64];
-  for (int r = 1; r <= kLoaderItems; ++r) {
-    const int i = r - 1;
-    if (i >= l.item_count) {
-      lv_obj_add_flag(item_rows[r], LV_OBJ_FLAG_HIDDEN);
-      continue;
-    }
-    lv_obj_remove_flag(item_rows[r], LV_OBJ_FLAG_HIDDEN);
-    snprintf(buf, sizeof buf, "%s  %s", l.items[i].label, l.items[i].note);
-    set_text(item_labels[r], buf);
-    set_text(item_stars[r], l.items[i].pinned ? LV_SYMBOL_OK : "*");
-    set_colour(item_stars[r], l.items[i].pinned ? kYellow : kGrey);
-  }
-  // The top row: "Back up this FM-1", or the retry its hold now runs.
-  if (l.top_label[0]) {
-    snprintf(buf, sizeof buf, LV_SYMBOL_WARNING " %s", l.top_label);
-    set_text(item_labels[0], buf);
-  } else {
-    set_text(item_labels[0], LV_SYMBOL_DOWNLOAD " Back up this FM-1");
-  }
-  if (l.selected != shown_selected) {
-    for (int r = 0; r <= kLoaderItems; ++r)
-      set_colour(item_rows[r], r - 1 == l.selected ? kSpine : kDim, false);
-    shown_selected = l.selected;
-  }
-  set_text(preview_lines[0], l.preview[0]);
-  set_text(preview_lines[1], l.preview[1]);
-  hold_enabled = l.can_act && !l.busy;
-  if (l.busy) {
-    snprintf(buf, sizeof buf, "Working... %u%%", l.percent);
-    set_text(hold_label, buf);
-    lv_bar_set_value(hold_bar, l.percent, LV_ANIM_OFF);
-  } else if (!hold_started) {
-    set_text(hold_label, l.action);
-    lv_bar_set_value(hold_bar, 0, LV_ANIM_OFF);
-  }
-  set_colour(hold_label, hold_enabled || l.busy ? kWhite : kGrey);
-}
-
-// ---------- Computer-mode screen ----------
 static void back_to_host_tapped(lv_event_t *) {
   if (hooks.back_to_host) hooks.back_to_host();
 }
 
+// The board in Computer mode: the USB host isn't running, so no nav; one way back.
 static lv_obj_t *build_computer_screen(const char *info) {
-  lv_obj_t *scr = lv_obj_create(nullptr);
-  lv_obj_set_style_bg_color(scr, c(0x000000), 0);
-  scroll_only_if_needed(scr);
-  int side, top;
-  safe_padding(&side, &top);
-  lv_obj_set_style_pad_hor(scr, side, 0);
-  lv_obj_set_style_pad_ver(scr, top, 0);
-  lv_obj_set_flex_flow(scr, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_style_pad_row(scr, 10, 0);
+  lv_obj_t *title;
+  Page t = sub_page(&title, nullptr, false);
+  lv_label_set_text(title, LV_SYMBOL_USB " Computer mode");
+  set_colour(title, kYellow);
+  text(t.content, "MIDI is off. Plug this board into a computer and open the installer in Chrome or Edge.", kWhite,
+       base_step());
+  text(t.content, info, kGrey, base_step() - 1);
+  network_labels[1] = network_label(t.content);
+  plain_button(foot_box(t), "Back to MIDI", back_to_host_tapped);
+  return t.scr;
+}
 
-  lv_obj_t *t = lv_label_create(scr);
-  lv_obj_set_style_text_font(t, &lv_font_montserrat_20, 0);
-  lv_obj_set_style_text_color(t, c(kYellow), 0);
-  lv_label_set_text(t, LV_SYMBOL_USB " Computer mode");
+// ---------- Building it all ----------
+static void build_all() {
+  for (lv_obj_t *&s : section_screens) s = nullptr;
+  memset(nav, 0, sizeof nav);
+  build_play();
+  if (has_fm1()) {
+    build_fm1();
+    build_results();
+  }
+  build_setup();
+  fitted_play = UINT32_MAX;
+  if (have_frame) ui_update(last_frame);
+  if (have_loader) ui_update_loader(last_loader);
+}
 
-  lv_obj_t *body = lv_label_create(scr);
-  lv_obj_set_width(body, lv_pct(100));
-  lv_label_set_long_mode(body, LV_LABEL_LONG_MODE_WRAP);
-  lv_obj_set_style_text_font(body, &lv_font_montserrat_14, 0);
-  lv_obj_set_style_text_color(body, c(kWhite), 0);
-  lv_label_set_text(body,
-                    "MIDI is off. Plug this board straight into a computer and open the installer in Chrome "
-                    "or Edge.\n\nAfter an update it goes back to MIDI by itself.");
-
-  lv_obj_t *ver = lv_label_create(scr);
-  lv_obj_set_style_text_font(ver, &lv_font_montserrat_14, 0);
-  lv_obj_set_style_text_color(ver, c(kGrey), 0);
-  lv_label_set_text(ver, info);
-  network_labels[1] = network_label(scr);
-
-  lv_obj_t *spacer = box(scr);
-  lv_obj_set_width(spacer, lv_pct(100));
-  lv_obj_set_flex_grow(spacer, 1);
-
-  wide_button(scr, "Back to MIDI", back_to_host_tapped, nullptr);
-  return scr;
+// A new text size: every page again, at the new size, on the same section.
+static void rebuild(void *) {
+  lv_obj_t *old[] = {section_screens[kPlay], section_screens[kFm1], section_screens[kSetup], plan_screen,
+                     backups_screen,        result_screen,        job_screen,             computer_screen_confirm};
+  plan_screen = backups_screen = result_screen = job_screen = nullptr;
+  const int was = section;
+  const bool job = job_showing;
+  build_all();
+  if (job) show(job_screen);
+  else go_section(was);
+  for (lv_obj_t *o : old)
+    if (o) lv_obj_delete(o);
 }
 
 // ---------- Public API ----------
@@ -721,12 +1375,19 @@ bool ui_begin(const BoardProfile &b, const UiSettings &s, const UiHooks &h, cons
   lv_display_set_buffers(disp, buf1, buf2, bytes, LV_DISPLAY_RENDER_MODE_PARTIAL);
   lv_display_set_flush_cb(disp, flush_cb);
 
-  lv_indev_t *touch = lv_indev_create();
-  lv_indev_set_type(touch, LV_INDEV_TYPE_POINTER);
-  lv_indev_set_read_cb(touch, touch_cb);
-  // Read the panel every 10 ms, not once a frame (33 ms): a quick tap lasts
+  lv_indev_t *in = lv_indev_create();
+  if (b.input == InputKind::Touch) {
+    lv_indev_set_type(in, LV_INDEV_TYPE_POINTER);
+    lv_indev_set_read_cb(in, touch_cb);
+  } else {
+    lv_indev_set_type(in, b.input == InputKind::Encoder ? LV_INDEV_TYPE_ENCODER : LV_INDEV_TYPE_KEYPAD);
+    lv_indev_set_read_cb(in, b.input == InputKind::Encoder ? encoder_cb : keys_cb);
+    group = lv_group_create();
+    lv_indev_set_group(in, group);
+  }
+  // Read the input every 10 ms, not once a frame (33 ms): a quick tap lasts
   // under 100 ms, and every sample it misses makes the screen feel late.
-  lv_timer_set_period(lv_indev_get_read_timer(touch), 10);
+  lv_timer_set_period(lv_indev_get_read_timer(in), 10);
 #if UI_TOUCH_PROBE
   // Diagnostic build: a dot where LVGL thinks the finger is.
   lv_obj_t *dot = lv_obj_create(lv_layer_sys());
@@ -735,7 +1396,7 @@ bool ui_begin(const BoardProfile &b, const UiSettings &s, const UiHooks &h, cons
   lv_obj_set_style_bg_color(dot, c(kRed), 0);
   lv_obj_set_style_border_width(dot, 0, 0);
   lv_obj_remove_flag(dot, LV_OBJ_FLAG_CLICKABLE);
-  lv_indev_set_cursor(touch, dot);
+  lv_indev_set_cursor(in, dot);
   probe_label = lv_label_create(lv_layer_sys());
   lv_obj_set_style_text_font(probe_label, &lv_font_montserrat_14, 0);
   lv_obj_set_style_text_color(probe_label, c(kRed), 0);
@@ -750,24 +1411,17 @@ bool ui_begin(const BoardProfile &b, const UiSettings &s, const UiHooks &h, cons
   lv_style_set_radius(&plain, 0);
   lv_style_set_pad_row(&plain, 0);
   lv_style_set_pad_column(&plain, 0);
-  lv_style_init(&title_style);
-  lv_style_init(&detail_style);
-  chain_column = nullptr;
-  apply_fonts(0);
+  draw_icon(0, midi_shape);
+  draw_icon(1, cart_shape);
 
-  build_chain_screen();
-  apply_fonts(0);  // again, now the chain exists: gaps and dots
-  if (hooks.loader_act) build_firmware_screen();
-  build_settings_screen();
-  lv_screen_load(chain_screen);
+  build_all();
+  go_section(kPlay);
   return true;
 }
 
-void ui_show_computer_mode(const char *info) { lv_screen_load(build_computer_screen(info)); }
-
-void ui_show_firmware() {
-  // A job's boot shows its progress and result: the detail, not the list.
-  if (detail_screen) lv_screen_load(detail_screen);
+void ui_show_computer_mode(const char *info) {
+  depth = 0;
+  show(build_computer_screen(info));
 }
 
 void ui_set_network(const char *line) {
@@ -776,8 +1430,7 @@ void ui_set_network(const char *line) {
   for (lv_obj_t *l : network_labels) {
     if (!l) continue;
     lv_label_set_text(l, network_text);
-    if (network_text[0]) lv_obj_remove_flag(l, LV_OBJ_FLAG_HIDDEN);
-    else lv_obj_add_flag(l, LV_OBJ_FLAG_HIDDEN);
+    show_if(l, network_text[0]);
   }
 }
 
@@ -792,76 +1445,4 @@ void ui_tick() {
   }
 #endif
   lv_timer_handler();
-}
-
-void ui_update(const UiFrame &f) {
-  const midi_core::ChainView &v = f.view;
-  const Level levels[kNodes] = {v.power, v.hub, v.controllers, v.router, v.target};
-  for (int n = 0; n < kNodes; ++n) {
-    set_colour(nodes[n].dot, level_hex(levels[n]), false);
-    set_colour(nodes[n].line, n + 1 < v.first_broken ? kSpine : kDim, false);
-    // Off is a dim dot, but its text stays readable.
-    const bool plain_text = levels[n] == Level::Ok || levels[n] == Level::Off;
-    set_colour(nodes[n].detail, plain_text ? kGrey : level_hex(levels[n]));
-  }
-
-  set_text(nodes[0].detail, "USB-C 5V");
-  set_text(nodes[1].detail, f.hub_detail);
-
-  char buf[64];
-  snprintf(buf, sizeof buf, f.controller_count > 1 ? "Controllers (%u)" : "Controller", f.controller_count);
-  set_text(nodes[2].title, buf);
-  for (int i = 0; i < (int)midi_core::kMaxDevices; ++i) {
-    if (i >= f.controller_count) {
-      lv_obj_add_flag(controller_rows[i], LV_OBJ_FLAG_HIDDEN);
-      continue;
-    }
-    const UiDeviceLine &d = f.controllers[i];
-    lv_obj_remove_flag(controller_rows[i], LV_OBJ_FLAG_HIDDEN);
-    set_colour(controller_dots[i], d.open ? kGreen : kRed, false);
-    snprintf(buf, sizeof buf, "%s  %s", d.tag, d.detail);
-    set_text(controller_labels[i], buf);
-    set_colour(controller_labels[i], !d.open ? kRed : d.fresh ? kGreen : kGrey);
-  }
-  if (f.controller_count == 0) {
-    lv_obj_remove_flag(nodes[2].detail, LV_OBJ_FLAG_HIDDEN);
-    set_text(nodes[2].detail, "none");
-  } else {
-    lv_obj_add_flag(nodes[2].detail, LV_OBJ_FLAG_HIDDEN);
-  }
-
-  // The router blocks only SysEx, so "blocked" says it; the longer wording
-  // ran past the width at M.
-  snprintf(buf, sizeof buf, "%lu passed  %lu blocked", (unsigned long)f.sent, (unsigned long)f.blocked);
-  set_text(nodes[3].detail, buf);
-
-  set_text(nodes[4].detail, f.fm1_in);
-  if (v.target == Level::Ok) set_colour(nodes[4].detail, f.fm1_in_fresh ? kGreen : kGrey);
-  if (f.fm1_own[0] && !v.has_problem) {
-    lv_obj_remove_flag(nodes[4].extra, LV_OBJ_FLAG_HIDDEN);
-    set_text(nodes[4].extra, f.fm1_own);
-  } else {
-    lv_obj_add_flag(nodes[4].extra, LV_OBJ_FLAG_HIDDEN);
-  }
-
-  snprintf(buf, sizeof buf, "USB %u/8", f.snapshot.channels_used);
-  set_text(usb_label, buf);
-  set_colour(usb_label, f.snapshot.channels_used >= 8 ? kYellow : kGrey);
-
-  if (v.has_problem) {
-    lv_obj_remove_flag(problem_box, LV_OBJ_FLAG_HIDDEN);
-    set_text(problem_1, v.problem.line1);
-    set_text(problem_2, v.problem.line2);
-  } else {
-    lv_obj_add_flag(problem_box, LV_OBJ_FLAG_HIDDEN);
-  }
-
-  // What decides the chain's height: rows shown, and the problem's wrapped
-  // text. Refit only when that changes; plain text changes keep line counts.
-  uint32_t shape = f.controller_count | (lv_obj_has_flag(nodes[4].extra, LV_OBJ_FLAG_HIDDEN) ? 0 : 0x100);
-  if (v.has_problem) shape |= 0x200 | (strlen(v.problem.line1) << 12) | (strlen(v.problem.line2) << 20);
-  if (shape != fitted_shape) {
-    fitted_shape = shape;
-    fit_chain();
-  }
 }

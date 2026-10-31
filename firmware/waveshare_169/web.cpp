@@ -272,8 +272,12 @@ function usb(s){const u=s.usb;let t=`${u.running?'host on':'host OFF'}  mode ${u
  t+=`FM-1 ${u.fm1_in}  ${u.fm1_own}`;$('usb').textContent=t}
 function fw(s){const f=s.firmware;if(!f){$('fw').textContent='(no Loader in this build)';return}
  let t=`${f.title}${f.busy?'  [busy '+f.percent+'%]':''}\n`+f.lines.filter(x=>x).join('\n')+'\n';
- f.items.forEach((it,i)=>t+=`${i==f.selected?'>':' '} ${it.pinned?'*':' '} ${it.label}  ${it.note}\n`);
- t+=`preview: ${f.preview.join(' / ')}\naction: ${f.action}${f.can_act?'':' (off)'}`;$('fw').textContent=t}
+ if(f.danger)t+='DANGER: don\'t unplug or switch off the FM-1\n';
+ f.items.forEach((it,i)=>t+=`${i==f.plan.item?'>':' '} ${it.label}  ${it.note}\n`);
+ if(f.plan.item>=0)t+=`plan: ${f.plan.lines.join(' / ')}\nhold: ${f.plan.hold}${f.plan.can_act?'':' (off)'}\n`;
+ for(const [k,r] of [['blocked',f.blocked],['result',f.result]])if(r.headline)
+  t+=`${k}: ${r.headline}. ${r.safety} ${r.why} ${r.todo}${r.detail?' ['+r.detail+']':''}${r.fix?' hold: '+r.fix:''}\n`;
+ $('fw').textContent=t}
 function store(s){if(!s.packages){$('store').textContent=s.error||'-';return}
  let t=`${kb(s.fs_used)} of ${kb(s.fs_total)} used, built ${(s.age_ms/1000).toFixed(0)} s ago\n`;
  for(const u of s.units){t+=`unit ${u.id}${u.id==s.last_unit?' (last)':''} installed ${u.installed||'?'}`+
@@ -425,21 +429,39 @@ static esp_err_t on_status(httpd_req_t *req) {
       o.str(L.lines[i]);
     }
     o.raw("],\"items\":[");
+    static const char *const kNotes[] = {"", "running", "your songs", "not yet"};
     for (int i = 0; i < L.item_count; ++i) {
       o.raw("%s{", i ? "," : "");
       o.key_str("label", L.items[i].label, false);
-      o.key_str("note", L.items[i].note);
-      o.raw(",\"pinned\":%s}", L.items[i].pinned ? "true" : "false");
+      o.key_str("note", kNotes[uint8_t(L.items[i].note) & 3]);
+      o.raw("}");
     }
-    o.raw("],\"selected\":%d,\"preview\":[", L.selected);
-    o.str(L.preview[0]);
-    o.raw(",");
-    o.str(L.preview[1]);
+    o.raw("],\"plan\":{\"item\":%d,\"lines\":[", L.plan.item);
+    for (int i = 0; i < L.plan.line_count; ++i) {
+      if (i) o.raw(",");
+      o.str(L.plan.lines[i]);
+    }
     o.raw("]");
-    o.key_str("action", L.action);
-    o.key_str("top", L.top_label);
-    o.raw(",\"percent\":%u,\"busy\":%s,\"can_act\":%s}", L.percent, L.busy ? "true" : "false",
-          L.can_act ? "true" : "false");
+    o.key_str("hold", L.plan.hold);
+    o.raw(",\"can_act\":%s}", L.plan.can_act ? "true" : "false");
+    // The result page and what stands in the list's way, as the screen says them.
+    const UiResult *const pages[] = {&L.result, &L.blocked};
+    static const char *const kPageKeys[] = {"result", "blocked"};
+    for (int i = 0; i < 2; ++i) {
+      const UiResult &r = *pages[i];
+      o.raw(",\"%s\":{", kPageKeys[i]);
+      o.key_str("headline", r.headline, false);
+      o.key_str("safety", r.safety_text);
+      o.key_str("why", r.why);
+      o.key_str("todo", r.todo);
+      o.key_str("detail", r.detail);
+      o.key_str("fix", r.fix_label);
+      o.raw(",\"seq\":%lu}", (unsigned long)r.seq);
+    }
+    o.raw(",\"unfinished\":%s,\"can_back_up\":%s,\"can_retry\":%s", L.unfinished ? "true" : "false",
+          L.can_back_up ? "true" : "false", L.can_retry ? "true" : "false");
+    o.raw(",\"percent\":%u,\"busy\":%s,\"danger\":%s}", L.percent, L.job.active ? "true" : "false",
+          L.job.danger ? "true" : "false");
   }
   o.raw("}");
   return send_json(req, buf, o.k);

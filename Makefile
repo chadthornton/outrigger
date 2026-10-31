@@ -53,14 +53,14 @@ STORE_OFFSET := 0x3D0000
 FW_VERSION := 0x$(shell git rev-parse --short=7 HEAD)
 FW_DIRTY := $(if $(shell git status --porcelain --untracked-files=no),1,0)
 
-.PHONY: test ui-shots ui-mocks build build-all flash site serve clean fixtures golden store-image flash-store store-add check-latest
+.PHONY: check test ui-shots ui-mocks build build-all flash site serve clean fixtures golden store-image flash-store store-add check-latest
 
 FM1_SRC := $(wildcard lib/fm1_loader/src/*.cpp)
 FM1_HDR := $(wildcard lib/fm1_loader/src/*.h) $(wildcard tests/support/*.h)
 FM1_TESTS := build/test_fm1_package build/test_fm1_library build/test_fm1_installer \
 	build/test_fm1_softkey build/test_fm1_posix build/test_fm1_locked build/test_fm1_library_posix
 
-test: build/check_package build/test_fm1_interop build/test_midi_core build/test_status build/test_boot_mode build/test_broker build/test_describe build/test_web_core build/test_store_json $(FM1_TESTS) fixtures
+test: build/check_package build/test_fm1_interop build/test_midi_core build/test_status build/test_boot_mode build/test_broker build/test_describe build/test_web_core build/test_store_json build/test_loader_messages $(FM1_TESTS) fixtures
 	./build/test_midi_core
 	./build/test_status
 	./build/test_boot_mode
@@ -68,6 +68,7 @@ test: build/check_package build/test_fm1_interop build/test_midi_core build/test
 	./build/test_describe
 	./build/test_web_core
 	./build/test_store_json build/store.json
+	./build/test_loader_messages
 	python3 -I -c "import json; json.load(open('build/store.json'))"
 	for t in $(FM1_TESTS); do ./$$t || exit 1; done
 	python3 -c "import shutil; shutil.rmtree('build/interop', ignore_errors=True)"
@@ -147,6 +148,13 @@ build/test_store_json: tests/test_store_json.cpp firmware/waveshare_169/store_js
 	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -DAPP_LOADER=1 -DAPP_WEB_UI=1 -Ilib/fm1_loader/src -Ilib/web_core/src \
 		-Ilib/platform/src -Ifirmware/waveshare_169 -Itests -o $@ $< firmware/waveshare_169/store_json.cpp $(FM1_TEST_SRC) $(WEB_CORE_SRC)
 
+# The FM-1 pages' wording (firmware/waveshare_169/loader_messages.cpp): pure C++
+# beside loader_app.cpp, which needs Arduino and FreeRTOS and can't run here.
+build/test_loader_messages: tests/test_loader_messages.cpp firmware/waveshare_169/loader_messages.cpp firmware/waveshare_169/loader_messages.h lib/host_ui/src/host_ui.h $(FM1_TEST_SRC) $(FM1_HDR)
+	mkdir -p build
+	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -DAPP_LOADER=1 -Ilib/fm1_loader/src -Ilib/host_ui/src -Ilib/midi_core/src \
+		-Ilib/platform/src -Ifirmware/waveshare_169 -Itests -o $@ $< firmware/waveshare_169/loader_messages.cpp $(FM1_TEST_SRC)
+
 # Renders every host_ui screen with LVGL itself, on the Mac or in CI, writes
 # PNGs and a contact sheet to build/ui-shots/, and fails on layout problems
 # (tests/ui_shots/ui_shots.cpp). It uses the Arduino library's LVGL; CI clones
@@ -163,10 +171,15 @@ UI_FLAGS := -DLV_CONF_INCLUDE_SIMPLE -Ifirmware/config -I$(LVGL_DIR) -I$(LVGL_DI
 build/lvgl-obj/%.o: $(LVGL_DIR)/src/%.c firmware/config/lv_conf.h
 	@mkdir -p $(dir $@)
 	@$(CC) -O1 $(UI_FLAGS) -c $< -o $@
-UI_SHOTS_SRC := tests/ui_shots/ui_shots.cpp lib/host_ui/src/host_ui.cpp
-build/ui_shots: $(UI_SHOTS_SRC) $(wildcard tests/ui_shots/*.h tests/ui_shots/stub/*.h lib/host_ui/src/*.h) $(LVGL_OBJ)
+# The shots use the firmware's own wording: Play's statuses (status.cpp) and
+# the FM-1 pages' (loader_messages.cpp, with fm1_loader).
+UI_SHOTS_SRC := tests/ui_shots/ui_shots.cpp lib/host_ui/src/host_ui.cpp lib/midi_core/src/status.cpp \
+	lib/midi_core/src/midi_core.cpp firmware/waveshare_169/loader_messages.cpp $(FM1_SRC)
+build/ui_shots: $(UI_SHOTS_SRC) $(wildcard tests/ui_shots/*.h tests/ui_shots/stub/*.h lib/host_ui/src/*.h lib/midi_core/src/*.h) \
+		firmware/waveshare_169/loader_messages.h $(FM1_HDR) $(LVGL_OBJ)
 	@echo "$(TEST_CXX) ... -o $@"
-	@$(TEST_CXX) -std=c++17 -O1 -Wall -Wextra -Werror -Wno-deprecated-declarations $(UI_FLAGS) -Ilib/host_ui/src -Ilib/midi_core/src \
+	@$(TEST_CXX) -std=c++17 -O1 -Wall -Wextra -Werror -Wno-deprecated-declarations $(UI_FLAGS) -DAPP_LOADER=1 \
+		-Ilib/host_ui/src -Ilib/midi_core/src -Ilib/fm1_loader/src -Ilib/platform/src -Ifirmware/waveshare_169 \
 		-o $@ $(UI_SHOTS_SRC) $(LVGL_OBJ) -lz
 ui-shots: build/ui_shots
 	rm -rf build/ui-shots
@@ -218,6 +231,22 @@ flash-store: store-image
 store-add: $(TOOLS_PY)
 	$(if $(PKGS)$(LIST),,$(error PKGS="file.fwsc ..." names the packages to add; LIST=1 only lists))
 	$(TOOLS_PY) tools/store_add.py firmware/$(BOARD)/partitions.csv $(PORT) $(if $(PIN),--pin) $(if $(LIST),--list) $(PKGS)
+
+# The merge gate's step 2 (README.md): the branch's last commit, cloned fresh
+# into build/check so nothing uncommitted can help, then make test, make
+# ui-shots and make site (every board x app set built and staged, with
+# build_site.py's wl82loader.bin scan). Run it on the Mac and paste the summary
+# into the PR. The fixtures are copied in (pinned by SHA-256, gitignored).
+CHECK_DIR := build/check
+check:
+	rm -rf $(CHECK_DIR)
+	git clone -q --shared . $(CHECK_DIR)
+	git -C $(CHECK_DIR) checkout -q --detach $$(git rev-parse HEAD)
+	mkdir -p $(CHECK_DIR)/tests/fixtures && cp tests/fixtures/* $(CHECK_DIR)/tests/fixtures/
+	$(MAKE) -C $(CHECK_DIR) test ui-shots site > $(CHECK_DIR).log 2>&1 \
+		|| { tail -30 $(CHECK_DIR).log; echo "check FAILED at $$(git rev-parse --short HEAD); log: $(CHECK_DIR).log"; exit 1; }
+	@grep -E "passed|keeps the install|Sketch uses" $(CHECK_DIR).log
+	@echo "check passed at $$(git rev-parse --short HEAD) (clean clone; log: $(CHECK_DIR).log)"
 
 # Stage the firmware into site/ for the browser installer (ESP Web Tools).
 # fixtures brings wl82loader.bin, so build_site can scan for pieces of it.

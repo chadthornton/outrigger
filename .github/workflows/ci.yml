@@ -1,12 +1,13 @@
-# Every push: the Mac-style tests and the UI shots, then every board x app set built and staged
+# Run by hand only (Actions tab, "Run workflow"): Actions minutes on this private
+# repo cost money, so the merge gate uses `make check` on the Mac instead (README).
+# The Mac-style tests and the UI shots, then every board x app set built and staged
 # into the installer site. Nothing is published: the staged firmware is a
 # private workflow artifact. JieLi's wl82loader.bin is fetched for the tests
 # and for build_site.py's licensing scan, and never uploaded.
 name: CI
 
 on:
-  push:
-  pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read

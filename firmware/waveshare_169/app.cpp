@@ -318,7 +318,9 @@ static void hub_detail(const midi_core::HostSnapshot &s, const midi_core::ChainV
   }
 }
 
-static void build_frame(UiFrame &f) {
+// fm1_firmware: what the FM-1 runs, as the Loader knows it (null without one);
+// fm1_unfinished: an install stopped part-way.
+static void build_frame(UiFrame &f, const char *fm1_firmware, bool fm1_unfinished) {
   f = UiFrame{};
   f.snapshot = take_snapshot();
   f.view = midi_core::evaluate(f.snapshot);
@@ -359,6 +361,12 @@ static void build_frame(UiFrame &f) {
   else strlcpy(f.fm1_in, "in: -", sizeof f.fm1_in);
   f.fm1_in_fresh = fresh(in);
   if (have_target) snprintf(f.fm1_own, sizeof f.fm1_own, "itself sent: %s", own.at_ms ? own.text : "-");
+
+  // Play's one status per stage: a controller playing now, the count sent.
+  const char *playing = nullptr;
+  for (int i = 0; i < f.controller_count && !playing; ++i)
+    if (f.controllers[i].open && f.controllers[i].fresh) playing = f.controllers[i].tag;
+  midi_core::stage_status(f.snapshot, f.view, {playing, f.sent, fm1_firmware, fm1_unfinished}, f.stages);
 }
 
 // ---------- Modes ----------
@@ -517,10 +525,9 @@ void setup() {
   static char firmware[24];
   snprintf(firmware, sizeof firmware, "v %07lx%s %s", (unsigned long)FW_VERSION, FW_DIRTY ? "+" : "",
            platform::kAppSetLabel);
-  UiHooks hooks = {save_settings, connect_computer, back_to_host, nullptr, nullptr, nullptr};
+  UiHooks hooks = {save_settings, connect_computer, back_to_host, nullptr, nullptr};
 #if APP_LOADER
   hooks.loader_select = loader_select;
-  hooks.loader_pin = loader_pin;
   hooks.loader_act = loader_act;
 #endif
   ui_begin(kBoard, settings, hooks, firmware);
@@ -575,7 +582,7 @@ void setup() {
   loader_begin(usb, {loader_owns_fm1_midi, device_refusal});
   broker.set_mode(loader_boot_mode());  // a job's boot runs in Load mode from the start
   if (loader_boot_mode() == platform::Mode::Load) {
-    ui_show_firmware();
+    // The job's page opens with the first ui_update_loader (the job is active).
     // EspUsbHost's hub tracking opens and closes every unknown device every
     // 500 ms on the client task. A job doesn't need it, and it races the FM-1
     // leaving for ROM boot and the ROM device arriving. (It raised the rate of
@@ -645,13 +652,18 @@ void loop() {
   if ((c != framed_changes && now - last_frame > 50) || now - last_frame > 500) {
     framed_changes = c;
     last_frame = now;
+#if APP_LOADER
+    static UiLoader loader;  // ~2 KB: kept off the loop task's stack
+    loader_ui(loader);
     CRUMB_LOOP("build_frame");
-    build_frame(frame);
+    build_frame(frame, loader.running, loader.unfinished);
+#else
+    CRUMB_LOOP("build_frame");
+    build_frame(frame, nullptr, false);
+#endif
     CRUMB_LOOP("ui_update");
     ui_update(frame);
 #if APP_LOADER
-    static UiLoader loader;  // ~900 bytes: kept off the loop task's stack
-    loader_ui(loader);
     CRUMB_LOOP("ui_update_loader");
     ui_update_loader(loader);
 #endif

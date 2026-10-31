@@ -4,7 +4,8 @@
 //
 // It backs up the FM-1, installs library packages (only in builds with
 // FM1_LOADER_WRITES=1; others are read-only), and retries an install that
-// stopped part-way (the resume entry).
+// stopped part-way (the resume entry). What the FM-1 pages say comes from
+// loader_messages.cpp.
 //
 // Threads: the *_connected/_disconnected/_midi hooks run on EspUsbHost's client
 // task; loader_request_backup(), loader_wanted_mode(), loader_mode_changed() and
@@ -31,11 +32,11 @@ void loader_device_connected(const EspUsbHostDeviceInfo &d);
 void loader_device_disconnected(const EspUsbHostDeviceInfo &d);
 void loader_midi(const EspUsbHostMidiMessage &m);  // messages from the FM-1
 
-// The Firmware page: select a row (-1 = back up), pin a package, run the
-// selected action after the 2-second hold.
+// The FM-1 section: a firmware's plan was opened; a 2-second hold completed,
+// naming what it runs (a switch also names its row). The Loader runs it only
+// if that matches what it last previewed.
 void loader_select(int index);
-void loader_pin(int index);
-void loader_act();
+void loader_act(UiAct act, int index);
 // The mode this boot's USB host runs in, fixed until the next restart: Load
 // when loader_begin() found a job recorded before the restart, Play otherwise.
 // A job is its own boot (loader_app.cpp, JobBoot): the host never restarts in place.
