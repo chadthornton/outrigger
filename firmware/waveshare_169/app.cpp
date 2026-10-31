@@ -601,6 +601,14 @@ void loop() {
 #if APP_WEB_UI
   CRUMB_LOOP("web_loop");
   web_loop(millis());
+#if WIFI_BOOTLOOP
+  // Test build only: restart 100 s after boot, as Back to MIDI does (Makefile).
+#if APP_LOADER
+  if (millis() > 100000 && !loader_busy()) esp_restart();
+#else
+  if (millis() > 100000) esp_restart();
+#endif
+#endif
   static uint32_t last_net = 0;
   if (millis() - last_net > 1000) {
     last_net = millis();
