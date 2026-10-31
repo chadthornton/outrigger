@@ -9,6 +9,9 @@
 // never hosts the loader.
 
 const hex = (bytes) => [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+export const sha256Hex = async (bytes) => hex(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)));
+// GitHub gets this long before the page says the loader couldn't be downloaded.
+const LOADER_TIMEOUT_MS = 20000;
 const fromHex = (s) => Uint8Array.from(s.match(/../g), (b) => parseInt(b, 16));
 
 // What to do with the board's store (Chad, 2026-10-31):
@@ -37,14 +40,13 @@ export function spliceStore(template, blob) {
 export async function fetchLoader(template, fetchFn = fetch) {
   let res;
   try {
-    res = await fetchFn(template.loader.url);
+    res = await fetchFn(template.loader.url, { signal: AbortSignal.timeout(LOADER_TIMEOUT_MS) });
   } catch (e) {
     throw new Error(`couldn't reach GitHub to download JieLi's loader (${e.message})`);
   }
   if (!res.ok) throw new Error(`GitHub answered ${res.status} for JieLi's loader`);
   const blob = new Uint8Array(await res.arrayBuffer());
-  const digest = hex(new Uint8Array(await crypto.subtle.digest("SHA-256", blob)));
-  if (digest !== template.loader.sha256 || blob.length !== template.blob_size) {
+  if (await sha256Hex(blob) !== template.loader.sha256 || blob.length !== template.blob_size) {
     throw new Error("the loader downloaded from GitHub didn't match the one this installer expects");
   }
   return blob;

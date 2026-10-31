@@ -65,6 +65,12 @@ test("fetchLoader returns the loader when its SHA-256 matches", async () => {
   assert.equal(new TextDecoder().decode(got), "LOADERAB");
 });
 
+test("fetchLoader gives GitHub a deadline", async () => {
+  let signal;
+  await fetchLoader(tiny, async (url, opts) => { signal = opts && opts.signal; return ok(Buffer.from("LOADERAB"))(); });
+  assert.ok(signal instanceof AbortSignal);
+});
+
 test("fetchLoader says why when the download is wrong or fails", async () => {
   await assert.rejects(fetchLoader(tiny, ok(Buffer.from("LOADERXX"))), /didn't match/);
   await assert.rejects(fetchLoader(tiny, async () => ({ ok: false, status: 404 })), /404/);

@@ -105,9 +105,12 @@ def check_manifest():
         failures.append(f"manifest build {m.get('build')} != {tag}")
     if "store_template" in m:
         failures.append("a MIDI Hub manifest names a store template; only loader builds set up a store")
-    loader = make_manifest(BOARD, "hub-loader", "def5678", dict(tag, app_set="hub+L"), parts, store_template=True)
+    template = b'{"size": 1}\n'
+    loader = make_manifest(BOARD, "hub-loader", "def5678", dict(tag, app_set="hub+L"), parts, store_template=template)
     if loader.get("store_template") != "store-template.json":
         failures.append(f"a loader manifest's store_template is {loader.get('store_template')!r}")
+    if loader.get("store_template_sha256") != hashlib.sha256(template).hexdigest():
+        failures.append("a loader manifest doesn't carry its store template's SHA-256")
     return failures
 
 

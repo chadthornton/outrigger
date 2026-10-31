@@ -233,13 +233,14 @@ test("install: writes a store onto a blank region and reads it back", async () =
   assert.deepEqual(opts.fileArray.map((f) => f.address), [0x0, 0x8000, 0xe000, 0x10000, 0x3d0000, 0x3d4000]);
 });
 
-test("install: a store block that reads back wrong fails, saying so", async () => {
+test("install: a store block that reads back wrong is reported, after a verified program install", async () => {
   const b = boardWithBlankStore();
   const realWrite = b.writeFlash.bind(b);
   b.writeFlash = async (o) => { await realWrite(o); b.flash[0x3d0010] ^= 0xff; };
   const { manifest, parts } = hubBuild();
-  await assert.rejects(install({ loader: b, board: await readBoard(b), manifest, parts,
-    storeWrites: [{ offset: 0x3d0000, data: new Uint8Array(0x1000).fill(0x42) }], storeBlank: true }), /store/);
+  const result = await install({ loader: b, board: await readBoard(b), manifest, parts,
+    storeWrites: [{ offset: 0x3d0000, data: new Uint8Array(0x1000).fill(0x42) }], storeBlank: true });
+  assert.match(result.storeProblem, /store/);
 });
 
 // prepareStore: what the install does to the store, worked out before anything is written.
@@ -285,10 +286,31 @@ test("prepareStore: an existing store is kept and the loader isn't downloaded", 
   assert.equal(fetched, 0);
 });
 
+test("prepareStore: a template that doesn't fit the build's store is a build error, not unreadable storage", async () => {
+  const b = boardWithBlankStore();
+  const build = { ...hubBuild(), template: { ...TEMPLATE, size: 0x100000 } };
+  await assert.rejects(prepareStore({ loader: b, board: await readBoard(b), build, fetchFn: github }), /template/);
+});
+
 test("prepareStore: if GitHub fails, the install goes ahead without a store and says why", async () => {
   const b = boardWithBlankStore();
   const got = await prepareStore({ loader: b, board: await readBoard(b), build: loaderBuild(), fetchFn: async () => ({ ok: false, status: 503 }) });
   assert.equal(got.action, "create");
   assert.deepEqual(got.storeWrites, []);
   assert.match(got.loaderProblem, /503/);
+});
+
+test("fetchBuild: a loader build's store template must match the manifest's SHA-256", async () => {
+  const { manifest, parts } = hubBuild();
+  const templateText = JSON.stringify(TEMPLATE);
+  const files = new Map(parts.map((p) => [`p${p.offset}.bin`, p.data]));
+  files.set("store-template.json", new TextEncoder().encode(templateText));
+  const serve = (m) => async (url) => {
+    const name = url.split("/").pop();
+    if (name === "manifest.json") return { ok: true, json: async () => m };
+    return { ok: true, arrayBuffer: async () => files.get(name).slice().buffer };
+  };
+  const good = { ...manifest, store_template: "store-template.json", store_template_sha256: createHash("sha256").update(templateText).digest("hex") };
+  assert.deepEqual((await fetchBuild("fw/hub-loader/manifest.json", serve(good))).template, TEMPLATE);
+  await assert.rejects(fetchBuild("fw/hub-loader/manifest.json", serve({ ...good, store_template_sha256: "0".repeat(64) })), /template/);
 });

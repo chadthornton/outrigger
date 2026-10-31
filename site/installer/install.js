@@ -6,7 +6,7 @@
 // eraseAll false and the flash settings kept as built. Nothing here erases.
 import { planInstall, parseTable, PARTS } from "./plan.js";
 import { readBuildTag, hasStore, classifyLayout, TAG_OFFSET, TAG_LENGTH } from "./board.js";
-import { storeAction, spliceStore, fetchLoader } from "./store.js";
+import { storeAction, spliceStore, fetchLoader, sha256Hex } from "./store.js";
 
 export const FLASH_BYTES = 16 * 1024 * 1024;
 const TABLE = { offset: 0x8000, size: 0xc00 };
@@ -40,9 +40,7 @@ export async function fetchBuild(manifestUrl, fetchFn = fetch) {
     const r = await fetchFn(base + part.path);
     if (!r.ok) throw new Error(`Couldn't download the ${nameOf(part.offset)}.`);
     const data = new Uint8Array(await r.arrayBuffer());
-    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", data));
-    const hex = [...digest].map((b) => b.toString(16).padStart(2, "0")).join("");
-    if (hex !== part.sha256) throw new Error(`The ${nameOf(part.offset)} didn't download intact. Reload the page and try again.`);
+    if (await sha256Hex(data) !== part.sha256) throw new Error(`The ${nameOf(part.offset)} didn't download intact. Reload the page and try again.`);
     parts.push({ offset: part.offset, data });
   }
   parts.sort((a, b) => a.offset - b.offset);
@@ -50,7 +48,11 @@ export async function fetchBuild(manifestUrl, fetchFn = fetch) {
   if (manifest.store_template) {
     const t = await fetchFn(base + manifest.store_template);
     if (!t.ok) throw new Error(`Couldn't download the store template (${manifest.store_template}).`);
-    template = await t.json();
+    const bytes = new Uint8Array(await t.arrayBuffer());
+    if (await sha256Hex(bytes) !== manifest.store_template_sha256) {
+      throw new Error("The store template didn't download intact. Reload the page and try again.");
+    }
+    template = JSON.parse(new TextDecoder().decode(bytes));
   }
   return { manifest, parts, template };
 }
@@ -68,7 +70,8 @@ export async function prepareStore({ loader, board, build, fetchFn = fetch }) {
   const range = tablePart && parseTable(tablePart.data).store;
   if (!range) return { action: "none", ...none };
   const [offset, size] = range;
-  const blank = size === build.template.size && await storeIsBlank(loader, { offset, size }, build.template.blank_md5);
+  if (size !== build.template.size) throw new Error("This build's store template doesn't fit its partition table (a site build problem; nothing was written).");
+  const blank = await storeIsBlank(loader, { offset, size }, build.template.blank_md5);
   const action = storeAction({ runsLoader: true, hasStore: false, blank });
   if (action !== "create") return { action, ...none };
   try {
@@ -90,7 +93,9 @@ export async function storeIsBlank(loader, storeRange, blankMd5) {
 // Writes the build, and with storeWrites a new store (only onto a region
 // storeIsBlank found blank). board comes from readBoard on this connection.
 // onStep({step, part?, written?, total?}): "write" per part, "verify", then
-// "verify store" when a store was written.
+// "verify store" when a store was written. Returns {plan, storeProblem}:
+// storeProblem says why a new store didn't read back (the program is in
+// place and checked by then, so the install still finishes).
 export async function install({ loader, board, manifest, parts, storeWrites = [], storeBlank = false, onStep = () => {} }) {
   const plan = planInstall({ parts, boardTable: board.tableBytes, flashBytes: FLASH_BYTES, storeWrites, storeBlank });
   if (!plan.ok) throw new Error(`Nothing was written: ${plan.problems.join("; ")}.`);
@@ -120,10 +125,10 @@ export async function install({ loader, board, manifest, parts, storeWrites = []
   for (const w of store) {
     const got = await loader.readFlash(w.offset, w.data.length);
     if (got.length !== w.data.length || got.some((b, i) => b !== w.data[i])) {
-      throw new Error(`The new store didn't read back as written at 0x${w.offset.toString(16)}. Email feedback@outrigger.music before installing again.`);
+      return { plan, storeProblem: `the new store didn't read back as written at 0x${w.offset.toString(16)}; email feedback@outrigger.music before installing again` };
     }
   }
-  return plan;
+  return { plan, storeProblem: null };
 }
 
 // An RTC watchdog reset, as esptool's --after watchdog-reset: unlike the RTS

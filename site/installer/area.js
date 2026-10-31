@@ -13,7 +13,7 @@ import { readBoard, fetchBuild, install, finish, prepareStore } from "./install.
 
 // Shown under each install area and in Details, so a bug report says which
 // installer ran. Bump it with every change to site/installer/.
-export const INSTALLER_VERSION = "2026-10-31.9";
+export const INSTALLER_VERSION = "2026-10-31.10";
 
 // The ESP32-S3's own USB port (USB-Serial-JTAG), in Computer mode or BOOT+RST.
 const PORT_FILTER = [{ usbVendorId: 0x303a, usbProductId: 0x1001 }];
@@ -25,6 +25,7 @@ const BAUD = 115200;
 // ESP Web Tools opened this board with 8192.
 const SERIAL_OPTIONS = { bufferSize: 16384 };
 const READ_TIMEOUT_MS = 30000;
+const STORE_TIMEOUT_MS = 120000;
 // esptool-js's progress lines: the latest shows while the board is read, and
 // the last few show under "Details" when something fails.
 const LOG = [];
@@ -121,7 +122,8 @@ class InstallArea {
         reading.catch(() => {}); // after a timeout it fails against the closed port; nothing waits for it
         const board = await withTimeout(reading, READ_TIMEOUT_MS, "Reading the board");
         if (build.template && !board.store) this.show(h("p", { class: "install-note", role: "status" }, "Checking the board's store…"));
-        const store = await prepareStore({ loader: this.loader, board, build });
+        // The region's MD5 takes seconds and GitHub has its own deadline; this bounds both.
+        const store = await withTimeout(prepareStore({ loader: this.loader, board, build }), STORE_TIMEOUT_MS, "Checking the board's store");
         if (store.action === "unreadable") {
           await this.close();
           return this.ready(UNREADABLE);
@@ -185,7 +187,7 @@ class InstallArea {
     busy = true;
     const label = { verify: "Checking every part", "verify store": "Checking the new store" };
     try {
-      await install({
+      const { storeProblem } = await install({
         loader: this.loader, board, manifest: build.manifest, parts: build.parts,
         storeWrites: store.storeWrites, storeBlank: store.storeBlank,
         onStep: (s) => this.progress(label[s.step] || `Writing the ${s.part}`, s.written, s.total),
@@ -194,7 +196,7 @@ class InstallArea {
       const { loader, transport } = this;
       this.transport = this.loader = null;
       await finish({ loader, transport });
-      this.done(build, store);
+      this.done(build, store, storeProblem);
     } catch (e) {
       await this.close();
       this.ready(this.explain(e, "The install stopped."));
@@ -203,9 +205,10 @@ class InstallArea {
     }
   }
 
-  done(build, store) {
+  done(build, store, storeProblem) {
     const name = `${buildName(build.manifest.build.app_set)} ${build.manifest.build.commit}`;
     const storeWords = store.action !== "create" ? null
+      : storeProblem ? `Firmware switching isn't set up: ${storeProblem}.`
       : store.loaderProblem ? `Firmware switching isn't set up: ${store.loaderProblem}. Install again later to set it up.`
         : "Its store is set up for the loader. Add firmwares from a Mac to switch between them.";
     this.show(h("div", { class: "install-done", role: "status" },
@@ -216,7 +219,7 @@ class InstallArea {
 
   explain(e, lead) {
     const msg = String(e && e.message ? e.message : e);
-    if (/Nothing was written|didn't read back|download|not the Waveshare/.test(msg)) return `${lead} ${msg}`;
+    if (/Nothing was written|didn't read back|download|not the Waveshare|template/.test(msg)) return `${lead} ${msg}`;
     return `${lead} Check the cable is a data cable and the board is in Computer mode (or BOOT+RST), then try again. (${msg})`;
   }
 }

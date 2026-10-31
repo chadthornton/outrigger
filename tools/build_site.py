@@ -171,8 +171,9 @@ def check_build_tag(app, app_set):
 LOADER_APP_SETS = ("hub-loader", "everything")
 
 
-def make_manifest(board, app_set, version, tag, parts, store_template=False):
-    """manifest.json for one app set. parts: offset -> bytes."""
+def make_manifest(board, app_set, version, tag, parts, store_template=None):
+    """manifest.json for one app set. parts: offset -> bytes; store_template:
+    the bytes of store-template.json for an app set that runs the loader."""
     manifest = {
         "name": f"{board['name']}: {APP_SETS[app_set]}",
         "version": version,
@@ -187,9 +188,10 @@ def make_manifest(board, app_set, version, tag, parts, store_template=False):
                        "sha256": hashlib.sha256(parts[offset]).hexdigest()} for offset, name, _ in PARTS],
         }],
     }
-    if store_template:
+    if store_template is not None:
         # Written onto a factory-blank store, with the loader fetched from GitHub (site/installer/store.js).
         manifest["store_template"] = "store-template.json"
+        manifest["store_template_sha256"] = hashlib.sha256(store_template).hexdigest()
     return manifest
 
 
@@ -246,10 +248,10 @@ def main():
     for offset, name, _ in PARTS:
         (out / name).write_bytes(parts[offset])
 
-    with_template = app_set in LOADER_APP_SETS
-    if with_template:
-        shutil.copyfile(template, out / "store-template.json")
-    manifest = make_manifest(board, app_set, version, tag, parts, store_template=with_template)
+    template_bytes = template.read_bytes() if app_set in LOADER_APP_SETS else None
+    if template_bytes is not None:
+        (out / "store-template.json").write_bytes(template_bytes)
+    manifest = make_manifest(board, app_set, version, tag, parts, store_template=template_bytes)
     (out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
     try:
