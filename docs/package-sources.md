@@ -114,7 +114,31 @@ switch loses data, even when it starts fresh.
 3. **Upload on the web page,** with the catalog hash check and the sideloaded mark. Then a board checkpoint.
 4. **Catalog and Wi-Fi download,** with the last-known-good cache, "Check for updates" and the prerelease
    setting.
-5. **Then the session 3b robustness items:** USB read recovery, then MFLR.
+5. **Store space: packages are a cache, user data isn't** (below). With step 4, since downloads are what
+   fill the store.
+6. **Then the session 3b robustness items:** USB read recovery, then MFLR.
+
+## Store space
+
+Measured 2026-10-31 on the board: 5 packages, 3 backups and 7 saves use 5.2 of the store's 12.7 MB. The
+store keeps each 4 KB sector once, so versions of one project share most of their sectors, a backup shares
+its app with the installed package, and a save costs only the sectors its data changed (tens of KB). A new
+firmware costs about 0.6 to 1 MB: room for roughly 8 to 12 more today. RAM isn't the limit: a package is
+fetched into PSRAM (8 MB) before it's stored.
+
+- **Packages are a cache.** Every catalog version stays on its author's GitHub release, so an unpinned
+  package can go when space runs low, least recently installed first, and download again later. Pinned
+  packages (the star) and the one each unit runs never go. A sideloaded package can't download again, so
+  it's never evicted either; the page offers to remove it.
+- **Backups and saves are the user's, and never go by themselves.** The first backup of each unit (its
+  baseline) and the newest save on each project's shelf always stay. Older ones are listed with their size,
+  and the user trims them after exporting to a laptop (`.fm1bak`/`.fm1save`, the Web UI step).
+- **Install without keeping it.** A download can install and then leave the store, for a firmware the user
+  is only trying. Its shelf of saves stays.
+- **Before a download or upload,** the board checks the space it needs, evicts cached packages if that's
+  enough, and otherwise stops and says how much to free. It never fills the store mid-write.
+- **Later, if needed:** store packing (per-sector files cost about 1.8x their data today) and a TF card
+  tier (`docs/architecture.md`).
 
 ## Decisions (Chad, 2026-10-31)
 
