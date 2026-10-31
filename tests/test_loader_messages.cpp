@@ -96,13 +96,14 @@ static void test_nothing_written_rows() {
   EXPECT(r.safety == UiSafety::NothingWritten && has(r.why, "didn't show up in ROM boot"), "no ROM device");
   EXPECT(has(r.todo, "off and on") && r.fix == UiAct::Switch, "no ROM device: power-cycle, switch again");
 
-  // Today's switch stops on a changed FM-1; the chained backup isn't built yet.
-  r = result(switch_failed(Failure::BackupStale));
-  EXPECT(r.safety == UiSafety::NothingWritten && has(r.why, "changed since b50"), "stale");
-  EXPECT(r.fix == UiAct::Backup && strcmp(r.fix_label, "back up now") == 0, "stale: back up again");
-
-  r = result(switch_failed(Failure::NoBackupForInstall));
-  EXPECT(has(r.why, "no backup") && r.fix == UiAct::Backup, "no backup: back up first");
+  // A first stale check chains to a backup and never ends a switch; one right
+  // after that backup does.
+  JobOutcome again = switch_failed(Failure::BackupStale);
+  again.chain = Chain::Install;
+  r = result(again);
+  EXPECT(strcmp(r.headline, "Switch didn't start") == 0 && r.safety == UiSafety::NothingWritten, "changed again");
+  EXPECT(has(r.why, "changed again right after its backup") && has(r.todo, "untouched"), "changed again: why, to do");
+  EXPECT(r.fix == UiAct::Switch && strcmp(r.fix_label, "switch to Felucca 1.6.1") == 0, "changed again: switch again");
 
   JobOutcome b{};
   b.kind = JobKind::Backup;
@@ -122,6 +123,42 @@ static void test_nothing_written_rows() {
   r = result(switch_failed(Failure::IdentityMismatch));
   EXPECT(has(r.why, "Chip key") && strcmp(r.todo, "Try again.") == 0, "anything else: failure_text, try again");
   EXPECT(r.safety == UiSafety::NothingWritten && r.fix == UiAct::Switch, "anything else: the same job");
+}
+
+// The backup a switch needed didn't finish: the switch didn't start.
+static void test_chained_backup_failed() {
+  JobOutcome o{};
+  o.kind = JobKind::Backup;
+  o.chain = Chain::Backup;
+  o.failure = Failure::BackupMismatch;
+  o.firmware = "Felucca 1.6.1";
+  o.stale_backup = "b50";
+  UiResult r = result(o);
+  EXPECT(strcmp(r.headline, "Switch didn't start") == 0 && r.safety == UiSafety::NothingWritten, "headline");
+  EXPECT(has(r.why, "changed since b50") && has(r.why, "two reads differed"), "why: changed, then the backup's reason");
+  EXPECT(r.fix == UiAct::Switch && strcmp(r.fix_label, "switch to Felucca 1.6.1") == 0, "the hold switches again");
+  EXPECT(!has(r.headline, "unfinished"), "never Install unfinished");
+
+  // The fresh backup changed the plan (a fresh start the user didn't agree to).
+  JobOutcome p{};
+  p.kind = JobKind::Install;
+  p.chain = Chain::Install;
+  p.failure = Failure::NeedsFreshStartOk;
+  p.firmware = "Felucca 1.6.1";
+  r = result(p);
+  EXPECT(r.safety == UiSafety::NothingWritten && has(r.why, "changes the plan"), "plan changed");
+  EXPECT(has(r.todo, "Open Felucca 1.6.1") && r.fix == UiAct::None, "plan changed: look first, no hold");
+
+  // A switch that backed up first says so.
+  JobOutcome ok{};
+  ok.kind = JobKind::Install;
+  ok.chain = Chain::Install;
+  ok.done = true;
+  ok.firmware = "Felucca 1.6.1";
+  ok.backup = "b51";
+  ok.sectors = 149;
+  r = result(ok);
+  EXPECT(r.ok && has(r.detail, "Backed up b51 first") && has(r.detail, "149 sectors"), "switched after a backup");
 }
 
 static void test_midi_not_back() {
@@ -224,8 +261,7 @@ static void test_plan() {
   EXPECT(p.item == 2, "keeps its row");
   EXPECT(strcmp(p.title, "Felucca 1.6.1") == 0 && strcmp(p.hold, "switch to Felucca 1.6.1") == 0, "title and hold");
   EXPECT(strcmp(p.lines[0], "Switches from Skiff 1.4.") == 0, "from");
-  EXPECT(plan_has(p, "matches b50"), "checks against the backup (today's switch)");
-  EXPECT(!plan_has(p, "only if"), "no chained backup promised");
+  EXPECT(plan_has(p, "Backs up only if the FM-1 changed."), "backs up only when needed");
   EXPECT(plan_has(p, "Saves Skiff's songs."), "saves the running firmware's songs");
   EXPECT(plan_has(p, "Writes Felucca 1.6.1: 143 sectors."), "writes");
   EXPECT(plan_has(p, "Brings back Felucca's songs."), "restores");
@@ -269,7 +305,10 @@ static void test_plan() {
   in = plan_input();
   in.has_unit = false;
   describe_plan(in, p);
-  EXPECT(!p.can_act && plan_has(p, "Back it up first"), "no backup yet");
+  EXPECT(p.can_act && plan_has(p, "backs it up first"), "no backup yet: the switch backs up first");
+  in.ready = false;
+  describe_plan(in, p);
+  EXPECT(!p.can_act, "no backup and not ready: no hold");
 }
 
 static void test_job_steps() {
@@ -294,6 +333,24 @@ static void test_job_steps() {
   EXPECT(strcmp(j.title, "Backing up") == 0 && j.step_count == 3, "backup");
   EXPECT(strcmp(j.steps[1].text, "Reading twice: 50%") == 0, "reading");
   EXPECT(has(j.note, "Writes nothing"), "a backup writes nothing");
+
+  // A switch that found the FM-1 changed: the backup it runs, then the install.
+  JobInput chained = {JobKind::Backup, Step::Backup, "Felucca 1.6.1", "", 42, 100, false};
+  chained.chain = Chain::Backup;
+  chained.stale_backup = "b50";
+  describe_job(chained, j);
+  EXPECT(strcmp(j.title, "Switching to Felucca 1.6.1") == 0, "the backup is the switch's");
+  EXPECT(j.steps[0].state == UiStepState::Done && strcmp(j.steps[0].text, "Changed since b50: nothing written") == 0,
+         "says why it backs up");
+  EXPECT(j.steps[1].state == UiStepState::Now && has(j.steps[1].text, "Backing up: 42%"), "backing up");
+  EXPECT(j.steps[2].state == UiStepState::Next && has(j.steps[2].text, "Felucca"), "the write to come");
+  chained = {JobKind::Install, Step::WriteApp, "Felucca 1.6.1", "b51", 88, 149, true};
+  chained.chain = Chain::Install;
+  chained.stale_backup = "b50";
+  describe_job(chained, j);
+  EXPECT(j.step_count == 5 && strcmp(j.steps[1].text, "Backed up: b51") == 0, "the backup done");
+  EXPECT(strcmp(j.steps[2].text, "Checked: same as b51") == 0 && strcmp(j.steps[3].text, "Writing 88 of 149") == 0,
+         "then checked and writing");
 
   describe_job({JobKind::Resume, Step::WaitMidi, "Felucca 1.6.1", "", 0, 0, false}, j);
   EXPECT(has(j.title, "Retrying") && j.steps[3].state == UiStepState::Now, "a retry restarting the FM-1");
@@ -346,6 +403,7 @@ int main() {
   test_danger_retries();
   test_key_not_sent();
   test_nothing_written_rows();
+  test_chained_backup_failed();
   test_midi_not_back();
   test_written_without_danger();
   test_retry_and_success();
