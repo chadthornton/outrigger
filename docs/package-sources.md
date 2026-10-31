@@ -109,8 +109,16 @@ switch loses data, even when it starts fresh.
 ## Order of work
 
 1. ~~**Identity parsing.**~~ Done: `FM-1_` and 3 to 15 digits, all the package marks hold.
-2. **The trust table and project shelves** in the installer's data decision, with tests. Packages still come
-   from `make store-add` until step 3; this step only makes installs safer.
+2. ~~**The trust table and project shelves.**~~ Done, and its board checkpoint passed 2026-10-31 (build
+   `1737c9b`). `store-add` recorded the projects of the board's five packages: Felucca 1.6.1, Skiff 1.4 and
+   SLOOP 2.8.1 were proven byte for byte against their GitHub releases. Then, on the FM-1:
+   - Back up: b89, nothing written. The FM-1 ran SLOOP 2.8.1.
+   - SLOOP → Felucca 1.7.0: restored Felucca's shelf (a save made under 1.6.1) and filled SLOOP's. Chad then
+     made a song.
+   - Felucca 1.7.0 → 1.6.1: refused first ("the FM-1 changed since b91", nothing written: the new song); after
+     a backup it switched, and the song was kept.
+   - → SLOOP 2.8.1: SLOOP's shelf came back; the song went to Felucca's shelf.
+   - → Felucca 1.7.0: Felucca's shelf came back, with the song.
 3. **Upload on the web page,** with the catalog hash check and the sideloaded mark. Then a board checkpoint.
 4. **Catalog and Wi-Fi download,** with the last-known-good cache, "Check for updates" and the prerelease
    setting.
