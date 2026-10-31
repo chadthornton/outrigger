@@ -23,7 +23,7 @@ apps ask it for them. See `docs/architecture.md`, and the merge gate below befor
 | `tests/ui_shots/` | `make ui-shots`: renders every `host_ui` screen with LVGL on the Mac (S/M/L, hub and hub-loader, 0-6 controllers, Off, a problem, settings, Firmware, Computer mode), taps them with a drifting finger, and fails on a clipped or out-of-safe-area label. PNGs and `sheet.png` in `build/ui-shots/`. Check UI changes here before booking the board. |
 | `firmware/config/lv_conf.h` | LVGL configuration (fonts, clib malloc so big buffers can use PSRAM). |
 | `site/`, `tools/build_site.py` | Browser installer (ESP Web Tools) and the script that stages firmware into it. |
-| `.github/workflows/ci.yml` | CI, run by hand only (Actions tab, "Run workflow"): the same checks as `make check` on GitHub's machines. Not part of the merge gate. |
+| `.github/workflows/ci.yml` | CI, the same checks as `make check` on GitHub's machines. Off: disabled on GitHub (2026-10-31) and manual-only; `gh workflow enable CI`, then "Run workflow". Not part of the merge gate. |
 | `firmware/waveshare_169/` | Arduino sketch for the Waveshare board: `app.cpp` (USB host, routing, gathers the frame) and `board_waveshare_169.cpp` (board profile, display and touch drivers). Code stays out of the `.ino` (see below). |
 
 To add a board: copy the sketch folder, write a new `board_*.cpp` with its `BoardProfile` (size, shape, corner
