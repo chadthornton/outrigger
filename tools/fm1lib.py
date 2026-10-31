@@ -88,8 +88,8 @@ def parse_package(data):
         raise PackageError("flash.bin runs past the package")
     if length < APP_END:
         raise PackageError("flash.bin doesn't reach 0x93000")
-    if not re.fullmatch(r"FM-1_\d{3}", ident):
-        raise PackageError("identity isn't FM-1_NNN")
+    if not re.fullmatch(r"FM-1_\d{3,15}", ident):  # package.cpp valid_identity()
+        raise PackageError("identity isn't FM-1_ and 3-15 digits")
     app = bytes(image[off + APP_START:off + APP_END])
     if app.count(0xFF) == len(app) or app.count(0) == len(app):
         raise PackageError("app area is blank")
