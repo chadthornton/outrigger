@@ -84,9 +84,10 @@ make serve    # same, then serve on http://localhost:8088 (Web Serial needs http
   overlap NVS or overflow app0.
 - **No erase by default.** ESP Web Tools erases the whole chip for firmware without Improv unless the manifest sets
   `new_install_prompt_erase`; ours does, so the user sees an "Erase device" box that starts unticked.
-- **App sets:** one Install button per app set (MIDI Hub, Hub + Loader, Everything), each with its own manifest. Until
-  the Loader, Recorder and Web UI have firmware code, all three install the same hub; the settings page shows which set
-  is running next to the commit (`hub`, `hub+L`, `all`).
+- **App sets:** one Install button per app set (MIDI Hub, Hub + Loader, Everything), each with its own manifest. Hub +
+  Loader ships with the Loader's writes on (`WRITES` defaults to 1 for `hub-loader`; `WRITES=0` builds it read-only);
+  Everything's loader stays read-only. The settings page shows which set is running next to the commit (`hub`,
+  `hub+L`, `all`).
 - **Adding a board:** see Layout.
 - **Licensing:** our code, LVGL (MIT) and the vendored EspUsbHost (MIT) ship as binaries. JieLi's `wl82loader.bin` must
   never be in a published build: `build_site.py` refuses a file with its name or SHA-256, or containing a 1 KiB piece of

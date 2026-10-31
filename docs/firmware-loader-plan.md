@@ -198,19 +198,31 @@ So it splits in two.
     left USB after the key.
   - **Hub tracking off in job boots (`77ff4ec`):** 9 runs, 7 ok, 1 crash (same assert), 2 runs where the FM-1
     restarted into its firmware instead of ROM boot. `fc72748` sends the key again in that case.
-  - **Still open, and a blocker for shipping writes on:** the crash's root cause. Every crash came before any
-    write, at the FM-1's disconnect after the key.
-- **Left in session 3a, in order:**
+  - **Root cause, fixed in `417f316`:** a use-after-free in EspUsbHost's disconnect teardown. ESP-IDF flushes
+    the FM-1's MIDI IN transfer onto the pipe's done list and then posts DEV_GONE. When the client pass had checked
+    for pending endpoints before that flush, `handleDeviceGone` freed the transfer IDF still held, and the next
+    pass's `hcd_urb_dequeue` read reused memory and asserted. App hub requests were ruled out: the failing path
+    serves only non-control endpoints. Now the endpoints are stopped at DEV_GONE and freed in
+    `finalizeDisconnectedDevice` once IDF releases every interface (it refuses while a transfer is in flight).
+  - **Soak with the fix (`417f316`, 2026-10-30):** 24 runs, 24 ok, 0 crashes, 12 deferrals (client loops where
+    the release had to wait: the race happened and was absorbed). Stopped at run 24 for the merge gate. Notes:
+    `urb-dequeue-crash.md` in the session notes.
+- **Session 3a finish (2026-10-30):**
   1. ~~The failure detail and the status line.~~ Done in `605c522`.
   2. ~~Merge `web-diag`.~~ Done (`c42d5f0`).
   3. ~~Checkpoint 3.~~ Passed (above).
-  4. `code-review` at high effort. The first round (9 findings) covered up to `d2284ba`; everything since is
-     guarded and unreviewed.
-  5. Merge `master` (ui-polish rewrote `host_ui`; the Firmware page section conflicts), then the merge gate.
-  6. Merge with `hub-loader` writes on.
-  - **Open causes:** the loader watchdog (confirm by timing a backup that stops reading for 9 s), and the USB host
-    after `usb.end()/begin()` (PR #2's session suspects app hub requests colliding with ESP-IDF's hub driver on
-    EP0).
+  4. ~~The Firmware page fit.~~ `154d147`: a list, then a detail screen with the hold; `make ui-shots` clean.
+  5. ~~The crash.~~ Fixed and soaked (above).
+  6. ~~`code-review` at high effort, one round over `d2284ba..`~~ 7 findings: 2 fixed in `c690895` (no Computer
+     mode while a job runs; an install keeps the backup it planned from when that holds firmware no package has),
+     1 comment fix, 4 dismissed (a retry across a board restart: ROM boot survives it and the resume re-uploads the
+     loader; "already installed" from the stored backup: nothing is written and the next real install's check read
+     catches a changed FM-1; no Mac test for the EspUsbHost teardown: no IDF harness, the soak is the check; a
+     selection race the hold's preview check already refuses).
+  7. Merge with `hub-loader` writes on (`WRITES` defaults to 1 for `hub-loader`; README and site say so).
+  - **Open:** the loader watchdog (confirm by timing a backup that stops reading for 9 s). Hub port polls stay off
+    in loader builds until PR #2's hub-poll timeout fix lands; the first boot's Wi-Fi join is sometimes missed
+    (web-diag's notes).
 - **Long term, in order:**
   1. **3b:** the Web UI with install requests and laptop `.fm1bak`/`.fm1save` export and import, building on
      `web-diag`.

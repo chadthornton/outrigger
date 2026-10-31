@@ -14,8 +14,11 @@ APP_FLAGS_hub :=
 APP_FLAGS_hub-loader := -DAPP_LOADER=1
 APP_FLAGS_everything := -DAPP_LOADER=1 -DAPP_RECORDER=1 -DAPP_WEB_UI=1
 # WRITES=1 lets the Loader write the FM-1's flash (FM1_LOADER_WRITES, rom.h).
-# Off by default: on only for hardware checkpoints 2 and 3 until they pass.
-WRITES ?= 0
+# hub-loader ships with writes on (checkpoints 2 and 3 passed, and the USB host
+# crash at the FM-1's disconnect is fixed); WRITES=0 builds it read-only.
+# `everything` stays read-only until its own checkpoint.
+WRITES_DEFAULT_hub-loader := 1
+WRITES ?= $(or $(WRITES_DEFAULT_$(APPS)),0)
 WRITE_FLAGS := $(if $(filter 1,$(WRITES)),-DFM1_LOADER_WRITES=1) $(if $(filter 1,$(DIAG)),-DLOADER_DIAG=1)
 # SOAK=1 (with DIAG_WEB=1): the board backs up the FM-1 by itself, over and over,
 # for hunting USB host crashes unattended (loader_app.cpp, LOADER_SOAK). Never a release.

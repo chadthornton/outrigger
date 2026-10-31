@@ -70,8 +70,9 @@
   <div class="board">
     <h3>Waveshare ESP32-S3-Touch-LCD-1.69</h3>
     <p>240×280 touch screen, 16 MB flash. Its USB-C port becomes the MIDI host.</p>
-    <p>Pick what it carries. <strong>MIDI Hub</strong> plays the FM-1 from a USB keyboard. The other sets add apps as they
-      are finished; today they install the same hub.</p>
+    <p>Pick what it carries. <strong>MIDI Hub</strong> plays the FM-1 from a USB keyboard. <strong>Hub + Loader</strong>
+      adds the Firmware page: it backs up the FM-1 and installs firmware on it, with writes to the FM-1's flash turned on.
+      <strong>Everything</strong> adds apps as they are finished; its loader can't write yet.</p>
     <esp-web-install-button manifest="firmware/waveshare-esp32-s3-touch-lcd-1.69/hub/manifest.json">
       <button slot="activate">Install MIDI Hub</button>
       <span slot="unsupported">This browser can't flash boards. Open this page in Chrome or Edge on a computer.</span>
