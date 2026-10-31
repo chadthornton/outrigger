@@ -5,8 +5,8 @@ tree and the full history: 243 commits on every local and remote branch, plus Gi
 
 **Verdict:** the history holds no M-VAVE firmware, no JieLi loader and no secrets. It holds two low-sensitivity
 personal items, Chad's FM-1 unit ID and his commit email. This branch fixes the working tree. A history rewrite
-is optional and put to Chad as a decision. The open question is the project license, because one ported file
-descends from GPL-3.0 code.
+is optional and put to Chad as a decision. The project is GPL-3.0 (Chad, 2026-10-31), partly because one ported file descends from
+GPL-3.0 code.
 
 ## How it was checked
 
@@ -86,7 +86,7 @@ a description of a file format, which copyright protects weakly. The risk is low
 **No other GPL code** is in the repo. The GPL-3.0 firmwares (Felucca, Skiff, SLOOP) are test downloads only, and the
 board fetches packages from the Firmware Hub at the user's request.
 
-**Recommendation: license the project GPL-3.0.**
+**Decision (Chad, 2026-10-31): the project is GPL-3.0** (`LICENSE`). The reasons:
 - It ends the `ota.c` question.
 - It matches the FM-1 firmware community this is announced to: M-VAVE's `fm1_open`, Felucca, Skiff and SLOOP are
   all GPL-3.0.
@@ -94,10 +94,7 @@ board fetches packages from the Firmware Hub at the user's request.
 - Chad owns the copyright in his own code, so he can later relicense the core (USB host, routing, UI kit) under MIT
   for the toolkit pitch (task repo-core-helpers), as long as it leaves out the ported `ota.c` lineage.
 
-The alternative is MIT for everything, with the `ota.c` risk noted. Asking Quixotic7 how the Unbricker's port was
-licensed would also settle it.
-
-This decision is on the tracker. `LICENSE` is added only after Chad picks one.
+The alternatives were MIT with the `ota.c` risk noted, or asking Quixotic7 first.
 
 ### 5. Tidy (task repo-tidy-ci-docs)
 

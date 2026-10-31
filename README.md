@@ -184,3 +184,8 @@ FM-1's flash, the partition table or stored data) also gets one high-effort code
 3. Done 2026-10-26: Launchkey → FM-1 routing, all system messages blocked toward the FM-1, played by hand.
 
 Running on the board: `cb4ee7b` (channel fix). `13b99a5` adds drop-reason letters on screen and is not flashed yet.
+
+## License
+
+GPL-3.0 (`LICENSE`), the license of M-VAVE's `fm1_open`, Felucca, Skiff and SLOOP. `NOTICE` lists the third-party
+code inside (MIT, BSD, Apache-2.0, LGPL-2.1), and `make site` serves both beside the firmware as `NOTICE.txt` and `LICENSE.txt`.
