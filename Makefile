@@ -88,9 +88,10 @@ build/test_fm1_library_posix: tests/test_fm1_library.cpp $(FM1_TEST_SRC) $(FM1_H
 	mkdir -p build
 	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -DFM1_LOADER_WRITES=1 -DTEST_POSIX_STORAGE -Ilib/fm1_loader/src -Itests -o $@ $< $(FM1_TEST_SRC)
 
-build/test_fm1_%: tests/test_fm1_%.cpp $(FM1_TEST_SRC) $(FM1_HDR)
+# test_fm1_installer also drives a switch's chain (firmware/waveshare_169/switch_chain.h).
+build/test_fm1_%: tests/test_fm1_%.cpp $(FM1_TEST_SRC) $(FM1_HDR) firmware/waveshare_169/switch_chain.h
 	mkdir -p build
-	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -DFM1_LOADER_WRITES=1 -Ilib/fm1_loader/src -Itests -o $@ $< $(FM1_TEST_SRC)
+	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -DFM1_LOADER_WRITES=1 -Ilib/fm1_loader/src -Ifirmware/waveshare_169 -Itests -o $@ $< $(FM1_TEST_SRC)
 
 # Packages and the loader blob for the fm1_loader tests, pinned by SHA-256 and
 # kept out of git (tests/fixtures/).

@@ -1,7 +1,7 @@
 # UI redesign: nav, Play, switching firmware, errors
 
 **Status:** signed off by Chad, 2026-10-30, after six rounds of review (the full set of mockups below). The light-tier
-parts are built in `host_ui` (see "Built so far" at the end); the chained backup of a switch is not.
+parts are built in `host_ui` (see "Built so far" at the end), and so is the chained backup of a switch.
 
 - **Review page:** https://claude.ai/artifact/AemH6yE3Nzyeu6GYobHaeg. It shows every screen on every board and
   text size.
@@ -334,11 +334,11 @@ The light-tier parts, in `host_ui` with `make ui-shots` covering every page on e
 - **The wording:** `firmware/waveshare_169/loader_messages.cpp` holds the table above, tested in
   `tests/test_loader_messages.cpp`. It's beside `loader_app.cpp` rather than in it, because `loader_app.cpp` needs
   Arduino and FreeRTOS and can't run on the Mac.
-- **Today's switch, until the chained backup lands:**
-  - **The plan:** says "Checks the FM-1 still matches b50", not "Backs up only if the FM-1 changed".
-  - **A first `BackupStale`:** "The FM-1 changed since b50", with the hold "back up now".
-  - **`NoBackupForInstall`:** still possible, with the same hold.
-  - **The Backups page:** says a switch stops if the FM-1 changed.
+- **The chained switch:** `firmware/waveshare_169/switch_chain.h` decides what follows each stage, and
+  `test_fm1_installer` drives it on the mock FM-1: unchanged, changed, no backup yet, changed twice, and a failed
+  backup in the middle. `JobBoot` carries the stage (`chain`) and the backup the FM-1 changed since. If the fresh
+  backup changes the plan (a fresh start nobody agreed to), the switch stops with nothing written and asks to look
+  at the plan again, with no hold.
 - **The hold's check:** the Loader runs a hold only if its kind (switch, backup, retry) and, for a switch, its row
   match the last preview, and refuses a backup or a switch while an install is unfinished. A refused hold shows
   "Nothing started".
