@@ -11,6 +11,10 @@ import { ChunkedTransport } from "./serial.js";
 import { describeBoard, buildName } from "./board.js";
 import { readBoard, fetchBuild, install, backupStore, finish } from "./install.js";
 
+// Shown under each install area and in Details, so a bug report says which
+// installer ran. Bump it with every change to site/installer/.
+export const INSTALLER_VERSION = "2026-10-31.4";
+
 // The ESP32-S3's own USB port (USB-Serial-JTAG), in Computer mode or BOOT+RST.
 const PORT_FILTER = [{ usbVendorId: 0x303a, usbProductId: 0x1001 }];
 // The board's own USB port runs at full USB speed whatever baud rate is set,
@@ -65,6 +69,7 @@ class InstallArea {
     this.builds = JSON.parse(el.dataset.builds);
     this.helpHref = el.dataset.help || "#no-port";
     this.busy = false;
+    this.trace = "";
     this.ready();
   }
 
@@ -80,10 +85,12 @@ class InstallArea {
     }
     this.show(
       note ? h("p", { class: "install-error", role: "alert" }, note) : null,
-      note && LOG.length ? h("details", { class: "install-log" }, h("summary", {}, "Details"), h("pre", {}, LOG.slice(-25).join("\n"))) : null,
+      note && LOG.length ? h("details", { class: "install-log" }, h("summary", {}, "Details"),
+        h("pre", {}, [`Installer ${INSTALLER_VERSION}`, ...LOG.slice(-25), "", ...this.trace.split("\n").slice(-40).map((l) => l.slice(0, 160))].join("\n"))) : null,
       h("div", { class: "row" }, this.builds.map((b, i) =>
         h("button", { class: i ? "alt" : null, on: { click: () => this.connect(b) } }, b.label))),
       h("p", { class: "install-note" }, KEEPS, " ", h("a", { href: this.helpHref }, "No board listed?")),
+      h("p", { class: "install-version" }, `Installer ${INSTALLER_VERSION}`),
     );
   }
 
@@ -113,7 +120,7 @@ class InstallArea {
   }
 
   async open(port) {
-    this.transport = new ChunkedTransport(port);
+    this.transport = new ChunkedTransport(port, true); // trace: kept for Details when something fails
     this.loader = new ESPLoader({ transport: this.transport, baudrate: BAUD, romBaudrate: BAUD, serialOptions: SERIAL_OPTIONS, terminal: TERMINAL });
     const chip = await this.loader.main();
     if (!/ESP32-S3/.test(chip)) throw new Error(`That's an ${chip}, not the Waveshare's ESP32-S3.`);
@@ -121,6 +128,7 @@ class InstallArea {
 
   async close() {
     if (this.transport) {
+      this.trace = this.transport.traceLog || "";
       try {
         await Promise.race([this.transport.disconnect(), new Promise((r) => setTimeout(r, 2000))]);
       } catch {
