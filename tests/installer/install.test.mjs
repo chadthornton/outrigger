@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { readBoard, install, backupStore, restart, finish, fetchBuild } from "../../site/installer/install.js";
+import { readBoard, install, restart, finish, fetchBuild } from "../../site/installer/install.js";
 
 const MB = 1024 * 1024;
 const md5 = (b) => createHash("md5").update(b).digest("hex");
@@ -144,16 +144,6 @@ test("install: a part that reads back wrong fails, naming the part", async () =>
   b.corrupt = 0x10000;
   const { manifest, parts } = hubBuild();
   await assert.rejects(install({ loader: b, board: await readBoard(b), manifest, parts }), /program/);
-});
-
-test("backupStore: returns the whole store as the board holds it", async () => {
-  const b = boardWithLoaderAndBackups();
-  const info = await readBoard(b);
-  const seen = [];
-  const image = await backupStore(b, info.storeRange, (done, total) => seen.push([done, total]));
-  assert.equal(image.length, 0xc20000);
-  assert.deepEqual(image, b.flash.subarray(0x3d0000, 0x3d0000 + 0xc20000));
-  assert.deepEqual(seen.at(-1), [0xc20000, 0xc20000]);
 });
 
 test("restart: an RTC watchdog reset, which starts the program even after BOOT+RST", async () => {

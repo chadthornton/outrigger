@@ -90,9 +90,10 @@ make serve    # same, then serve on http://localhost:8088 (Web Serial needs http
 - **What the board runs.** Each build carries a 20-byte tag at flash 0x10120 (`lib/platform/src/build_tag.h`): commit,
   dirty flag, app set. The page reads it before installing; `build_site.py` refuses an app without one. Boards running a
   build from before the tag show as "an earlier usb-midi-host build".
-- **Backups to the laptop.** When the board has a store, the page offers to save it first (unticked): the whole 12.1 MB
-  partition as a `.bin`, about 8 min in the browser (64-byte reads, below; esptool from a Mac takes 79 s). `tools/store_dump.py <file>` turns it back into 1 MiB FM-1 dumps the
-  Transporter or Unbricker can restore; the page can't write it back.
+- **No laptop copy yet.** Saving the store to the laptop from the page waits for the laptop-backups work
+  (`docs/firmware-loader-plan.md`, "Laptop backups"): at the 64-byte reads below the 12.1 MB store takes about 8 min in
+  the browser (esptool from a Mac: 79 s). `tools/store_dump.py` already turns a raw read of the store partition back
+  into 1 MiB FM-1 dumps.
 - **Checks.** Each download is checked against the manifest's SHA-256, each written part against the board's MD5 of it.
   Flash mode, frequency and size are kept as built. Afterwards an RTC watchdog reset starts the program.
 - **The board's USB port** stalls about 30 s on any single write of 4 KiB or more, so `site/installer/serial.js` sends

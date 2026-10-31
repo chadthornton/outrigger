@@ -75,15 +75,6 @@ export async function install({ loader, board, manifest, parts, onStep = () => {
   return plan;
 }
 
-// The whole store, read back for the laptop. onProgress(done, total).
-export async function backupStore(loader, storeRange, onProgress = () => {}) {
-  let done = 0;
-  return loader.readFlash(storeRange.offset, storeRange.size, (_packet, progress) => {
-    done = Math.min(progress, storeRange.size);
-    onProgress(done, storeRange.size);
-  });
-}
-
 // An RTC watchdog reset, as esptool's --after watchdog-reset: unlike the RTS
 // reset it starts the program even when the board came up through BOOT+RST.
 // Registers from the ESP32-S3's soc/rtc_cntl_reg.h.

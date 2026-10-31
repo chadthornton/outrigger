@@ -9,11 +9,11 @@
 import { ESPLoader } from "../vendor/esptool-js-0.7.0/bundle.js";
 import { ChunkedTransport, readFlashInPieces } from "./serial.js";
 import { describeBoard, buildName } from "./board.js";
-import { readBoard, fetchBuild, install, backupStore, finish } from "./install.js";
+import { readBoard, fetchBuild, install, finish } from "./install.js";
 
 // Shown under each install area and in Details, so a bug report says which
 // installer ran. Bump it with every change to site/installer/.
-export const INSTALLER_VERSION = "2026-10-31.7";
+export const INSTALLER_VERSION = "2026-10-31.8";
 
 // The ESP32-S3's own USB port (USB-Serial-JTAG), in Computer mode or BOOT+RST.
 const PORT_FILTER = [{ usbVendorId: 0x303a, usbProductId: 0x1001 }];
@@ -61,16 +61,6 @@ const h = (tag, attrs = {}, ...kids) => {
   el.append(...kids.flat().filter((k) => k != null && k !== false));
   return el;
 };
-const mb = (n) => (n / 1048576).toFixed(1);
-
-function saveFile(bytes, name) {
-  const url = URL.createObjectURL(new Blob([bytes], { type: "application/octet-stream" }));
-  const a = h("a", { href: url, download: name });
-  document.body.append(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 60000);
-}
 
 class InstallArea {
   constructor(el) {
@@ -162,17 +152,12 @@ class InstallArea {
 
   confirm(choice, build, board) {
     const words = describeBoard(board, build.manifest.build);
-    const save = board.store
-      ? h("label", { class: "check" }, h("input", { type: "checkbox" }),
-        ` Save a copy of my backups to this computer first (${mb(board.storeRange.size)} MB, about ${Math.ceil(board.storeRange.size / 1048576 * 41 / 60)} min)`)
-      : null;
     const name = buildName(build.manifest.build.app_set);
     this.show(
       h("p", { class: "install-read" }, words.board),
       h("p", {}, words.install),
-      save,
       h("div", { class: "row" },
-        h("button", { on: { click: () => this.run(build, board, save?.querySelector("input").checked) } }, `Install ${name}`),
+        h("button", { on: { click: () => this.run(build, board) } }, `Install ${name}`),
         h("button", { class: "alt", on: { click: async () => { await this.close(); this.ready(); } } }, "Cancel")),
     );
   }
@@ -182,18 +167,10 @@ class InstallArea {
     this.show(bar, h("p", { class: "install-note", role: "status" }, label, ". Keep the cable in."));
   }
 
-  async run(build, board, saveFirst) {
+  async run(build, board) {
     if (busy) return;
     busy = true;
     try {
-      if (saveFirst) {
-        const t0 = performance.now();
-        const image = await backupStore(this.loader, board.storeRange, (done, total) =>
-          this.progress(`Saving your backups: ${mb(done)} of ${mb(total)} MB`, done, total));
-        const tag = board.tag ? board.tag.commit : "earlier";
-        saveFile(image, `fm1-hub-backups-${tag}-${new Date().toISOString().slice(0, 10)}.bin`);
-        console.info(`store read: ${image.length} bytes in ${((performance.now() - t0) / 1000).toFixed(1)} s`);
-      }
       await install({
         loader: this.loader, board, manifest: build.manifest, parts: build.parts,
         onStep: (s) => this.progress(s.step === "verify" ? "Checking every part" : `Writing the ${s.part}`, s.written, s.total),
