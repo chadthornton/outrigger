@@ -23,7 +23,7 @@ apps ask it for them. See `docs/architecture.md`, and the merge gate below befor
 | `tests/ui_shots/` | `make ui-shots`: renders every `host_ui` page (docs/ui-redesign.md) with LVGL on the Mac, on 240×280, 320×480 and 480×320 at S/M/L, hub and hub-loader, plus an encoder board's focus ring, using the firmware's own wording. Taps them with a drifting finger, holds the holds, and fails on a clipped or off-glass label. PNGs, `report.txt` and a `sheet_<board>.png` per board in `build/ui-shots/`. Check UI changes here before booking the board. |
 | `firmware/config/lv_conf.h` | LVGL configuration (fonts, clib malloc so big buffers can use PSRAM). |
 | `site/`, `tools/build_site.py` | Browser installer (ESP Web Tools) and the script that stages firmware into it. |
-| `.github/workflows/ci.yml` | CI: `make test` and `make ui-shots`, then every board × app set built and staged into the site, on every push. |
+| `.github/workflows/ci.yml` | CI, the same checks as `make check` on GitHub's machines. Off: disabled on GitHub (2026-10-31) and manual-only; `gh workflow enable CI`, then "Run workflow". Not part of the merge gate. |
 | `firmware/waveshare_169/` | Arduino sketch for the Waveshare board: `app.cpp` (USB host, routing, gathers the frame) and `board_waveshare_169.cpp` (board profile, display and touch drivers). Code stays out of the `.ino` (see below). |
 
 To add a board: copy the sketch folder, write a new `board_*.cpp` with its `BoardProfile` (size, shape, corner
@@ -35,6 +35,7 @@ change. Check the board's schematic for a USB-C port wired to the ESP32-S3's nat
 
 ```
 make test      # midi_core, platform and fm1_loader tests on the Mac (fetches fixtures once)
+make check     # merge gate step 2: a clean clone of HEAD, then test, ui-shots and site (several minutes)
 make ui-shots  # render and check every page; build/ui-shots/sheet_*.png (needs LVGL 9.6.0, see Makefile)
 make fixtures  # FM-1 packages and wl82loader.bin for the tests, pinned by SHA-256 (gitignored)
 make golden    # regenerate tests/golden/ from the Unbricker and jl-uboot-tool (Python venv in build/)
@@ -109,8 +110,10 @@ crash can be read without the screen. `tools/diag.py` fetches them from the Mac.
 Nothing lands on `master` until all three pass, on the branch's last commit:
 
 1. **Mac tests.** `make test` passes every suite on the Mac.
-2. **CI green.** Both jobs in `.github/workflows/ci.yml`: `test`, and `firmware` (every board × app set builds, the site
-   stages, and the `wl82loader.bin` scan ran).
+2. **Clean check.** `make check` passes on the Mac: it clones the branch's last commit fresh into `build/check` (so
+   nothing uncommitted can help), then runs `make test`, `make ui-shots` and `make site` (every board × app set builds,
+   the site stages, and the `wl82loader.bin` scan runs). The PR quotes its last lines. GitHub Actions CI is off the gate
+   (Chad, 2026-10-31: Actions minutes on this private repo cost money); `ci.yml` stays for a manual run.
 3. **Hardware smoke check** on the Waveshare, with the branch's own build:
    1. Install it the way a user would: the web installer (`make serve`), from Computer mode, with the app set the
       branch changes (MIDI Hub if none).
