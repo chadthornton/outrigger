@@ -1,5 +1,5 @@
 // Host-side tests for lib/web_core: the diagnostics log, the route table (read
-// only), the request guard and the setup page's JSON fields. Run with `make test`.
+// only), the request guard, the setup page's JSON fields and the Wi-Fi fallback. Run with `make test`.
 #include <stdio.h>
 #include <string.h>
 
@@ -13,6 +13,7 @@
 #include "log_ring.h"
 #include "request_guard.h"
 #include "routes.h"
+#include "wifi_fallback.h"
 
 using namespace web_core;
 
@@ -184,6 +185,133 @@ static void test_hotspot_channel() {
   EXPECT(pick_hotspot_channel(nets, 0, "") == kDefaultHotspotChannel, "else the default");
 }
 
+// ---------- WifiFallback: the saved network after a boot ----------
+using WF = WifiFallback;
+
+struct Action {
+  uint32_t ms;
+  WF::Do what;
+};
+
+// Ticks every 100 ms over [from, to) with the same view of the station.
+static std::vector<Action> run(WF &f, uint32_t from, uint32_t to, const WF::Seen &s) {
+  std::vector<Action> out;
+  for (uint32_t t = from; t < to; t += 100) {
+    const WF::Do d = f.tick(t, s);
+    if (d != WF::Do::Nothing) out.push_back({t, d});
+  }
+  return out;
+}
+
+static const WF::Seen kStalled = {true, false, true, false, 0, false};
+static const WF::Seen kAssociated = {true, false, false, false, 0, false};
+static const WF::Seen kOnline = {true, true, false, false, 0, false};
+
+static void test_fallback_stalled_boot() {
+  WF f;
+  f.boot_join(1000);
+  auto a = run(f, 1000, 61000, kStalled);
+  EXPECT(a.size() == 2, "two nudges before the hotspot");
+  EXPECT(a.size() > 0 && a[0].ms == 21000 && a[0].what == WF::Do::Nudge, "first nudge 20 s after the join");
+  EXPECT(a.size() > 1 && a[1].ms == 41000 && a[1].what == WF::Do::Nudge, "second nudge at 40 s");
+  a = run(f, 61000, 61100, kStalled);
+  EXPECT(a.size() == 1 && a[0].ms == 61000 && a[0].what == WF::Do::OpenHotspot, "hotspot at 60 s");
+}
+
+static void test_fallback_no_nudge_while_associated() {
+  WF f;
+  f.boot_join(0);
+  auto a = run(f, 0, 30000, kAssociated);
+  EXPECT(a.empty(), "no nudge while associated (DHCP pending)");
+  a = run(f, 30000, 30200, kStalled);
+  EXPECT(a.size() == 1 && a[0].ms == 30000 && a[0].what == WF::Do::Nudge, "nudge once it stalls");
+  a = run(f, 30200, 40000, kStalled);
+  EXPECT(a.empty(), "second nudge not before 40 s");
+  a = run(f, 40000, 59900, kAssociated);
+  EXPECT(a.empty(), "nor while associated again");
+  a = run(f, 59900, 60000, kStalled);
+  EXPECT(a.size() == 1 && a[0].what == WF::Do::Nudge, "second nudge when it stalls again");
+}
+
+static void test_fallback_never_after_online() {
+  WF f;
+  f.boot_join(0);
+  run(f, 0, 5000, kOnline);
+  auto a = run(f, 5000, 300000, kStalled);
+  EXPECT(a.empty(), "a network that worked since boot: no nudge, no hotspot");
+}
+
+static void test_fallback_online_in_time() {
+  WF f;
+  f.boot_join(0);
+  auto a = run(f, 0, 21000, kStalled);
+  EXPECT(a.size() == 1, "nudged once");
+  a = run(f, 21000, 200000, kOnline);
+  EXPECT(a.empty(), "joined after the nudge: nothing more");
+}
+
+static void test_fallback_retries_with_hotspot() {
+  WF f;
+  f.boot_join(0);
+  run(f, 0, 60100, kStalled);  // nudges, then the hotspot at 60 s
+  WF::Seen ap = kStalled;
+  ap.hotspot_on = true;
+  auto a = run(f, 60100, 90000, ap);
+  EXPECT(a.empty(), "no nudges or retries for 30 s with the hotspot up");
+  a = run(f, 90000, 90100, ap);
+  EXPECT(a.size() == 1 && a[0].what == WF::Do::Join, "retry 30 s after the hotspot opened");
+  WF::Seen trying = ap;
+  trying.stalled = false;
+  a = run(f, 90100, 105100, trying);
+  EXPECT(a.size() == 1 && a[0].ms == 105000 && a[0].what == WF::Do::StopJoin, "a retry stops after 15 s");
+  a = run(f, 105100, 120100, ap);
+  EXPECT(a.size() == 1 && a[0].ms == 120000 && a[0].what == WF::Do::Join, "next retry 30 s after the last");
+  WF::Seen joined = ap;
+  joined.online = true;
+  joined.stalled = false;
+  a = run(f, 120100, 200000, joined);
+  EXPECT(a.empty(), "joined: no stop, no more retries");
+}
+
+static void test_fallback_waits_for_phone() {
+  WF f;
+  f.boot_join(0);
+  run(f, 0, 60100, kStalled);
+  WF::Seen phone = kStalled;
+  phone.hotspot_on = true;
+  phone.phones = 1;
+  auto a = run(f, 60100, 200000, phone);
+  EXPECT(a.empty(), "never retry while a phone is on the hotspot");
+  WF::Seen ap = phone;
+  ap.phones = 0;
+  a = run(f, 200000, 200100, ap);
+  EXPECT(a.size() == 1 && a[0].what == WF::Do::Join, "retry once the phone leaves");
+}
+
+static void test_fallback_setup_join_holds_retries() {
+  WF f;
+  f.boot_join(0);
+  run(f, 0, 60100, kStalled);
+  WF::Seen setup = kStalled;
+  setup.hotspot_on = true;
+  setup.setup_join = true;
+  auto a = run(f, 60100, 150000, setup);
+  EXPECT(a.empty(), "nothing while the setup page's join runs");
+  WF::Seen ap = setup;
+  ap.setup_join = false;
+  a = run(f, 150000, 179900, ap);  // the setup join's last tick was 149900
+  EXPECT(a.empty(), "no retry within 30 s of the setup join");
+  a = run(f, 179900, 180000, ap);
+  EXPECT(a.size() == 1 && a[0].what == WF::Do::Join, "then the saved network again");
+}
+
+static void test_fallback_no_saved_network() {
+  WF f;  // no boot join: web.cpp opens the hotspot itself
+  WF::Seen none = {false, false, true, true, 0, false};
+  auto a = run(f, 0, 300000, none);
+  EXPECT(a.empty(), "no saved network: nothing to nudge or retry");
+}
+
 int main() {
   test_ring_order_and_drop();
   test_ring_truncates();
@@ -195,6 +323,14 @@ int main() {
   test_host_guard();
   test_json_fields();
   test_hotspot_channel();
+  test_fallback_stalled_boot();
+  test_fallback_no_nudge_while_associated();
+  test_fallback_never_after_online();
+  test_fallback_online_in_time();
+  test_fallback_retries_with_hotspot();
+  test_fallback_waits_for_phone();
+  test_fallback_setup_join_holds_retries();
+  test_fallback_no_saved_network();
   if (failures) {
     printf("web_core: %d failure(s)\n", failures);
     return 1;
