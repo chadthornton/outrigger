@@ -254,7 +254,11 @@ check:
 
 # Stage the firmware into site/ for the browser installer (site/installer/).
 # fixtures brings wl82loader.bin, so build_site can scan for pieces of it.
+# NOTICE and LICENSE go beside the firmware: GPL-3.0 and the MIT and BSD
+# licenses of what it includes ask for their texts to travel with the binaries.
 site: build-all fixtures
+	cp NOTICE site/NOTICE.txt
+	cp LICENSE site/LICENSE.txt
 	for b in $(BOARDS); do for a in $(APP_SETS); do \
 		python3 tools/build_site.py $$b $$a build/$$b/$$a $(ESP32_CORE)/tools/partitions/boot_app0.bin \
 			$(shell git describe --always --dirty) || exit 1; done; done

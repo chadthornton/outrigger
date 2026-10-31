@@ -23,7 +23,7 @@ apps ask it for them. See `docs/architecture.md`, and the merge gate below befor
 | `tests/ui_shots/` | `make ui-shots`: renders every `host_ui` page (docs/ui-redesign.md) with LVGL on the Mac, on 240×280, 320×480 and 480×320 at S/M/L, hub and hub-loader, plus an encoder board's focus ring, using the firmware's own wording. Taps them with a drifting finger, holds the holds, and fails on a clipped or off-glass label. PNGs, `report.txt` and a `sheet_<board>.png` per board in `build/ui-shots/`. Check UI changes here before booking the board. |
 | `firmware/config/lv_conf.h` | LVGL configuration (fonts, clib malloc so big buffers can use PSRAM). |
 | `site/`, `tools/build_site.py` | Browser installer (`site/installer/`, on esptool-js) and the script that stages firmware into it. |
-| `.github/workflows/ci.yml` | CI, the same checks as `make check` on GitHub's machines. Off: disabled on GitHub (2026-10-31) and manual-only; `gh workflow enable CI`, then "Run workflow". Not part of the merge gate. |
+| `.github/workflows/ci.yml` | CI, the same checks as `make check` on GitHub's machines. Disabled on GitHub while the repo is private (2026-10-31); free once it is public; `gh workflow enable CI`, then "Run workflow". Not part of the merge gate. |
 | `firmware/waveshare_169/` | Arduino sketch for the Waveshare board: `app.cpp` (USB host, routing, gathers the frame) and `board_waveshare_169.cpp` (board profile, display and touch drivers). Code stays out of the `.ino` (see below). |
 
 To add a board: copy the sketch folder, write a new `board_*.cpp` with its `BoardProfile` (size, shape, corner
@@ -106,7 +106,8 @@ make serve    # same, then serve on http://localhost:8088 (Web Serial needs http
   Everything's loader stays read-only. The settings page shows which set is running next to the commit (`hub`,
   `hub+L`, `all`).
 - **Adding a board:** see Layout.
-- **Licensing:** our code, LVGL (MIT) and the vendored EspUsbHost (MIT) ship as binaries. JieLi's `wl82loader.bin` must
+- **Licensing:** our code, LVGL and the vendored EspUsbHost (MIT), Arduino_GFX (BSD) and the Arduino ESP32 core
+  (LGPL-2.1) ship as binaries; `make site` copies `NOTICE` to `site/NOTICE.txt` and the footer links it. JieLi's `wl82loader.bin` must
   never be in a published build: `build_site.py` refuses a file with its name or SHA-256, or containing a 1 KiB piece of
   it (when `tests/fixtures/wl82loader.bin` or `$WL82_BLOB` is present), and deletes the staged firmware if so.
 
@@ -160,7 +161,7 @@ Nothing lands on `master` until all three pass, on the branch's last commit:
 2. **Clean check.** `make check` passes on the Mac: it clones the branch's last commit fresh into `build/check` (so
    nothing uncommitted can help), then runs `make test`, `make ui-shots` and `make site` (every board × app set builds,
    the site stages, and the `wl82loader.bin` scan runs). The PR quotes its last lines. GitHub Actions CI is off the gate
-   (Chad, 2026-10-31: Actions minutes on this private repo cost money); `ci.yml` stays for a manual run.
+   (Chad, 2026-10-31); `ci.yml` stays for a manual run, which is free once the repo is public.
 3. **Hardware smoke check** on the Waveshare, with the branch's own build:
    1. Install it the way a user would: the web installer (`make serve`), from Computer mode, with the app set the
       branch changes (MIDI Hub if none).
@@ -199,3 +200,8 @@ FM-1's flash, the partition table or stored data) also gets one high-effort code
 3. Done 2026-10-26: Launchkey → FM-1 routing, all system messages blocked toward the FM-1, played by hand.
 
 Running on the board: `cb4ee7b` (channel fix). `13b99a5` adds drop-reason letters on screen and is not flashed yet.
+
+## License
+
+GPL-3.0 (`LICENSE`), the license of M-VAVE's `fm1_open`, Felucca, Skiff and SLOOP. `NOTICE` lists the third-party
+code inside (MIT, BSD, Apache-2.0, LGPL-2.1), and `make site` serves both beside the firmware as `NOTICE.txt` and `LICENSE.txt`.

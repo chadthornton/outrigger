@@ -29,6 +29,8 @@ class PackageError(Exception):
     pass
 
 
+# crc16, jl_enc and the package parsing below follow MvaveFM1Unbricker (MIT,
+# Michael P Jones) and its ota.c lineage: see NOTICE.
 def crc16(data, c=0):
     for b in data:
         c ^= b << 8
