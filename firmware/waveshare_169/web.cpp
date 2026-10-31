@@ -927,6 +927,7 @@ void web_loop(uint32_t now) {
       break;
     case web_core::WifiFallback::Do::Nudge: {
       const bool ok = WiFi.reconnect();  // esp_wifi_connect() only: never a disconnect over a join
+      fallback.nudge_result(now, ok);
       DLOG_LOOP("wifi: nudge at status %d, reconnect %s", int(status), ok ? "ok" : "failed");
       break;
     }

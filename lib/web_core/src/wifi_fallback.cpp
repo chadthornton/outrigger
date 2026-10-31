@@ -2,6 +2,12 @@
 
 namespace web_core {
 
+void WifiFallback::nudge_result(uint32_t now, bool ok) {
+  if (!ok) return;  // tick() already holds the next try 5 s off
+  ++nudges_;
+  next_nudge_at_ = now + kNudgeSpacingMs;
+}
+
 void WifiFallback::boot_join(uint32_t now) {
   boot_at_ = now;
   booted_ = true;
@@ -37,8 +43,9 @@ WifiFallback::Do WifiFallback::tick(uint32_t now, const Seen &s) {
     next_retry_at_ = now + kRetryEveryMs;
     return Do::OpenHotspot;
   }
-  if (s.stalled && nudges_ < 2 && since >= (nudges_ == 0 ? kFirstNudgeMs : kSecondNudgeMs)) {
-    ++nudges_;
+  if (s.stalled && nudges_ < 2 && since >= (nudges_ == 0 ? kFirstNudgeMs : kSecondNudgeMs) &&
+      int32_t(now - next_nudge_at_) >= 0) {
+    next_nudge_at_ = now + kNudgeRefusedRetryMs;  // nudge_result() moves it on if this one takes
     return Do::Nudge;
   }
   return Do::Nothing;

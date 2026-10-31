@@ -194,10 +194,11 @@ struct Action {
 };
 
 // Ticks every 100 ms over [from, to) with the same view of the station.
-static std::vector<Action> run(WF &f, uint32_t from, uint32_t to, const WF::Seen &s) {
+static std::vector<Action> run(WF &f, uint32_t from, uint32_t to, const WF::Seen &s, bool nudge_ok = true) {
   std::vector<Action> out;
   for (uint32_t t = from; t < to; t += 100) {
     const WF::Do d = f.tick(t, s);
+    if (d == WF::Do::Nudge) f.nudge_result(t, nudge_ok);
     if (d != WF::Do::Nothing) out.push_back({t, d});
   }
   return out;
@@ -305,6 +306,24 @@ static void test_fallback_setup_join_holds_retries() {
   EXPECT(a.size() == 1 && a[0].what == WF::Do::Join, "then the saved network again");
 }
 
+// 2026-10-31, on the board: AUTH_EXPIRE storms kept the library's own connect
+// going (status 6), so both nudges were refused ("reconnect failed") and none
+// was left when the router answered AUTH_FAIL at 44.5 s (status 4): the board
+// came up only through the hotspot's retry, at 93 s.
+static void test_fallback_refused_nudge_not_spent() {
+  WF f;
+  f.boot_join(0);
+  auto a = run(f, 0, 44500, kStalled, false);
+  EXPECT(a.size() == 5, "a refused nudge is retried every 5 s");
+  EXPECT(a.size() > 1 && a[0].ms == 20000 && a[1].ms == 25000, "first at 20 s, again 5 s later");
+  a = run(f, 44500, 45100, kStalled);
+  EXPECT(a.size() == 1 && a[0].ms == 45000 && a[0].what == WF::Do::Nudge, "a nudge is still left for the AUTH_FAIL");
+  a = run(f, 45100, 60000, kStalled);
+  EXPECT(a.empty(), "the second nudge waits 20 s after the first that took");
+  a = run(f, 60000, 60100, kStalled);
+  EXPECT(a.size() == 1 && a[0].what == WF::Do::OpenHotspot, "hotspot still at 60 s");
+}
+
 static void test_fallback_no_saved_network() {
   WF f;  // no boot join: web.cpp opens the hotspot itself
   WF::Seen none = {false, false, true, true, 0, false};
@@ -331,6 +350,7 @@ int main() {
   test_fallback_waits_for_phone();
   test_fallback_setup_join_holds_retries();
   test_fallback_no_saved_network();
+  test_fallback_refused_nudge_not_spent();
   if (failures) {
     printf("web_core: %d failure(s)\n", failures);
     return 1;

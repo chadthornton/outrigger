@@ -3,9 +3,12 @@
 // The Arduino core retries a failed first join once. Two failures get past it:
 // a second AUTH_FAIL (202) leaves the station at status 4 with no further
 // retry, and some joins stall at status 6 with no disconnect event at all
-// (3 of 101 soak boots). So the station gets up to two nudges, at 20 s and
-// 40 s: WiFi.reconnect(), which on a station that isn't associated is only
-// esp_wifi_connect(). A nudge never lands while the station is associated
+// (3 of 101 soak boots). So the station gets up to two nudges, from 20 s and
+// 20 s apart: WiFi.reconnect(), which on a station that isn't associated is only
+// esp_wifi_connect(). While the library's own connect is still running (an
+// AUTH_EXPIRE storm, status 6) that call is refused; a refused nudge doesn't
+// count and is tried again 5 s later, so one is left for the AUTH_FAIL that
+// often ends such a storm. A nudge never lands while the station is associated
 // (status 0, waiting on DHCP): a forced disconnect over the library's own join
 // left the board associated but unreachable (branch boot-probe, 2026-10-30).
 //
@@ -28,6 +31,8 @@ class WifiFallback {
   static constexpr uint32_t kHotspotAfterMs = 60000;
   static constexpr uint32_t kRetryEveryMs = 30000;
   static constexpr uint32_t kRetryGiveUpMs = 15000;
+  static constexpr uint32_t kNudgeRefusedRetryMs = 5000;
+  static constexpr uint32_t kNudgeSpacingMs = 20000;
 
   enum class Do { Nothing, Nudge, OpenHotspot, Join, StopJoin };
 
@@ -44,9 +49,12 @@ class WifiFallback {
   void boot_join(uint32_t now);
   // Called every loop; at most one action per call.
   Do tick(uint32_t now, const Seen &s);
+  // What WiFi.reconnect() returned for a Nudge. A refused one (the library's
+  // own connect still running) doesn't count and is retried 5 s later.
+  void nudge_result(uint32_t now, bool ok);
 
  private:
-  uint32_t boot_at_ = 0, next_retry_at_ = 0, retry_started_ = 0;
+  uint32_t boot_at_ = 0, next_retry_at_ = 0, retry_started_ = 0, next_nudge_at_ = 0;
   uint8_t nudges_ = 0;
   bool booted_ = false, ever_online_ = false, retrying_ = false;
 };
