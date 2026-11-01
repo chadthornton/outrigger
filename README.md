@@ -182,27 +182,37 @@ crash can be read without the screen. `tools/diag.py` fetches them from the Mac.
 
 ## Merge gate
 
-Nothing lands on `master` until both pass, on the branch's last commit:
+Nothing lands on `master` until **GitHub CI is green** on the PR's head commit: the `ci-ok` check (`gh pr checks`).
+It runs `make test`, `make ui-shots`, one build per board × app set in parallel, then stages the installer site with
+the `wl82loader.bin` scan. A PR that only touches docs, site copy (`site/`), `tests/installer/` or `.md` files skips
+the firmware builds and gets a licensing scan of `site/` instead. Run `make test` locally while working; it is not a
+gate step, and neither is `make check` (Chad, 2026-11-01). A briefly broken `master` is tolerated: fix forward.
 
-1. **GitHub CI is green** on the PR's head commit: the `ci-ok` check (`gh pr checks`). It runs `make test`,
-   `make ui-shots`, one build per board × app set in parallel, then stages the installer site with the
-   `wl82loader.bin` scan. A PR that only touches docs, site copy (`site/`), `tests/installer/` or `.md` files skips
-   the firmware builds and gets a licensing scan of `site/` instead. Run `make test` locally while working; it is no
-   longer a gate step, and neither is `make check` (Chad, 2026-11-01). A briefly broken `master` is tolerated: fix
-   forward.
-2. **Hardware smoke check** on the Waveshare, with the branch's own build:
+**Exception:** a PR that changes the FM-1 loader, the store or flash writes, or the USB host stack (`lib/fm1_loader/`,
+the loader and store code in `firmware/`, `partitions.csv`, `lib/EspUsbHost/`) also passes the hardware smoke check
+below with its own build before merging.
+
+### Shipping to production
+
+Once per ship (Chad, 2026-11-01), in this order:
+
+1. **Hardware smoke check** with `master`'s build, the commit about to ship:
    1. Install it the way a user would: the web installer (`make serve`), from Computer mode, with the app set the
-      branch changes (MIDI Hub if none).
+      ship changes (MIDI Hub if none).
    2. Put the board back in the rig: hub power brick → hub, hub upstream cable → Waveshare, FM-1 and Launchkey on the
       hub's USB-C ports.
-   3. Pass when Setup shows the branch's commit, Play's four lines are green with the hub at `USB 8/8`, and playing the
+   3. Pass when Setup shows the commit, Play's four lines are green with the hub at `USB 8/8`, and playing the
       Launchkey sounds the FM-1.
+2. **Chad says "ship it"** in the deploying session's chat, after the smoke check passes.
+3. **`make deploy-site CHANNEL=production`** re-runs `make check` on the Mac on the exact commit it uploads
+   ("Publishing the site").
 
-Production is stricter: `make deploy-site CHANNEL=production` re-runs `make check` on the Mac on the exact commit it
-uploads ("Publishing the site"), and only after Chad says "ship it".
+### Boards
 
-There is one Waveshare. A session books it in the shared notes queue before asking Chad to move it, and reflashes the
-`master` build when done.
+There are three: Waveshare-1 (1.69", V2, MAC `D8:3B:DA:A0:67:D0`), Waveshare-2 (1.69", V1, MAC `a0:85:e3:f0:a2:3c`)
+and Board-3 (Waveshare 3.5"). A session books a board and the Mac's USB slot through the orchestrator session
+(`local_3a47bdc2-23d3-4414-b549-9e1e85c6718a`), checks the board's MAC before flashing, and reflashes the `master`
+build when done.
 
 An app also lands with its row in the mode table, its claims and tests in the broker, its NVS namespace with a `schema`
 key, and its build flag (`docs/architecture.md`, "How an app lands on `master`"). Guarded work (anything that writes the
