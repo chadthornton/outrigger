@@ -24,7 +24,7 @@ Which switches we've run on a real FM-1, with these exact versions:
 
 - **Skiff → stock, after a lot of Skiff patterns: ask us first.** Skiff saves its patterns into part of the FM-1's
   memory where stock keeps its factory resources. After many Skiff pattern saves, those resources may be gone, and the
-  board can't put them back. If you've saved a lot of Skiff
+  board can't put them back. Our test switched back to stock after only a few saves. If you've saved a lot of Skiff
   patterns, email us before switching to stock; the plan page warns about it too.
 - **During a firmware switch the board restarts 2–3 times, and the FM-1 goes dark for about a minute.** That's normal.
   A crash looks different: a safe-mode screen that says where it stopped and "RST to try again". If you see that,

@@ -43,7 +43,7 @@ pastes into Discord as is.
 >    5. restart Outrigger by unplugging the hub's charger
 >    6. change the text size, restart, and check it stuck
 >    7. back up the FM-1 (FM-1 screen > Backups, hold)
->    8. switch firmware once, between any of the three. Saved a lot of Skiff patterns? Ask me before going to stock.
+>    8. switch firmware once: Felucca ↔ Skiff. Ask me before switching Skiff to stock.
 > 4. **Then a week of normal use.**
 >
 > Before your first switch: charge the FM-1, use short USB-C data cables, and don't touch anything until the
