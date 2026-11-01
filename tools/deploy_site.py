@@ -3,10 +3,11 @@
 
     tools/deploy_site.py guard <channel>             refuse early, before make check spends minutes
     tools/deploy_site.py deploy <channel> <site dir>  stage, check and upload a site make check built
+                                                     (build/checked/site; its commit in build/checked/commit)
 
 Channels: production (outrigger.music, from origin/master only) and beta
 (beta.outrigger.music, any pushed commit). `make deploy-site` runs both steps
-around `make check`, so only a site built from a clean clone of a committed,
+around `make check`, so only a site built from a clean checkout of a committed,
 pushed HEAD goes live. Each upload carries its commit, so the Pages dashboard
 answers "which commit is live?".
 
@@ -90,6 +91,17 @@ def site_problems(site, blob, sha=WL82_SHA256, max_file=MAX_FILE, max_files=MAX_
     return problems
 
 
+def built_from_problem(site, head):
+    """Why site (make check's build/checked/site) is not HEAD's, or None."""
+    commit = site.parent / "commit"
+    if not commit.is_file():
+        return f"no {commit}; run make check"
+    built = commit.read_text().strip()
+    if built != head:
+        return f"{site} was built from {built[:7]}, HEAD is {head[:7]}; run make check again"
+    return None
+
+
 def stage(src, dst):
     """Copy src to an emptied dst, leaving out dotfiles (.DS_Store and the like)."""
     shutil.rmtree(dst, ignore_errors=True)
@@ -135,9 +147,9 @@ def load_credentials():
 
 def deploy(channel, site):
     head = guard(channel)
-    built = git("rev-parse", "HEAD", cwd=site.parent)
-    if built != head:
-        fail(f"{site} was built from {built[:7]}, HEAD is {head[:7]}; run make check again")
+    problem = built_from_problem(site, head)
+    if problem:
+        fail(problem)
     stage(site, STAGE)
     blob_path = next((Path(p) for p in (os.environ.get("WL82_BLOB"), ROOT / "tests/fixtures/wl82loader.bin")
                       if p and Path(p).is_file()), None)

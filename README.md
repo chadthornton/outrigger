@@ -35,7 +35,7 @@ change. Check the board's schematic for a USB-C port wired to the ESP32-S3's nat
 
 ```
 make test      # midi_core, platform and fm1_loader tests on the Mac (fetches fixtures once)
-make check     # merge gate step 2: a clean checkout of HEAD, then test, ui-shots and site (~2 min re-run, ~13 min cold)
+make check     # merge gate step 2: HEAD checked out clean in the clone all worktrees share, then test, ui-shots and site (~2 min; ~12 min after a core or library update)
 make ui-shots  # render and check every page; build/ui-shots/sheet_*.png (needs LVGL 9.6.0, see Makefile)
 make fixtures  # FM-1 packages and wl82loader.bin for the tests, pinned by SHA-256 (gitignored)
 make golden    # regenerate tests/golden/ from the Unbricker and jl-uboot-tool (Python venv in build/)
@@ -134,8 +134,8 @@ make deploy-site                     # beta
 make deploy-site CHANNEL=production  # outrigger.music
 ```
 
-- **What gets uploaded:** `make deploy-site` runs `make check`, then uploads the `site/` that the check built in its
-  clean clone (`build/check/site`). Nothing uncommitted or unpushed goes live, and every upload passed the merge gate.
+- **What gets uploaded:** `make deploy-site` runs `make check`, then uploads the `site/` that the check built from that
+  commit (`build/checked/site`). Nothing uncommitted or unpushed goes live, and every upload passed the merge gate.
 - **What gets checked first:** `tools/deploy_site.py` refuses a dirty tree, an unpushed HEAD, or production from
   anything but `origin/master`. Before uploading it scans every file again: under Pages' 25 MiB per-file and
   20,000-file limits, and free of `wl82loader.bin` (by name, SHA-256 and 1 KiB pieces). A local copy of the blob is
@@ -167,8 +167,9 @@ crash can be read without the screen. `tools/diag.py` fetches them from the Mac.
 Nothing lands on `master` until all three pass, on the branch's last commit:
 
 1. **Mac tests.** `make test` passes every suite on the Mac.
-2. **Clean check.** `make check` passes on the Mac: it resets its clone in `build/check` to the branch's last commit,
-   with every untracked and ignored file removed (so nothing uncommitted can help), then runs `make test`, `make ui-shots` and `make site` (every board × app set builds,
+2. **Clean check.** `make check` passes on the Mac: it resets the clone every worktree shares
+   (`~/Library/Caches/outrigger-check`, one check at a time; `tools/check.py`) to the branch's last commit, with every
+   untracked and ignored file removed (so nothing uncommitted can help), then runs `make test`, `make ui-shots` and `make site` (every board × app set builds,
    the site stages, and the `wl82loader.bin` scan runs). The PR quotes its last lines. GitHub Actions CI is off the gate
    (Chad, 2026-10-31); `ci.yml` stays for a manual run, which is free once the repo is public.
 3. **Hardware smoke check** on the Waveshare, with the branch's own build:
