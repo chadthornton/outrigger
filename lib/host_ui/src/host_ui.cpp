@@ -16,18 +16,31 @@ using midi_core::Tone;
 #define UI_TOUCH_PROBE 0
 #endif
 
-// ---------- Fonts: Montserrat, indexed by size step ----------
-// Steps 0-8 run small to large; text size S/M/L picks a starting step and the
-// board's font_boost moves it up for big screens.
-static const lv_font_t *const kSansSteps[] = {
-    &lv_font_montserrat_10, &lv_font_montserrat_12, &lv_font_montserrat_14, &lv_font_montserrat_16,
-    &lv_font_montserrat_18, &lv_font_montserrat_20, &lv_font_montserrat_22, &lv_font_montserrat_24,
-    &lv_font_montserrat_28};
+// ---------- Fonts: one type scale for every screen ----------
+// A label names its role, never a size. The text size (S/M/L) picks every
+// role's pixels here, so each screen, and any new one, follows the setting.
+// The board's font_boost moves every role up a step on big screens.
+enum class Role : uint8_t { Fine, Detail, Body, Title, Heading };
+constexpr int kRoles = 5;
+static const lv_font_t *const kSansSteps[] = {&lv_font_montserrat_12, &lv_font_montserrat_14, &lv_font_montserrat_16,
+                                              &lv_font_montserrat_18, &lv_font_montserrat_20, &lv_font_montserrat_22,
+                                              &lv_font_montserrat_24, &lv_font_montserrat_28};
+// Steps into kSansSteps, per text size and role (pixels on the 1.69").
+static const uint8_t kScale[3][kRoles] = {
+    // Fine Detail Body Title Heading
+    {0, 1, 2, 2, 3},  // S: 12 14 16 16 18
+    {1, 2, 3, 3, 4},  // M: 14 16 18 18 20
+    {2, 3, 4, 5, 5},  // L: 16 18 20 22 22
+};
 
 static const lv_font_t *font_for(int step) {
   const int n = sizeof kSansSteps / sizeof kSansSteps[0];
   return kSansSteps[step < 0 ? 0 : step >= n ? n - 1 : step];
 }
+static const lv_font_t *font_at(int size, Role r);  // after the state it reads
+static const lv_font_t *font(Role r);
+// The Setup gear: an icon, the same at every text size.
+static const lv_font_t *icon_font();
 
 // ---------- Colours ----------
 static lv_color_t c(uint32_t hex) { return lv_color_hex(hex); }
@@ -80,10 +93,11 @@ static void safe_padding(int *side, int *top) {
   }
 }
 
-static int base_step() { return settings.text_size * 2 + board->font_boost; }  // S=0, M=2, L=4
-// Headings: a step or two up, but never past 20 px: at L, 24 px titles take a
-// line each and push pages into scrolling.
-static int heading(int up) { return base_step() + up < 5 ? base_step() + up : 5; }
+static const lv_font_t *font_at(int size, Role r) {
+  return font_for(kScale[size < 0 ? 0 : size > 2 ? 2 : size][int(r)] + board->font_boost);
+}
+static const lv_font_t *font(Role r) { return font_at(settings.text_size, r); }
+static const lv_font_t *icon_font() { return wide() ? &lv_font_montserrat_28 : &lv_font_montserrat_22; }
 
 #if UI_TOUCH_PROBE
 static lv_obj_t *probe_label;
@@ -156,26 +170,26 @@ static lv_obj_t *row(lv_obj_t *parent, int gap = 0) {
   return o;
 }
 // Wrapping text: never cut, it takes the lines it needs.
-static lv_obj_t *text(lv_obj_t *parent, const char *s, uint32_t colour, int step) {
+static lv_obj_t *text(lv_obj_t *parent, const char *s, uint32_t colour, Role role) {
   lv_obj_t *l = lv_label_create(parent);
   lv_obj_set_width(l, lv_pct(100));
   lv_label_set_long_mode(l, LV_LABEL_LONG_MODE_WRAP);
-  lv_obj_set_style_text_font(l, font_for(step), 0);
+  lv_obj_set_style_text_font(l, font(role), 0);
   lv_obj_set_style_text_color(l, c(colour), 0);
   lv_label_set_text(l, s);
   return l;
 }
 // One line that sizes to its text (for rows).
-static lv_obj_t *word(lv_obj_t *parent, const char *s, uint32_t colour, int step) {
+static lv_obj_t *word(lv_obj_t *parent, const char *s, uint32_t colour, Role role) {
   lv_obj_t *l = lv_label_create(parent);
-  lv_obj_set_style_text_font(l, font_for(step), 0);
+  lv_obj_set_style_text_font(l, font(role), 0);
   lv_obj_set_style_text_color(l, c(colour), 0);
   lv_label_set_text(l, s);
   return l;
 }
 // A word that takes the rest of its row and is cut with "..." if it must be.
-static lv_obj_t *grow_word(lv_obj_t *parent, const char *s, uint32_t colour, int step) {
-  lv_obj_t *l = word(parent, s, colour, step);
+static lv_obj_t *grow_word(lv_obj_t *parent, const char *s, uint32_t colour, Role role) {
+  lv_obj_t *l = word(parent, s, colour, role);
   lv_obj_set_width(l, 1);
   lv_obj_set_flex_grow(l, 1);
   lv_label_set_long_mode(l, LV_LABEL_LONG_MODE_DOTS);
@@ -417,7 +431,8 @@ static void nav_item(lv_obj_t *band, int page, int which) {
   lv_obj_add_flag(holder, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
   const uint32_t col = active ? kWhite : kIconOff;
   if (which == kSetup) {
-    n.icon = word(holder, LV_SYMBOL_SETTINGS, col, wide() ? 8 : 6);
+    n.icon = word(holder, LV_SYMBOL_SETTINGS, col, Role::Body);
+    lv_obj_set_style_text_font(n.icon, icon_font(), 0);
     lv_obj_center(n.icon);
   } else {
     n.icon = lv_image_create(holder);
@@ -534,8 +549,8 @@ static Page sub_page(lv_obj_t **title, lv_obj_t **back_row, bool back) {
   lv_obj_t *r = row(head, 6);
   lv_obj_set_style_radius(r, 8, 0);
   lv_obj_set_style_pad_ver(r, 2, 0);
-  lv_obj_t *arrow = word(r, LV_SYMBOL_LEFT, kMuted, base_step() + 1);
-  *title = grow_word(r, "", kWhite, heading(2));
+  lv_obj_t *arrow = word(r, LV_SYMBOL_LEFT, kMuted, Role::Title);
+  *title = grow_word(r, "", kWhite, Role::Heading);
   lv_label_set_long_mode(*title, LV_LABEL_LONG_MODE_WRAP);  // "Switching to Felucca 1.6.1" takes two lines
   lv_label_set_max_lines(*title, 0);
   if (back) {
@@ -579,7 +594,7 @@ static lv_obj_t *plain_button(lv_obj_t *parent, const char *what, lv_event_cb_t 
   lv_obj_set_style_bg_color(b, c(kDim), 0);
   pressed_bg(b, 0x5A5A5A);
   focusable(b, Ring::Border);
-  lv_obj_t *l = word(b, what, kWhite, settings.text_size == 0 ? 1 : 2 + board->font_boost);
+  lv_obj_t *l = word(b, what, kWhite, Role::Body);
   lv_obj_center(l);
   lv_obj_add_event_cb(b, on_click, LV_EVENT_CLICKED, nullptr);
   return b;
@@ -598,10 +613,10 @@ static lv_obj_t *nav_row(lv_obj_t *parent, const char *title, lv_obj_t **sub, lv
   lv_obj_t *col = column(r, 1);
   lv_obj_set_width(col, 1);
   lv_obj_set_flex_grow(col, 1);
-  text(col, title, kWhite, base_step() + 1);
-  lv_obj_t *s = text(col, "", kMuted, base_step() - 1);
+  text(col, title, kWhite, Role::Title);
+  lv_obj_t *s = text(col, "", kMuted, Role::Detail);
   if (sub) *sub = s;
-  word(r, LV_SYMBOL_RIGHT, kMuted, base_step());
+  word(r, LV_SYMBOL_RIGHT, kMuted, Role::Body);
   return r;
 }
 
@@ -701,8 +716,7 @@ static void hold_widget(lv_obj_t *parent, Hold &h, uint32_t fill, void (*run)(Ho
   lv_obj_set_width(h.label, lv_pct(94));
   lv_label_set_long_mode(h.label, LV_LABEL_LONG_MODE_WRAP);
   lv_obj_set_style_text_align(h.label, LV_TEXT_ALIGN_CENTER, 0);
-  // 12 px on the 1.69", so "Hold: switch to Felucca 1.6.1" stays on one line.
-  lv_obj_set_style_text_font(h.label, font_for(wide() ? 2 + board->font_boost : 1), 0);
+  lv_obj_set_style_text_font(h.label, font(Role::Fine), 0);
   lv_label_set_text(h.label, "");
   lv_obj_center(h.label);
   lv_obj_add_event_cb(h.button, hold_event, LV_EVENT_ALL, &h);
@@ -721,16 +735,16 @@ struct ProblemView {
 };
 static ProblemView problem_view(lv_obj_t *parent, bool with_headline) {
   ProblemView v{};
-  if (with_headline) v.headline = text(parent, "", kOrange, heading(2));
+  if (with_headline) v.headline = text(parent, "", kOrange, Role::Heading);
   v.card = card(parent, kOkBg, kOkEdge);
   lv_obj_t *r = row(v.card, 6);
-  v.icon = word(r, LV_SYMBOL_OK, kGreen, base_step());
-  v.safety = text(r, "", kWhite, base_step());
+  v.icon = word(r, LV_SYMBOL_OK, kGreen, Role::Body);
+  v.safety = text(r, "", kWhite, Role::Body);
   lv_obj_set_width(v.safety, 1);
   lv_obj_set_flex_grow(v.safety, 1);
-  v.why = text(parent, "", kGrey, base_step());
-  v.todo = text(parent, "", kWhite, base_step());
-  v.detail = text(parent, "", kMuted, base_step() - 2);
+  v.why = text(parent, "", kGrey, Role::Body);
+  v.todo = text(parent, "", kWhite, Role::Body);
+  v.detail = text(parent, "", kMuted, Role::Fine);
   return v;
 }
 static uint32_t headline_hex(const UiResult &r) {
@@ -763,9 +777,9 @@ static StepRow step_row(lv_obj_t *parent) {
   StepRow s;
   s.row = row(parent, 6);
   lv_obj_set_flex_align(s.row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
-  s.icon = word(s.row, "-", kMuted, base_step());
+  s.icon = word(s.row, "-", kMuted, Role::Body);
   lv_obj_set_width(s.icon, 16);
-  s.text = text(s.row, "", kMuted, base_step());
+  s.text = text(s.row, "", kMuted, Role::Body);
   lv_obj_set_width(s.text, 1);
   lv_obj_set_flex_grow(s.text, 1);
   return s;
@@ -797,7 +811,9 @@ static UiLoader last_loader;
 static bool have_loader;
 static int play_shrink;
 static uint32_t fitted_play = UINT32_MAX;
-static bool stacked() { return !wide() && settings.text_size == 2; }  // the 1.69" at L: status under the name
+// The status under the name: always on the 1.69", where a name and its status
+// side by side get cut at any readable size; at L on bigger boards.
+static bool stacked() { return !wide() || settings.text_size == 2; }
 
 static void fit_play();
 static void stage_tapped(lv_event_t *e) {
@@ -844,15 +860,15 @@ static void build_play() {
     lv_obj_set_style_pad_left(col, dot + 8, 0);
     s.head = stacked() ? column(col, 0) : row(col, 8);
     lv_obj_set_style_pad_hor(s.head, 6, 0);
-    lv_obj_set_style_pad_ver(s.head, stacked() ? 4 : 0, 0);
+    lv_obj_set_style_pad_ver(s.head, stacked() ? 1 : 0, 0);
     lv_obj_set_style_radius(s.head, 8, 0);
     lv_obj_set_style_bg_color(s.head, c(kRow), 0);
     pressed_bg(s.head, 0x2A2A2A);
     lv_obj_set_style_bg_opa(s.head, LV_OPA_COVER, LV_STATE_PRESSED);
     focusable(s.head, Ring::Border);
     lv_obj_add_event_cb(s.head, stage_tapped, LV_EVENT_CLICKED, reinterpret_cast<void *>(intptr_t(i)));
-    s.title = word(s.head, kTitles[i], kTitleColours[i], heading(1));
-    s.status = word(s.head, "", kGrey, base_step() - 1);
+    s.title = word(s.head, kTitles[i], kTitleColours[i], Role::Title);
+    s.status = word(s.head, "", kGrey, Role::Detail);
     if (!stacked()) {
       lv_obj_set_width(s.status, 1);
       lv_obj_set_flex_grow(s.status, 1);
@@ -860,37 +876,34 @@ static void build_play() {
       lv_label_set_long_mode(s.status, LV_LABEL_LONG_MODE_DOTS);
       lv_label_set_max_lines(s.status, 1);
     }
-    s.chevron = wide() ? word(s.head, LV_SYMBOL_DOWN, kIconOff, base_step() - 2) : nullptr;
+    s.chevron = wide() && !stacked() ? word(s.head, LV_SYMBOL_DOWN, kIconOff, Role::Fine) : nullptr;
 
     s.detail = column(col, 1);
     lv_obj_set_style_pad_left(s.detail, 6, 0);
     lv_obj_set_style_pad_bottom(s.detail, 8, 0);
     const int lines = i == 1 ? int(midi_core::kMaxDevices) + 1 : 3;
     s.line_count = lines;
-    for (int l = 0; l < lines; ++l) s.lines[l] = text(s.detail, "", kGrey, base_step() - 1);
+    for (int l = 0; l < lines; ++l) s.lines[l] = text(s.detail, "", kGrey, Role::Detail);
     s.problem = card(s.detail, kWarnBg, kWarnEdge);
-    s.problem_1 = text(s.problem, "", kOrange, base_step());
-    s.problem_2 = text(s.problem, "", kWhite, base_step());
+    s.problem_1 = text(s.problem, "", kOrange, Role::Body);
+    s.problem_2 = text(s.problem, "", kWhite, Role::Body);
     lv_obj_add_flag(s.problem, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(s.detail, LV_OBJ_FLAG_HIDDEN);
   }
 }
 
 // Lines 36 px tall on the 1.69", 44 on 320+: each is a real hit target. When
-// Play doesn't fit, the gaps tighten first; on the 1.69" the text gets smaller
-// after that (shrink 3 on), as today. Wider boards scroll instead.
+// Play doesn't fit, the gaps tighten; the text keeps the size the user picked,
+// and the page scrolls to the open stage instead.
 static void size_play(int shrink) {
   const int line_h = (wide() ? 44 : 36) - (shrink >= 1 ? 6 : 0) - (shrink >= 2 ? 4 : 0);
-  const int drop = shrink > 2 ? shrink - 2 : 0;
   const int dot = wide() ? 14 : 12;
   for (StageLine &s : stages) {
     if (!stacked()) lv_obj_set_height(s.head, line_h);
-    lv_obj_set_style_text_font(s.title, font_for(heading(1) - drop), 0);
-    lv_obj_set_style_text_font(s.status, font_for(base_step() - 1 - drop), 0);
-    for (int l = 0; l < s.line_count; ++l) lv_obj_set_style_text_font(s.lines[l], font_for(base_step() - 1 - drop), 0);
     lv_obj_set_style_pad_bottom(s.detail, shrink >= 1 ? 4 : 8, 0);
-    const int line = stacked() ? lv_font_get_line_height(font_for(heading(1) - drop)) + 8 : line_h;
-    lv_obj_set_height(s.up, stacked() ? 8 : (line - dot) / 2);
+    // The dot sits beside the name: on its line when stacked, mid-row otherwise.
+    const int line = stacked() ? lv_font_get_line_height(font(Role::Title)) + 4 : line_h;
+    lv_obj_set_height(s.up, (line - dot) / 2);
   }
 }
 
@@ -903,12 +916,22 @@ static bool play_overflows() {
 }
 
 static void fit_play() {
-  const int max_shrink = wide() ? 2 : 2 + (base_step() < 4 ? base_step() : 4);
-  for (play_shrink = 0; play_shrink < max_shrink; ++play_shrink) {
+  lv_obj_scroll_to_y(play_page, 0, LV_ANIM_OFF);
+  for (play_shrink = 0; play_shrink < 2; ++play_shrink) {
     size_play(play_shrink);
     if (!play_overflows()) return;
   }
   size_play(play_shrink);
+  if (!play_overflows()) return;
+  // Still too tall: bring the open stage's lines into view, its name kept on
+  // screen.
+  if (open_stage < 0) return;
+  lv_area_t page, head, detail;
+  lv_obj_get_coords(play_page, &page);
+  lv_obj_get_coords(stages[open_stage].head, &head);
+  lv_obj_get_coords(stages[open_stage].detail, &detail);
+  const int down = LV_MIN(detail.y2 - page.y2, head.y1 - page.y1);
+  if (down > 0) lv_obj_scroll_by(play_page, 0, -down, LV_ANIM_OFF);
 }
 
 static void set_line(StageLine &s, int i, const char *text_, uint32_t colour) {
@@ -945,6 +968,9 @@ void ui_update(const UiFrame &f) {
     set_colour(s.status, tone_hex(f.stages[i].tone));
     const bool open = i == open_stage;
     show_if(s.detail, open);
+    // Stacked, an open stage takes the room of the others' statuses; their dots
+    // still show how they are.
+    show_if(s.status, !stacked() || open_stage < 0 || open);
     lv_obj_set_style_bg_opa(s.head, open ? LV_OPA_COVER : LV_OPA_TRANSP, 0);
     if (s.chevron) set_text(s.chevron, open ? LV_SYMBOL_UP : LV_SYMBOL_DOWN);
     const bool problem_here = v.has_problem && v.problem_stage == i;
@@ -1039,9 +1065,9 @@ static void build_fm1() {
     lv_obj_set_style_pad_hor(r.row, 8, 0);
     focusable(r.row, Ring::Border);
     lv_obj_add_event_cb(r.row, item_tapped, LV_EVENT_CLICKED, reinterpret_cast<void *>(intptr_t(i)));
-    r.mark = word(r.row, LV_SYMBOL_PLAY, kGreen, base_step() - 1);
-    r.name = grow_word(r.row, "", kWhite, heading(1));
-    r.note = word(r.row, "", kMuted, base_step() - 1);
+    r.mark = word(r.row, LV_SYMBOL_PLAY, kGreen, Role::Detail);
+    r.name = grow_word(r.row, "", kWhite, Role::Title);
+    r.note = word(r.row, "", kMuted, Role::Detail);
     if (stacked()) {
       lv_obj_set_width(r.name, LV_SIZE_CONTENT);
       lv_obj_set_flex_grow(r.name, 0);
@@ -1066,7 +1092,7 @@ static void build_fm1() {
   Page p = sub_page(&plan_title, nullptr, true);
   plan_screen = p.scr;
   for (int i = 0; i < kPlanLines; ++i) {
-    plan_lines[i] = text(p.content, "", kWhite, base_step());
+    plan_lines[i] = text(p.content, "", kWhite, Role::Body);
     plan_steps[i] = step_row(p.content);
   }
   hold_widget(foot_box(p), plan_hold, kYellow, run_loader_hold);
@@ -1078,12 +1104,12 @@ static void build_fm1() {
   backups_screen = b.scr;
   lv_label_set_text(backups_title, "Backups");
   text(b.content, "A switch backs up by itself when the FM-1 changed since its last backup. You don't need to.",
-       kWhite, base_step());
+       kWhite, Role::Body);
   text(b.content, "A backup reads all 1 MB of the FM-1 twice and keeps it on this board. It writes nothing to the FM-1.",
-       kGrey, base_step() - 1);
-  backups_latest = text(b.content, "", kGrey, base_step() - 1);
+       kGrey, Role::Detail);
+  backups_latest = text(b.content, "", kGrey, Role::Detail);
   text(b.content, "Back up after you change songs or settings, before a switch, or before trying something risky.",
-       kMuted, base_step() - 1);
+       kMuted, Role::Detail);
   hold_widget(foot_box(b), backups_hold, kYellow, run_loader_hold);
   backups_hold.act = UiAct::Backup;
 }
@@ -1111,14 +1137,14 @@ static void build_results() {
   Page j = sub_page(&job_title, &back_row, false);
   job_screen = j.scr;
   job_danger = card(j.content, kDangerBg, kDangerEdge);
-  text(job_danger, LV_SYMBOL_WARNING " Don't unplug or switch off the FM-1", kWhite, base_step() - 1);
+  text(job_danger, LV_SYMBOL_WARNING " Don't unplug or switch off the FM-1", kWhite, Role::Detail);
   for (StepRow &s : job_steps) s = step_row(j.content);
   job_bar = lv_bar_create(j.content);
   lv_obj_set_size(job_bar, lv_pct(100), 8);
   lv_obj_set_style_bg_color(job_bar, c(kDim), LV_PART_MAIN);
   lv_obj_set_style_bg_color(job_bar, c(kYellow), LV_PART_INDICATOR);
   lv_bar_set_range(job_bar, 0, 100);
-  job_note = text(j.content, "", kMuted, base_step() - 1);
+  job_note = text(j.content, "", kMuted, Role::Detail);
 }
 
 static bool fix_enabled(const UiLoader &l, const UiResult &r) {
@@ -1258,7 +1284,7 @@ static void size_tapped(lv_event_t *e) {
 
 // One small wrapping line, hidden while empty (ui_set_network).
 static lv_obj_t *network_label(lv_obj_t *parent) {
-  lv_obj_t *l = text(parent, network_text, kMuted, base_step() - 1);
+  lv_obj_t *l = text(parent, network_text, kMuted, Role::Detail);
   show_if(l, network_text[0]);
   return l;
 }
@@ -1270,7 +1296,7 @@ static void run_computer_hold(Hold &) {
 
 static void build_setup() {
   Page t = section_page(kSetup);
-  version_label = text(t.content, firmware, kGrey, base_step());
+  version_label = text(t.content, firmware, kGrey, Role::Body);
   network_labels[0] = network_label(t.content);
   // Text size: three buttons sharing the width, each lettered in the size it
   // picks, so the letters are the preview.
@@ -1286,7 +1312,10 @@ static void build_setup() {
     lv_obj_set_style_bg_color(b, c(i == settings.text_size ? kBlue : kDim), 0);
     pressed_bg(b, 0x5A5A5A);
     focusable(b, Ring::Outline);
-    lv_obj_center(word(b, kSizes[i], kWhite, i * 2 + 3 + board->font_boost));
+    // Each letter in its size's body text, so the letters are the preview.
+    lv_obj_t *l = word(b, kSizes[i], kWhite, Role::Body);
+    lv_obj_set_style_text_font(l, font_at(i, Role::Body), 0);
+    lv_obj_center(l);
     lv_obj_add_event_cb(b, size_tapped, LV_EVENT_CLICKED, reinterpret_cast<void *>(static_cast<uintptr_t>(i)));
   }
   // Rotate screen comes with the first board that can turn (a rect panel).
@@ -1299,9 +1328,9 @@ static void build_setup() {
   Page p = sub_page(&title, nullptr, true);
   computer_screen_confirm = p.scr;
   lv_label_set_text(title, "Computer mode");
-  text(p.content, "Restarts this board with MIDI off, so a computer can update it over USB.", kWhite, base_step());
+  text(p.content, "Restarts this board with MIDI off, so a computer can update it over USB.", kWhite, Role::Body);
   text(p.content, "Open the installer page in Chrome or Edge. After an update it goes back to MIDI by itself.", kGrey,
-       base_step() - 1);
+       Role::Detail);
   hold_widget(foot_box(p), computer_hold, kYellow, run_computer_hold);
   hold_set(computer_hold, "restart in Computer mode", true);
 }
@@ -1317,8 +1346,8 @@ static lv_obj_t *build_computer_screen(const char *info) {
   lv_label_set_text(title, LV_SYMBOL_USB " Computer mode");
   set_colour(title, kYellow);
   text(t.content, "MIDI is off. Plug this board into a computer and open the installer in Chrome or Edge.", kWhite,
-       base_step());
-  text(t.content, info, kGrey, base_step() - 1);
+       Role::Body);
+  text(t.content, info, kGrey, Role::Detail);
   network_labels[1] = network_label(t.content);
   plain_button(foot_box(t), "Back to MIDI", back_to_host_tapped);
   return t.scr;
@@ -1445,4 +1474,12 @@ void ui_tick() {
   }
 #endif
   lv_timer_handler();
+}
+
+int ui_scale_fonts(const void *fonts[], int max) {
+  int n = 0;
+  for (int r = 0; r < kRoles && n < max; ++r) fonts[n++] = font(Role(r));
+  if (n < max) fonts[n++] = icon_font();
+  for (int size = 0; size < 3 && n < max; ++size) fonts[n++] = font_at(size, Role::Body);  // Setup's S/M/L letters
+  return n;
 }

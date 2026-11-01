@@ -964,8 +964,9 @@
  */
 #define LV_TXT_ENC LV_TXT_ENC_UTF8
 
-/** Characters to break (wrap) text on */
-#define LV_TXT_BREAK_CHARS " ,.;:-_)]}"
+/** Characters to break (wrap) text on. Not ".": a version ("Felucca 1.6.1")
+ *  wraps whole, never as "1.6." over "1". */
+#define LV_TXT_BREAK_CHARS " ,;:-_)]}"
 
 /** If a word is at least this long, will break wherever 'prettiest'.
  *  To disable, set to a value <= 0.
