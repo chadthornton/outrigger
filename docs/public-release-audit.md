@@ -124,3 +124,4 @@ Scanned, not edited:
   None has firmware, secrets or emails.
 - **Unit ID:** older copies of `loader_app.cpp` and `docs/firmware-loader-plan.md` on branches that predate this fix
   still have it. Any branch that rebases onto `master` drops it.
+
