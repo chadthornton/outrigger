@@ -3,7 +3,7 @@
 // into board_config.h (the Makefile's BOARD=). A new board is a new profile;
 // code goes here only for a display, touch or expander chip not driven yet.
 //
-// Displays: ST7789 and ST7796 over SPI (Arduino_GFX). Touch: CST816 and FT6336,
+// Displays: ILI9341, ST7789 and ST7796 over SPI (Arduino_GFX). Touch: CST816 and FT6336,
 // which share one register layout (status at 0x02, the first point at 0x03-0x06).
 // Expander: TCA9554 on the touch chip's I2C bus, for boards that put the panel's
 // reset or a hold-low pin on it.
@@ -31,6 +31,17 @@ static Arduino_GFX *panel = new Arduino_ST7789(bus, gpio_or_none(kLcdRst), kRota
 #elif BOARD_DISPLAY_ST7796
 static Arduino_GFX *panel = new Arduino_ST7796(bus, gpio_or_none(kLcdRst), kRotation, kIps, kBoard.width, kBoard.height,
                                                kOffsets[0], kOffsets[1], kOffsets[2], kOffsets[3]);
+#elif BOARD_DISPLAY_ILI9341
+static Arduino_GFX *panel = new Arduino_ILI9341(bus, gpio_or_none(kLcdRst), kRotation, kIps, kBoard.width, kBoard.height,
+                                                kOffsets[0], kOffsets[1], kOffsets[2], kOffsets[3]);
+#endif
+
+// After its reset the touch chip ignores I2C for a while: FocalTech asks for
+// 300 ms; the CST816 answers after 50.
+#if BOARD_TOUCH_FT6336
+constexpr int kTouchBootMs = 300;
+#else
+constexpr int kTouchBootMs = 50;
 #endif
 
 #if BOARD_EXPANDER_TCA9554
@@ -66,8 +77,9 @@ bool board_display_begin() {
   Wire.begin(kTpSda, kTpScl, 400000);
 #endif
   // Pins wired to something Outrigger doesn't use (a buzzer, a speaker
-  // amplifier) that would make noise left floating or on (boards.json, hold_low_why).
+  // amplifier) that would make noise left floating or on (boards.json, hold_why).
   for (int16_t pin : kHoldLow) pin_write(pin, false);
+  for (int16_t pin : kHoldHigh) pin_write(pin, true);
   if (kLcdRst >= kExio) {  // Arduino_GFX resets the panel itself only from a GPIO
     pin_write(kLcdRst, true);
     delay(10);
@@ -84,7 +96,7 @@ bool board_display_begin() {
     pin_write(kTpRst, false);
     delay(10);
     pin_write(kTpRst, true);
-    delay(50);
+    delay(kTouchBootMs);
   }
 #if !BOARD_EXPANDER_TCA9554
   Wire.begin(kTpSda, kTpScl, 400000);

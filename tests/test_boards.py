@@ -94,7 +94,7 @@ class CheckTest(unittest.TestCase):
         self.assertRefused(one(**{"screen": DELETE}), "screen")
 
     def test_unknown_driver(self):
-        self.assertRefused(one(**{"display.driver": "ili9341"}), "ili9341")
+        self.assertRefused(one(**{"display.driver": "gc9a01"}), "gc9a01")
         self.assertRefused(one(**{"touch.driver": "gt911"}), "gt911")
 
     def test_store_needs_16mb_flash(self):
@@ -123,6 +123,13 @@ class CheckTest(unittest.TestCase):
     def test_i2c_addresses(self):
         self.assertRefused(one(**{"touch.address": 0x150}), "touch.address")
         self.assertRefused(one(**{"expander.address": 3}), "expander.address")
+
+    def test_hold_high_pins_are_checked(self):
+        self.assertRefused(one(**{"hold_high": [20]}), "GPIO20")
+        self.assertRefused(one(**{"hold_high": [6]}), "GPIO6")  # the backlight
+
+    def test_tested_is_a_yes_or_no(self):
+        self.assertRefused(one(**{"tested": "maybe"}), "tested")
 
     def test_board_ids_are_make_and_c_names(self):
         found = boards.check({"boards": {"bad-id": one()}})
@@ -155,10 +162,24 @@ class OutputTest(unittest.TestCase):
             self.assertIn(want, h)
         self.assertNotIn("BOARD_EXPANDER", h)
 
+    def test_header_for_the_freenove(self):
+        h = boards.header("freenove_28", REAL["boards"]["freenove_28"])
+        for want in ["#define BOARD_DISPLAY_ILI9341 1", "#define BOARD_TOUCH_FT6336 1", "#define BOARD_TAG_ID 2",
+                     "kHoldHigh[] = {1}", "kHoldLow[] = {-1}", "kTpRst = 18"]:
+            self.assertIn(want, h)
+
+    def test_names_are_c_strings(self):
+        self.assertIn('{"Freenove ESP32-S3 Display 2.8\\" (FNK0104B)", 240, 320,',
+                      boards.header("freenove_28", REAL["boards"]["freenove_28"]))
+
+    def test_169_holds_nothing_high(self):
+        self.assertIn("kHoldHigh[] = {-1}", boards.header("waveshare_169", REAL["boards"]["waveshare_169"]))
+
     def test_shots_table_is_the_real_screens(self):
         t = boards.shots_table(REAL)
         self.assertIn('{"240x280", 240, 280, 40, 0, InputKind::Touch}', t)
         self.assertIn('{"320x480", 320, 480, 0, 1, InputKind::Touch}', t)
+        self.assertIn('{"240x320", 240, 320, 0, 0, InputKind::Touch}', t)
         self.assertLess(t.index("240x280"), t.index("320x480"))
 
     def test_shots_with_one_resolution_get_distinct_ids(self):

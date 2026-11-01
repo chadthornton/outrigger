@@ -1,0 +1,29 @@
+{
+  "_about": "What esptool-js reports for boards people may plug into the installer, and what site/installer/chip.js must say. flashId is the JEDEC ID (top byte: capacity as a power of two). picked: a profile's short name, or null for 'another board'. expect.words: phrases the answer must contain.",
+  "cases": [
+    {"name": "Waveshare 1.69 (S3R8, 16 MB)", "facts": {"chip": "ESP32-S3 (QFN56) (revision v0.2)", "features": ["Wi-Fi", "BT 5 (LE)", "Dual Core + LP Core", "240MHz", "Embedded PSRAM 8MB (AP_3v3)"], "flashId": 1589439, "usbVendorId": 12346},
+     "picked": "Waveshare 1.69\"", "expect": {"ok": true, "words": ["16 MB of flash and 8 MB of PSRAM", "check this is a Waveshare 1.69\""]}},
+    {"name": "Freenove 2.8 is untested", "facts": {"chip": "ESP32-S3 (QFN56) (revision v0.2)", "features": ["Embedded PSRAM 8MB (AP_3v3)"], "flashId": 1589439, "usbVendorId": 12346},
+     "picked": "Freenove 2.8\"", "expect": {"ok": true, "words": ["Nobody has run Outrigger on a Freenove 2.8\" yet"]}},
+    {"name": "Cheap Yellow Display (original ESP32 behind a CH340)", "facts": {"chip": "ESP32-D0WD-V3 (revision v3.1)", "features": ["Wi-Fi", "BT", "Dual Core"], "flashId": 1458415, "usbVendorId": 6790},
+     "picked": "Waveshare 1.69\"", "expect": {"ok": false, "words": ["original ESP32", "Cheap Yellow Display", "can't act as a USB host", "Waveshare 1.69\", Waveshare 3.5\" or Freenove 2.8\""]}},
+    {"name": "ESP32-C3", "facts": {"chip": "ESP32-C3 (QFN32) (revision v0.4)", "features": ["Wi-Fi", "BLE"], "flashId": 1458415, "usbVendorId": 12346},
+     "picked": "Waveshare 1.69\"", "expect": {"ok": false, "words": ["This is an ESP32-C3", "never a USB host"]}},
+    {"name": "ESP32-C6", "facts": {"chip": "ESP32-C6 (QFN40) (revision v0.1)", "features": [], "flashId": 1458415, "usbVendorId": 12346},
+     "picked": null, "expect": {"ok": false, "words": ["This is an ESP32-C6", "never a USB host"]}},
+    {"name": "ESP32-S2", "facts": {"chip": "ESP32-S2FH4 (revision v0.0)", "features": ["Wi-Fi", "Embedded Flash 4MB"], "flashId": 1458415, "usbVendorId": 12346},
+     "picked": "Waveshare 1.69\"", "expect": {"ok": false, "words": ["ESP32-S2", "can act as a USB host", "no build for it"]}},
+    {"name": "ESP32-P4", "facts": {"chip": "ESP32-P4 (revision v1.0)", "features": [], "flashId": 1589439, "usbVendorId": 12346},
+     "picked": null, "expect": {"ok": false, "words": ["ESP32-P4", "no Outrigger build for it yet"]}},
+    {"name": "S3 with 8 MB flash and no PSRAM (N8)", "facts": {"chip": "ESP32-S3 (QFN56) (revision v0.2)", "features": ["Wi-Fi", "BT 5 (LE)"], "flashId": 1523903, "usbVendorId": 12346},
+     "picked": "Waveshare 1.69\"", "expect": {"ok": false, "words": ["too small", "8 MB of flash", "no built-in PSRAM", "N16R8", "MIDI hub on its own"]}},
+    {"name": "S3 with 16 MB flash and 2 MB PSRAM (N16R2)", "facts": {"chip": "ESP32-S3 (QFN56) (revision v0.2)", "features": ["Embedded PSRAM 2MB (AP_3v3)"], "flashId": 1589439, "usbVendorId": 12346},
+     "picked": "Waveshare 3.5\"", "expect": {"ok": false, "words": ["has 2 MB of PSRAM"]}},
+    {"name": "S3 behind a converter chip", "facts": {"chip": "ESP32-S3 (QFN56) (revision v0.2)", "features": ["Embedded PSRAM 8MB (AP_3v3)"], "flashId": 1589439, "usbVendorId": 6790},
+     "picked": "Waveshare 1.69\"", "expect": {"ok": false, "words": ["CH340", "second USB-C port"]}},
+    {"name": "Unknown S3 board that would fit", "facts": {"chip": "ESP32-S3 (QFN56) (revision v0.2)", "features": ["Embedded PSRAM 8MB (AP_3v3)"], "flashId": 1589439, "usbVendorId": 12346},
+     "picked": null, "expect": {"ok": false, "words": ["enough for Outrigger", "no profile for this board", "Adding a board"]}},
+    {"name": "Flash chip didn't answer", "facts": {"chip": "ESP32-S3 (QFN56) (revision v0.2)", "features": ["Embedded PSRAM 8MB (AP_3v3)"], "flashId": 16777215, "usbVendorId": 12346},
+     "picked": "Waveshare 1.69\"", "expect": {"ok": false, "words": ["didn't say how big"]}}
+  ]
+}

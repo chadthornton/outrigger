@@ -5,23 +5,29 @@
 //   <div class="install" data-builds='[{"label":"Install","manifest":"firmware/.../hub/manifest.json",
 //     "board":"Waveshare 1.69\"","tag_id":0}, ...]'></div>
 //
-// One entry per button and board (firmware/boards.json). With more than one
-// board the area asks which one first: the chip can't tell which board it sits
-// on, and the wrong build leaves the screen dark.
+// One entry per button and board (firmware/boards.json), each with the
+// board's flash_mb, psram_mb and tested; plus one with no manifest for
+// "another board", which only checks the chip. With more than one board the
+// area asks which one first: the chip can't tell which board it sits on, and
+// the wrong build leaves the screen dark.
 //
 // Without JavaScript, or in a browser without Web Serial, the area says so and
 // the text around it still reads on its own.
 import { ESPLoader } from "../vendor/esptool-js-0.7.0/bundle.js";
 import { ChunkedTransport, readFlashInPieces } from "./serial.js";
 import { describeBoard, buildName } from "./board.js";
+import { checkChip, USB_BRIDGES } from "./chip.js";
 import { readBoard, fetchBuild, install, finish, prepareStore } from "./install.js";
 
 // Shown under each install area and in Details, so a bug report says which
 // installer ran. Bump it with every change to site/installer/.
-export const INSTALLER_VERSION = "2026-11-01.2";
+export const INSTALLER_VERSION = "2026-11-01.3";
 
 // The ESP32-S3's own USB port (USB-Serial-JTAG), in Computer mode or BOOT+RST.
-const PORT_FILTER = [{ usbVendorId: 0x303a, usbProductId: 0x1001 }];
+// Converter chips are listed too, so a board that can't host (a Cheap Yellow
+// Display, say) shows up and hears why (chip.js) instead of not being listed.
+const PORT_FILTER = [{ usbVendorId: 0x303a, usbProductId: 0x1001 },
+  ...Object.keys(USB_BRIDGES).map((vid) => ({ usbVendorId: Number(vid) }))];
 // The board's own USB port runs at full USB speed whatever baud rate is set,
 // and asking its ROM to change baud hangs the connection, so stay at 115200.
 const BAUD = 115200;
@@ -78,7 +84,8 @@ class InstallArea {
     this.el = el;
     this.builds = JSON.parse(el.dataset.builds);
     this.boards = [...new Map(this.builds.filter((b) => b.board).map((b) => [b.board, b])).values()];
-    this.names = Object.fromEntries(this.boards.map((b) => [b.tag_id, b.board]));
+    this.names = Object.fromEntries(this.boards.filter((b) => b.manifest).map((b) => [b.tag_id, b.board]));
+    this.profiles = this.boards.filter((b) => b.manifest);
     this.board = this.boards.length === 1 ? this.boards[0].board : null;
     this.id = ++areas;
     this.helpHref = el.dataset.help || "#no-port";
@@ -130,6 +137,7 @@ class InstallArea {
     }
     busy = true;
     try {
+      if (!choice.manifest) return await this.checkOnly(port);
       this.show(h("p", { class: "install-note", role: "status" }, "Downloading the firmware…"));
       let build;
       try {
@@ -142,7 +150,7 @@ class InstallArea {
       onLogLine = (text) => { if (!text.startsWith("Debug")) step.textContent = text; };
       try {
         // Only the board read is timed: a slow download isn't a cable problem.
-        const reading = this.open(port).then((loader) => readBoard(loader));
+        const reading = this.open(port, choice).then((loader) => readBoard(loader));
         reading.catch(() => {}); // after a timeout it fails against the closed port; nothing waits for it
         const board = await withTimeout(reading, READ_TIMEOUT_MS, "Reading the board");
         if (build.template && !board.store) this.show(h("p", { class: "install-note", role: "status" }, "Checking the board's store…"));
@@ -163,13 +171,35 @@ class InstallArea {
     }
   }
 
-  async open(port) {
+  // "Another board": only the chip check, then what it found.
+  async checkOnly(port) {
+    this.show(h("p", { class: "install-note", role: "status" }, "Reading the board…"));
+    try {
+      await withTimeout(this.open(port, null), READ_TIMEOUT_MS, "Reading the board");
+    } catch (e) {
+      await this.close();
+      return this.ready(this.explain(e, "Couldn't read the board."));
+    }
+  }
+
+  // Connects, then checks the chip before anything is read or written. picked:
+  // the build's board entry, or null for "another board" (always refused).
+  async open(port, picked) {
     this.transport = new ChunkedTransport(port, true); // trace: kept for Details when something fails
     this.loader = new ESPLoader({ transport: this.transport, baudrate: BAUD, romBaudrate: BAUD, serialOptions: SERIAL_OPTIONS, terminal: TERMINAL });
     const loader = this.loader;
     loader.readFlash = (addr, size, onPacket) => readFlashInPieces(loader, addr, size, onPacket || undefined);
+    this.chipWords = null;
     const chip = await loader.main();
-    if (!/ESP32-S3/.test(chip)) throw new Error(`That's an ${chip}, not an ESP32-S3.`);
+    const facts = {
+      chip,
+      features: await loader.chip.getChipFeatures(loader),
+      flashId: await loader.readFlashId(),
+      usbVendorId: port.getInfo().usbVendorId,
+    };
+    const verdict = checkChip(facts, picked, this.profiles);
+    if (!verdict.ok) throw Object.assign(new Error(verdict.words), { plain: true });
+    this.chipWords = verdict.words;
     return loader;
   }
 
@@ -205,6 +235,7 @@ class InstallArea {
     this.show(
       h("p", { class: "install-read" }, words.board),
       words.warning ? h("p", { class: "install-error", role: "alert" }, words.warning) : null,
+      this.chipWords ? h("p", {}, this.chipWords) : null,
       h("p", {}, words.install),
       storeWords ? h("p", {}, storeWords) : null,
       h("div", { class: "row" },
@@ -254,7 +285,8 @@ class InstallArea {
 
   explain(e, lead) {
     const msg = String(e && e.message ? e.message : e);
-    if (/Nothing was written|didn't read back|download|not an ESP32-S3|template/.test(msg)) return `${lead} ${msg}`;
+    if (e && e.plain) return msg; // the chip check's own words (chip.js)
+    if (/Nothing was written|didn't read back|download|template/.test(msg)) return `${lead} ${msg}`;
     return `${lead} Check the cable is a data cable and the board is in Computer mode (or BOOT+RST), then try again. (${msg})`;
   }
 }

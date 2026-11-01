@@ -1,11 +1,12 @@
 {
-  "_about": "Every board Outrigger builds for, one profile each (docs/boards.md, 'Adding a board'). tools/boards.py checks this file and generates from it: the Makefile's board list and FQBN, each build's board_config.h (the pins firmware/waveshare_169/board.cpp drives), the screens make ui-shots renders, and the installer's board list (tools/build_site.py, docs/site-redesign/build.py). Pins: a GPIO number, 'exioN' for pin N of the I/O expander, or null for none. tag_id goes in the build tag so the installer can tell which board a build is for; 0 is the 1.69, as builds from before the field say.",
+  "_about": "Every board Outrigger builds for, one profile each (docs/boards.md, 'Adding a board'). tools/boards.py checks this file and generates from it: the Makefile's board list and FQBN, each build's board_config.h (the pins firmware/waveshare_169/board.cpp drives), the screens make ui-shots renders, and the installer's board list (tools/build_site.py, docs/site-redesign/build.py). Pins: a GPIO number, 'exioN' for pin N of the I/O expander, or null for none. hold_low and hold_high: pins wired to something Outrigger doesn't use that would make noise floating (hold_why says what). tested: someone has run Outrigger on one; the installer and docs say 'untested' until then. tag_id goes in the build tag so the installer can tell which board a build is for; 0 is the 1.69, as builds from before the field say.",
   "boards": {
     "waveshare_169": {
       "name": "Waveshare ESP32-S3-Touch-LCD-1.69",
       "short_name": "Waveshare 1.69\"",
       "site_id": "waveshare-esp32-s3-touch-lcd-1.69",
       "tag_id": 0,
+      "tested": true,
       "chip": "ESP32-S3",
       "flash_mb": 16,
       "psram_mb": 8,
@@ -17,7 +18,7 @@
       "touch": {"driver": "cst816", "address": 21, "sda": 11, "scl": 10, "rst": 13, "int": 14},
       "expander": null,
       "hold_low": [42],
-      "hold_low_why": "GPIO42 drives the onboard buzzer (Waveshare's pin map: 'Buzz'); floating, it picks up nearby traffic and ticks. First-revision boards wired the buzzer to GPIO33, an octal-PSRAM line: no firmware fix for those.",
+      "hold_why": "GPIO42 drives the onboard buzzer (Waveshare's pin map: 'Buzz'); floating, it picks up nearby traffic and ticks. First-revision boards wired the buzzer to GPIO33, an octal-PSRAM line: no firmware fix for those.",
       "source": "Waveshare's examples, board_config/pin_config.h"
     },
     "waveshare_35": {
@@ -25,6 +26,7 @@
       "short_name": "Waveshare 3.5\"",
       "site_id": "waveshare-esp32-s3-touch-lcd-3.5",
       "tag_id": 1,
+      "tested": true,
       "chip": "ESP32-S3",
       "flash_mb": 16,
       "psram_mb": 8,
@@ -36,8 +38,29 @@
       "touch": {"driver": "ft6336", "address": 56, "sda": 8, "scl": 7, "rst": null, "int": "exio2"},
       "expander": {"driver": "tca9554", "address": 32},
       "hold_low": ["exio7"],
-      "hold_low_why": "EXIO7 enables the NS4150B speaker amplifier (PA_CTRL). There is no buzzer. The expander powers up with its pins as inputs pulled high, which would leave the amplifier on.",
+      "hold_why": "EXIO7 enables the NS4150B speaker amplifier (PA_CTRL). There is no buzzer. The expander powers up with its pins as inputs pulled high, which would leave the amplifier on.",
       "source": "Waveshare's ESP32-S3-Touch-LCD-3.5 repo: V1 and V2 schematics (same pins for everything here) and examples/arduino 08_gfx_helloworld, 11_lvgl_arduino_v8"
+    },
+    "freenove_28": {
+      "name": "Freenove ESP32-S3 Display 2.8\" (FNK0104B)",
+      "short_name": "Freenove 2.8\"",
+      "site_id": "freenove-esp32-s3-display-2.8",
+      "tag_id": 2,
+      "tested": false,
+      "chip": "ESP32-S3",
+      "flash_mb": 16,
+      "psram_mb": 8,
+      "psram": "octal",
+      "usb_host": "The one USB-C port, wired straight to GPIO19/20 through 0-ohm resistors; no converter chip (Freenove's 2.8-inch schematic). VBUS powers the board through a Schottky diode.",
+      "screen": {"width": 240, "height": 320, "shape": "rect", "corner_radius": 0, "font_boost": 0},
+      "display": {"driver": "ili9341", "spi_hz": 40000000, "dc": 46, "cs": 10, "sck": 12, "mosi": 11, "miso": 13,
+                  "rst": null, "backlight": 45, "ips": true, "rotation": 0, "offsets": [0, 0, 0, 0]},
+      "touch": {"driver": "ft6336", "address": 56, "sda": 16, "scl": 15, "rst": 18, "int": 17},
+      "expander": null,
+      "hold_low": [],
+      "hold_high": [1],
+      "hold_why": "GPIO1 (AUDIO_EN) is the SC8002B speaker amplifier's SHUTDOWN pin: high is off. A 10k pull-up already keeps it off; the profile holds it high so nothing else can switch it on. No buzzer.",
+      "source": "Freenove/Freenove_ESP32_S3_Display: Schematic/2.8inch_ESP32-S3_Display_Schematic.pdf, Libraries/FNK0104AB TFT_eSPI setup FNK0104AB_2.8_240x320_ILI9341.h (BGR, inversion on, 40 MHz), touch sketches (FT6336U on SDA 16, SCL 15, RST 18, INT 17). Cross-checked with konsumer/fm1buddy's cyd-s3 env (esp32-s3-devkitc1-n16r8: 16 MB flash, 8 MB octal PSRAM)."
     }
   }
 }
