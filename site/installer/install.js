@@ -6,6 +6,7 @@
 // eraseAll false and the flash settings kept as built. Nothing here erases.
 import { planInstall, parseTable, PARTS } from "./plan.js";
 import { readBuildTag, hasStore, classifyLayout, TAG_OFFSET, TAG_LENGTH } from "./board.js";
+import { storeAction, spliceStore, fetchLoader, sha256Hex } from "./store.js";
 
 export const FLASH_BYTES = 16 * 1024 * 1024;
 const TABLE = { offset: 0x8000, size: 0xc00 };
@@ -39,19 +40,68 @@ export async function fetchBuild(manifestUrl, fetchFn = fetch) {
     const r = await fetchFn(base + part.path);
     if (!r.ok) throw new Error(`Couldn't download the ${nameOf(part.offset)}.`);
     const data = new Uint8Array(await r.arrayBuffer());
-    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", data));
-    const hex = [...digest].map((b) => b.toString(16).padStart(2, "0")).join("");
-    if (hex !== part.sha256) throw new Error(`The ${nameOf(part.offset)} didn't download intact. Reload the page and try again.`);
+    if (await sha256Hex(data) !== part.sha256) throw new Error(`The ${nameOf(part.offset)} didn't download intact. Reload the page and try again.`);
     parts.push({ offset: part.offset, data });
   }
   parts.sort((a, b) => a.offset - b.offset);
-  return { manifest, parts };
+  let template = null;
+  if (manifest.store_template) {
+    const t = await fetchFn(base + manifest.store_template);
+    if (!t.ok) throw new Error(`Couldn't download the store template (${manifest.store_template}).`);
+    const bytes = new Uint8Array(await t.arrayBuffer());
+    if (await sha256Hex(bytes) !== manifest.store_template_sha256) {
+      throw new Error("The store template didn't download intact. Reload the page and try again.");
+    }
+    template = JSON.parse(new TextDecoder().decode(bytes));
+  }
+  return { manifest, parts, template };
 }
 
-// Writes the build. board comes from readBoard on this same connection.
-// onStep({step, part?, written?, total?}): "write" per part, then "verify".
-export async function install({ loader, board, manifest, parts, onStep = () => {} }) {
-  const plan = planInstall({ parts, boardTable: board.tableBytes, flashBytes: FLASH_BYTES });
+// What this install does to the board's store, worked out before anything
+// is written (store.js storeAction). build comes from fetchBuild; a build
+// with a store template runs the loader. Returns {action, storeWrites,
+// storeWritable, loaderProblem}: storeWrites is empty unless a store will be
+// created; loaderProblem says why it won't be when GitHub didn't deliver.
+export async function prepareStore({ loader, board, build, fetchFn = fetch }) {
+  const none = { storeWrites: [], storeWritable: false, loaderProblem: null, previousFirmware: false };
+  if (!build.template) return { action: "none", ...none };
+  if (board.store) return { action: "keep", ...none };
+  const tablePart = build.parts.find((p) => p.offset === 0x8000);
+  const range = tablePart && parseTable(tablePart.data).store;
+  if (!range) return { action: "none", ...none };
+  const [offset, size] = range;
+  if (size !== build.template.size) throw new Error("This build's store template doesn't fit its partition table (a site build problem; nothing was written).");
+  // Only a board whose own table has a store needs its region checked: on a
+  // board from other firmware, what's there isn't FM-1 backups.
+  const hadStorePartition = Boolean(board.table.store);
+  const blank = hadStorePartition && await storeIsBlank(loader, { offset, size }, build.template.blank_md5);
+  const action = storeAction({ runsLoader: true, hasStore: false, hadStorePartition, blank });
+  if (action !== "create") return { action, ...none };
+  const previousFirmware = !hadStorePartition && board.layout !== "blank";
+  try {
+    const blob = await fetchLoader(build.template, fetchFn);
+    const storeWrites = spliceStore(build.template, blob).map((b) => ({ offset: offset + b.offset, data: b.data }));
+    return { action, storeWrites, storeWritable: true, loaderProblem: null, previousFirmware };
+  } catch (e) {
+    return { action, storeWrites: [], storeWritable: true, loaderProblem: e.message, previousFirmware };
+  }
+}
+
+// Whether the store region is factory-blank: the board computes the MD5 of
+// the whole region (seconds, where reading it back takes minutes) and it's
+// compared with an erased region's, from store-template.json.
+export async function storeIsBlank(loader, storeRange, blankMd5) {
+  return (await loader.flashMd5sum(storeRange.offset, storeRange.size)) === blankMd5;
+}
+
+// Writes the build, and with storeWrites a new store (only where
+// prepareStore cleared it). board comes from readBoard on this connection.
+// onStep({step, part?, written?, total?}): "write" per part, "verify", then
+// "verify store" when a store was written. Returns {plan, storeProblem}:
+// storeProblem says why a new store didn't read back (the program is in
+// place and checked by then, so the install still finishes).
+export async function install({ loader, board, manifest, parts, storeWrites = [], storeWritable = false, onStep = () => {} }) {
+  const plan = planInstall({ parts, boardTable: board.tableBytes, flashBytes: FLASH_BYTES, storeWrites, storeWritable });
   if (!plan.ok) throw new Error(`Nothing was written: ${plan.problems.join("; ")}.`);
 
   await loader.writeFlash({
@@ -66,13 +116,23 @@ export async function install({ loader, board, manifest, parts, onStep = () => {
 
   onStep({ step: "verify" });
   const md5 = new Map(manifest.builds[0].parts.map((p) => [p.offset, p.md5]));
-  for (const w of plan.writes) {
+  for (const w of plan.writes.filter((w) => w.name !== "store")) {
     const got = await loader.flashMd5sum(w.offset, w.data.length);
     if (got !== md5.get(w.offset)) {
       throw new Error(`The ${w.name} didn't read back as written. Your settings and backups weren't touched; install again.`);
     }
   }
-  return plan;
+  // The store blocks hold the loader the browser downloaded, so the manifest
+  // has no MD5 for them: read them back instead (a few KiB).
+  const store = plan.writes.filter((w) => w.name === "store");
+  if (store.length) onStep({ step: "verify store" });
+  for (const w of store) {
+    const got = await loader.readFlash(w.offset, w.data.length);
+    if (got.length !== w.data.length || got.some((b, i) => b !== w.data[i])) {
+      return { plan, storeProblem: `the new store didn't read back as written at 0x${w.offset.toString(16)}; email feedback@outrigger.music before installing again` };
+    }
+  }
+  return { plan, storeProblem: null };
 }
 
 // An RTC watchdog reset, as esptool's --after watchdog-reset: unlike the RTS

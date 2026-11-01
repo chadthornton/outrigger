@@ -6,7 +6,9 @@
 // file's own list, never from the manifest. esptool-js erases whole 4 KiB
 // sectors before it writes, so each part is checked by its sector-rounded end
 // (the same as its length while every limit is sector-aligned, as today).
-// NVS (settings, Wi-Fi) and the store (every FM-1 backup) are never written.
+// NVS (settings, Wi-Fi) is never written. The store (every FM-1 backup) is
+// written only to set one up where prepareStore found none to keep (store.js
+// storeAction), and only inside the new table's store.
 
 export const SECTOR = 0x1000;
 
@@ -64,11 +66,13 @@ export function checkTable(table, flashBytes) {
 }
 
 // parts: [{offset, data: Uint8Array}] from the build. boardTable: the 0xC00
-// bytes the board holds at 0x8000 (all 0xFF on a blank board).
+// bytes the board holds at 0x8000 (all 0xFF on a blank board). storeWrites:
+// [{offset, data}] to set up a store, allowed only with storeWritable
+// (install.js prepareStore found no store to keep and nothing to protect).
 // Returns {ok, problems, writes, store}: writes is empty unless ok; store is
 // the backup store the install keeps ({offset, size}), or null if the board
 // has none.
-export function planInstall({ parts, boardTable, flashBytes }) {
+export function planInstall({ parts, boardTable, flashBytes, storeWrites = [], storeWritable = false }) {
   const problems = [];
   const byOffset = new Map();
   for (const p of parts) {
@@ -110,7 +114,21 @@ export function planInstall({ parts, boardTable, flashBytes }) {
     }
   }
 
+  if (storeWrites.length) {
+    const range = newTable.store;
+    if (!storeWritable) problems.push("refusing to write a store: the board's store region wasn't cleared for it");
+    else if (!range) problems.push("refusing to write a store: this build's table has none");
+    for (const w of storeWrites) {
+      if (!range) break;
+      const [off, size] = range;
+      if (w.offset % SECTOR || w.offset < off || w.offset + roundUp(w.data.length) > off + size) {
+        problems.push(`refusing a store write at ${hex(w.offset)}: outside the store or not on a block`);
+      }
+    }
+  }
+
   const ok = problems.length === 0;
-  const writes = ok ? PARTS.map((k) => ({ offset: k.offset, name: k.name, data: byOffset.get(k.offset) })) : [];
+  const writes = ok ? [...PARTS.map((k) => ({ offset: k.offset, name: k.name, data: byOffset.get(k.offset) })),
+    ...storeWrites.map((w) => ({ offset: w.offset, name: "store", data: w.data }))] : [];
   return { ok, problems, writes, store };
 }
