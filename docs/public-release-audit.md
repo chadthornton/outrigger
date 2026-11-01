@@ -1,6 +1,6 @@
 # Public release audit (2026-10-31)
 
-Chad decided to make `chadthornton/usb-midi-host` public at beta start, after this check. It covers the working
+Chad decided to make `chadthornton/usb-midi-host` (now `chadthornton/outrigger`) public at beta start, after this check. It covers the working
 tree and the full history: 243 commits on every local and remote branch, plus GitHub's `refs/pull/1..12/head`.
 
 **Verdict:** the history holds no M-VAVE firmware, no JieLi loader and no secrets. It holds two low-sensitivity

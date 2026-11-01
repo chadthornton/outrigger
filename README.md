@@ -1,4 +1,4 @@
-# Outrigger (usb-midi-host)
+# Outrigger
 
 **Outrigger lets a USB MIDI controller play an M-VAVE FM-1 with no computer, and switches the FM-1's firmware for
 you, backing it up first.** It runs on a small ESP32-S3 touchscreen board that sits on a powered USB hub next to the
