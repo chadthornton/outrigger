@@ -35,7 +35,7 @@ change. Check the board's schematic for a USB-C port wired to the ESP32-S3's nat
 
 ```
 make test      # midi_core, platform and fm1_loader tests on the Mac (fetches fixtures once)
-make check     # merge gate step 2: HEAD checked out clean in the clone all worktrees share, then test, ui-shots and site (~2 min)
+make check     # merge gate step 2: HEAD checked out clean in the clone all worktrees share, then test, ui-shots and site (~2 min; ~12 min after a core or library update)
 make ui-shots  # render and check every page; build/ui-shots/sheet_*.png (needs LVGL 9.6.0, see Makefile)
 make fixtures  # FM-1 packages and wl82loader.bin for the tests, pinned by SHA-256 (gitignored)
 make golden    # regenerate tests/golden/ from the Unbricker and jl-uboot-tool (Python venv in build/)

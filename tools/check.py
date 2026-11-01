@@ -22,8 +22,9 @@ never changes arduino-cli's compiled files stay valid from branch to branch.
   5. On a pass, the site and its commit are copied to the worktree's build/checked/
      while the clone is still this check's, for make deploy-site to upload.
 
-A second check waits for the first (flock on <home>/lock; the kernel releases
-it if a check is killed) and says whose check it is waiting for.
+A second check waits for the first (flock on <home>/lock, held by check.py and
+every process of its build; the kernel releases it when the last one exits) and
+says whose check it is waiting for.
 --key and --cmd are for tests/test_check.py.
 """
 import argparse
@@ -113,7 +114,10 @@ def reset_clone(clone, source, sha):
         print(f"check: reusing {clone}", flush=True)
     except (RuntimeError, OSError):
         print(f"check: fresh clone into {clone}", flush=True)
-        remove(clone)
+        try:
+            remove(clone)
+        except OSError as e:
+            raise RuntimeError(f"can't remove the old clone ({e}); close what has it open and run make check again")
         git("clone", "-q", "--shared", str(source), str(clone), cwd=clone.parent)
         git("checkout", "-q", "--detach", sha, cwd=clone)
     extra = [line for line in git("status", "--porcelain", "--ignored", cwd=clone).splitlines()
@@ -145,6 +149,8 @@ def main():
 
     handle = lock(home, worktree, sha)
     try:
+        for old in (checked, log):  # again: a check from this worktree may have finished while this one waited
+            remove(old)
         clone = home / "clone"
         try:
             reset_clone(clone, source, sha)
@@ -162,7 +168,11 @@ def main():
         print(f"check: cache {cache}", flush=True)
         cmd = args.cmd.format(clone=shlex.quote(str(clone)), cache=shlex.quote(str(cache)))
         with open(home / "check.log", "w") as out:
-            rc = subprocess.run(shlex.split(cmd), stdout=out, stderr=subprocess.STDOUT).returncode
+            # The build inherits the lock, so it stays held until every process of
+            # this check exits, even if check.py itself is killed: an orphaned
+            # compile can't write into the clone or cache under the next check.
+            rc = subprocess.run(shlex.split(cmd), stdout=out, stderr=subprocess.STDOUT,
+                                pass_fds=(handle.fileno(),)).returncode
         build.mkdir(exist_ok=True)
         shutil.copyfile(home / "check.log", log)
         lines = log.read_text(errors="replace").splitlines()

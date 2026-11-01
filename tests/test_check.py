@@ -8,6 +8,7 @@ cache key (--key), so no arduino-cli is needed and a run takes well under a seco
 """
 import json
 import os
+import signal
 import subprocess
 import sys
 import tempfile
@@ -73,7 +74,7 @@ class CheckTest(unittest.TestCase):
     def start(self, tree, key="k1", **env):
         cmd = [sys.executable, "-I", str(CHECK), "--home", str(self.home), "--key", key,
                "--cmd", f"{sys.executable} -I {self.fake} {{clone}} {{cache}}"]
-        return subprocess.Popen(cmd, cwd=tree, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+        return subprocess.Popen(cmd, cwd=tree, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, start_new_session=True,
                                 env=dict(os.environ, **{k: str(v) for k, v in env.items()}))
 
     def run_check(self, tree, **kw):
@@ -172,23 +173,37 @@ class CheckTest(unittest.TestCase):
         self.assertEqual((self.repo / "build" / "checked" / "site" / "index.html").read_text(), "one")
         self.assertEqual((self.other / "build" / "checked" / "site" / "index.html").read_text(), "two")
 
-    def test_a_killed_check_does_not_hold_the_queue(self):
-        proc = self.start(self.repo, SLEEP=30)
+    def wait_for_holder(self):
         deadline = time.time() + 10
         while not (self.home / "holder.json").exists() and time.time() < deadline:
             time.sleep(0.05)
-        proc.kill()
+
+    def test_a_killed_check_does_not_hold_the_queue(self):
+        proc = self.start(self.repo, SLEEP=30)
+        self.wait_for_holder()
+        os.killpg(proc.pid, signal.SIGKILL)  # what Ctrl-C or a tool timeout does: the whole check
         proc.communicate()
         start = time.time()
         rc, out = self.run_check(self.other)
         self.assertEqual(rc, 0, out)
         self.assertLess(time.time() - start, 10)
 
+    def test_a_build_orphaned_by_a_killed_check_py_still_holds_the_queue(self):
+        times = Path(self.tmp.name).resolve() / "times"
+        proc = self.start(self.repo, SLEEP=2, CHECK_TIMES=times)
+        self.wait_for_holder()
+        time.sleep(0.3)
+        proc.kill()  # check.py only; its build runs on
+        proc.communicate()
+        rc, out = self.run_check(self.other, CHECK_TIMES=times)
+        self.assertEqual(rc, 0, out)
+        self.assertIn("waiting", out)
+        events = [line.split()[0] for line in times.read_text().splitlines()]
+        self.assertEqual(events, ["start", "end", "start", "end"], "the next check ran beside the orphaned build")
+
     def test_holder_names_the_running_check(self):
         proc = self.start(self.repo, SLEEP=1)
-        deadline = time.time() + 10
-        while not (self.home / "holder.json").exists() and time.time() < deadline:
-            time.sleep(0.05)
+        self.wait_for_holder()
         holder = json.loads((self.home / "holder.json").read_text())
         proc.communicate(timeout=60)
         self.assertEqual(holder["worktree"], str(self.repo))
