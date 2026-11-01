@@ -1,8 +1,13 @@
 # Install and first setup
 
 **Installing is on the homepage: [outrigger.music](https://outrigger.music/#install), under "Set up once".** Plug your
-ESP32 into the computer, click Install and pick the port Chrome offers. The installer reads the board first and tells
-you what it will change. It never erases: your settings and FM-1 backups stay.
+ESP32 into the computer, click **Check my board** and pick the port Chrome offers. It reads the board and tells you
+what installing would change, without changing anything. Then click **Install**. It never erases: your settings and
+FM-1 backups stay. On a new ESP32 it also sets up firmware switching, downloading one small file from GitHub.
+
+If it says your ESP32 **has storage we can't read**, nothing was installed. That can happen on an ESP32 that ran an
+earlier beta. Email [feedback@outrigger.music](mailto:feedback@outrigger.music) before going further: your backups may
+be in there.
 
 Then put it on the hub:
 
@@ -22,7 +27,8 @@ When a new build is out:
 
 1. On Outrigger, open **Settings**, then **Computer mode**, and hold the button. Outrigger restarts with MIDI off, so
    your computer can reach its USB port.
-2. Plug it into your computer, open [outrigger.music](https://outrigger.music/#install) and click **Install**.
+2. Plug it into your computer, open [outrigger.music](https://outrigger.music/#install), click **Check my board**,
+   then **Install**.
 3. When it's done, Outrigger restarts by itself and goes back to MIDI. Your settings and backups stay.
 
 **Settings** shows which build you're running, for example `ccbc36d hub+L`.
