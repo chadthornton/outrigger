@@ -135,6 +135,11 @@ bool ui_begin(const BoardProfile &board, const UiSettings &settings, const UiHoo
 // Shows the Computer mode screen (USB host not running).
 // info: the running firmware's commit, so an update can be confirmed.
 void ui_show_computer_mode(const char *info);
+// The first screen of a boot a firmware job restarted into: the board restarts
+// around every job (loader_app.cpp, JobBoot), and this keeps the screen on the
+// job instead of flashing Play. Drawn at once; the job's or result's page, or
+// Play, replaces it at the next ui_update_loader.
+void ui_show_switching(const char *title);
 // Refreshes Play; cheap when nothing changed.
 void ui_update(const UiFrame &frame);
 // Refreshes the FM-1 section, and opens a job's page or a new result's.
@@ -142,6 +147,9 @@ void ui_update_loader(const UiLoader &loader);
 // The network line on Setup and Computer mode (the Web UI's address, or how to
 // reach its setup hotspot). Empty hides it.
 void ui_set_network(const char *line);
+// The Computer mode screen's line about a firmware being added from the
+// browser ("Adding Felucca 1.8.0: 40%"). Empty hides it.
+void ui_set_computer_status(const char *line);
 // Runs LVGL; call often (every few ms).
 void ui_tick();
 // For ui-shots: the fonts a label may use at the current text size, one per

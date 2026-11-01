@@ -1,21 +1,51 @@
 # Known issues
 
-A living list. If you hit something that isn't here, email
+A living list for beta 1. If you hit something that isn't here, email
 [feedback@outrigger.music](mailto:feedback@outrigger.music).
+
+## What beta 1 has, and doesn't
+
+- **Three FM-1 firmwares come with it.** A new ESP32 gets M-VAVE stock V15, Felucca 1.8.0 and Skiff 2.1.1 at install.
+- **SLOOP, and the firmwares built on it or on Felucca 0.9, are left out on purpose.** SLOOP is built on an older Felucca, and going from SLOOP to Felucca or Skiff can leave
+  data that crashes them. It waits until we know where SLOOP keeps its data.
+- **Add firmwares from the Firmware Hub's list** on the homepage, up to ten in all: see
+  [Adding a firmware](04a-adding-firmware.md). Files of your own (not on the Hub's list) can't be added yet, and
+  there's no way to remove a firmware yet.
+- **Melodee and Tessera can't be added yet.** They write the part of the FM-1's memory Outrigger uses to tell FM-1s
+  apart.
+- **No Wi-Fi.** Beta 1's Install button gives you Outrigger without Wi-Fi and without its own web page. Both are coming.
+
+## Firmware switching
+
+Which switches we've run on a real FM-1, with these exact versions:
+
+| Switch | Tested? |
+|---|---|
+| Felucca 1.8.0 → Skiff 2.1.1 → Felucca 1.8.0 | **Yes.** Skiff started fresh; Felucca's songs came back. |
+| Felucca 1.7.0 → 1.8.0 | **Yes.** Songs kept. |
+| Stock V15 → Felucca 1.8.0 → stock V15 | **Yes.** The FM-1 started each time. |
+| Adding JIANT FM, then stock V15 → JIANT → stock V15 | **Yes.** |
+| Skiff 2.1.1 → stock V15 | **Not yet.** Ask us first (below). |
+
+- **Skiff → stock: ask us first.** Skiff saves its patterns into part of the FM-1's memory where stock keeps its factory
+  resources. After many Skiff pattern saves, those resources may be gone, and the board can't put them back. Nobody has
+  tested what stock does without them. Email us before switching from Skiff to stock.
+- **During a firmware switch the board restarts 2–3 times, and the FM-1 goes dark for about a minute.** That's normal.
+  A crash looks different: a safe-mode screen that says where it stopped and "RST to try again". If you see that,
+  email us.
+- **After several switches in a row, your MIDI controller may stop sending.** Unplug it and plug it back in.
+- What can go wrong during a switch, and what to do, is on [Switching FM-1 firmware](04-switching-firmware.md).
 
 ## Setup
 
-- **Outrigger comes with three firmwares, and adding others isn't in the browser yet.** A new ESP32 gets stock V15,
-  Felucca 1.8.0 and Skiff 2.1.1 at install. SLOOP isn't one of them yet: it's built on an older Felucca, and going
-  from SLOOP to Felucca or Skiff can leave data that crashes them, so it waits until we know where SLOOP keeps it. Other firmwares, and newer versions of these, need a setup
-  outside the browser for now: email us and we'll walk you through it. Playing from a controller doesn't need it.
+- **If an install stops partway** (the cable came out), install again: it picks up where it stopped.
+- **An ESP32 that ran an earlier beta may stop at "storage we can't read".** Nothing was installed. Email us before
+  going further: your backups may be in there.
 - **The starter firmwares can stop downloading when one of them releases.** The Firmware Hub keeps only each
   firmware's newest file, so a fresh install says a download failed and writes nothing until we update the site.
   Email us if you see it.
-- **If an install stops while it sets up the store** (the cable came out), install again: it picks up where it
-  stopped.
-- **An ESP32 that ran an earlier beta may stop at "storage we can't read".** Nothing was installed. Email us before
-  going further: your backups may be in there.
+- **Adding a firmware needs Outrigger in Computer mode, on a build from this page.** After an install it restarts into
+  MIDI: go back to Computer mode before adding.
 - **Installing needs Chrome or Edge on a computer.** Phones, Safari and Firefox can't talk to the board's USB port.
 - **There's no way back to an earlier build from the website.** See [Install and first setup](02-install-and-setup.md).
 
@@ -35,7 +65,10 @@ A living list. If you hit something that isn't here, email
 - **Your backups can't be copied to a computer yet.** They live on Outrigger only. See
   [Your backups](05-your-backups.md).
 
-## Firmware switching
+## Getting help
 
-What can go wrong during a switch, and what to do, is on [Switching FM-1 firmware](04-switching-firmware.md). If your
-FM-1 won't start afterwards, keep it switched on and see [If your FM-1 won't boot](06-if-your-fm1-wont-boot.md).
+- **Email [feedback@outrigger.music](mailto:feedback@outrigger.music)** with the build from Settings, what happened,
+  and a photo of the screen. [The test plan](03-test-plan.md) lists what helps.
+- **A dark FM-1 can be brought back.** If a switch stops, keep the FM-1 switched on and see
+  [If your FM-1 won't boot](06-if-your-fm1-wont-boot.md). When nothing else works, the Transporter recovery kit
+  (about $15, no soldering) writes stock firmware back. We'd rather you had one before your first switch.

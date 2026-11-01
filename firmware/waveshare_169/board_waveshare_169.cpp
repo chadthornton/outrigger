@@ -12,6 +12,11 @@ extern const BoardProfile kBoard = {"Waveshare ESP32-S3-Touch-LCD-1.69", 240, 28
 
 constexpr int LCD_DC = 4, LCD_CS = 5, LCD_SCK = 6, LCD_MOSI = 7, LCD_RST = 8, LCD_BL = 15;
 constexpr int TP_SDA = 11, TP_SCL = 10, TP_RST = 13, TP_INT = 14;
+// The onboard buzzer's driver (Waveshare's pin map: GPIO42 "Buzz"). Nothing
+// here uses it; left floating it picks up nearby traffic and ticks, so it's
+// held low. First-revision boards wired the buzzer to GPIO33 instead, an
+// octal-PSRAM line: no firmware fix for those.
+constexpr int BUZZER = 42;
 constexpr uint8_t kTouchAddress = 0x15;
 
 static Arduino_DataBus *bus = new Arduino_ESP32SPI(LCD_DC, LCD_CS, LCD_SCK, LCD_MOSI);
@@ -19,6 +24,8 @@ static Arduino_GFX *panel = new Arduino_ST7789(bus, LCD_RST, 0 /* rotation */, t
                                                240, 280, 0, 20, 0, 20);
 
 bool board_display_begin() {
+  pinMode(BUZZER, OUTPUT);
+  digitalWrite(BUZZER, LOW);
   if (!panel->begin(80000000)) return false;
   panel->fillScreen(0);
   pinMode(LCD_BL, OUTPUT);

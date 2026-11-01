@@ -155,6 +155,15 @@ static void test_chained_backup_failed() {
   r = result(p);
   EXPECT(has(r.why, "backed up now") && !has(r.why, "changed"), "no backup: the plan needs an OK");
 
+  // A firmware the loader can't take a unit to yet: say why, no retry.
+  JobOutcome b{};
+  b.kind = JobKind::Install;
+  b.failure = Failure::Blocked;
+  b.firmware = "Melodee 1.6";
+  r = result(b);
+  EXPECT(r.safety == UiSafety::NothingWritten && has(r.why, "Bluetooth"), "blocked: why");
+  EXPECT(r.fix == UiAct::None && !has(r.todo, "Try again"), "blocked: no retry");
+
   // A stale check that isn't right after the switch's own backup.
   JobOutcome first = switch_failed(Failure::BackupStale);
   r = result(first);
@@ -272,7 +281,7 @@ static void test_plan() {
   EXPECT(p.item == 2, "keeps its row");
   EXPECT(strcmp(p.title, "Felucca 1.6.1") == 0 && strcmp(p.hold, "switch to Felucca 1.6.1") == 0, "title and hold");
   EXPECT(strcmp(p.lines[0], "Switches from Skiff 1.4.") == 0, "from");
-  EXPECT(plan_has(p, "Backs up only if the FM-1 changed."), "backs up only when needed");
+  EXPECT(!plan_has(p, "Backs up only if"), "no maybe-backup line: the job page shows a backup when it runs");
   EXPECT(plan_has(p, "Saves Skiff's songs."), "saves the running firmware's songs");
   EXPECT(plan_has(p, "Writes Felucca 1.6.1: 143 sectors."), "writes");
   EXPECT(plan_has(p, "Brings back Felucca's songs."), "restores");
@@ -283,6 +292,27 @@ static void test_plan() {
   in.preview.decision.action = DataAction::FreshStart;
   describe_plan(in, p);
   EXPECT(plan_has(p, "Starts Felucca fresh: no songs saved yet."), "fresh start");
+
+  // An untested switch: the old firmware's data is cleared first.
+  in.preview.decision.clean_slate = true;
+  describe_plan(in, p);
+  EXPECT(plan_has(p, "Clears old data: Felucca starts fresh."), "clean slate, fresh");
+  in.preview.decision.action = DataAction::Restore;
+  describe_plan(in, p);
+  EXPECT(plan_has(p, "Clears old data, brings back Felucca's songs."), "clean slate, restore");
+  EXPECT(p.warn_from == p.line_count, "a clean slate isn't a warning");
+
+  // Back to stock after Skiff 2.x: the warning is the last line, never cut off.
+  in = plan_input();
+  in.target = "Stock V15";
+  in.running = "Skiff 2.1.1";
+  in.preview.decision.action = DataAction::FreshStart;
+  in.preview.decision.clean_slate = true;
+  in.preview.decision.stock_resources_warning = true;
+  describe_plan(in, p);
+  EXPECT(p.warn_from == p.line_count - 1 &&
+             has(p.lines[p.warn_from], "Returning to stock may lose stock resources"),
+         "stock resources warning");
 
   in = plan_input();
   in.preview.decision.action = DataAction::Keep;
@@ -316,8 +346,8 @@ static void test_plan() {
   in = plan_input();
   in.has_unit = false;
   describe_plan(in, p);
-  EXPECT(p.can_act && plan_has(p, "backs it up first"), "no backup yet: the switch backs up first");
-  EXPECT(plan_has(p, "asks first"), "and says it asks before erasing songs");
+  EXPECT(p.can_act && plan_has(p, "Backs up the FM-1 first."), "no backup yet: the switch backs up first");
+  EXPECT(!plan_has(p, "asks first"), "no maybe-lines: a plan that needs an OK says so after the backup");
   in.ready = false;
   describe_plan(in, p);
   EXPECT(!p.can_act, "no backup and not ready: no hold");

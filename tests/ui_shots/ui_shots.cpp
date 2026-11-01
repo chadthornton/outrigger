@@ -720,9 +720,17 @@ static void run_computer(const SimBoard &b) {
                        uint16_t(b.radius), b.boost};
   ui_begin(profile, {1}, {on_settings, on_computer, nullptr, nullptr, nullptr}, kFirmware);
   ui_set_network("Web: 192.168.1.40");
+  // A job's boot opens on this (app.cpp); it shares this pass: neither needs the loader.
+  ui_show_switching("Switching firmware");
+  run(100);
+  shoot("switching");
   ui_show_computer_mode("Firmware 4d1d09e+ hub+L");
   run(100);
   shoot("computer");
+  ui_set_computer_status("Adding Felucca 8 Patterns 1.6.1_and_sequences_2: 40%");
+  run(100);
+  shoot("computer_adding");
+  ui_set_computer_status("");
 }
 
 // ---------- Contact sheets ----------
@@ -732,7 +740,7 @@ static const char *const kColumns[] = {
     "play",       "play_hub",  "play5",      "play5_open",  "play_fm1",   "problem",  "nav_focus", "play_focus",
     "fm1_list",   "fm1_list_focus", "plan_wait", "plan",    "plan_fresh", "backups",  "job_switch", "job_backup", "job_chain_backup", "job_chain_write",
     "switched",   "err_retry", "err_norom",  "err_stale",   "not_ready",  "unfinished", "setup",   "computer_confirm",
-    "computer"};
+    "switching",  "computer", "computer_adding"};
 constexpr int kCols = sizeof kColumns / sizeof *kColumns, kGap = 8, kCaption = 18;
 static uint8_t caption_rgb[480 * kCaption * 3];
 static int caption_w;

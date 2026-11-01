@@ -290,6 +290,7 @@ static int section = kPlay;
 static lv_obj_t *stack[4];
 static int depth;
 static bool job_showing;
+static lv_obj_t *switching_screen;  // ui_show_switching(), until a page replaces it
 
 static void show(lv_obj_t *scr) {
   lv_screen_load(scr);
@@ -1258,6 +1259,8 @@ void ui_update_loader(const UiLoader &l) {
   } else if (!j.active && job_showing) {
     job_showing = false;
     if (r.seq == shown_result_seq) go_section(kFm1);
+  } else if (!j.active && lv_screen_active() == switching_screen && !(r.seq && r.seq != shown_result_seq)) {
+    go_section(kPlay);  // the boot's job never started, and no result opens: Play
   }
   if (!j.active && r.seq && r.seq != shown_result_seq) {
     shown_result_seq = r.seq;
@@ -1271,6 +1274,9 @@ void ui_update_loader(const UiLoader &l) {
 static lv_obj_t *size_buttons[3], *version_label, *computer_screen_confirm;
 static lv_obj_t *network_labels[2];  // Setup, the Computer mode screen
 static char network_text[48] = "";
+// Computer mode's line about a firmware the page is adding (ui_set_computer_status).
+static char computer_status[64] = "";
+static lv_obj_t *computer_status_label;
 
 static void rebuild(void *);
 static void size_tapped(lv_event_t *e) {
@@ -1346,9 +1352,21 @@ static lv_obj_t *build_computer_screen(const char *info) {
   set_colour(title, kYellow);
   text(t.content, "MIDI is off. Plug this board into a computer and open the installer in Chrome or Edge.", kWhite,
        Role::Body);
+  computer_status_label = text(t.content, computer_status, kYellow, Role::Body);
+  show_if(computer_status_label, computer_status[0]);
   text(t.content, info, kGrey, Role::Detail);
   network_labels[1] = network_label(t.content);
   plain_button(foot_box(t), "Back to MIDI", back_to_host_tapped);
+  return t.scr;
+}
+
+static lv_obj_t *build_switching_screen(const char *title_text) {
+  lv_obj_t *title;
+  Page t = sub_page(&title, nullptr, false);
+  lv_label_set_text(title, title_text);
+  set_colour(title, kYellow);
+  text(t.content, "The board restarts during a job. That's normal.", kWhite, Role::Body);
+  text(t.content, "Don't unplug or switch off the FM-1.", kYellow, Role::Body);
   return t.scr;
 }
 
@@ -1452,6 +1470,14 @@ void ui_show_computer_mode(const char *info) {
   show(build_computer_screen(info));
 }
 
+void ui_show_switching(const char *title) {
+  depth = 0;
+  if (switching_screen) lv_obj_delete(switching_screen);
+  switching_screen = build_switching_screen(title);
+  show(switching_screen);
+  lv_refr_now(nullptr);  // now, before the store mounts and the USB host starts
+}
+
 void ui_set_network(const char *line) {
   if (strcmp(line, network_text) == 0) return;
   strlcpy(network_text, line, sizeof network_text);
@@ -1460,6 +1486,14 @@ void ui_set_network(const char *line) {
     lv_label_set_text(l, network_text);
     show_if(l, network_text[0]);
   }
+}
+
+void ui_set_computer_status(const char *line) {
+  if (strcmp(line, computer_status) == 0) return;
+  strlcpy(computer_status, line, sizeof computer_status);
+  if (!computer_status_label) return;
+  lv_label_set_text(computer_status_label, computer_status);
+  show_if(computer_status_label, computer_status[0]);
 }
 
 void ui_tick() {

@@ -34,7 +34,8 @@ What session 1 settled or changed:
   false for this chip (ported and tested both ways).
 - **Stock V15's data map stays unknown.** Its store is the whole VM `0x93000–0xE8FFF`, with factory data in
   `0x93000` and an update record at `0xE8F00`, but which sectors hold what isn't mapped. So stock saves stay
-  disabled, and a switch to stock keeps the data in place with the layout warning. It never erases `0x93000`.
+  disabled. A switch to stock kept the data in place with the layout warning until 2026-11-01; now it's a clean
+  slate (`docs/package-sources.md`). It never erases `0x93000`.
   Mapping it needs a stock unit's dumps before and after changing settings (checkpoint 4).
 - **Resume** reads the unit's sector, requires its stored verified backup and an unfinished install recorded before
   the first erase, then reads the flash once and finishes that install. It never resets the FM-1 on a failure.
@@ -396,12 +397,15 @@ stores data in its own places. Felucca's own source gives the Felucca-family map
 
 | Range | Holds | In a save state? |
 |---|---|---|
+| `0x94000–0x96FFF` | Not Felucca's: stock VM sectors jangada, XMOD and fm1-dock use (added 2026-11-01) | Yes |
 | `0x97000–0x9EFFF` | Projects / songs | Yes |
+| `0x9F000–0x9FFFF` | `OBJ_UPFM6` copy A, FM6 user presets (missed until 2026-11-01) | Yes |
 | `0xA0000–0xDBFFF` | User sample slots | Yes |
 | `0xDC000–0xDFFFF` | User preset banks | Yes |
 | `0xE0000–0xE4FFF` | Update staging: update loader and record | **Never.** Restoring a stale update record could start an update. |
 | `0xE5000–0xE6FFF` | Autosave A/B | Yes |
 | `0xE7000–0xE7FFF` | Voice bank | Yes |
+| `0xE8000–0xE8FFF` | Not Felucca's: Skiff's second bank sector (added 2026-11-01) | Yes |
 | `0xFC000–0xFEFFF` | Settings / globals | Yes |
 
 - **Stock V15:** keeps its settings store in `0x93000–0xE8FFF`, with its own update record at `0xE8F00`. Its exact
@@ -591,6 +595,32 @@ history. The browser the web UI already uses is the archive.
   browser; GitHub release assets still send no CORS header.)
 - **Chad's own downloads:** non-redistributable ones like V16 and Baud Girl get uploaded through the page.
 - **Never:** `wl82loader.bin` is never offered for download.
+
+## Adding firmware from the browser (added 2026-11-01)
+
+Approach B of the scope (fw-add-scope.md, Chad's pick): the board receives the package and stores it with its own
+`Library::add_package`, so the board's littlefs stays the only writer of the store.
+
+- **Where:** Computer mode. The USB host is off and the port is the chip's USB-Serial-JTAG, so the page talks to the
+  running app, not the ROM. `firmware/waveshare_169/add_firmware.cpp` mounts the store (never formats) and runs
+  `lib/fm1_loader/src/receive.h`'s `Receiver` on its own task; the screen shows a line per add.
+- **Protocol:** framed (magic, type, length, CRC-16/XMODEM), one request and one reply at a time, replies under 120
+  bytes (the browser lost bytes in long replies from the ROM loader). The page writes at most 1 KiB per write (the
+  4 KiB stall in `site/installer/serial.js`). `receive.h` has the frames.
+- **What it refuses, before any data:** a blocked project (Melodee, Tessera), a file without a catalog project (files
+  of your own come later, behind a setting, off by default), a different file under a stored name, an 11th package
+  (the FM-1 page shows 10), and an add that would leave less than one whole backup free (every switch backs up
+  first). After the data: a SHA-256 that isn't the one the page checked, or a package `parse_package` refuses.
+- **It only adds:** new sectors and one `m/pkg/` manifest; it never removes or rewrites a key, and never collects
+  garbage (sectors orphaned by an add that failed partway only cost space). `tests/test_fm1_receive.cpp` snapshots the
+  store around an add.
+- **The page** (`site/installer/add.js`, `add_area.js`): the Hub's catalog minus Melodee/Tessera, the 18 Felucca
+  0.9/SLOOP-store firmwares from the 2026-11-01 survey (and any whose `base` names one), firmwares with no license, and
+  `amenity` (fails our checks). It downloads the file into the browser, checks the catalog's SHA-256 and parses it as
+  the board will, then sends it. `tests/installer/add.test.mjs` runs it against the board's own `Receiver`
+  (`build/receive_pipe`).
+- **Not proven on hardware yet:** a 600 KB send from Chrome and Brave on macOS to the running app, and whether opening
+  the port from the page resets the board.
 
 ## Design
 

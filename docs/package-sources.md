@@ -56,16 +56,41 @@ depend on what a package claims.
 
 **Every project gets its own shelf.** Before any install, the board backs up the flash and autosaves the
 running firmware's data into the store, filed under its catalog project. Installing a project whose shelf
-holds a save restores the latest one. So Felucca → Melodee → Felucca brings the Felucca songs back, and no
+holds a save restores the latest one. So Felucca → SLOOP → Felucca brings the Felucca songs back, and no
 switch loses data, even when it starts fresh.
+
+**Only a tested pair switches the family map; every other switch is a clean slate** (Chad, 2026-11-01, from the
+firmware map scope). A pair is tested when a hardware run proved it, by project and exact identity, either way
+(`kTestedPairs`, `library.cpp`). Every other switch, after the backup and autosave, erases `0x94000–0xE8FFF` and
+`0xFC000–0xFEFFF` (`Right::CleanSlate`), then writes the target's save into it if its shelf has one. It never
+touches the boot head, the app area, `0x93000` (stock's factory data), `0xE9000` (the unit ID),
+`0xEA000–0xFBFFF` (stock's resources) or key_mac. Everything it erases is in the outgoing autosave except update
+staging `0xE0000–0xE4FFF`, which is never saved: a stale update record must not survive a switch. A clean slate
+asks for the user's OK, like a fresh start.
+
+| Pair | Status |
+|---|---|
+| Felucca 1.6.1 (`FM-1_916`) ↔ Skiff 1.4 (`FM-1_714`) | Tested (checkpoint 3, 2026-10-30) |
+| Felucca 1.8.0 (`FM-1_918`) ↔ Skiff 2.1.1 (`FM-1_721`) | Owed: bench test 2. Clean slate until it passes |
+| Stock V15 (`FM-1_015`) ↔ Felucca 1.8.0 | Owed: bench test 2. Clean slate until it passes |
+
+**Blocked: Melodee and Tessera.** Both can write `0xE9000`, the sector whose hash is the unit ID, so after one
+of their saves the board would see a different FM-1 and orphan its backups. The board refuses to install them
+("Not yet: it writes the FM-1's Bluetooth sector") until it identifies a unit another way. Switching away from
+them works. A sideloaded copy (no catalog project) isn't caught: an accepted gap.
+
+**Skiff 2.x and stock's resources.** Skiff 2.1.1's pattern bank rotates through `0xEA000–0xFBFFF`, where stock
+V15 keeps resources the board can't put back. Switching to stock on a unit that runs or ran Skiff 2.x warns
+"Returning to stock may lose stock resources" until bench test 1 says what V15 does without them.
 
 | Installing | Data |
 |---|---|
-| A newer or older version of the **same catalog project** (matched by `ident`) the FM-1 runs now | Keep, unless the versions cross a known data-format break (a table we keep, starting with Skiff 1.x → 2.x: fresh start) |
-| A **different** catalog project with a save on its shelf | Restore that project's latest save |
-| A **different** catalog project with an empty shelf | **Fresh start** (the old project's data waits on its own shelf) |
-| A sideloaded file, or firmware no catalog entry matches | Fresh start only, behind an extra "not from the catalog" warning; its shelf is its file hash |
-| Back to **stock** | Restore stock's shelf, or fresh start if it's empty |
+| A newer or older version of the **same catalog project** (matched by `ident`) the FM-1 runs now | Keep, unless the versions cross a known data-format break (a table we keep, starting with Skiff 1.x ↔ 2.x: that project's shelf for the other era, or a clean slate) |
+| A **different** catalog project with a save on its shelf | Restore that project's latest save (on a clean slate unless the pair is tested) |
+| A **different** catalog project with an empty shelf | **Fresh start** (the old project's data waits on its own shelf), on a clean slate unless the pair is tested |
+| A sideloaded file, or firmware no catalog entry matches | Clean slate; its shelf is its file hash |
+| Back to **stock** | Clean slate (stock saves are disabled, so nothing comes back): no pair to stock is tested yet |
+| **Melodee** or **Tessera** | Refused (above) |
 
 - **No data is kept across projects at launch, not even Felucca ↔ Skiff** (Chad, 2026-10-31). A pair can
   later join an allowlist that keeps data across it, after a board test shows the data surviving both ways
@@ -91,12 +116,19 @@ switch loses data, even when it starts fresh.
   when read, from the stored package with the same app hash, so nothing is rewritten.
 - **Stock is the catalog's `stock` project**, not "an identity starting `FM-1_0`". `bubba` (`FM-1_003`) is
   a community firmware, with Felucca's ranges like the others.
-- **Which flash a shelf holds is unchanged:** Felucca's save ranges for every community firmware (verified
-  from Felucca's source and checkpoint 3), stock still unmapped (kept in place, never saved or erased).
-  - **Known gap:** a firmware that keeps data outside Felucca's ranges leaves it in place across a fresh
-    start, and its shelf doesn't hold it. The whole-flash backup before every install still does.
-- **The format-break table** starts with one row: Skiff below 2.0 to 2.0 or later is a fresh start (or that
-  project's shelf, if it holds a 2.x save).
+- **Which flash a shelf holds:** one map for every community firmware: Felucca's save ranges (verified from
+  Felucca's source and checkpoint 3) plus what other firmwares on the shelf write, which is the clean slate
+  minus staging: `0x94000–0xDFFFF`, `0xE5000–0xE8FFF`, `0xFC000–0xFEFFF`. Until 2026-11-01 it missed
+  `0x9F000` (Felucca 1.x's FM6 user presets, copy A, and SLOOP's autosave), `0xE8000` (Skiff's second bank
+  sector) and `0x94000–0x96FFF` (jangada, XMOD, fm1-dock). A save made before then restores those sectors
+  blank. Stock is still unmapped: never saved.
+  - **Known gap:** a firmware that writes `0xE9000` or `0xEA000–0xFBFFF` (Skiff 2.x, Melodee, Tessera, and
+    the sample and bank writers in `fw-map-bench.md`) leaves that data in place, and no shelf holds it. The
+    whole-flash backup before every install still does.
+- **The format-break table** starts with one row: Skiff below 2.0 and 2.0 or later are different eras. Skiff
+  2.0 can read and convert 1.x data (its release notes), but the board hasn't tested that, so crossing the
+  break in either direction restores that era's shelf or starts on a clean slate. 1.x songs wait on their
+  shelf.
 
 ## Checks that keep this honest
 
@@ -150,8 +182,9 @@ fetched into PSRAM (8 MB) before it's stored.
 
 ## Decisions (Chad, 2026-10-31)
 
-1. **Firmware never tested on hardware:** offered, with a fresh start (its old data waits on its shelf).
+1. **Firmware never tested on hardware:** offered, with a fresh start (its old data waits on its shelf). From
+   2026-11-01 that fresh start is a clean slate, and Melodee and Tessera are refused (above).
 2. **First way in:** upload on the web page; Wi-Fi download after.
 3. **Prereleases:** behind a setting, off by default; a beta shows only when it's newer than the stable release.
 4. **Data across projects:** none at launch. Same project only keeps data; every other switch restores that
-   project's shelf or starts fresh.
+   project's shelf or starts fresh, on a clean slate unless the pair is tested.

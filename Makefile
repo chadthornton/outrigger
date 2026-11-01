@@ -84,9 +84,10 @@ VERSION_DIR := $(CACHE_ROOT)/version
 FM1_SRC := $(wildcard lib/fm1_loader/src/*.cpp)
 FM1_HDR := $(wildcard lib/fm1_loader/src/*.h) $(wildcard tests/support/*.h)
 FM1_TESTS := build/test_fm1_package build/test_fm1_library build/test_fm1_installer \
-	build/test_fm1_softkey build/test_fm1_posix build/test_fm1_locked build/test_fm1_library_posix
+	build/test_fm1_softkey build/test_fm1_posix build/test_fm1_locked build/test_fm1_library_posix \
+	build/test_fm1_receive
 
-test: build/check_package build/test_fm1_interop build/test_midi_core build/test_status build/test_boot_mode build/test_broker build/test_describe build/test_web_core build/test_store_json build/test_loader_messages build/test_bench_writer $(FM1_TESTS) fixtures $(TOOLS_PY)
+test: build/check_package build/test_fm1_interop build/test_midi_core build/test_status build/test_boot_mode build/test_broker build/test_describe build/test_web_core build/test_store_json build/test_loader_messages build/test_bench_writer $(FM1_TESTS) build/receive_pipe fixtures $(TOOLS_PY)
 	./build/test_midi_core
 	./build/test_status
 	./build/test_boot_mode
@@ -105,11 +106,12 @@ test: build/check_package build/test_fm1_interop build/test_midi_core build/test
 	python3 -I tools/check_partitions.py firmware/$(BOARD)/partitions.csv
 	python3 -I tests/installer/test_tables.py
 	$(TOOLS_PY) tests/installer/test_store_template.py
-	node --test tests/installer/
+	node --test tests/installer/*.test.mjs
 	python3 -I tests/test_deploy_site.py
 	python3 -I tests/test_check.py
 	python3 -I tests/test_bench.py
 	python3 -I tests/test_bench_recover.py
+	python3 -I tests/test_guide.py
 
 # The Mac tests may write the mock FM-1 (FM1_LOADER_WRITES=1); test_fm1_locked
 # is built without it, as every firmware build is until hardware checkpoint 3.
@@ -131,6 +133,11 @@ build/test_fm1_%: tests/test_fm1_%.cpp $(FM1_TEST_SRC) $(FM1_HDR) firmware/waves
 build/test_bench_writer: tests/test_bench_writer.cpp firmware/waveshare_169/bench_writer.cpp firmware/waveshare_169/bench_writer.h $(FM1_TEST_SRC) $(FM1_HDR)
 	mkdir -p build
 	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -DFM1_LOADER_WRITES=1 -Ilib/fm1_loader/src -Ifirmware/waveshare_169 -Itests -o $@ $< firmware/waveshare_169/bench_writer.cpp $(FM1_TEST_SRC)
+
+# The board for the page's add-firmware tests (tests/installer/add.test.mjs).
+build/receive_pipe: tests/receive_pipe.cpp $(FM1_TEST_SRC) $(FM1_HDR)
+	mkdir -p build
+	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -Ilib/fm1_loader/src -Itests -o $@ $< $(FM1_TEST_SRC)
 
 # Packages and the loader blob for the fm1_loader tests, pinned by SHA-256 and
 # kept out of git (tests/fixtures/).
