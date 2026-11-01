@@ -940,6 +940,14 @@ void open_store() {
 
 }  // namespace
 
+const char *loader_boot_title() {
+  if (last_crash[0][0]) return nullptr;  // safe mode: the crash screen
+  if (job_boot.magic == kJobMagic && job_boot.kind != JobKind::None)
+    return job_boot.kind == JobKind::Backup ? "Backing up" : "Switching firmware";
+  if (job_result.magic == kResultMagic) return "Finishing up";
+  return nullptr;
+}
+
 void loader_begin(EspUsbHost &host, const LoaderCore &c) {
   usb = &host;
   core = c;

@@ -542,6 +542,11 @@ void setup() {
   hooks.loader_act = loader_act;
 #endif
   ui_begin(kBoard, settings, hooks, firmware);
+#if APP_LOADER
+  // A job's boot, or the boot after it: the job's screen from the start, not Play.
+  if (mode != midi_core::BootMode::Computer)
+    if (const char *title = loader_boot_title()) ui_show_switching(title);
+#endif
 
   if (last_crash[0][0] && mode != midi_core::BootMode::Computer) {
     // Safe mode after a crash or watchdog reset: no USB host (a crash loop would
