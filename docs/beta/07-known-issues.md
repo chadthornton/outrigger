@@ -54,6 +54,9 @@ Which switches we've run on a real FM-1, with these exact versions:
 
 ## On the board
 
+- **First-revision (V1) 1.69 boards tick.** The board's buzzer shares a pin with its memory, so a V1 board ticks
+  about once a second, and chatters when you touch the screen. It's harmless, the board otherwise works, and no
+  firmware can quiet it. V2 boards, with a "V2" sticker on the USB port, don't.
 - **The largest text size pushes some lines off the screen.** Use small or medium for now.
 - **Your backups can't be copied to a computer yet.** They live on Outrigger only. See
   [Your backups](05-your-backups.md).
