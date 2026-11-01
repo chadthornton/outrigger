@@ -40,7 +40,7 @@ apps ask it for them. See `docs/architecture.md`, and the merge gate below befor
 | `tests/ui_shots/` | `make ui-shots`: renders every `host_ui` page (docs/ui-redesign.md) with LVGL on the Mac, on 240×280, 320×480 and 480×320 at S/M/L, hub and hub-loader, plus an encoder board's focus ring, using the firmware's own wording. Taps them with a drifting finger, holds the holds, and fails on a clipped or off-glass label. PNGs, `report.txt` and a `sheet_<board>.png` per board in `build/ui-shots/`. Check UI changes here before booking the board. |
 | `firmware/config/lv_conf.h` | LVGL configuration (fonts, clib malloc so big buffers can use PSRAM). |
 | `site/`, `tools/build_site.py` | Browser installer (`site/installer/`, on esptool-js) and the script that stages firmware into it. |
-| `.github/workflows/ci.yml` | CI, the same checks as `make check` on GitHub's machines, on pushes to master and PRs. Not part of the merge gate. |
+| `.github/workflows/ci.yml` | CI, the merge gate: the same checks as `make check`, with one job per board × app set, on pushes to master and PRs. Its `ci-ok` check is the one to read. |
 | `firmware/waveshare_169/` | Arduino sketch for the Waveshare board: `app.cpp` (USB host, routing, gathers the frame) and `board_waveshare_169.cpp` (board profile, display and touch drivers). Code stays out of the `.ino` (see below). |
 
 To add a board: copy the sketch folder, write a new `board_*.cpp` with its `BoardProfile` (size, shape, corner
@@ -52,7 +52,7 @@ change. Check the board's schematic for a USB-C port wired to the ESP32-S3's nat
 
 ```
 make test      # midi_core, platform and fm1_loader tests on the Mac (fetches fixtures once)
-make check     # merge gate step 2: HEAD checked out clean in the clone all worktrees share, then test, ui-shots and site (~2 min; ~12 min after a core or library update)
+make check     # the production deploy's check: HEAD checked out clean in the clone all worktrees share, then test, ui-shots and site (~2 min; ~12 min after a core or library update)
 make ui-shots  # render and check every page; build/ui-shots/sheet_*.png (needs LVGL 9.6.0, see Makefile)
 make fixtures  # FM-1 packages and wl82loader.bin for the tests, pinned by SHA-256 (gitignored)
 make golden    # regenerate tests/golden/ from the Unbricker and jl-uboot-tool (Python venv in build/)
@@ -152,7 +152,8 @@ make deploy-site CHANNEL=production  # outrigger.music
 ```
 
 - **What gets uploaded:** `make deploy-site` runs `make check`, then uploads the `site/` that the check built from that
-  commit (`build/checked/site`). Nothing uncommitted or unpushed goes live, and every upload passed the merge gate.
+  commit (`build/checked/site`). Nothing uncommitted or unpushed goes live, and every upload passed `make check` on that
+  exact commit. Production also waits for Chad's "ship it" in the deploying session's chat.
 - **What gets checked first:** `tools/deploy_site.py` refuses a dirty tree, an unpushed HEAD, or production from
   anything but `origin/master`. Before uploading it scans every file again: under Pages' 25 MiB per-file and
   20,000-file limits, and free of `wl82loader.bin` (by name, SHA-256 and 1 KiB pieces). A local copy of the blob is
@@ -181,21 +182,24 @@ crash can be read without the screen. `tools/diag.py` fetches them from the Mac.
 
 ## Merge gate
 
-Nothing lands on `master` until all three pass, on the branch's last commit:
+Nothing lands on `master` until both pass, on the branch's last commit:
 
-1. **Mac tests.** `make test` passes every suite on the Mac.
-2. **Clean check.** `make check` passes on the Mac: it resets the clone every worktree shares
-   (`~/Library/Caches/outrigger-check`, one check at a time; `tools/check.py`) to the branch's last commit, with every
-   untracked and ignored file removed (so nothing uncommitted can help), then runs `make test`, `make ui-shots` and `make site` (every board × app set builds,
-   the site stages, and the `wl82loader.bin` scan runs). The PR quotes its last lines. GitHub Actions CI is off the gate
-   (Chad, 2026-10-31); `ci.yml` runs on pushes to master and on PRs as an extra signal.
-3. **Hardware smoke check** on the Waveshare, with the branch's own build:
+1. **GitHub CI is green** on the PR's head commit: the `ci-ok` check (`gh pr checks`). It runs `make test`,
+   `make ui-shots`, one build per board × app set in parallel, then stages the installer site with the
+   `wl82loader.bin` scan. A PR that only touches docs, site copy (`site/`), `tests/installer/` or `.md` files skips
+   the firmware builds and gets a licensing scan of `site/` instead. Run `make test` locally while working; it is no
+   longer a gate step, and neither is `make check` (Chad, 2026-11-01). A briefly broken `master` is tolerated: fix
+   forward.
+2. **Hardware smoke check** on the Waveshare, with the branch's own build:
    1. Install it the way a user would: the web installer (`make serve`), from Computer mode, with the app set the
       branch changes (MIDI Hub if none).
    2. Put the board back in the rig: hub power brick → hub, hub upstream cable → Waveshare, FM-1 and Launchkey on the
       hub's USB-C ports.
    3. Pass when Setup shows the branch's commit, Play's four lines are green with the hub at `USB 8/8`, and playing the
       Launchkey sounds the FM-1.
+
+Production is stricter: `make deploy-site CHANNEL=production` re-runs `make check` on the Mac on the exact commit it
+uploads ("Publishing the site"), and only after Chad says "ship it".
 
 There is one Waveshare. A session books it in the shared notes queue before asking Chad to move it, and reflashes the
 `master` build when done.
