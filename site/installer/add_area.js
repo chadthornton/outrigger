@@ -9,7 +9,7 @@ import { PORT_FILTER, SERIAL_OPTIONS, port as lock, h } from "./ui.js";
 import { INSTALLER_VERSION } from "./area.js";
 
 const BAUD = 115200;  // ignored by USB-Serial-JTAG, but Web Serial needs one
-const HOW = "On Outrigger, open Setup, then Computer mode, and hold. Then plug it into this computer with a data cable.";
+const HOW = "On Outrigger, open Settings (the gear), then Computer mode, and hold the button. Then plug it into this computer with a data cable.";
 
 // The {write, read} BoardLink talks over, on an open Web Serial port.
 function serialIo(port) {
