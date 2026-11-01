@@ -102,7 +102,7 @@ SETUP = f"""<ol class="steps3">
   <dl>
     <dt>In your browser</dt>
     <dd>Chrome and Edge can talk to a USB device directly. Install writes Outrigger onto your ESP32's own memory, then
-      restarts it. Nothing goes near your FM-1, and nothing gets erased.</dd>
+      restarts it. Nothing goes near your FM-1, and your backups are never touched.</dd>
     <dt>Firmware switching</dt>
     <dd>Switching needs a 24 KB file from the FM-1's chip maker that we can't host ourselves. The installer fetches it
       from the open-source tool that already publishes it, checks it, and stores it on your ESP32.</dd>
@@ -232,14 +232,14 @@ COMING_HTML = "".join(
 TROUBLE = """<div class="faq">
   <details><summary>How do I update Outrigger?</summary><div class="answer">
     <p>Outrigger's USB port is busy running your MIDI gear, so first hand it to your computer: in Settings, open
-      Computer mode and hold the button. Then plug Outrigger into your computer and click Install. It goes back to
+      Computer mode and hold the button. Then plug Outrigger into your computer and click Check my board, then Install. It goes back to
       MIDI by itself afterwards, and your backups stay.</p>
     <div class="shots-sm">
       <figure><img src="shots/M_setup.png" alt="Outrigger's Settings, with Computer mode: for updates over USB"><figcaption>Settings</figcaption></figure>
       <figure><img src="shots/M_computer_confirm.png" alt="Computer mode screen: hold to restart in Computer mode"><figcaption>Hold to restart</figcaption></figure>
     </div></div></details>
   <details id="no-port"><summary>Why can't the installer find my ESP32?</summary><p>Try another cable: charge-only cables never show up. Or
-    hold BOOT, tap RST, let go of BOOT, and click Install again.</p></details>
+    hold BOOT, tap RST, let go of BOOT, and click Check my board again.</p></details>
   <details><summary>My FM-1 won't start. Is it broken?</summary><p>It's almost certainly not dead: its install mode lives in ROM.
     <a href="https://thefirmwarehub.com/#rescue" target="_blank" rel="noopener">The Firmware Hub's Rescue</a> or
     <a href="https://github.com/Quixotic7/MvaveFM1Unbricker" target="_blank" rel="noopener">the Unbricker</a> brings it back
@@ -464,18 +464,22 @@ def install_area(label, app_set):
             '      <p class="install-note">Installing needs Chrome or Edge on a computer, with JavaScript on.</p>\n    </div>')
 
 
-REAL_STEP2 = f"""<li><div><b>Set up firmware switching, once</b><p>Switching firmware needs a one-time setup that isn't in the
-    browser yet. Beta testers: <a href="{FEEDBACK}">email us</a> and we'll walk you through it.</p></div></li>
+REAL_STEP2 = f"""<li><div><b>Add firmwares, once</b><p>The installer sets up firmware switching by itself. Adding firmwares to
+    Outrigger needs a one-time setup that isn't in the browser yet. Beta testers:
+    <a href="{FEEDBACK}">email us</a> and we'll walk you through it.</p></div></li>
   <li><div><b>Plug everything into the hub</b>"""
 
 real = MOCK
 for a, b in [
-    (INSTALL_BTN.format(out="out-b"), install_area("Install Outrigger", "hub-loader")),
+    (INSTALL_BTN.format(out="out-b"), install_area("Check my board", "hub-loader")),
+    ("""Plug your ESP32 into a computer and click Install. About two
+    minutes, free.</p>""", """Plug your ESP32 into a computer and click Check my board: it
+    says what's on the board and changes nothing. Then click Install. About two minutes, free.</p>"""),
     ('<li><div><b>Plug everything into the hub</b>', REAL_STEP2),
     ("""<dd>Switching needs a 24 KB file from the FM-1's chip maker that we can't host ourselves. The installer fetches it
       from the open-source tool that already publishes it, checks it, and stores it on your ESP32.</dd>""",
-     """<dd>Switching needs a 24 KB file from the FM-1's chip maker that we can't host ourselves. During the beta it goes
-      onto your ESP32 in a one-time setup; soon the installer will fetch it for you.</dd>"""),
+     """<dd>Switching needs a 24 KB file from the FM-1's chip maker that we can't host ourselves. On a new ESP32 the
+      installer downloads it straight from GitHub into your browser and puts it on Outrigger.</dd>"""),
     ('<title>Outrigger: B3</title>', '<title>Outrigger: FM-1\u2019s new best friend</title>\n'
      '<meta name="description" content="Play the M-VAVE FM-1 from any MIDI controller with a USB connection, and switch between 100+ firmwares without a laptop.">\n'
      '<script type="module" src="installer/area.js"></script>'),
@@ -483,10 +487,12 @@ for a, b in [
     ('<footer><div class="wrap fine">Firmware screenshots by their authors, via the Firmware Hub. Not affiliated with M-VAVE or Waveshare.</div></footer>',
      f"""<footer><div class="wrap fine">
   <p>For developers: Everything adds a Wi-Fi status page; its loader can't write.</p>
-  {install_area("Install Everything", "everything")}
+  {install_area("Check my board (Everything)", "everything")}
   <p>Installs with <a href="https://github.com/espressif/esptool-js">esptool-js</a> 0.7.0 (Apache-2.0), served from this site.
-    It writes only the program and its startup parts, never your settings or the backup store. The firmware includes LVGL
-    (MIT) and EspUsbHost (MIT). Firmware screenshots by their authors, via the Firmware Hub. Not affiliated with M-VAVE or
+    It writes only the program and its startup parts, never your settings or the backup store. Outrigger is
+    <a href="LICENSE.txt">GPL-3.0</a> (<a href="https://github.com/chadthornton/usb-midi-host">source</a>); the firmware includes
+    LVGL and EspUsbHost (MIT), Arduino_GFX (BSD) and the Arduino ESP32 core (LGPL-2.1):
+    <a href="NOTICE.txt">licenses and credits</a>. Firmware screenshots by their authors, via the Firmware Hub. Not affiliated with M-VAVE or
     Waveshare.</p>
 </div></footer>"""),
 ]:

@@ -219,7 +219,7 @@
   <dl>
     <dt>In your browser</dt>
     <dd>Chrome and Edge can talk to a USB device directly. Install writes Outrigger onto your ESP32's own memory, then
-      restarts it. Nothing goes near your FM-1, and nothing gets erased.</dd>
+      restarts it. Nothing goes near your FM-1, and your backups are never touched.</dd>
     <dt>Firmware switching</dt>
     <dd>Switching needs a 24 KB file from the FM-1's chip maker that we can't host ourselves. The installer fetches it
       from the open-source tool that already publishes it, checks it, and stores it on your ESP32.</dd>
@@ -331,14 +331,14 @@
   <section class="section" id="trouble" style="max-width:760px"><h2>Troubleshooting</h2><div class="faq">
   <details><summary>How do I update Outrigger?</summary><div class="answer">
     <p>Outrigger's USB port is busy running your MIDI gear, so first hand it to your computer: in Settings, open
-      Computer mode and hold the button. Then plug Outrigger into your computer and click Install. It goes back to
+      Computer mode and hold the button. Then plug Outrigger into your computer and click Check my board, then Install. It goes back to
       MIDI by itself afterwards, and your backups stay.</p>
     <div class="shots-sm">
       <figure><img src="shots/M_setup.png" alt="Outrigger's Settings, with Computer mode: for updates over USB"><figcaption>Settings</figcaption></figure>
       <figure><img src="shots/M_computer_confirm.png" alt="Computer mode screen: hold to restart in Computer mode"><figcaption>Hold to restart</figcaption></figure>
     </div></div></details>
   <details id="no-port"><summary>Why can't the installer find my ESP32?</summary><p>Try another cable: charge-only cables never show up. Or
-    hold BOOT, tap RST, let go of BOOT, and click Install again.</p></details>
+    hold BOOT, tap RST, let go of BOOT, and click Check my board again.</p></details>
   <details><summary>My FM-1 won't start. Is it broken?</summary><p>It's almost certainly not dead: its install mode lives in ROM.
     <a href="https://thefirmwarehub.com/#rescue" target="_blank" rel="noopener">The Firmware Hub's Rescue</a> or
     <a href="https://github.com/Quixotic7/MvaveFM1Unbricker" target="_blank" rel="noopener">the Unbricker</a> brings it back
