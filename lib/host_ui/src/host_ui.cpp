@@ -923,14 +923,13 @@ static void fit_play() {
   }
   size_play(play_shrink);
   if (!play_overflows()) return;
-  // Still too tall: bring the open stage's lines into view, its name kept on
-  // screen.
+  // Still too tall: the open stage goes to the top, so its lines show and
+  // the nav isn't left half cut. A swipe down brings the rest back.
   if (open_stage < 0) return;
-  lv_area_t page, head, detail;
+  lv_area_t page, head;
   lv_obj_get_coords(play_page, &page);
   lv_obj_get_coords(stages[open_stage].head, &head);
-  lv_obj_get_coords(stages[open_stage].detail, &detail);
-  const int down = LV_MIN(detail.y2 - page.y2, head.y1 - page.y1);
+  const int down = head.y1 - page.y1 - 4;
   if (down > 0) lv_obj_scroll_by(play_page, 0, -down, LV_ANIM_OFF);
 }
 
