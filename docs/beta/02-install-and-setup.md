@@ -3,7 +3,9 @@
 **Installing is on the homepage: [outrigger.music](https://outrigger.music/#install), under "Set up once".** Plug your
 ESP32 into the computer, click **Check my board** and pick the port Chrome offers. It reads the board and tells you
 what installing would change, without changing anything. Then click **Install**. It never erases: your settings and
-FM-1 backups stay. On a new ESP32 it also sets up firmware switching, downloading one small file from GitHub.
+FM-1 backups stay. On a new ESP32 it also sets up firmware switching with three FM-1 firmwares to switch between:
+M-VAVE stock V15, Felucca 1.8.0 and Skiff 2.1.1. Your browser downloads them from the Firmware Hub, and one
+small file from GitHub, and checks each. If a download fails, it writes nothing and asks you to try again.
 
 If it says your ESP32 **has storage we can't read**, nothing was installed. That can happen on an ESP32 that ran an
 earlier beta. Email [feedback@outrigger.music](mailto:feedback@outrigger.music) before going further: your backups may

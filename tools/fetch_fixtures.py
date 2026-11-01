@@ -31,6 +31,14 @@ FIXTURES = [
     ("felucca-1.6.1.fwsc", "felucca",
      GITHUB + "hugelton/Felucca/releases/download/v1.6.1/felucca-1.6.1.fwsc",
      "dff3a38f7e5b9833e15aba322558c9485e9e422e3ff813c616c91b3584a2d909"),
+    # The installer's starter set (tools/store_template.py STARTER): the store
+    # template is built from these bytes, and the visitor's browser downloads
+    # the same files from the Firmware Hub.
+    ("felucca-1.8.0.fwsc", "felucca",
+     GITHUB + "hugelton/Felucca/releases/download/v1.8.0/felucca-1.8.0.fwsc",
+     "a31760f2588b39bcb3a8d6f78f6041a1a550978a972ecd71564e45513698ecd6"),
+    ("skiff-2.1.1.fwsc", "skiff", GITHUB + "illuminus5/skiff/releases/download/v2.1.1/skiff-2.1.1.fwsc",
+     "0cfae2431f351365d83842bf1a381ee48baead371e81f77faaa2b3c6aabbd304"),
     # JieLi's loader, from jl-uboot-tool at the commit the Unbricker pins.
     ("wl82loader.bin", None, JLUB_RAW + "data/loaderblobs/usb/wl82loader.bin",
      "d41da6126760c9d66660bcc0cac8d27d221806c5e369a8036921efe68dca5376"),

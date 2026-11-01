@@ -1,6 +1,6 @@
 # Public release audit (2026-10-31)
 
-Chad decided to make `chadthornton/usb-midi-host` public at beta start, after this check. It covers the working
+Chad decided to make `chadthornton/usb-midi-host` (now `chadthornton/outrigger`) public at beta start, after this check. It covers the working
 tree and the full history: 243 commits on every local and remote branch, plus GitHub's `refs/pull/1..12/head`.
 
 **Verdict:** the history holds no M-VAVE firmware, no JieLi loader and no secrets. It holds two low-sensitivity
@@ -114,7 +114,7 @@ Only two items in old commits would need `git filter-repo`: the unit ID (present
   those.
 - **Leave as is:** the unit ID identifies one FM-1 and unlocks nothing, and the email is already public.
 
-Recommended: leave the history as is. The decision is on the tracker.
+Recommended: leave the history as is. Chad chose to leave it as is (2026-10-31).
 
 ## Branches not on `master`
 

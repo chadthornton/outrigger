@@ -19,7 +19,11 @@ would wipe every partition. Four parts write exactly what `make flash` writes.
 Licensing guard: JieLi's wl82loader.bin must never ship. The script refuses to
 publish a file with its name or SHA-256, and when a local copy of the blob is
 around (tests/fixtures/, or $WL82_BLOB) it refuses any file containing a 1 KiB
-piece of it.
+piece of it. FM-1 firmware packages must never ship either (the installer's
+browser downloads them from the Firmware Hub): no .fwsc file, no copy of a
+fixture package, and no JSON file holding the hex of a 1 KiB piece of a
+fixture package's app (the store template is JSON; its own test checks it
+piece by piece).
 """
 import hashlib
 import json
@@ -28,6 +32,9 @@ import shutil
 import struct
 import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import fm1lib  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 SITE = ROOT / "site"
@@ -202,15 +209,32 @@ def check_licensing(files):
             blob = Path(candidate).read_bytes()
             break
     chunks = [blob[i:i + WL82_CHUNK] for i in range(0, len(blob) - WL82_CHUNK + 1, WL82_CHUNK)] if blob else []
+    package_sha = set()
+    app_hex = []
+    for pkg in sorted((ROOT / "tests/fixtures").glob("*.fwsc")):
+        raw = pkg.read_bytes()
+        package_sha.add(hashlib.sha256(raw).hexdigest())
+        app = fm1lib.parse_package(raw)[1]
+        for i in range(0, len(app) - WL82_CHUNK + 1, 0x1000):  # the start of every sector
+            c = app[i:i + WL82_CHUNK]
+            if c.count(c[0]) != len(c):  # all-0xFF and all-zero pieces are in every image
+                app_hex.append((pkg.name, c.hex().encode()))
     for path in files:
         if "wl82" in path.name.lower():
             fail(f"{path} looks like JieLi's loader blob; it must not be published")
+        if path.suffix.lower() == ".fwsc":
+            fail(f"{path} is an FM-1 firmware package; it must not be published")
         data = path.read_bytes()
         if hashlib.sha256(data).hexdigest() == WL82_SHA256:
             fail(f"{path} is JieLi's wl82loader.bin; it must not be published")
         for chunk in chunks:
             if chunk in data:
                 fail(f"{path} contains part of JieLi's wl82loader.bin; it must not be published")
+        if hashlib.sha256(data).hexdigest() in package_sha:
+            fail(f"{path} is an FM-1 firmware package; it must not be published")
+        for name, chunk in app_hex if path.suffix == ".json" else []:
+            if chunk in data:
+                fail(f"{path} contains part of the firmware package {name}; it must not be published")
     return blob is not None
 
 

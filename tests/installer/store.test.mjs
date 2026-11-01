@@ -4,11 +4,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, existsSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { storeAction, spliceStore, fetchLoader } from "../../site/installer/store.js";
+import { storeAction, fetchLoader, fetchStarter, buildStore, parsePackage } from "../../site/installer/store.js";
 import { planInstall } from "../../site/installer/plan.js";
 
 const root = new URL("../../", import.meta.url);
 const sha256 = (b) => createHash("sha256").update(b).digest("hex");
+const md5 = (b) => createHash("md5").update(b).digest("hex");
 
 test("storeAction: a build without the loader leaves the store alone", () => {
   assert.equal(storeAction({ runsLoader: false, hasStore: false, blank: true }), "none");
@@ -25,6 +26,13 @@ test("storeAction: a factory-blank store region gets a store", () => {
 
 test("storeAction: our store partition with data but no readable store stops the install", () => {
   assert.equal(storeAction({ runsLoader: true, hasStore: false, hadStorePartition: true, blank: false }), "unreadable");
+  assert.equal(storeAction({ runsLoader: true, hasStore: false, hadStorePartition: true, blank: false, unfinished: false }), "unreadable");
+});
+
+// Chad, 2026-11-01: an install cut short mid-store (a pulled cable) is finished
+// by the next one, when the region holds nothing but this installer's own writes.
+test("storeAction: a store this installer started and didn't finish is finished", () => {
+  assert.equal(storeAction({ runsLoader: true, hasStore: false, hadStorePartition: true, blank: false, unfinished: true }), "create");
 });
 
 // Chad, 2026-10-31: a board that ran other firmware (no store in its table)
@@ -34,48 +42,104 @@ test("storeAction: a board from other firmware gets a store over its leftovers",
   assert.equal(storeAction({ runsLoader: true, hasStore: false, hadStorePartition: false, blank: true }), "create");
 });
 
-// The real template and the splice tools/store_template.py checked by mounting
-// it (tests/installer/test_store_template.py runs first in make test).
+// The real template, and what tools/store_template.py checked by mounting it
+// (tests/installer/test_store_template.py runs first in make test).
 const templatePath = new URL("build/store-template.json", root);
 const expectedPath = new URL("build/store-spliced.sha256", root);
-const blobPath = new URL("tests/fixtures/wl82loader.bin", root);
-const haveReal = existsSync(templatePath) && existsSync(expectedPath) && existsSync(blobPath);
+const appsPath = new URL("build/starter-apps.json", root);
+const fixture = (name) => new Uint8Array(readFileSync(new URL(`tests/fixtures/${name}`, root)));
+const haveReal = existsSync(templatePath) && existsSync(expectedPath) && existsSync(appsPath);
+const skip = !haveReal && "run test_store_template.py first";
 
-test("spliceStore matches the splice the Mac mounted and read back", { skip: !haveReal && "run test_store_template.py first" }, () => {
+test("parsePackage decodes every fixture package to the identity and app the Python port does", { skip }, () => {
+  const apps = JSON.parse(readFileSync(appsPath));
+  assert.ok(Object.keys(apps).length >= 6);
+  for (const [name, [identity, appSha]] of Object.entries(apps)) {
+    const got = parsePackage(fixture(name));
+    assert.equal(got.identity, identity, name);
+    assert.equal(sha256(got.app), appSha, name);
+  }
+});
+
+test("parsePackage refuses what isn't an FM-1 package", { skip }, () => {
+  assert.throws(() => parsePackage(new Uint8Array(100)), /too short/);
+  const bad = fixture("skiff-2.1.1.fwsc");
+  bad[5] ^= 0xff; // inside the UFW header
+  assert.throws(() => parsePackage(bad), /CRC/);
+  assert.throws(() => parsePackage(new Uint8Array(0x2000).fill(0xff)), /CRC|identity/);
+});
+
+// What the browser downloads: the loader from GitHub, the packages from the Firmware Hub.
+const realFiles = () => {
   const template = JSON.parse(readFileSync(templatePath));
-  const blob = new Uint8Array(readFileSync(blobPath));
-  const blocks = spliceStore(template, blob);
-  const joined = Buffer.concat(blocks.flatMap(({ offset, data }) => [Buffer.from(new Uint32Array([offset]).buffer), Buffer.from(data)]));
+  const files = new Map([[template.loader.url, fixture("wl82loader.bin")]]);
+  for (const p of template.packages) files.set(p.url, fixture(p.url.split("/").pop()));
+  return { template, files };
+};
+const serving = (files, override = {}) => async (url, opts) => {
+  if (url in override) return override[url](opts);
+  const data = files.get(url);
+  return data ? { ok: true, arrayBuffer: async () => data.slice().buffer } : { ok: false, status: 404 };
+};
+
+test("buildStore rebuilds the store the Mac mounted, run by run, the superblock pair last", { skip }, async () => {
+  const { template, files } = realFiles();
+  const got = await fetchStarter(template, serving(files));
+  const runs = await buildStore(template, got);
+  assert.deepEqual(runs.map((r) => [r.offset, r.data.length, r.md5]), template.runs.map((r) => [r.offset, r.size, r.md5]));
+  assert.equal(runs.at(-1).offset, 0);
+  assert.ok(runs.every((r) => md5(r.data) === r.md5));
+  const blocks = runs.flatMap((r) => [...Array(r.data.length / 0x1000)].map((_, i) => [r.offset + i * 0x1000, r.data.subarray(i * 0x1000, (i + 1) * 0x1000)]))
+    .sort((a, b) => a[0] - b[0]);
+  const joined = Buffer.concat(blocks.flatMap(([off, data]) => [Buffer.from(new Uint32Array([off]).buffer), Buffer.from(data)]));
   assert.equal(sha256(joined), readFileSync(expectedPath, "utf8").trim());
+});
+
+test("buildStore refuses a store that isn't the one the template describes", { skip }, async () => {
+  const { template, files } = realFiles();
+  const got = await fetchStarter(template, serving(files));
+  const older = { loader: got.loader, apps: new Map([...got.apps, ["felucca-1.8.0", parsePackage(fixture("felucca-1.6.1.fwsc")).app]]) };
+  await assert.rejects(buildStore(template, older), /missing/);
+  const loader = got.loader.slice();
+  loader[100] ^= 0xff;
+  await assert.rejects(buildStore(template, { loader, apps: got.apps }), /didn't match/);
+  const i = template.blocks.findIndex((x) => x.hex && x.offset > 0x1000);
+  const flip = (h) => (parseInt(h.slice(0, 2), 16) ^ 0xff).toString(16).padStart(2, "0") + h.slice(2);
+  const tampered = { ...template, blocks: template.blocks.map((x, j) => (j === i ? { ...x, hex: flip(x.hex) } : x)) };
+  await assert.rejects(buildStore(tampered, got), /didn't match/);
+});
+
+test("fetchStarter names the firmware that didn't download, and why", { skip }, async () => {
+  const { template, files } = realFiles();
+  const felucca = template.packages.find((p) => p.id === "felucca-1.8.0").url;
+  await assert.rejects(fetchStarter(template, serving(files, { [felucca]: async () => ({ ok: false, status: 404 }) })), /404 for Felucca 1\.8\.0/);
+  await assert.rejects(fetchStarter(template, serving(files, { [felucca]: async () => { throw new TypeError("Failed to fetch"); } })),
+    /couldn't reach the Firmware Hub.*Felucca 1\.8\.0/i);
+  const wrong = fixture("felucca-1.6.1.fwsc");
+  await assert.rejects(fetchStarter(template, serving(files, { [felucca]: async () => ({ ok: true, arrayBuffer: async () => wrong.buffer }) })),
+    /Felucca 1\.8\.0.*didn't match/);
+  await assert.rejects(fetchStarter(template, serving(files, { [template.loader.url]: async () => ({ ok: false, status: 503 }) })), /GitHub answered 503/);
+});
+
+test("fetchStarter gives every download a deadline", { skip }, async () => {
+  const { template, files } = realFiles();
+  const signals = [];
+  await fetchStarter(template, async (url, opts) => { signals.push(opts && opts.signal); return serving(files)(url); });
+  assert.equal(signals.length, 1 + template.packages.length);
+  assert.ok(signals.every((s) => s instanceof AbortSignal));
 });
 
 const tiny = {
   size: 0x3000,
   blob_size: 8,
   loader: { url: "https://example.invalid/wl82loader.bin", sha256: sha256(Buffer.from("LOADERAB")) },
-  blocks: [{ offset: 0x1000, hex: "00".repeat(0x1000) }],
-  extents: [[0x1004, 0, 4], [0x1010, 4, 4]],
+  packages: [],
 };
-
-test("spliceStore puts each piece of the loader at its extent, in a copy of the block", () => {
-  const [block] = spliceStore(tiny, new TextEncoder().encode("LOADERAB"));
-  assert.equal(block.offset, 0x1000);
-  assert.equal(new TextDecoder().decode(block.data.subarray(4, 8)), "LOAD");
-  assert.equal(new TextDecoder().decode(block.data.subarray(0x10, 0x14)), "ERAB");
-  assert.equal(tiny.blocks[0].hex.slice(8, 16), "00000000");
-});
-
 const ok = (bytes) => async () => ({ ok: true, arrayBuffer: async () => Uint8Array.from(bytes).buffer });
 
 test("fetchLoader returns the loader when its SHA-256 matches", async () => {
   const got = await fetchLoader(tiny, ok(Buffer.from("LOADERAB")));
   assert.equal(new TextDecoder().decode(got), "LOADERAB");
-});
-
-test("fetchLoader gives GitHub a deadline", async () => {
-  let signal;
-  await fetchLoader(tiny, async (url, opts) => { signal = opts && opts.signal; return ok(Buffer.from("LOADERAB"))(); });
-  assert.ok(signal instanceof AbortSignal);
 });
 
 test("fetchLoader says why when the download is wrong or fails", async () => {
@@ -109,9 +173,9 @@ const storeBlock = (rel) => ({ offset: 0x3d0000 + rel, data: new Uint8Array(0x10
 
 test("plan: store blocks are written after the four parts when the store region is blank", () => {
   const plan = planInstall({ parts: parts(), boardTable: ourTable(), flashBytes: 16 << 20,
-    storeWrites: [storeBlock(0), storeBlock(0x1000)], storeWritable: true });
+    storeWrites: [storeBlock(0x2000), storeBlock(0)], storeWritable: true });
   assert.deepEqual(plan.problems, []);
-  assert.deepEqual(plan.writes.map((w) => w.offset), [0x0, 0x8000, 0xe000, 0x10000, 0x3d0000, 0x3d1000]);
+  assert.deepEqual(plan.writes.map((w) => w.offset), [0x0, 0x8000, 0xe000, 0x10000, 0x3d2000, 0x3d0000]);
 });
 
 test("plan: no store writes unless prepareStore cleared the region", () => {
