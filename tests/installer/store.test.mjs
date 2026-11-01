@@ -53,7 +53,14 @@ const skip = !haveReal && "run test_store_template.py first";
 
 test("parsePackage decodes every fixture package to the identity and app the Python port does", { skip }, () => {
   const apps = JSON.parse(readFileSync(appsPath));
-  assert.ok(Object.keys(apps).length >= 7);
+  // Every starter package is among them, as the Python port read it: the set
+  // decides the count, not a fixed number.
+  const starter = JSON.parse(readFileSync(templatePath)).packages;
+  assert.ok(starter.length > 0);
+  for (const p of starter) {
+    const name = p.url.split("/").pop();
+    assert.deepEqual(apps[name], [p.identity, p.app_sha256], name);
+  }
   for (const [name, [identity, appSha]] of Object.entries(apps)) {
     const got = parsePackage(fixture(name));
     assert.equal(got.identity, identity, name);
