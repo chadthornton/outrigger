@@ -633,6 +633,14 @@ void run(Installer &inst, const JobBoot &job, const JobNames &names, bool &wrote
       CRUMB_LOADER(step_text(logged));
       DLOG_LOADER("step %d %s, %u of %u sectors", int(logged), step_text(logged), unsigned(inst.sectors_done()),
                   unsigned(inst.sectors_total()));
+      if (logged == Step::WriteApp) {  // the plan is final here, for an install and a resume
+        const DataDecision &d = inst.decision();
+        DLOG_LOADER("data: %s%s, %u sectors to write",
+                    d.action == DataAction::Restore      ? "restore"
+                    : d.action == DataAction::FreshStart ? "fresh"
+                                                         : "keep",
+                    d.clean_slate ? " on a clean slate" : "", unsigned(inst.sectors_total()));
+      }
     }
     if (inst.current() == Step::WriteApp || inst.current() == Step::WriteData) wrote = true;
     uint8_t percent = inst.sectors_total() ? uint8_t(inst.sectors_done() * 100 / inst.sectors_total()) : 0;
