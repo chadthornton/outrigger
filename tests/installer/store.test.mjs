@@ -26,6 +26,13 @@ test("storeAction: a factory-blank store region gets a store", () => {
 
 test("storeAction: our store partition with data but no readable store stops the install", () => {
   assert.equal(storeAction({ runsLoader: true, hasStore: false, hadStorePartition: true, blank: false }), "unreadable");
+  assert.equal(storeAction({ runsLoader: true, hasStore: false, hadStorePartition: true, blank: false, unfinished: false }), "unreadable");
+});
+
+// Chad, 2026-11-01: an install cut short mid-store (a pulled cable) is finished
+// by the next one, when the region holds nothing but this installer's own writes.
+test("storeAction: a store this installer started and didn't finish is finished", () => {
+  assert.equal(storeAction({ runsLoader: true, hasStore: false, hadStorePartition: true, blank: false, unfinished: true }), "create");
 });
 
 // Chad, 2026-10-31: a board that ran other firmware (no store in its table)

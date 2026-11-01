@@ -356,6 +356,43 @@ test("prepareStore: a template that doesn't rebuild is a site build error, not a
   await assert.rejects(prepareStore({ loader: b, board: await readBoard(b), build, fetchFn: hub() }), /site build problem/);
 });
 
+// A board whose install stopped partway through the store (the cable pulled):
+// our table, some of the template's runs written, the superblock pair not.
+async function cutShort() {
+  const b = boardWithBlankStore();
+  const first = await prepareStore({ loader: b, board: await readBoard(b), build: loaderBuild(), fetchFn: hub() });
+  const runs = first.storeWrites.slice(0, -1);
+  for (const w of runs.slice(0, Math.floor(runs.length / 2))) b.flash.set(w.data, w.offset);
+  b.calls = [];
+  return { b, runs: first.storeWrites };
+}
+
+test("prepareStore: an install cut short in the store is finished by the next one", { skip }, async () => {
+  const { b, runs } = await cutShort();
+  const board = await readBoard(b);
+  assert.equal(board.store, false);
+  const got = await prepareStore({ loader: b, board, build: loaderBuild(), fetchFn: hub() });
+  assert.equal(got.action, "create");
+  assert.equal(got.unfinished, true);
+  assert.equal(got.storeWritable, true);
+  assert.deepEqual(got.storeWrites.map((w) => [w.offset, w.md5]), runs.map((w) => [w.offset, w.md5]));
+  assert.equal(b.calls.filter((c) => c[0] === "readFlash" && c[1] >= 0x3d0000 && c[2] > 16).length, 0, "read the store region back");
+});
+
+test("prepareStore: a cut-short store with anything else in it stops as unreadable", { skip }, async () => {
+  for (const spoil of [
+    ({ b, runs }) => { b.flash[runs[0].offset + 100] ^= 0xff; }, // a written run that isn't what the build made
+    ({ b, runs }) => { b.flash[runs[0].offset + runs[0].data.length] = 0x00; }, // data just past a run
+    ({ b }) => { b.flash[0x3d0000 + 0xc20000 - 1] = 0x00; }, // data at the store's very end
+  ]) {
+    const cut = await cutShort();
+    spoil(cut);
+    const got = await prepareStore({ loader: cut.b, board: await readBoard(cut.b), build: loaderBuild(), fetchFn: hub() });
+    assert.equal(got.action, "unreadable");
+    assert.deepEqual(got.storeWrites, []);
+  }
+});
+
 test("prepareStore: if any download fails, nothing may be written and the page is told which", { skip }, async () => {
   const skiff = TEMPLATE.packages.find((p) => p.id === "skiff-2.1.1").url;
   for (const fetchFn of [hub({ [skiff]: async () => ({ ok: false, status: 404 }) }), hub({ [TEMPLATE.loader.url]: async () => ({ ok: false, status: 503 }) })]) {

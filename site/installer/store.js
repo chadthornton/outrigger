@@ -25,13 +25,16 @@ const fromHex = (s) => Uint8Array.from(s.match(/../g), (b) => parseInt(b, 16));
 // - create: the board's table has no store (it ran other firmware, so what's
 //   there is that firmware's, not FM-1 backups), or it has one and the region
 //   is factory-blank (all 0xFF): write a store;
+//   It's also create when the region holds an install of this build's store
+//   that was cut short (Chad, 2026-11-01): only this installer's own writes,
+//   without the superblock pair, which a store with backups always has.
 // - unreadable: the board's table has a store, the region holds data, and no
 //   store this page can read: where backups may have lived. Stop.
-export function storeAction({ runsLoader, hasStore, hadStorePartition, blank }) {
+export function storeAction({ runsLoader, hasStore, hadStorePartition, blank, unfinished = false }) {
   if (!runsLoader) return "none";
   if (hasStore) return "keep";
   if (!hadStorePartition) return "create";
-  return blank ? "create" : "unreadable";
+  return blank || unfinished ? "create" : "unreadable";
 }
 
 // The loader from GitHub, or an Error that says why not, in words for the page.

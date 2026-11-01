@@ -12,6 +12,8 @@ A living list. If you hit something that isn't here, email
 - **The starter firmwares can stop downloading when one of them releases.** The Firmware Hub keeps only each
   firmware's newest file, so a fresh install says a download failed and writes nothing until we update the site.
   Email us if you see it.
+- **If an install stops while it sets up the store** (the cable came out), install again: it picks up where it
+  stopped.
 - **An ESP32 that ran an earlier beta may stop at "storage we can't read".** Nothing was installed. Email us before
   going further: your backups may be in there.
 - **Installing needs Chrome or Edge on a computer.** Phones, Safari and Firefox can't talk to the board's USB port.

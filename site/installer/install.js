@@ -70,7 +70,7 @@ export async function fetchBuild(manifestUrl, fetchFn = fetch) {
 // next try can create the store (a board from other firmware would otherwise
 // get our table over its leftovers and read as unreadable from then on).
 export async function prepareStore({ loader, board, build, fetchFn = fetch }) {
-  const none = { storeWrites: [], storeWritable: false, downloadProblem: null, previousFirmware: false, starter: [] };
+  const none = { storeWrites: [], storeWritable: false, downloadProblem: null, previousFirmware: false, starter: [], unfinished: false };
   if (!build.template) return { action: "none", ...none };
   if (board.store) return { action: "keep", ...none };
   const tablePart = build.parts.find((p) => p.offset === 0x8000);
@@ -82,7 +82,8 @@ export async function prepareStore({ loader, board, build, fetchFn = fetch }) {
   // board from other firmware, what's there isn't FM-1 backups.
   const hadStorePartition = Boolean(board.table.store);
   const blank = hadStorePartition && await storeIsBlank(loader, { offset, size }, build.template.blank_md5);
-  const action = storeAction({ runsLoader: true, hasStore: false, hadStorePartition, blank });
+  const unfinished = hadStorePartition && !blank && await unfinishedStore(loader, offset, build.template);
+  const action = storeAction({ runsLoader: true, hasStore: false, hadStorePartition, blank, unfinished });
   if (action !== "create") return { action, ...none };
   const previousFirmware = !hadStorePartition && board.layout !== "blank";
   const starter = (build.template.packages || []).map((p) => `${p.name} ${p.version}`);
@@ -97,7 +98,25 @@ export async function prepareStore({ loader, board, build, fetchFn = fetch }) {
     throw new Error(`This build's store template doesn't rebuild its store (a site build problem; nothing was written): ${e.message}.`);
   });
   const storeWrites = runs.map((r) => ({ offset: offset + r.offset, data: r.data, md5: r.md5 }));
-  return { action, storeWrites, storeWritable: true, downloadProblem: null, previousFirmware, starter };
+  return { action, storeWrites, storeWritable: true, downloadProblem: null, previousFirmware, starter, unfinished };
+}
+
+// Whether the store region holds this build's store written partway and
+// nothing else: every run either as the build machine made it or erased, the
+// superblock pair (the last run) erased, and every gap between runs erased.
+// The board computes each MD5, so nothing is read back. A template without
+// gaps (an older build) never matches.
+export async function unfinishedStore(loader, offset, template) {
+  if (!template.gaps || !template.runs.length) return false;
+  const superblock = template.runs.at(-1);
+  for (const r of template.runs) {
+    const got = await loader.flashMd5sum(offset + r.offset, r.size);
+    if (got !== r.blank_md5 && (r === superblock || got !== r.md5)) return false;
+  }
+  for (const g of template.gaps) {
+    if (await loader.flashMd5sum(offset + g.offset, g.size) !== g.blank_md5) return false;
+  }
+  return true;
 }
 
 // Whether the store region is factory-blank: the board computes the MD5 of

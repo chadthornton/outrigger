@@ -12,7 +12,9 @@ rebuild it:
   with a placeholder where its bytes go) as hex, trailing 0xFF trimmed;
 - every block that is one 4 KiB sector of a firmware as just that sector's
   SHA-256 (fm1lib's store keeps each sector as a one-block file);
-- the MD5 of each run of blocks as written, and the SHA-256 of the whole.
+- the MD5 of each run of blocks as written, and the SHA-256 of the whole;
+- the MD5 of each run and of each gap between runs when erased, so an
+  install cut short mid-store can be told from anything else and finished.
 The browser downloads the loader from the pinned jl-uboot-tool commit and
 each package from the Firmware Hub, checks their SHA-256, decodes each
 package to its app (site/installer/store.js), and fills the blocks in. If
@@ -126,6 +128,24 @@ def runs_of(blocks):
     return [tuple(r) for r in runs[1:] + runs[:1]]
 
 
+def blank_md5(n):
+    return hashlib.md5(b"\xff" * n).hexdigest()
+
+
+def gaps_of(runs, store_size):
+    """The stretches between the runs, with an erased stretch's MD5: with the runs they
+    cover the whole store, so the installer can tell its own unfinished write from
+    anything else (site/installer/install.js unfinishedStore)."""
+    gaps, at = [], 0
+    for off, n in sorted(runs):
+        if off > at:
+            gaps.append({"offset": at, "size": off - at, "blank_md5": blank_md5(off - at)})
+        at = off + n
+    if at < store_size:
+        gaps.append({"offset": at, "size": store_size - at, "blank_md5": blank_md5(store_size - at)})
+    return gaps
+
+
 def build_template(store_size, loader, packages):
     """A dict for store-template.json (see the module docstring)."""
     words = LOADER_SIZE // 4
@@ -160,7 +180,9 @@ def build_template(store_size, loader, packages):
         "packages": meta,
         "blocks": blocks,
         "extents": loader_extents(image, real, words),
-        "runs": [{"offset": off, "size": n, "md5": hashlib.md5(real[off:off + n]).hexdigest()} for off, n in runs],
+        "runs": [{"offset": off, "size": n, "md5": hashlib.md5(real[off:off + n]).hexdigest(), "blank_md5": blank_md5(n)}
+                 for off, n in runs],
+        "gaps": gaps_of(runs, store_size),
         "sha256": hashlib.sha256(b"".join(off.to_bytes(4, "little") + real[off:off + BLOCK] for off in used)).hexdigest(),
     }
     spliced = dict(splice(template, loader, packages))

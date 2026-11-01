@@ -131,6 +131,15 @@ def main():
     for r, (off, data) in zip(template["runs"], runs):
         if r["md5"] != hashlib.md5(data).hexdigest():
             failures.append(f"run {off:#x}: md5 isn't its data's")
+        if r.get("blank_md5") != hashlib.md5(b"\xff" * r["size"]).hexdigest():
+            failures.append(f"run {off:#x}: blank_md5 isn't an erased run's")
+    # The gaps and the runs tile the store, so a check of both covers every byte (install.js unfinished).
+    pieces = sorted([(r["offset"], r["size"]) for r in template["runs"]] + [(g["offset"], g["size"]) for g in template.get("gaps", [])])
+    if not pieces or pieces[0][0] != 0 or sum(n for _, n in pieces) != size or any(a + n != b for (a, n), (b, _) in zip(pieces, pieces[1:])):
+        failures.append("the runs and gaps don't tile the store")
+    for g in template.get("gaps", []):
+        if g["size"] <= 0 or g["blank_md5"] != hashlib.md5(b"\xff" * g["size"]).hexdigest():
+            failures.append(f"gap {g['offset']:#x}: empty, or blank_md5 isn't an erased gap's")
     for off, data in runs:
         if image[off:off + len(data)] != data:
             failures.append(f"run {off:#x} isn't the spliced image")

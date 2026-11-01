@@ -164,7 +164,8 @@ class InstallArea {
   confirm(choice, build, board, store) {
     const words = describeBoard(board, build.manifest.build);
     const name = buildName(build.manifest.build.app_set);
-    const noStore = store.previousFirmware ? "This board ran other firmware before, so it has no store." : "It has no store yet.";
+    const noStore = store.unfinished ? "Its store was being set up when the last install stopped, so it has no store yet."
+      : store.previousFirmware ? "This board ran other firmware before, so it has no store." : "It has no store yet.";
     if (store.downloadProblem) {
       // A store set up later would land on leftovers (store.js storeAction), so nothing installs without it.
       return this.show(
