@@ -464,9 +464,9 @@ def install_area(label, app_set):
             '      <p class="install-note">Installing needs Chrome or Edge on a computer, with JavaScript on.</p>\n    </div>')
 
 
-REAL_STEP2 = f"""<li><div><b>Add firmwares, once</b><p>The installer sets up firmware switching by itself. Adding firmwares to
-    Outrigger needs a one-time setup that isn't in the browser yet. Beta testers:
-    <a href="{FEEDBACK}">email us</a> and we'll walk you through it.</p></div></li>
+REAL_STEP2 = f"""<li><div><b>Three firmwares come with it</b><p>On a new ESP32 the installer also puts M-VAVE stock V15, Felucca
+    and Skiff on Outrigger, downloaded from the Firmware Hub straight into your browser. Adding others from the
+    browser is next. Beta testers who want one sooner: <a href="{FEEDBACK}">email us</a>.</p></div></li>
   <li><div><b>Plug everything into the hub</b>"""
 
 real = MOCK
@@ -479,7 +479,8 @@ for a, b in [
     ("""<dd>Switching needs a 24 KB file from the FM-1's chip maker that we can't host ourselves. The installer fetches it
       from the open-source tool that already publishes it, checks it, and stores it on your ESP32.</dd>""",
      """<dd>Switching needs a 24 KB file from the FM-1's chip maker that we can't host ourselves. On a new ESP32 the
-      installer downloads it straight from GitHub into your browser and puts it on Outrigger.</dd>"""),
+      installer downloads it straight from GitHub into your browser, and the three starter firmwares from the Firmware
+      Hub, checks every one, and puts them on Outrigger. If a download fails, nothing is written.</dd>"""),
     ('<title>Outrigger: B3</title>', '<title>Outrigger: FM-1\u2019s new best friend</title>\n'
      '<meta name="description" content="Play the M-VAVE FM-1 from any MIDI controller with a USB connection, and switch between 100+ firmwares without a laptop.">\n'
      '<script type="module" src="installer/area.js"></script>'),

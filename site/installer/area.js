@@ -122,7 +122,7 @@ class InstallArea {
         reading.catch(() => {}); // after a timeout it fails against the closed port; nothing waits for it
         const board = await withTimeout(reading, READ_TIMEOUT_MS, "Reading the board");
         if (build.template && !board.store) this.show(h("p", { class: "install-note", role: "status" }, "Checking the board's store…"));
-        // The region's MD5 takes seconds and GitHub has its own deadline; this bounds both.
+        // The region's MD5 takes seconds and each download has its own deadline; this bounds them all.
         const store = await withTimeout(prepareStore({ loader: this.loader, board, build }), STORE_TIMEOUT_MS, "Checking the board's store");
         if (store.action === "unreadable") {
           await this.close();
@@ -164,9 +164,19 @@ class InstallArea {
   confirm(choice, build, board, store) {
     const words = describeBoard(board, build.manifest.build);
     const name = buildName(build.manifest.build.app_set);
+    const noStore = store.unfinished ? "Its store was being set up when the last install stopped, so it has no store yet."
+      : store.previousFirmware ? "This board ran other firmware before, so it has no store." : "It has no store yet.";
+    if (store.downloadProblem) {
+      // A store set up later would land on leftovers (store.js storeAction), so nothing installs without it.
+      return this.show(
+        h("p", { class: "install-read" }, words.board),
+        h("p", {}, `${noStore} Installing sets one up with ${listOf(store.starter)}, but a download didn't come through: ${store.downloadProblem}. Nothing was written. Try again in a few minutes.`),
+        h("div", { class: "row" }, h("button", { class: "alt", on: { click: async () => { await this.close(); this.ready(); } } }, "Close")),
+      );
+    }
     const storeWords = store.action !== "create" ? null
-      : store.loaderProblem ? `It has no store yet, and firmware switching won't be set up: ${store.loaderProblem}. Everything else installs.`
-        : `${store.previousFirmware ? "This board ran other firmware before, so it has no store." : "It has no store yet."} Installing also sets up a fresh one with the file the loader needs from the FM-1's chip maker, downloaded from GitHub straight into this browser.`;
+      : `${noStore} Installing also sets up a fresh one with ${store.starter.length} FM-1 firmwares to switch between: ${listOf(store.starter)}. ` +
+        "They download from thefirmwarehub.com, and the file the loader needs from the FM-1's chip maker from GitHub, straight into this browser.";
     this.show(
       h("p", { class: "install-read" }, words.board),
       h("p", {}, words.install),
@@ -209,8 +219,7 @@ class InstallArea {
     const name = `${buildName(build.manifest.build.app_set)} ${build.manifest.build.commit}`;
     const storeWords = store.action !== "create" ? null
       : storeProblem ? `Firmware switching isn't set up: ${storeProblem}.`
-      : store.loaderProblem ? `Firmware switching isn't set up: ${store.loaderProblem}. Install again later to set it up.`
-        : "Its store is set up for the loader. Add firmwares from a Mac to switch between them.";
+        : `Its store is set up with ${listOf(store.starter)}. Switch between them from the loader on the board.`;
     this.show(h("div", { class: "install-done", role: "status" },
       h("p", {}, h("b", {}, `Installed ${name}.`), " The board restarts by itself. If its screen stays dark, tap RST once."),
       storeWords ? h("p", {}, storeWords) : null,
@@ -222,6 +231,11 @@ class InstallArea {
     if (/Nothing was written|didn't read back|download|not the Waveshare|template/.test(msg)) return `${lead} ${msg}`;
     return `${lead} Check the cable is a data cable and the board is in Computer mode (or BOOT+RST), then try again. (${msg})`;
   }
+}
+
+// "A, B and C"
+function listOf(names) {
+  return names.length < 2 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
 }
 
 for (const el of document.querySelectorAll(".install[data-builds]")) new InstallArea(el);
