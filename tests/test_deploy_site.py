@@ -40,6 +40,28 @@ class RefusalTest(unittest.TestCase):
         self.assertIn("channel", self.refusal("staging"))
 
 
+class BuiltFromTest(unittest.TestCase):
+    """make check leaves build/checked/{site,commit}; only HEAD's site may go up."""
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.site = Path(self.tmp.name) / "site"
+        self.site.mkdir()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_site_built_from_head_passes(self):
+        (self.site.parent / "commit").write_text(HEAD + "\n")
+        self.assertIsNone(deploy_site.built_from_problem(self.site, HEAD))
+
+    def test_site_from_another_commit_refused(self):
+        (self.site.parent / "commit").write_text(OTHER + "\n")
+        self.assertIn("make check again", deploy_site.built_from_problem(self.site, HEAD))
+
+    def test_site_with_no_commit_refused(self):
+        self.assertIn("make check", deploy_site.built_from_problem(self.site, HEAD))
+
+
 class SiteProblemsTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
