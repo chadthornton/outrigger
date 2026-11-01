@@ -58,11 +58,11 @@ void describe_plan(const PlanInput &in, UiPlan &out) {
     line("An install is unfinished.");
     line("Retry it from the FM-1 page first.");
   } else if (!in.has_unit) {
-    // The switch backs it up first; the plan proper comes from that backup.
-    line("No backup yet, so it backs it up first.");
+    // The switch backs it up first; the plan proper comes from that backup, and
+    // a plan that erases data stops there for the user's OK (its own result).
+    line("Backs up the FM-1 first.");
     snprintf(buf, sizeof buf, "Then writes %s.", in.target);
     line(buf);
-    line("It asks first if it would erase songs.");
     line("MIDI stops until it's done.");
   } else if (!p.ok) {
     warn = 0;
@@ -77,8 +77,8 @@ void describe_plan(const PlanInput &in, UiPlan &out) {
     else snprintf(buf, sizeof buf, "Switches from a firmware this board doesn't know.");
     line(buf);
     // One read must match the latest backup; if the FM-1 changed, the switch
-    // backs up first (switch_chain.h).
-    line("Backs up only if the FM-1 changed.");
+    // backs up first (switch_chain.h). Only the ROM-boot read can tell, so the
+    // plan doesn't say: the job page shows the backup when it runs.
     if (p.current.known() && family_info(p.current.family).saves_enabled) {
       snprintf(buf, sizeof buf, "Saves %s's songs.", running);
       line(buf);

@@ -281,7 +281,7 @@ static void test_plan() {
   EXPECT(p.item == 2, "keeps its row");
   EXPECT(strcmp(p.title, "Felucca 1.6.1") == 0 && strcmp(p.hold, "switch to Felucca 1.6.1") == 0, "title and hold");
   EXPECT(strcmp(p.lines[0], "Switches from Skiff 1.4.") == 0, "from");
-  EXPECT(plan_has(p, "Backs up only if the FM-1 changed."), "backs up only when needed");
+  EXPECT(!plan_has(p, "Backs up only if"), "no maybe-backup line: the job page shows a backup when it runs");
   EXPECT(plan_has(p, "Saves Skiff's songs."), "saves the running firmware's songs");
   EXPECT(plan_has(p, "Writes Felucca 1.6.1: 143 sectors."), "writes");
   EXPECT(plan_has(p, "Brings back Felucca's songs."), "restores");
@@ -310,7 +310,7 @@ static void test_plan() {
   in.preview.decision.clean_slate = true;
   in.preview.decision.stock_resources_warning = true;
   describe_plan(in, p);
-  EXPECT(p.line_count == kPlanLines && p.warn_from == p.line_count - 1 &&
+  EXPECT(p.warn_from == p.line_count - 1 &&
              has(p.lines[p.warn_from], "Returning to stock may lose stock resources"),
          "stock resources warning");
 
@@ -346,8 +346,8 @@ static void test_plan() {
   in = plan_input();
   in.has_unit = false;
   describe_plan(in, p);
-  EXPECT(p.can_act && plan_has(p, "backs it up first"), "no backup yet: the switch backs up first");
-  EXPECT(plan_has(p, "asks first"), "and says it asks before erasing songs");
+  EXPECT(p.can_act && plan_has(p, "Backs up the FM-1 first."), "no backup yet: the switch backs up first");
+  EXPECT(!plan_has(p, "asks first"), "no maybe-lines: a plan that needs an OK says so after the backup");
   in.ready = false;
   describe_plan(in, p);
   EXPECT(!p.can_act, "no backup and not ready: no hold");
