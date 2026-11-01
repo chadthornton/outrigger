@@ -18,7 +18,7 @@ import { readBoard, fetchBuild, install, finish, prepareStore } from "./install.
 
 // Shown under each install area and in Details, so a bug report says which
 // installer ran. Bump it with every change to site/installer/.
-export const INSTALLER_VERSION = "2026-11-01.1";
+export const INSTALLER_VERSION = "2026-11-01.2";
 
 // The ESP32-S3's own USB port (USB-Serial-JTAG), in Computer mode or BOOT+RST.
 const PORT_FILTER = [{ usbVendorId: 0x303a, usbProductId: 0x1001 }];
@@ -194,6 +194,7 @@ class InstallArea {
       // A store set up later would land on leftovers (store.js storeAction), so nothing installs without it.
       return this.show(
         h("p", { class: "install-read" }, words.board),
+        words.warning ? h("p", { class: "install-error", role: "alert" }, words.warning) : null,
         h("p", {}, `${noStore} Installing sets one up with ${listOf(store.starter)}, but a download didn't come through: ${store.downloadProblem}. Nothing was written. Try again in a few minutes.`),
         h("div", { class: "row" }, h("button", { class: "alt", on: { click: async () => { await this.close(); this.ready(); } } }, "Close")),
       );

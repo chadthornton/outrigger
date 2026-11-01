@@ -113,6 +113,17 @@ class CheckTest(unittest.TestCase):
         self.assertRefused(one(), "tag_id 1", others=[one(**{"site_id": "other"})])
         self.assertRefused(one(), "site_id", others=[one(**{"tag_id": 7})])
 
+    def test_expander_key_must_be_there(self):
+        self.assertRefused(one(**{"expander": DELETE}), "expander")
+        self.assertRefused(one(**{"expander.address": DELETE}), "expander.address")
+
+    def test_bools_are_not_pins(self):
+        self.assertRefused(one(**{"touch.rst": True}), "touch.rst")
+
+    def test_i2c_addresses(self):
+        self.assertRefused(one(**{"touch.address": 0x150}), "touch.address")
+        self.assertRefused(one(**{"expander.address": 3}), "expander.address")
+
     def test_board_ids_are_make_and_c_names(self):
         found = boards.check({"boards": {"bad-id": one()}})
         self.assertTrue(any("bad-id" in p for p in found), found)
@@ -149,6 +160,14 @@ class OutputTest(unittest.TestCase):
         self.assertIn('{"240x280", 240, 280, 40, 0, InputKind::Touch}', t)
         self.assertIn('{"320x480", 320, 480, 0, 1, InputKind::Touch}', t)
         self.assertLess(t.index("240x280"), t.index("320x480"))
+
+    def test_shots_with_one_resolution_get_distinct_ids(self):
+        table = {"boards": {"a": REAL["boards"]["waveshare_169"],
+                            "b": dict(REAL["boards"]["waveshare_169"], screen={**REAL["boards"]["waveshare_169"]["screen"],
+                                                                            "shape": "rect", "corner_radius": 0})}}
+        t = boards.shots_table(table)
+        self.assertIn('{"240x280", 240, 280, 40, 0,', t)
+        self.assertIn('{"240x280-r0", 240, 280, 0, 0,', t)
 
     def test_write_if_changed_keeps_the_file_time(self):
         with tempfile.TemporaryDirectory() as d:

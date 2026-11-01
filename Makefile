@@ -8,11 +8,15 @@ CTAGS_DIR ?= /opt/homebrew/bin
 # The boards are the profiles in firmware/boards.json (docs/boards.md, "Adding a
 # board"); every board builds the one sketch, with its board_config.h.
 BOARDS := $(shell python3 -I tools/boards.py ids)
+ifeq ($(BOARDS),)
+$(error firmware/boards.json has a problem: python3 -I tools/boards.py check says what)
+endif
 APP_SETS := hub hub-loader everything
 # littlefs-python for the store image and the installer's store template (rule below).
 TOOLS_PY := build/tools-venv/bin/python
 BOARD ?= waveshare_169
-FQBN := $(shell python3 -I tools/boards.py fqbn $(BOARD))
+# Recursive (=): only build and flash read it, so other targets don't run python for it.
+FQBN = $(shell python3 -I tools/boards.py fqbn $(BOARD))
 APPS ?= hub
 APP_FLAGS_hub :=
 APP_FLAGS_hub-loader := -DAPP_LOADER=1
