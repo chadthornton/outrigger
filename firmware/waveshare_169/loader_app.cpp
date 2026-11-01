@@ -633,6 +633,14 @@ void run(Installer &inst, const JobBoot &job, const JobNames &names, bool &wrote
       CRUMB_LOADER(step_text(logged));
       DLOG_LOADER("step %d %s, %u of %u sectors", int(logged), step_text(logged), unsigned(inst.sectors_done()),
                   unsigned(inst.sectors_total()));
+      if (logged == Step::WriteApp) {  // the plan is final here, for an install and a resume
+        const DataDecision &d = inst.decision();
+        DLOG_LOADER("data: %s%s, %u sectors to write",
+                    d.action == DataAction::Restore      ? "restore"
+                    : d.action == DataAction::FreshStart ? "fresh"
+                                                         : "keep",
+                    d.clean_slate ? " on a clean slate" : "", unsigned(inst.sectors_total()));
+      }
     }
     if (inst.current() == Step::WriteApp || inst.current() == Step::WriteData) wrote = true;
     uint8_t percent = inst.sectors_total() ? uint8_t(inst.sectors_done() * 100 / inst.sectors_total()) : 0;
@@ -697,7 +705,7 @@ void request_job(UiAct act, int index) {
     // The hold agreed to what the preview showed.
     strlcpy(j.package, previewed_id.c_str(), sizeof j.package);
     strlcpy(j.unit, library->last_unit().c_str(), sizeof j.unit);
-    j.fresh_ok = previewed.action == DataAction::FreshStart;
+    j.fresh_ok = needs_erase_ok(previewed);
     j.layout_ok = previewed.layout_warning;
   }
   const JobNames names = job_names(j);

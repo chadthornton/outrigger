@@ -704,13 +704,13 @@ static void test_save_states_end_to_end() {
   const Image skiff_state = f;
   Rig r(f);
 
-  // Skiff -> SLOOP: autosave Skiff, start fresh.
+  // Skiff -> SLOOP, untested: autosave Skiff, then a clean slate.
   r.back_up();
   r.install("sloop-2.8.1");
   CHECK(r.inst.current() == Step::Done);
-  CHECK(r.inst.decision().action == DataAction::FreshStart);
+  CHECK(r.inst.decision().action == DataAction::FreshStart && r.inst.decision().clean_slate);
   CHECK(r.rom.flash[0x97000] == 0xFF && r.rom.flash[0xFC000] == 0xFF);
-  CHECK(r.rom.flash[kStagingStart] == 0x23);  // staging is never touched
+  CHECK(r.rom.flash[kStagingStart] == 0xFF);  // the stale update record goes too, never to return
   CHECK_EQ(r.lib.saves_of(r.inst.unit().id).size(), size_t(1));
 
   // Make a SLOOP song, then go back to Skiff: the Skiff save comes back.
@@ -727,6 +727,7 @@ static void test_save_states_end_to_end() {
   CHECK(memcmp(r.rom.flash.data() + kAppStart, skiff().data(), kAppLen) == 0);
   CHECK_EQ(r.lib.saves_of(r.inst.unit().id).size(), size_t(2));  // and SLOOP's was saved
 
+  CHECK(r.rom.flash[kStagingStart] == 0xFF);  // staging is never restored
   // Protected areas never changed through all of it.
   CHECK(memcmp(r.rom.flash.data(), skiff_state.data(), kHeadEnd) == 0);
   CHECK(memcmp(r.rom.flash.data() + kUnitSector, skiff_state.data() + kUnitSector,
@@ -774,20 +775,85 @@ static void test_blank_unit_sector() {
   CHECK(r.rom.was_reset && r.rom.lowest_touched < 0);
 }
 
-static void test_stock_needs_layout_ok() {
+// Back to stock is untested: a clean slate, after the user's OK. Stock's factory
+// data (0x93000) and resources (0xEA000-0xFBFFF) stay.
+static void test_stock_clean_slate() {
   Image f = base_flash(skiff());
   memset(f.data() + 0x97000, 0x41, kSector);  // Skiff data, which stock would read as its own
+  memset(f.data() + 0x93000, 0x42, kSector);
+  memset(f.data() + 0xEA000, 0x43, kSector);
   Rig r(f);
   add(r.lib, "stock-v15", "FM-1_015.fwsc", "stock");
   r.back_up();
-  r.install("stock-v15");
-  CHECK(r.inst.failure() == Failure::NeedsLayoutChangeOk);
-  CHECK(r.inst.decision().stock_unmapped);
+  r.install("stock-v15", false);
+  CHECK(r.inst.failure() == Failure::NeedsFreshStartOk);
+  CHECK(r.inst.decision().clean_slate && !r.inst.decision().stock_unmapped);
   CHECK(r.host.keys == 0 && r.rom.lowest_touched < 0);
-  r.install("stock-v15", true, true);
+  r.install("stock-v15");
   CHECK(r.inst.current() == Step::Done);
-  CHECK(r.rom.flash[0x97000] == 0x41 && r.rom.flash[0x93000] == 0xFF);  // data kept as it was
+  CHECK(r.rom.flash[0x97000] == 0xFF && r.rom.flash[0x93000] == 0x42 && r.rom.flash[0xEA000] == 0x43);
   CHECK(memcmp(r.rom.flash.data() + kAppStart, pkg("FM-1_015.fwsc").app.data(), kAppLen) == 0);
+  CHECK(r.rom.violations.empty());
+}
+
+// An untested switch with a save on the target's shelf: a clean slate that
+// brings the save back, and it asks first (it erases more than the shelf holds).
+static void test_clean_slate_restore() {
+  Image f = base_flash(skiff());
+  memset(f.data() + 0x9F000, 0x51, kSector);  // Skiff's FM6 user presets, copy A
+  memset(f.data() + 0xE8000, 0x52, kSector);  // its second bank sector
+  const Image skiff_state = f;
+  Rig r(f);
+  r.back_up();
+  r.install("sloop-2.8.1");
+  CHECK(r.inst.current() == Step::Done);
+  CHECK(r.rom.flash[0x9F000] == 0xFF && r.rom.flash[0xE8000] == 0xFF);
+  memset(r.rom.flash.data() + 0x94000, 0x61, kSector);  // SLOOP-era data where Skiff keeps none
+  memset(r.rom.flash.data() + kStagingStart, 0x62, kSector);
+  r.back_up();
+  r.install("skiff-1.4", false);
+  CHECK(r.inst.failure() == Failure::NeedsFreshStartOk);
+  CHECK(r.inst.decision().action == DataAction::Restore && r.inst.decision().clean_slate);
+  r.install("skiff-1.4");
+  CHECK(r.inst.current() == Step::Done);
+  CHECK(r.rom.flash[0x9F000] == 0x51 && r.rom.flash[0xE8000] == 0x52);
+  CHECK(r.rom.flash[0x94000] == 0xFF && r.rom.flash[kStagingStart] == 0xFF);
+  CHECK(r.rom.violations.empty());
+}
+
+// A crash mid clean slate: the resume finishes the same clean slate.
+static void test_resume_clean_slate() {
+  Image f = base_flash(sloop());
+  memset(f.data() + 0x94000, 0x71, kSector);
+  memset(f.data() + kStagingStart, 0x72, kSector);
+  memset(f.data() + 0xFC000, 0x73, kSector);
+  Rig r(f);
+  r.back_up();
+  InstallOptions o;
+  o.confirmed = true;
+  o.fresh_start_ok = true;
+  r.inst.start_install("skiff-1.4", o);
+  while (!(r.inst.current() == Step::WriteData && r.rom.flash[0x94000] == 0xFF) && r.inst.step()) {
+  }
+  CHECK(r.inst.current() == Step::WriteData && r.rom.flash[kStagingStart] == 0x72);  // stopped part way
+  Installer again(r.rom, r.host, r.lib, blob());
+  o.loader_running = true;
+  again.start_resume(o);
+  again.run();
+  CHECK(again.current() == Step::Done);
+  CHECK(r.rom.flash[kStagingStart] == 0xFF && r.rom.flash[0xFC000] == 0xFF);
+  CHECK(memcmp(r.rom.flash.data() + kAppStart, skiff().data(), kAppLen) == 0);
+}
+
+// Melodee and Tessera write the unit-ID sector: refused before the key.
+static void test_blocked_firmware() {
+  Rig r(base_flash(sloop()));
+  add(r.lib, "melodee-1.6", "skiff-1.4.fwsc", "melodee");  // any package, on Melodee's project
+  r.back_up();
+  r.install("melodee-1.6");
+  CHECK(r.inst.failure() == Failure::Blocked);
+  CHECK(r.host.keys == 0 && r.rom.lowest_touched < 0);
+  CHECK(strstr(failure_text(Failure::Blocked), "Bluetooth"));
 }
 
 static void test_resume_with_nothing_left() {
@@ -982,7 +1048,10 @@ int main() {
   test_two_units();
   test_blank_unit_sector();
   test_midi_not_back();
-  test_stock_needs_layout_ok();
+  test_stock_clean_slate();
+  test_clean_slate_restore();
+  test_resume_clean_slate();
+  test_blocked_firmware();
   test_resume_with_nothing_left();
   test_autosave_not_repeated();
   if (failures) {

@@ -189,7 +189,7 @@ static void test_guard_app() {
   CHECK(!guard(kAppEnd - kSector, 2 * kSector, Right::App, Family::Felucca));
   CHECK(!guard(kAppEnd, kSector, Right::App, Family::Felucca));
   // Bluetooth data and factory voices, and key_mac, under every right.
-  for (Right r : {Right::App, Right::SaveRestore, Right::SettingsErase}) {
+  for (Right r : {Right::App, Right::SaveRestore, Right::SettingsErase, Right::CleanSlate}) {
     CHECK(!guard(kUnitSector, kSector, r, Family::Felucca));
     CHECK(!guard(kUnitSector - 1, 2, r, Family::Felucca));
     CHECK(!guard(kFactoryEnd - 1, 2, r, Family::Felucca));
@@ -221,9 +221,12 @@ static void test_guard_data() {
   CHECK(why && strstr(why, "staging"));
   CHECK(!guard(0xE4000, kSector, Right::SaveRestore, Family::Felucca));
   CHECK(!guard(0xDF000, 2 * kSector, Right::SaveRestore, Family::Felucca));  // into staging
-  CHECK(!guard(0x93000, kSector, Right::SaveRestore, Family::Felucca));      // not in the table
-  CHECK(!guard(0x9F000, kSector, Right::SaveRestore, Family::Felucca));
-  CHECK(!guard(0xE8000, kSector, Right::SaveRestore, Family::Felucca));
+  CHECK(!guard(0x93000, kSector, Right::SaveRestore, Family::Felucca));      // stock's factory data
+  // Felucca 1.x's OBJ_UPFM6 copy A (0x9F000), Skiff's second bank sector (0xE8000)
+  // and the VM sectors jangada, XMOD and fm1-dock use (0x94000-0x96FFF) are saved.
+  CHECK(guard(0x9F000, kSector, Right::SaveRestore, Family::Felucca));
+  CHECK(guard(0xE8000, kSector, Right::SaveRestore, Family::Felucca));
+  CHECK(guard(0x94000, 0x3000, Right::SaveRestore, Family::Felucca));
   CHECK(!guard(0x50000, kSector, Right::SaveRestore, Family::Felucca));
   CHECK(!guard(0x97000, kSector, Right::SaveRestore, Family::Stock));
   // No save range overlaps staging or the never-touch areas.
@@ -234,6 +237,30 @@ static void test_guard_data() {
   CHECK(!family_info(Family::Stock).saves_enabled);
 }
 
+// The clean slate: 0x94000-0xE8FFF and 0xFC000-0xFEFFF, staging included,
+// and nothing else.
+static void test_guard_clean_slate() {
+  CHECK(guard(0x94000, 0xE9000 - 0x94000, Right::CleanSlate, Family::Felucca));
+  CHECK(guard(kStagingStart, kSector, Right::CleanSlate, Family::Stock));
+  CHECK(guard(kGlobalsStart, kGlobalsEnd - kGlobalsStart, Right::CleanSlate, Family::Stock));
+  CHECK(!guard(0x93000, kSector, Right::CleanSlate, Family::Felucca));  // stock's factory data
+  CHECK(!guard(kAppEnd - kSector, kSector, Right::CleanSlate, Family::Felucca));
+  CHECK(!guard(0xE8000, 2 * kSector, Right::CleanSlate, Family::Felucca));  // into the unit sector
+  // Every save range lies inside the clean slate: a restore writes only there.
+  const FamilyInfo &f = family_info(Family::Felucca);
+  for (size_t i = 0; i < f.save_range_count; ++i)
+    CHECK(guard(f.save_ranges[i].start, f.save_ranges[i].end - f.save_ranges[i].start,
+                Right::CleanSlate, Family::Felucca));
+  // No right reaches the head, the app (except App), 0x93000, 0xE9000-0xFBFFF or key_mac.
+  for (Right r : {Right::SaveRestore, Right::CleanSlate}) {
+    for (uint32_t a = 0; a < kFlashSize; a += kSector) {
+      const bool allowed = guard(a, kSector, r, Family::Felucca) || guard(a, kSector, r, Family::Stock);
+      const bool forbidden = a < kVmStart + kSector || (a >= kUnitSector && a < kFactoryEnd) || a >= kKeyMacStart;
+      if (forbidden) CHECK(!allowed);
+    }
+  }
+}
+
 int main() {
   test_sha256();
   test_crc_and_ciphers();
@@ -242,6 +269,7 @@ int main() {
   test_damaged_packages();
   test_guard_app();
   test_guard_data();
+  test_guard_clean_slate();
   if (failures) {
     printf("%d failure(s)\n", failures);
     return 1;

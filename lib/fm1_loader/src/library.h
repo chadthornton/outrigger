@@ -63,6 +63,7 @@ struct PendingInstall {
   std::string package_id;
   DataAction action = DataAction::Keep;
   std::string save_id;
+  bool clean_slate = false;   // DataDecision::clean_slate
   std::string before_backup;  // the verified backup taken just before
 };
 
@@ -155,13 +156,28 @@ struct DataDecision {
   std::string save_id;
   bool layout_warning = false;   // the identity changes: old data may not suit the new firmware
   bool stock_unmapped = false;   // target is stock: data kept in place, never saved or erased
+  // An untested switch: Restore or FreshStart over the whole clean-slate area
+  // (Right::CleanSlate), not just the target family's save ranges.
+  bool clean_slate = false;
+  // Back to stock after Skiff 2.x, which writes stock's resources at
+  // 0xEA000-0xFBFFF that the loader can't put back (bench test 1 owed).
+  bool stock_resources_warning = false;
+  // Why this firmware can't be installed yet, for the screen; null when it can.
+  const char *blocked = nullptr;
 };
 
+// Whether a hardware test proved this switch, in either direction: such a pair
+// switches the family map as before; every other switch is a clean slate.
+bool tested_pair(const std::string &from_project, const std::string &from_identity,
+                 const std::string &to_project, const std::string &to_identity);
+
 // The trust table (docs/package-sources.md):
+// - a project the loader can't handle yet (it writes the unit-ID sector): blocked;
 // - the same app as now: keep (no-op install);
 // - another version of the same project, same data era: keep, the autosave is the rollback;
 // - otherwise this unit's newest save on the target project's shelf, same era: restore it;
 // - otherwise: fresh start, or for stock (data map unknown) keep in place with a warning.
+// Restore and fresh start are a clean slate unless tested_pair(): stock included.
 DataDecision decide_data(const std::string &unit_id, const Firmware &current,
                          const PackageInfo &target, const std::vector<SaveState> &saves);
 
@@ -188,5 +204,22 @@ bool plan_restore(const SaveState &s, const std::string &unit_id, const PackageI
 
 // Non-blank sectors of the target family's save ranges, to erase.
 std::vector<SectorOp> plan_fresh(Family family, const FlashHashes &flash);
+
+// Whether the user must agree before this decision runs (InstallOptions::
+// fresh_start_ok): a fresh start, or a clean slate, which erases more than the
+// outgoing shelf holds.
+bool needs_erase_ok(const DataDecision &d);
+
+// The data sectors a decision writes: its save restored, or a fresh start, each
+// on a clean slate when the decision says so. False when its save is missing or
+// doesn't fit (another unit's, another project's).
+bool plan_data(Library &lib, const std::string &unit_id, const DataDecision &d, const PackageInfo &target,
+               const FlashHashes &flash, std::vector<SectorOp> &ops);
+
+// A clean slate: every sector of the clean-slate ranges that differs from the
+// save (blank where the save has none, and everywhere without a save).
+// Refused (false) for a save plan_restore() would refuse.
+bool plan_clean(const SaveState *s, const std::string &unit_id, const PackageInfo &target,
+                const FlashHashes &flash, std::vector<SectorOp> &ops);
 
 }  // namespace fm1_loader
