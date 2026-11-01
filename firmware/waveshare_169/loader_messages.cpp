@@ -87,13 +87,17 @@ void describe_plan(const PlanInput &in, UiPlan &out) {
     line(buf);
     char target[28];
     name_of(in.target, target, sizeof target);
+    // A clean slate (an untested switch) clears the old firmware's data first.
+    const bool clean = p.decision.clean_slate;
     switch (p.decision.action) {
       case DataAction::Restore:
-        snprintf(buf, sizeof buf, "Brings back %s's songs.", target);
+        snprintf(buf, sizeof buf, clean ? "Clears old data, brings back %s's songs." : "Brings back %s's songs.",
+                 target);
         line(buf);
         break;
       case DataAction::FreshStart:
-        snprintf(buf, sizeof buf, "Starts %s fresh: no songs saved yet.", target);
+        snprintf(buf, sizeof buf, clean ? "Clears old data: %s starts fresh." : "Starts %s fresh: no songs saved yet.",
+                 target);
         line(buf);
         break;
       case DataAction::Keep:
@@ -106,7 +110,15 @@ void describe_plan(const PlanInput &in, UiPlan &out) {
         }
         break;
     }
-    line("MIDI stops until it's done.");
+    // Skiff 2.x writes stock's resources: in the last line, where the cap can't
+    // drop it (the job screen says MIDI stops too).
+    if (p.decision.stock_resources_warning && warn < 0) {
+      if (n == kPlanLines) --n;
+      warn = n;
+      line("Returning to stock may lose stock resources.");
+    } else {
+      line("MIDI stops until it's done.");
+    }
   }
   out.line_count = uint8_t(n);
   out.warn_from = uint8_t(warn < 0 ? n : warn);
@@ -415,6 +427,11 @@ static void describe_stage(const JobOutcome &in, UiResult &out) {
         PUT(out.why, "%s.", failure_text(in.failure));
         PUT(out.todo, "Open it again to see the plan, then hold.");
       }
+      break;
+    case Failure::Blocked:
+      PUT(out.why, "Not yet supported: it writes the FM-1's Bluetooth sector.");
+      PUT(out.todo, "Pick another firmware.");
+      out.fix = UiAct::None;
       break;
     case Failure::WritesLocked:
       PUT(out.why, "This build can't write to the FM-1.");

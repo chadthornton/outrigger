@@ -5,15 +5,19 @@ namespace fm1_loader {
 namespace {
 
 const Range kFeluccaSave[] = {
+    {0x94000, 0x97000},  // stock VM sectors other firmwares use (jangada, XMOD, fm1-dock)
     {0x97000, 0x9F000},  // projects / songs
+    {0x9F000, 0xA0000},  // OBJ_UPFM6 copy A: FM6 user presets (Felucca 1.x); SLOOP's autosave
     {0xA0000, 0xDC000},  // user sample slots
     {0xDC000, 0xE0000},  // user preset banks
     {0xE5000, 0xE7000},  // autosave A/B
     {0xE7000, 0xE8000},  // voice bank
-    {0xFC000, 0xFF000},  // settings / globals
+    {0xE8000, 0xE9000},  // Skiff's second pattern-bank sector (also grimm, fm106, Melodee)
+    {0xFC000, 0xFF000},  // settings / globals (OBJ_UPFM6 copy B at 0xFE000)
 };
 
 const Range kSettingsErase[] = {{kVmStart, kVmEnd}, {kGlobalsStart, kGlobalsEnd}};
+const Range kCleanSlate[] = {{kCleanStart, kVmEnd}, {kGlobalsStart, kGlobalsEnd}};
 const Range kApp[] = {{kAppStart, kAppEnd}};
 
 const FamilyInfo kStock = {Family::Stock, "stock", nullptr, 0, false};
@@ -54,6 +58,9 @@ bool guard(uint32_t addr, uint32_t len, Right right, Family family, const char *
       return true;
     case Right::SettingsErase:
       if (!inside(addr, len, kSettingsErase, 2)) return refuse(why, "outside the settings areas");
+      return true;
+    case Right::CleanSlate:
+      if (!inside(addr, len, kCleanSlate, 2)) return refuse(why, "outside the clean-slate areas");
       return true;
     case Right::SaveRestore: {
       if (overlaps(addr, end, kStagingStart, kStagingEnd))

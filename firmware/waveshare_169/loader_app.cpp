@@ -697,7 +697,7 @@ void request_job(UiAct act, int index) {
     // The hold agreed to what the preview showed.
     strlcpy(j.package, previewed_id.c_str(), sizeof j.package);
     strlcpy(j.unit, library->last_unit().c_str(), sizeof j.unit);
-    j.fresh_ok = previewed.action == DataAction::FreshStart;
+    j.fresh_ok = previewed.action == DataAction::FreshStart || previewed.clean_slate;
     j.layout_ok = previewed.layout_warning;
   }
   const JobNames names = job_names(j);

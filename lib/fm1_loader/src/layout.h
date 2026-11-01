@@ -19,6 +19,7 @@ constexpr uint32_t kAppLen = kAppEnd - kAppStart;
 constexpr uint32_t kAppSectors = kAppLen / kSector;  // 143
 constexpr uint32_t kVmStart = 0x93000;         // stock V15's settings store (JieLi "VM")
 constexpr uint32_t kVmEnd = 0xE9000;
+constexpr uint32_t kCleanStart = 0x94000;      // a clean slate erases from here (0x93000 is factory data)
 constexpr uint32_t kStagingStart = 0xE0000;    // Felucca update loader and record
 constexpr uint32_t kStagingEnd = 0xE5000;
 constexpr uint32_t kUnitSector = 0xE9000;      // per-unit Bluetooth data: the unit ID
@@ -38,8 +39,10 @@ struct Range {
 enum class Family { Stock, Felucca };
 
 // The ranges a save state of this family holds. Felucca family (verified from
-// Felucca's storage.c): songs, sample slots, preset banks, autosave, voice bank,
-// globals. The update staging range 0xE0000-0xE4FFF is never among them.
+// Felucca's storage.c): songs, FM6 user presets, sample slots, preset banks,
+// autosave, voice bank, globals; plus 0x94000-0x96FFF and 0xE8000, which other
+// firmwares on this shelf map write. Together they are the clean slate's
+// ranges minus update staging 0xE0000-0xE4FFF, which is never saved.
 //
 // Stock V15: its store is the whole VM (0x93000-0xE8FFF), with the factory data
 // in its first sector and an update record at 0xE8F00 (fm1_unbrick.py
@@ -60,6 +63,7 @@ enum class Right {
   App,            // installing a package: 0x4000-0x92FFF only
   SaveRestore,    // restoring or freshly erasing a family's save ranges
   SettingsErase,  // the explicit "erase settings" repair: 0x93000-0xE8FFF, 0xFC000-0xFEFFF
+  CleanSlate,     // a switch no test has proven: 0x94000-0xE8FFF, 0xFC000-0xFEFFF, any family
 };
 
 // The single gate: true if [addr, addr+len) may be erased or written for this

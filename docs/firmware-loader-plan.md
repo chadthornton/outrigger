@@ -34,7 +34,8 @@ What session 1 settled or changed:
   false for this chip (ported and tested both ways).
 - **Stock V15's data map stays unknown.** Its store is the whole VM `0x93000–0xE8FFF`, with factory data in
   `0x93000` and an update record at `0xE8F00`, but which sectors hold what isn't mapped. So stock saves stay
-  disabled, and a switch to stock keeps the data in place with the layout warning. It never erases `0x93000`.
+  disabled. A switch to stock kept the data in place with the layout warning until 2026-11-01; now it's a clean
+  slate (`docs/package-sources.md`). It never erases `0x93000`.
   Mapping it needs a stock unit's dumps before and after changing settings (checkpoint 4).
 - **Resume** reads the unit's sector, requires its stored verified backup and an unfinished install recorded before
   the first erase, then reads the flash once and finishes that install. It never resets the FM-1 on a failure.
@@ -396,12 +397,15 @@ stores data in its own places. Felucca's own source gives the Felucca-family map
 
 | Range | Holds | In a save state? |
 |---|---|---|
+| `0x94000–0x96FFF` | Not Felucca's: stock VM sectors jangada, XMOD and fm1-dock use (added 2026-11-01) | Yes |
 | `0x97000–0x9EFFF` | Projects / songs | Yes |
+| `0x9F000–0x9FFFF` | `OBJ_UPFM6` copy A, FM6 user presets (missed until 2026-11-01) | Yes |
 | `0xA0000–0xDBFFF` | User sample slots | Yes |
 | `0xDC000–0xDFFFF` | User preset banks | Yes |
 | `0xE0000–0xE4FFF` | Update staging: update loader and record | **Never.** Restoring a stale update record could start an update. |
 | `0xE5000–0xE6FFF` | Autosave A/B | Yes |
 | `0xE7000–0xE7FFF` | Voice bank | Yes |
+| `0xE8000–0xE8FFF` | Not Felucca's: Skiff's second bank sector (added 2026-11-01) | Yes |
 | `0xFC000–0xFEFFF` | Settings / globals | Yes |
 
 - **Stock V15:** keeps its settings store in `0x93000–0xE8FFF`, with its own update record at `0xE8F00`. Its exact

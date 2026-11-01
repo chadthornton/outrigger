@@ -60,6 +60,7 @@ const char *failure_text(Failure f) {
     case Failure::WriteVerifyFailed: return "a sector didn't verify twice";
     case Failure::MidiNotBack: return "installed, but the FM-1 didn't come back as MIDI";
     case Failure::WritesLocked: return "this build can't write the FM-1";
+    case Failure::Blocked: return "not yet supported: it writes the FM-1's Bluetooth sector";
   }
   return "?";
 }
@@ -336,6 +337,7 @@ bool Installer::prepare_install() {
   unit_.pending.package_id = package_id_;
   unit_.pending.action = decision_.action;
   unit_.pending.save_id = decision_.save_id;
+  unit_.pending.clean_slate = decision_.clean_slate;
   unit_.pending.before_backup = unit_.latest_backup;
   if (!lib_.put_unit(unit_)) return fail(Failure::StorageFailed), false;
   pending_set_ = true;
@@ -415,23 +417,20 @@ bool Installer::plan_ops() {
     decision_ = DataDecision();
     decision_.action = unit_.pending.action;
     decision_.save_id = unit_.pending.save_id;
+    decision_.clean_slate = unit_.pending.clean_slate;
   } else {
     decision_ = decide_data(unit_.id, current_, target, lib_.saves_of(unit_.id));
-    if (decision_.action == DataAction::FreshStart && !opts_.fresh_start_ok)
+    if (decision_.blocked) return fail(Failure::Blocked, true), false;
+    // A clean slate erases more than the outgoing shelf holds (staging): it asks too.
+    if ((decision_.action == DataAction::FreshStart || decision_.clean_slate) && !opts_.fresh_start_ok)
       return fail(Failure::NeedsFreshStartOk, true), false;
     // Safety rule 6: a family change that keeps the old data needs the user's OK too.
     if (decision_.action == DataAction::Keep && decision_.layout_warning && !opts_.layout_change_ok)
       return fail(Failure::NeedsLayoutChangeOk, true), false;
   }
   app_ops_ = plan_app(flash_, target);
-  data_ops_.clear();
-  if (decision_.action == DataAction::Restore) {
-    SaveState s;
-    if (!lib_.save(decision_.save_id, s) || !plan_restore(s, unit_.id, target, flash_, data_ops_))
-      return fail(Failure::RestoreRefused, true), false;
-  } else if (decision_.action == DataAction::FreshStart) {
-    data_ops_ = plan_fresh(target.family, flash_);
-  }
+  if (!plan_data(lib_, unit_.id, decision_, target, flash_, data_ops_))
+    return fail(Failure::RestoreRefused, true), false;
   if (!check_ops(app_ops_) || !check_ops(data_ops_)) return fail(Failure::GuardRefused, true), false;
   for (const SectorOp &op : data_ops_)
     if (!lib_.sectors().has(op.want)) return fail(Failure::RestoreRefused, true), false;
