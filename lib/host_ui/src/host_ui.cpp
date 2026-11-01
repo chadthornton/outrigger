@@ -1274,6 +1274,9 @@ void ui_update_loader(const UiLoader &l) {
 static lv_obj_t *size_buttons[3], *version_label, *computer_screen_confirm;
 static lv_obj_t *network_labels[2];  // Setup, the Computer mode screen
 static char network_text[48] = "";
+// Computer mode's line about a firmware the page is adding (ui_set_computer_status).
+static char computer_status[64] = "";
+static lv_obj_t *computer_status_label;
 
 static void rebuild(void *);
 static void size_tapped(lv_event_t *e) {
@@ -1349,6 +1352,8 @@ static lv_obj_t *build_computer_screen(const char *info) {
   set_colour(title, kYellow);
   text(t.content, "MIDI is off. Plug this board into a computer and open the installer in Chrome or Edge.", kWhite,
        Role::Body);
+  computer_status_label = text(t.content, computer_status, kYellow, Role::Body);
+  show_if(computer_status_label, computer_status[0]);
   text(t.content, info, kGrey, Role::Detail);
   network_labels[1] = network_label(t.content);
   plain_button(foot_box(t), "Back to MIDI", back_to_host_tapped);
@@ -1481,6 +1486,14 @@ void ui_set_network(const char *line) {
     lv_label_set_text(l, network_text);
     show_if(l, network_text[0]);
   }
+}
+
+void ui_set_computer_status(const char *line) {
+  if (strcmp(line, computer_status) == 0) return;
+  strlcpy(computer_status, line, sizeof computer_status);
+  if (!computer_status_label) return;
+  lv_label_set_text(computer_status_label, computer_status);
+  show_if(computer_status_label, computer_status[0]);
 }
 
 void ui_tick() {

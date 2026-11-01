@@ -16,7 +16,7 @@ pastes into Discord as is.
 >
 > Nod to konsumer's fm1buddy, which covers a lot more ground. Outrigger is aiming at the friendlier end: install from the browser, everything on one hub, and switching you don't have to babysit.
 >
-> Beta 1 is deliberately narrow: stock V15, Felucca 1.8.0 and Skiff 2.1.1. Felucca ↔ Skiff is tested on hardware, stock ↔ Felucca is on the bench now, and the loader's data map only really knows the Felucca lineage. Adding any Firmware Hub firmware from the browser is next.
+> Beta 1 comes with stock V15, Felucca 1.8.0 and Skiff 2.1.1. Felucca ↔ Skiff is tested on hardware, stock ↔ Felucca is on the bench now, and the loader's data map only really knows the Felucca lineage. You can add any other firmware from the Firmware Hub's list on outrigger.music, straight from your browser; switches we haven't tested clear the old firmware's data first and keep a copy. Melodee, Tessera and the SLOOP family aren't addable yet, and your own builds come next.
 >
 > **Known risks, up front:** it writes your FM-1's flash. A cable pulled mid-write leaves half an app. The board retries as long as the FM-1 stays powered, and otherwise the Transporter + Unbricker gets you back. Skiff 2.x writes its pattern bank into stock's resource area (0xEA000–0xFBFFF), so Skiff → stock may come back without them. Full list: https://outrigger.music/beta/#known-issues
 >

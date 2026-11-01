@@ -36,6 +36,7 @@
 #include "midi_core.h"
 #include "status.h"
 #if APP_LOADER
+#include "add_firmware.h"
 #include "loader_app.h"
 #endif
 #if APP_WEB_UI
@@ -572,6 +573,9 @@ void setup() {
     char info[40];
     snprintf(info, sizeof info, "Firmware %s", firmware + 2);
     ui_show_computer_mode(info);
+#if APP_LOADER
+    add_firmware_begin(firmware + 2);  // the page on outrigger.music can add firmwares
+#endif
     return;
   }
 #if APP_LOADER && LOADER_DIAG
@@ -633,6 +637,15 @@ void loop() {
   }
 #endif
   if (!host_running) {  // computer mode: only the UI runs
+#if APP_LOADER
+    static uint32_t last_add = 0;
+    if (millis() - last_add > 250) {
+      last_add = millis();
+      char add_line[64];
+      add_firmware_line(add_line, sizeof add_line);
+      ui_set_computer_status(add_line);
+    }
+#endif
 #if APP_LOADER && LOADER_SOAK
     if (soak_restart_at && int32_t(millis() - soak_restart_at) > 0) esp_restart();
 #endif
