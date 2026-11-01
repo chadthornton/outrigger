@@ -144,3 +144,6 @@ void ui_update_loader(const UiLoader &loader);
 void ui_set_network(const char *line);
 // Runs LVGL; call often (every few ms).
 void ui_tick();
+// For ui-shots: the fonts a label may use at the current text size, one per
+// type role, then the icon font and Setup's S/M/L letters. Returns how many.
+int ui_scale_fonts(const void *fonts[], int max);
