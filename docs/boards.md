@@ -36,8 +36,11 @@ A board is a profile, not new code:
 3. **Run `python3 -I tools/boards.py check`.** It refuses pins on the USB lines (19/20), on the flash lines (26–32), on
    octal PSRAM (33–37), a pin with two jobs, and memory below 16 MB flash and 8 MB PSRAM.
 4. **Run `make ui-shots`.** Every screen renders at the new resolution; it fails on text that doesn't fit.
-5. **Run `make build BOARD=<id> APPS=hub-loader`,** then flash a board and check the screen is upright, taps land under
-   the finger, and the FM-1 plays through it. Add the board's row below.
+5. **Run `make probe BOARD=<id>`** with the board in download mode (hold BOOT, tap RST). It runs the profile's drivers
+   with the USB port left a serial device: the log lists the I2C chips that answer, and the screen shows red, green,
+   blue and white corner squares (top-left, top-right, bottom-left, bottom-right) and a yellow dot under each tap.
+6. **Run `make build BOARD=<id> APPS=hub-loader`,** flash it, and check the FM-1 plays through it. Add the board's row
+   below and set `tested` to true.
 
 `make site` builds every board and the installer lists them all.
 

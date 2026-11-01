@@ -80,7 +80,7 @@ VERSION_DIR := $(CACHE_ROOT)/version
 # screens ui-shots renders. Rewritten only when they change, like fw_version.h.
 BOARD_GEN := $(CACHE_ROOT)/boards
 
-.PHONY: check test ui-shots ui-mocks build build-all flash site serve clean fixtures golden store-image flash-store store-add check-latest deploy-site
+.PHONY: check test ui-shots ui-mocks build build-all flash probe site serve clean fixtures golden store-image flash-store store-add check-latest deploy-site
 
 FM1_SRC := $(wildcard lib/fm1_loader/src/*.cpp)
 FM1_HDR := $(wildcard lib/fm1_loader/src/*.h) $(wildcard tests/support/*.h)
@@ -254,6 +254,18 @@ build-all:
 
 flash: build
 	arduino-cli upload --fqbn $(FQBN) --input-dir $(BUILD) --port $(PORT) $(SKETCH)
+
+# A board profile's first check, on the board (firmware/board_probe/probe.cpp):
+# the same drivers, with the USB port left a serial device so PROBE_LOG shows
+# what it finds. `make probe BOARD=waveshare_35`, board in download mode.
+PROBE_BUILD := build/$(BOARD)/probe
+probe:
+	$(if $(filter $(BOARD),$(BOARDS)),,$(error BOARD=$(BOARD); known: $(BOARDS)))
+	python3 -I tools/boards.py header $(BOARD) $(BOARD_GEN)/$(BOARD)/board_config.h
+	arduino-cli compile --fqbn $(FQBN),CDCOnBoot=cdc --build-property "tools.ctags.path=$(CTAGS_DIR)" \
+		--build-property "compiler.cpp.extra_flags=-I$(BOARD_GEN)/$(BOARD) -I$(CURDIR)/firmware/waveshare_169 -I$(CURDIR)/lib/host_ui/src" \
+		--build-path $(CACHE_ROOT)/$(BOARD)/probe --output-dir $(PROBE_BUILD) firmware/board_probe
+	arduino-cli upload --fqbn $(FQBN),CDCOnBoot=cdc --input-dir $(PROBE_BUILD) --port $(PORT) firmware/board_probe
 
 # The store partition's first setup: a LittleFS image holding JieLi's loader
 # (from tests/fixtures). JieLi's code, so it stays in build/ and is never staged
