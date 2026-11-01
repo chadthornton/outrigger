@@ -84,6 +84,35 @@ test("add: a Hub package lands in the board's store, in pieces of at most 1 KiB"
   } finally { b.close(); }
 });
 
+test("add: a reply that comes late is used, never taken for the next request's", async () => {
+  const b = board();
+  try {
+    // Some of the board's output arrives after the page has given up and resent.
+    let n = 0;
+    const read = b.read.bind(b);
+    b.read = async () => {
+      const bytes = await read();
+      if (++n % 40 === 5) await new Promise((r) => setTimeout(r, 150));
+      return bytes;
+    };
+    const link = new BoardLink(b, { replyMs: 100 });
+    const file = fixture("felucca-1.8.0.fwsc");
+    assert.equal(await link.add(entry("Felucca", "1.8.0", "felucca", file), file), "added");
+    assert.deepEqual(await link.list(), [{ id: "felucca-1.8.0", sha256: sha256(file) }]);
+  } finally { b.close(); }
+});
+
+test("add: a board that never moves on is given up on, not sent to forever", async () => {
+  const b = board();
+  try {
+    const link = new BoardLink(b, { replyMs: 100 });
+    const file = fixture("felucca-1.8.0.fwsc");
+    // Larger pieces than the board takes: it acks the same offset each time.
+    link.dataMax = 4000;
+    await assert.rejects(link.add(entry("Felucca", "1.8.0", "felucca", file), file), /didn't answer/);
+  } finally { b.close(); }
+});
+
 test("add: the board's refusal reaches the page in words", async () => {
   const b = board({ free: "100000" });
   try {

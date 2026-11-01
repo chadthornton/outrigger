@@ -173,6 +173,8 @@ static void test_refuses_before_any_data() {
     Board b;
     b.free_bytes = kBackupReserve + kPackageRoom - 1;
     CHECK(error_of(b.ask('A', begin_payload(file, "felucca", "1.8.0", "Felucca"))) == ReceiveError::StoreFull);
+    // The board's screen says so too, not just the page.
+    CHECK(!b.statuses.empty() && b.statuses.back().state == ReceiveStatus::State::Failed);
     b.free_bytes = kBackupReserve + kPackageRoom;
     CHECK_EQ(b.ask('A', begin_payload(file, "felucca", "1.8.0", "Felucca")).type, uint8_t('k'));
   }

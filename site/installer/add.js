@@ -140,42 +140,59 @@ const text = (b) => new TextDecoder().decode(b);
 
 // Talks to the board over io = {write(bytes), read() -> bytes}, one request
 // and one reply at a time. An error the board sends becomes an Error in its
-// words; a reply that doesn't come is asked for again, then given up on.
+// words; a reply that doesn't come is asked for again, then given up on. A
+// reply that comes after its request was resent is matched to what it
+// answers, so it's never taken for the next request's.
 export class BoardLink {
-  constructor(io) {
+  constructor(io, { replyMs = REPLY_MS, storeMs = STORE_MS } = {}) {
     this.io = io;
+    this.replyMs = replyMs;
+    this.storeMs = storeMs;
+    this.dataMax = DATA_MAX;
     this.reader = new FrameReader();
     this.pending = [];
     this.reading = null;
+    this.closed = null;
+    this.wake = () => {};
   }
 
   async send(frame) {
     for (let i = 0; i < frame.length; i += WRITE_PIECE) await this.io.write(frame.subarray(i, i + WRITE_PIECE));
   }
 
-  // The next frame, or null after ms.
-  async next(ms) {
-    let timer;
-    const late = new Promise((r) => { timer = setTimeout(() => r(null), ms); });
-    try {
-      while (!this.pending.length) {
-        this.reading ||= this.io.read().then((bytes) => { this.reading = null; return bytes; });
-        const bytes = await Promise.race([this.reading, late]);
-        if (bytes === null) return null;
-        if (!bytes) throw new Error("Outrigger's USB connection closed.");
-        this.pending.push(...this.reader.push(bytes));
+  // One read at a time, always running: its frames queue in pending whether or
+  // not anyone is waiting.
+  pump() {
+    if (this.reading || this.closed) return;
+    this.reading = this.io.read().then((bytes) => {
+      if (bytes) this.pending.push(...this.reader.push(bytes));
+      else this.closed = new Error("Outrigger's USB connection closed.");
+    }, (e) => { this.closed = e; }).finally(() => { this.reading = null; this.wake(); });
+  }
+
+  // The next frame that fits(), or null after ms. Others are stale: dropped.
+  async next(ms, fits) {
+    const deadline = Date.now() + ms;
+    for (;;) {
+      while (this.pending.length) {
+        const r = this.pending.shift();
+        if (r.type === 0x65 /* 'e' */ || fits(r)) return r;
       }
-      return this.pending.shift();
-    } finally {
+      if (this.closed) throw this.closed;
+      this.pump();
+      const left = deadline - Date.now();
+      if (left <= 0) return null;
+      let timer;
+      await new Promise((r) => { this.wake = r; timer = setTimeout(r, left); });
       clearTimeout(timer);
     }
   }
 
-  async ask(type, payload, ms = REPLY_MS) {
+  async ask(type, payload, fits, ms = this.replyMs) {
     const frame = encodeFrame(type, payload);
     for (let i = 0; i < TRIES; i++) {
       await this.send(frame);
-      const r = await this.next(ms);
+      const r = await this.next(ms, fits);
       if (!r) continue;
       if (r.type === 0x65 /* 'e' */) {
         const e = new Error(text(r.payload.subarray(1)));
@@ -188,7 +205,7 @@ export class BoardLink {
   }
 
   async hello() {
-    const p = (await this.ask(0x48 /* 'H' */)).payload;
+    const p = (await this.ask(0x48 /* 'H' */, undefined, (r) => r.type === 0x68)).payload;
     return { protocol: p[0], packages: p[1], maxPackages: p[2], free: u32(p, 3), build: text(p.subarray(7)) };
   }
 
@@ -197,7 +214,13 @@ export class BoardLink {
     const { packages } = await this.hello();
     const out = [];
     for (let i = 0; i < packages; i++) {
-      const p = (await this.ask(0x4c /* 'L' */, Uint8Array.of(i))).payload;
+      let p;
+      try {
+        p = (await this.ask(0x4c /* 'L' */, Uint8Array.of(i), (r) => r.type === 0x6c && r.payload[0] === i)).payload;
+      } catch (e) {
+        if (e.code === undefined) throw e;
+        continue;  // a package the board can't read: the rest still list
+      }
       out.push({ id: text(p.subarray(33)), sha256: hex(p.subarray(1, 33)) });
     }
     return out;
@@ -207,13 +230,17 @@ export class BoardLink {
   async add(fw, data, onProgress = () => {}) {
     const enc = new TextEncoder();
     const strs = [fw.project, fw.version, fw.name].flatMap((s) => [...enc.encode(s), 0]);
-    let r = await this.ask(0x41 /* 'A' */, Uint8Array.from([...le32(data.length), ...fromHex(fw.sha256), ...strs]));
+    // The begin's answer is "from 0" or "already there"; a data frame's is
+    // "go on from" past where it was sent, or done.
+    let r = await this.ask(0x41 /* 'A' */, Uint8Array.from([...le32(data.length), ...fromHex(fw.sha256), ...strs]),
+      (f) => (f.type === 0x6b && u32(f.payload, 0) === 0) || f.type === 0x64);
     while (r.type === 0x6b /* 'k' */) {
       const at = u32(r.payload, 0);
       onProgress(at, data.length);
-      const piece = data.subarray(at, at + DATA_MAX);
+      const piece = data.subarray(at, at + this.dataMax);
       const last = at + piece.length >= data.length;
-      r = await this.ask(0x44 /* 'D' */, Uint8Array.from([...le32(at), ...piece]), last ? STORE_MS : REPLY_MS);
+      r = await this.ask(0x44 /* 'D' */, Uint8Array.from([...le32(at), ...piece]),
+        (f) => (f.type === 0x6b && u32(f.payload, 0) > at) || f.type === 0x64, last ? this.storeMs : this.replyMs);
     }
     if (r.type !== 0x64 /* 'd' */) throw new Error("Outrigger answered something this page doesn't know.");
     onProgress(data.length, data.length);

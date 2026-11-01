@@ -157,13 +157,18 @@ void Receiver::begin(const std::vector<uint8_t> &p, uint32_t now_ms, std::vector
   status_ = ReceiveStatus();
   status_.label = b->version.empty() ? b->name : b->name + " " + b->version;
   status_.total = b->size;
+  // A refusal shows on the board's screen as well as the page.
+  auto no = [&](ReceiveError e, const std::string &why) {
+    set_state(ReceiveStatus::State::Failed, why);
+    refuse(out, e, why);
+  };
   if (b->size == 0 || b->size > kPackageMax)
-    return refuse(out, ReceiveError::TooBig, "That file is too big to be an FM-1 firmware");
+    return no(ReceiveError::TooBig, "That file is too big to be an FM-1 firmware");
   if (b->project.empty())
-    return refuse(out, ReceiveError::NoProject, "Only firmwares from the Firmware Hub's list can be added for now");
+    return no(ReceiveError::NoProject, "Only firmwares from the Firmware Hub's list can be added for now");
   if (!key_safe(b->project) || !key_safe(b->id))
-    return refuse(out, ReceiveError::BadRequest, "Outrigger didn't understand the page");
-  if (const char *why = blocked_reason(b->project)) return refuse(out, ReceiveError::Blocked, why);
+    return no(ReceiveError::BadRequest, "Outrigger didn't understand the page");
+  if (const char *why = blocked_reason(b->project)) return no(ReceiveError::Blocked, why);
   // Already there, under this name or the one the Mac gave it: nothing to send.
   const std::vector<std::string> ids = lib_.package_ids();
   for (const std::string &id : ids) {
@@ -173,12 +178,12 @@ void Receiver::begin(const std::vector<uint8_t> &p, uint32_t now_ms, std::vector
       const std::vector<uint8_t> r = {1};
       return reply(out, 'd', r);
     }
-    if (id == b->id) return refuse(out, ReceiveError::IdTaken, "Outrigger has a different file under this name");
+    if (id == b->id) return no(ReceiveError::IdTaken, "Outrigger has a different file under this name");
   }
   if (ids.size() >= kMaxPackages)
-    return refuse(out, ReceiveError::TooMany, "Outrigger's firmware list is full (10)");
+    return no(ReceiveError::TooMany, "Outrigger's firmware list is full (10)");
   if (free_bytes_() < kBackupReserve + kPackageRoom)
-    return refuse(out, ReceiveError::StoreFull, "Outrigger's store is too full: it keeps room for a backup");
+    return no(ReceiveError::StoreFull, "Outrigger's store is too full: it keeps room for a backup");
   b->data = static_cast<uint8_t *>(malloc(b->size));
   if (!b->data) {
     set_state(ReceiveStatus::State::Failed, "Not enough memory");
