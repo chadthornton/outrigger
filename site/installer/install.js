@@ -3,8 +3,9 @@
 // `make test` runs it against a fake board (tests/installer/install.test.mjs).
 //
 // Every write is a writeFlash of what plan.js allows, with eraseAll false and
-// the flash settings kept as built: the parts and a new store's runs, then
-// that store's superblock pair once the rest verified. Nothing here erases.
+// the flash settings kept as built: the parts, then a new store's runs once
+// they verified, then that store's superblock pair once the runs verified.
+// Nothing here erases.
 import { planInstall, parseTable, PARTS } from "./plan.js";
 import { readBuildTag, hasStore, classifyLayout, TAG_OFFSET, TAG_LENGTH } from "./board.js";
 import { storeAction, fetchStarter, buildStore, sha256Hex } from "./store.js";
@@ -85,13 +86,18 @@ export async function prepareStore({ loader, board, build, fetchFn = fetch }) {
   if (action !== "create") return { action, ...none };
   const previousFirmware = !hadStorePartition && board.layout !== "blank";
   const starter = (build.template.packages || []).map((p) => `${p.name} ${p.version}`);
+  let downloads;
   try {
-    const runs = await buildStore(build.template, await fetchStarter(build.template, fetchFn));
-    const storeWrites = runs.map((r) => ({ offset: offset + r.offset, data: r.data, md5: r.md5 }));
-    return { action, storeWrites, storeWritable: true, downloadProblem: null, previousFirmware, starter };
+    downloads = await fetchStarter(build.template, fetchFn);
   } catch (e) {
     return { action, ...none, downloadProblem: e.message, previousFirmware, starter };
   }
+  // Every download matched its SHA-256, so a store that doesn't rebuild is the site's fault, not the network's.
+  const runs = await buildStore(build.template, downloads).catch((e) => {
+    throw new Error(`This build's store template doesn't rebuild its store (a site build problem; nothing was written): ${e.message}.`);
+  });
+  const storeWrites = runs.map((r) => ({ offset: offset + r.offset, data: r.data, md5: r.md5 }));
+  return { action, storeWrites, storeWritable: true, downloadProblem: null, previousFirmware, starter };
 }
 
 // Whether the store region is factory-blank: the board computes the MD5 of
@@ -119,7 +125,9 @@ export async function install({ loader, board, manifest, parts, storeWrites = []
   const store = plan.writes.filter((w) => w.name === "store");
   const superblock = store.pop();
 
-  await write(loader, [...program, ...store], onStep);
+  // The program first, checked before any of the store goes in: a part that
+  // doesn't verify leaves a factory-blank store region blank.
+  await write(loader, program, onStep);
   onStep({ step: "verify" });
   const md5 = new Map(manifest.builds[0].parts.map((p) => [p.offset, p.md5]));
   for (const w of program) {
@@ -129,6 +137,7 @@ export async function install({ loader, board, manifest, parts, storeWrites = []
     }
   }
   if (!superblock) return { plan, storeProblem: null };
+  await write(loader, store, onStep);
   onStep({ step: "verify store" });
   let bad = await settle(loader, store, onStep);
   if (!bad) {

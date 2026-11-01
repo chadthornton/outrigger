@@ -118,6 +118,8 @@ export function planInstall({ parts, boardTable, flashBytes, storeWrites = [], s
     const range = newTable.store;
     if (!storeWritable) problems.push("refusing to write a store: the board's store region wasn't cleared for it");
     else if (!range) problems.push("refusing to write a store: this build's table has none");
+    // The superblock pair, which makes the region a store, goes last (install.js).
+    if (range && storeWrites.at(-1).offset !== range[0]) problems.push("refusing a store whose last write isn't its superblock pair");
     for (const w of storeWrites) {
       if (!range) break;
       const [off, size] = range;

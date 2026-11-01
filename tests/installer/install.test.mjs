@@ -236,13 +236,13 @@ test("install: writes the store's runs, checks each by MD5, and only then its su
   const steps = [];
   const result = await install({ loader: b, board: await readBoard(b), manifest, parts, storeWrites: storeRuns(), storeWritable: true, onStep: (s) => steps.push(s.step) });
   assert.equal(result.storeProblem, null);
-  assert.deepEqual(writes(b), [[0x0, 0x8000, 0xe000, 0x10000, 0x3d2000, 0x3d9000], [0x3d0000]]);
+  assert.deepEqual(writes(b), [[0x0, 0x8000, 0xe000, 0x10000], [0x3d2000, 0x3d9000], [0x3d0000]]);
   for (const r of storeRuns()) assert.deepEqual(b.flash.subarray(r.offset, r.offset + r.data.length), r.data);
   // Every run's MD5 is asked for before the superblock goes in, and nothing in the store is read back.
-  const second = b.calls.findIndex((c, i) => c[0] === "writeFlash" && i > b.calls.findIndex((d) => d[0] === "writeFlash"));
-  const before = b.calls.slice(0, second).filter((c) => c[0] === "flashMd5sum").map((c) => c[1]);
+  const last = b.calls.findLastIndex((c) => c[0] === "writeFlash");
+  const before = b.calls.slice(0, last).filter((c) => c[0] === "flashMd5sum").map((c) => c[1]);
   assert.ok(before.includes(0x3d2000) && before.includes(0x3d9000));
-  assert.ok(b.calls.slice(second).some((c) => c[0] === "flashMd5sum" && c[1] === 0x3d0000));
+  assert.ok(b.calls.slice(last).some((c) => c[0] === "flashMd5sum" && c[1] === 0x3d0000));
   assert.equal(b.calls.filter((c) => c[0] === "readFlash" && c[1] >= 0x3d0000).length, 2, "only readBoard's two store heads");
   assert.ok(steps.includes("verify store"));
 });
@@ -251,11 +251,11 @@ test("install: a store run that doesn't verify is written once more", async () =
   const b = boardWithBlankStore();
   const realWrite = b.writeFlash.bind(b);
   let first = true;
-  b.writeFlash = async (o) => { await realWrite(o); if (first) b.flash[0x3d9010] ^= 0xff; first = false; };
+  b.writeFlash = async (o) => { await realWrite(o); if (first && o.fileArray.some((f) => f.address === 0x3d9000)) { b.flash[0x3d9010] ^= 0xff; first = false; } };
   const { manifest, parts } = hubBuild();
   const result = await install({ loader: b, board: await readBoard(b), manifest, parts, storeWrites: storeRuns(), storeWritable: true });
   assert.equal(result.storeProblem, null);
-  assert.deepEqual(writes(b), [[0x0, 0x8000, 0xe000, 0x10000, 0x3d2000, 0x3d9000], [0x3d9000], [0x3d0000]]);
+  assert.deepEqual(writes(b), [[0x0, 0x8000, 0xe000, 0x10000], [0x3d2000, 0x3d9000], [0x3d9000], [0x3d0000]]);
   assert.equal(b.flash[0x3d9010], 0x44);
 });
 
@@ -269,6 +269,23 @@ test("install: a store run that won't verify leaves the superblock pair unwritte
   assert.ok(!writes(b).flat().includes(0x3d0000), "wrote the superblock over a store that didn't verify");
   assert.ok(b.flash.subarray(0x3d0000, 0x3d2000).every((x) => x === 0xff));
 });
+
+test("install: a program part that doesn't verify stops before any of the store is written", async () => {
+  const b = boardWithBlankStore();
+  b.corrupt = 0x10000;
+  const { manifest, parts } = hubBuild();
+  await assert.rejects(install({ loader: b, board: await readBoard(b), manifest, parts, storeWrites: storeRuns(), storeWritable: true }), /didn't read back/);
+  assert.ok(b.flash.subarray(0x3d0000, 0x3da000).every((x) => x === 0xff), "store written before the program verified");
+});
+
+test("install: refuses store writes that don't end with the store's superblock pair", async () => {
+  const b = boardWithBlankStore();
+  const { manifest, parts } = hubBuild();
+  const [x, y, superblock] = storeRuns();
+  await assert.rejects(install({ loader: b, board: await readBoard(b), manifest, parts, storeWrites: [superblock, x, y], storeWritable: true }), /superblock/);
+  assert.equal(writes(b).length, 0);
+});
+
 
 // prepareStore against the real template (tools/store_template.py), the
 // downloads served from the fixtures.
@@ -331,6 +348,12 @@ test("prepareStore: a template that doesn't fit the build's store is a build err
   const b = boardWithBlankStore();
   const build = { ...hubBuild(), template: { ...TEMPLATE, size: 0x100000 } };
   await assert.rejects(prepareStore({ loader: b, board: await readBoard(b), build, fetchFn: hub() }), /template/);
+});
+
+test("prepareStore: a template that doesn't rebuild is a site build error, not a download to retry", { skip }, async () => {
+  const b = boardWithBlankStore();
+  const build = { ...hubBuild(), template: { ...TEMPLATE, sha256: "0".repeat(64) } };
+  await assert.rejects(prepareStore({ loader: b, board: await readBoard(b), build, fetchFn: hub() }), /site build problem/);
 });
 
 test("prepareStore: if any download fails, nothing may be written and the page is told which", { skip }, async () => {

@@ -166,9 +166,9 @@ const storeBlock = (rel) => ({ offset: 0x3d0000 + rel, data: new Uint8Array(0x10
 
 test("plan: store blocks are written after the four parts when the store region is blank", () => {
   const plan = planInstall({ parts: parts(), boardTable: ourTable(), flashBytes: 16 << 20,
-    storeWrites: [storeBlock(0), storeBlock(0x1000)], storeWritable: true });
+    storeWrites: [storeBlock(0x2000), storeBlock(0)], storeWritable: true });
   assert.deepEqual(plan.problems, []);
-  assert.deepEqual(plan.writes.map((w) => w.offset), [0x0, 0x8000, 0xe000, 0x10000, 0x3d0000, 0x3d1000]);
+  assert.deepEqual(plan.writes.map((w) => w.offset), [0x0, 0x8000, 0xe000, 0x10000, 0x3d2000, 0x3d0000]);
 });
 
 test("plan: no store writes unless prepareStore cleared the region", () => {

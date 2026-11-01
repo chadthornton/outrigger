@@ -48,7 +48,7 @@ def files(fs, path=""):
 
 def chunks(data):
     """64-byte pieces of data, leaving out the all-0xFF and all-zero ones any image has."""
-    for i in range(0, len(data) - 64, 64):
+    for i in range(0, len(data) - 63, 64):
         c = data[i:i + 64]
         if c.count(c[0]) != 64:
             yield c
