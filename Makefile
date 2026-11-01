@@ -96,6 +96,7 @@ test: build/check_package build/test_fm1_interop build/test_midi_core build/test
 	$(TOOLS_PY) tests/installer/test_store_template.py
 	node --test tests/installer/
 	python3 -I tests/test_deploy_site.py
+	python3 -I tests/test_check.py
 
 # The Mac tests may write the mock FM-1 (FM1_LOADER_WRITES=1); test_fm1_locked
 # is built without it, as every firmware build is until hardware checkpoint 3.
@@ -256,45 +257,15 @@ store-add: $(TOOLS_PY)
 	$(if $(PKGS)$(LIST),,$(error PKGS="file.fwsc ..." names the packages to add; LIST=1 only lists))
 	$(TOOLS_PY) tools/store_add.py firmware/$(BOARD)/partitions.csv $(PORT) $(if $(PIN),--pin) $(if $(LIST),--list) $(PKGS)
 
-# The merge gate's step 2 (README.md): the branch's last commit, checked out
-# clean in build/check so nothing uncommitted can help, then make test, make
-# ui-shots and make site (every board x app set built and staged, with
-# build_site.py's wl82loader.bin scan). Run it on the Mac and paste the summary
-# into the PR. The fixtures are copied in (pinned by SHA-256, gitignored).
-# The clone is kept between checks and reset to the commit (checkout -f, then
-# clean -ffdx drops every untracked and ignored file), so git rewrites only the
-# files that changed and arduino-cli's mtime checks rebuild only those. The
-# compiled objects live in build/check-cache/<key>, outside the clone; the key
-# hashes arduino-cli, the ESP32 core and the Arduino libraries (LVGL and the
-# rest), so updating any of them starts a fresh cache instead of a stale pass.
-CHECK_DIR := build/check
-CHECK_CACHES := build/check-cache
-# The commit under test, read once when make starts: every line below names this
-# one, even if the worktree commits again while the check runs.
-CHECK_SHA := $(shell git rev-parse HEAD)
-CHECK_SHORT := $(shell git rev-parse --short HEAD)
-# Finder can write .DS_Store into a folder while rm -rf empties it ("Directory
-# not empty"): delete those first, and try once more.
-RM_CHECK = find $(CHECK_DIR) -name .DS_Store -delete 2>/dev/null; rm -rf $(CHECK_DIR) \
-	|| { sleep 1; find $(CHECK_DIR) -name .DS_Store -delete 2>/dev/null; rm -rf $(CHECK_DIR); }
+# The merge gate's step 2 (README.md): the worktree's last commit, checked out
+# clean in one clone every worktree shares (~/Library/Caches/outrigger-check),
+# one check at a time, then make test, make ui-shots and make site (every board
+# x app set built and staged, with build_site.py's wl82loader.bin scan). Run it
+# on the Mac and paste the summary into the PR. tools/check.py says how; a pass
+# leaves the site and its commit in build/checked/ for make deploy-site.
+CHECK_HOME ?= $(HOME)/Library/Caches/outrigger-check
 check:
-	@key=$$({ arduino-cli version; arduino-cli core list; arduino-cli lib list; } | shasum | cut -c1-12) || exit 1; \
-	mkdir -p $(CHECK_CACHES) && find $(CHECK_CACHES) -mindepth 1 -maxdepth 1 ! -name $$key -exec rm -rf {} + ; \
-	echo "check cache: $(CHECK_CACHES)/$$key"; echo $$key > $(CHECK_CACHES)/.key
-	@sha=$(CHECK_SHA); echo "check: testing $(CHECK_SHORT)"; \
-	if [ "$$(git -C $(CHECK_DIR) rev-parse --show-toplevel 2>/dev/null)" = "$(CURDIR)/$(CHECK_DIR)" ] \
-		&& git -C $(CHECK_DIR) checkout -q -f --detach $$sha && git -C $(CHECK_DIR) clean -q -ffdx; then \
-		echo "check: reusing $(CHECK_DIR)"; \
-	else \
-		echo "check: fresh clone into $(CHECK_DIR)"; \
-		$(RM_CHECK) && git clone -q --shared . $(CHECK_DIR) && git -C $(CHECK_DIR) checkout -q --detach $$sha; \
-	fi
-	test "$$(git -C $(CHECK_DIR) rev-parse HEAD)" = "$(CHECK_SHA)" && test -z "$$(git -C $(CHECK_DIR) status --porcelain --ignored | grep -v '\.DS_Store$$')"
-	mkdir -p $(CHECK_DIR)/tests/fixtures && cp tests/fixtures/* $(CHECK_DIR)/tests/fixtures/
-	$(MAKE) -C $(CHECK_DIR) test ui-shots site CACHE_ROOT=$(CURDIR)/$(CHECK_CACHES)/$$(cat $(CHECK_CACHES)/.key) > $(CHECK_DIR).log 2>&1 \
-		|| { tail -30 $(CHECK_DIR).log; echo "check FAILED at $(CHECK_SHORT); log: $(CHECK_DIR).log"; exit 1; }
-	@grep -E "passed|keeps the install|Sketch uses" $(CHECK_DIR).log
-	@echo "check passed at $(CHECK_SHORT) (clean checkout; log: $(CHECK_DIR).log)"
+	python3 -I tools/check.py --home $(CHECK_HOME)
 
 # Stage the firmware into site/ for the browser installer (site/installer/).
 # fixtures brings wl82loader.bin, so build_site can scan for pieces of it.
@@ -316,12 +287,12 @@ serve: site
 
 # Publish the site on Cloudflare Pages: CHANNEL=beta (beta.outrigger.music, any
 # pushed commit) or CHANNEL=production (outrigger.music, origin/master only).
-# Uploads the site make check built in its clean clone. README, "Publishing the site".
+# Uploads the site make check built from this commit (build/checked/site). README, "Publishing the site".
 CHANNEL ?= beta
 deploy-site:
 	python3 -I tools/deploy_site.py guard $(CHANNEL)
 	$(MAKE) check
-	python3 -I tools/deploy_site.py deploy $(CHANNEL) $(CHECK_DIR)/site
+	python3 -I tools/deploy_site.py deploy $(CHANNEL) build/checked/site
 
 clean:
 	rm -rf build
