@@ -3,7 +3,7 @@
 Chad posts this himself. Two placeholders to fill before posting:
 
 - `<TEST PLAN LINK>` and `<KNOWN ISSUES LINK>`: the docs are only in the repo, which is private today. Once it's
-  public they are `https://github.com/chadthornton/usb-midi-host/blob/master/docs/beta/03-test-plan.md` and
+  public they are `https://github.com/chadthornton/outrigger/blob/master/docs/beta/03-test-plan.md` and
   `.../07-known-issues.md`. If the repo isn't public by posting time, drop both links: the DM below carries the checks.
 - The risk line says stock ↔ Felucca is "being tested today". Update it once Chad's second FM-1 has run it.
 
