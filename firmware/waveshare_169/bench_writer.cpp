@@ -98,66 +98,66 @@ Report write_sectors(ScsiTransport &scsi, LoaderHost &host, const std::vector<ui
   RomClient rom(scsi);
   if (!o.key_sent && !host.send_rom_boot_key()) return stop(Stop::KeyNotSent);
   if (!host.wait_for_rom_device(o.rom_timeout_ms)) return stop(Stop::NoRom);
+  // From here the FM-1 is in ROM boot: every way out sends it back to its
+  // firmware. The writer never touches the app, so even a sector left
+  // half-written leaves a firmware that starts.
+  auto home = [&](Stop s, std::string detail = "") {
+    rom.run_app(kResetArg);  // the device may reset before it answers
+    return stop(s, std::move(detail));
+  };
   std::string vendor, product, revision;
-  if (!rom.inquiry(vendor, product, revision)) return stop(Stop::NoRom, "inquiry");
+  if (!rom.inquiry(vendor, product, revision)) return home(Stop::NoRom, "inquiry");
   for (char &c : vendor) c = char(c >= 'a' && c <= 'z' ? c - 32 : c);
-  if (vendor != "WL82") return stop(Stop::NotWl82, vendor);
+  if (vendor != "WL82") return home(Stop::NotWl82, vendor);
   uint8_t type;
   uint32_t id;
   if (product == "UBOOT1.00") {
     for (size_t off = 0; off < blob.size(); off += kLoaderBlock) {
       const size_t n = blob.size() - off < kLoaderBlock ? blob.size() - off : kLoaderBlock;
       if (!rom.mem_write(kLoaderAddr + uint32_t(off), blob.data() + off, uint16_t(n)))
-        return stop(Stop::LoaderFailed, at("upload", uint32_t(off)));
+        return home(Stop::LoaderFailed, at("upload", uint32_t(off)));
     }
-    if (!rom.mem_jump(kLoaderAddr, kLoaderArg)) return stop(Stop::LoaderFailed, "jump");
+    if (!rom.mem_jump(kLoaderAddr, kLoaderArg)) return home(Stop::LoaderFailed, "jump");
   } else if (!rom.online_device(type, id)) {
-    return stop(Stop::LoaderFailed, "no loader answers");
+    return home(Stop::LoaderFailed, "no loader answers");
   }
   uint32_t io_max = 512;
   if (!rom.usb_buffer_size(io_max)) io_max = 512;
   const uint32_t chunk = chunk_for(io_max);
   uint16_t key;
-  if (!rom.chip_key(key) || !rom.online_device(type, id)) return stop(Stop::ReadFailed, "chip key / flash ID");
-  if (key != kChipKey || id != kFlashId) {
-    rom.run_app(kResetArg);
-    return stop(Stop::IdsWrong);
-  }
+  if (!rom.chip_key(key) || !rom.online_device(type, id)) return home(Stop::ReadFailed, "chip key / flash ID");
+  if (key != kChipKey || id != kFlashId) return home(Stop::IdsWrong);
 
   std::vector<uint8_t> buf(kSector);
-  if (!read_sector(rom, kUnitSector, chunk, buf.data())) return stop(Stop::ReadFailed, at("read", kUnitSector));
+  if (!read_sector(rom, kUnitSector, chunk, buf.data())) return home(Stop::ReadFailed, at("read", kUnitSector));
   r.unit = unit_id_of(buf.data());
-  if (r.unit == kFm11Unit || r.unit != o.unit) {
-    rom.run_app(kResetArg);
-    return stop(r.unit == kFm11Unit ? Stop::Fm11Unit : Stop::WrongUnit, "FM-1 unit " + r.unit);
-  }
+  if (r.unit == kFm11Unit || r.unit != o.unit)
+    return home(r.unit == kFm11Unit ? Stop::Fm11Unit : Stop::WrongUnit, "FM-1 unit " + r.unit);
 
-  std::vector<const Sector *> todo;
+  // One sector at a time, compare then write, so the first erase comes early:
+  // in checkpoint 3 the FM-1 restarted itself ~8.5 s after the loader started
+  // when no erase came. (A long dry run can still run into that.)
   for (const Sector &s : sectors) {
-    if (!read_sector(rom, s.addr, chunk, buf.data())) return stop(Stop::ReadFailed, at("read", s.addr));
+    if (!read_sector(rom, s.addr, chunk, buf.data())) return home(Stop::ReadFailed, at("read", s.addr));
     if (buf == s.data) {
       ++r.same;
-    } else {
-      ++r.differ;
-      todo.push_back(&s);
+      continue;
     }
-  }
-  if (o.write) {
-    for (const Sector *s : todo) {
-      bool good = false;
-      for (int attempt = 0; attempt < 2 && !good; ++attempt) {
-        const bool erased = rom.erase_sector(s->addr);
-        if (erased || rom.reached_device()) r.erased = true;
-        if (!erased) return stop(Stop::EraseFailed, at("erase", s->addr));
-        for (uint32_t off = 0; off < kSector; off += chunk)
-          if (!rom.flash_write(s->addr + off, s->data.data() + off, uint16_t(chunk)))
-            return stop(Stop::WriteFailed, at("write", s->addr + off));
-        if (!read_sector(rom, s->addr, chunk, buf.data())) return stop(Stop::ReadFailed, at("read back", s->addr));
-        good = buf == s->data;
-      }
-      if (!good) return stop(Stop::VerifyFailed, at("verify", s->addr));
-      ++r.written;
+    ++r.differ;
+    if (!o.write) continue;
+    bool good = false;
+    for (int attempt = 0; attempt < 2 && !good; ++attempt) {
+      const bool erased = rom.erase_sector(s.addr);
+      if (erased || rom.reached_device()) r.erased = true;
+      if (!erased) return home(Stop::EraseFailed, at("erase", s.addr));
+      for (uint32_t off = 0; off < kSector; off += chunk)
+        if (!rom.flash_write(s.addr + off, s.data.data() + off, uint16_t(chunk)))
+          return home(Stop::WriteFailed, at("write", s.addr + off));
+      if (!read_sector(rom, s.addr, chunk, buf.data())) return home(Stop::ReadFailed, at("read back", s.addr));
+      good = buf == s.data;
     }
+    if (!good) return home(Stop::VerifyFailed, at("verify", s.addr));
+    ++r.written;
   }
   rom.run_app(kResetArg);  // the FM-1 may reset before it answers
   if (!host.wait_for_midi_return(o.midi_timeout_ms)) return stop(Stop::MidiNotBack);

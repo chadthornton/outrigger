@@ -34,8 +34,8 @@ def test_switch_ok():
     rec = bench.do_switch(b, "Skiff 2.1.1", "waveshare-1")
     expect(rec["ok"], "a clean switch passes")
     expect(rec["running"] == "Skiff 2.1.1", "the board says Skiff runs")
-    expect(rec["before"]["running"] == "Stock V15", "what ran before is recorded")
-    expect(rec["plan"] == ["Switches from Stock V15.", "Keeps your data."], "the plan's lines are recorded")
+    expect(rec["before"]["running"] == "M-VAVE stock V15", "what ran before is recorded")
+    expect(rec["plan"] == ["Switches from M-VAVE stock V15.", "Keeps your data."], "the plan's lines are recorded")
     expect(rec["after_backup"]["ok"], "the switch ends with a backup")
     expect(b.posts == ["/bench/select?index=2", "/bench/act?kind=switch&index=2", "/bench/act?kind=backup"],
            "select, hold, then back up: " + repr(b.posts))
@@ -52,9 +52,26 @@ def test_switch_refuses_other_board():
     b.mac = "d8:3b:da:a0:67:d1"
     expect(raises(lambda: bench.do_switch(b, "Skiff 2.1.1", "waveshare-1"), "refusing"), "a MAC that isn't the name's")
     b = FakeBoard()
-    b.units = [{"id": bench.FM1_1_UNIT + "x"}]
+    b.last_unit = bench.FM1_1_UNIT + "x"
     expect(raises(lambda: bench.do_switch(b, "Skiff 2.1.1", "waveshare-1"), "FM-1-1"), "FM-1-1 is refused")
     expect(b.posts == [], "nothing posted with FM-1-1 attached")
+    b = FakeBoard()
+    b.units.append({"id": bench.FM1_1_UNIT + "x"})  # old backups of FM-1-1, FM-1-2 attached
+    expect(bench.do_switch(b, "Skiff 2.1.1", "waveshare-1")["ok"], "FM-1-1's old backups don't block FM-1-2")
+
+
+def test_refused_hold_fails_fast():
+    b = FakeBoard()
+    b.refuse_holds = True
+    expect(raises(lambda: bench.do_switch(b, "Skiff 2.1.1", "waveshare-1"), "refused the hold"), "a refused hold")
+    expect(b.t < 60, "fails within a minute, not the job timeout")
+
+
+def test_post_offline():
+    class Gone(FakeBoard):
+        def post(self, path):
+            bench.Board("127.0.0.1:9", timeout=1).post(path)
+    expect(raises(lambda: bench.do_switch(Gone(), "Skiff 2.1.1", "waveshare-1"), "POST"), "an unreachable board")
 
 
 def test_switch_unknown_label():
@@ -91,7 +108,7 @@ def test_main_dry_run():
 
 
 for t in [test_switch_ok, test_switch_refuses_other_board, test_switch_unknown_label, test_plan_blocked,
-          test_install_stops, test_boot_loop, test_main_dry_run]:
+          test_install_stops, test_boot_loop, test_main_dry_run, test_refused_hold_fails_fast, test_post_offline]:
     t()
 if failures:
     print(f"bench: {failures} failure(s)")

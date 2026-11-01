@@ -56,6 +56,11 @@ def main():
         restore = [l for l in text.splitlines() if l.startswith("+") and " restore " in l]
         expect(code == 0 and len(restore) == 1 and "--write" not in restore[0], "recover without --write is a dry run")
 
+        backups = br.RECOVERY / "backups"
+        before = sorted(p.name for p in backups.iterdir())
+        code, text = run(["recover", str(SLOOP), "--mock", str(t / "bench.bin")])
+        expect(sorted(p.name for p in backups.iterdir()) == before, "a mock run leaves the real backups alone")
+
         code, text = run(["recover", str(SLOOP), "--write", "--mock", str(t / "bench.bin"), "--out", str(t / "wet")])
         expect(code == 0, "the bench FM-1 is recovered (mock)")
         sums = (t / "wet" / "SHA256SUMS").read_text().split()

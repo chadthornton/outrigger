@@ -32,6 +32,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 WAVESHARES = {"waveshare-1": "d8:3b:da:a0:67:d0", "waveshare-2": "a0:85:e3:f0:a2:3c"}
 FM1_1_UNIT = "69bb070aaa87bd10"  # FM-1-1, Chad's main FM-1: the bench never switches it
 JOB_TIMEOUT_S = 20 * 60          # a switch chain is a backup, then an install: minutes each
+REFUSED_S = 15                   # a hold the Loader accepts restarts the board within a second or two
 COME_BACK_S = 60                 # the FM-1 must re-enumerate as MIDI within this
 WATCH_S = 60                     # then stay put this long: a boot loop shows as disconnects
 
@@ -62,6 +63,8 @@ class Board:
             return self._req(path, "POST")
         except urllib.error.HTTPError as e:
             raise BenchError(f"POST {path}: {e.code} {e.read().decode(errors='replace')}")
+        except (urllib.error.URLError, OSError, ValueError) as e:
+            raise BenchError(f"POST {path}: {e}")
 
     def sleep(self, s):
         time.sleep(s)
@@ -104,11 +107,25 @@ def idle_play(s):
     return s.get("usb", {}).get("mode") == "play" and not fw(s).get("busy") and not fw(s).get("unfinished")
 
 
-def run_job(board, act_path, started_uptime):
+def run_job(board, act_path, started_uptime, started_seq):
     """Posts the hold, then waits for the job's last boot: a Play boot with a result,
-    or a Load boot an install stopped in (unfinished: the FM-1 sits in ROM boot)."""
+    or a Load boot an install stopped in (unfinished: the FM-1 sits in ROM boot).
+    A hold the Loader refuses never restarts the board: its result shows on the
+    same boot, and that ends the wait at once."""
     t0 = board.now()
     board.post(act_path)
+
+    def refused(s):
+        same_boot = s.get("uptime_ms", 0) / 1000 >= board.now() - t0
+        r = fw(s).get("result") or {}
+        return same_boot and not fw(s).get("busy") and r.get("seq") != started_seq and not r.get("ok")
+
+    end = board.now() + REFUSED_S
+    while board.now() < end:
+        s = board.get("/status")
+        if s is not None and refused(s):
+            raise BenchError("the Loader refused the hold: " + json.dumps(fw(s).get("result")))
+        board.sleep(2)
 
     def ended(s):
         f = fw(s)
@@ -139,10 +156,13 @@ def watch_fm1(board):
 
 
 def refuse_fm1_1(board):
-    store = board.get("/store") or {}
-    for u in store.get("units", []):
-        if str(u.get("id", "")).startswith(FM1_1_UNIT):
-            raise BenchError(f"the board's store knows unit {FM1_1_UNIT}: that is FM-1-1, refusing")
+    """The FM-1 the Loader last saw (the one attached) must not be FM-1-1. A
+    board may still hold FM-1-1's old backups; only the attached one counts."""
+    store = board.get("/store")
+    if store is None:
+        raise BenchError("no /store answer: can't tell which FM-1 is attached")
+    if str(store.get("last_unit", "")).startswith(FM1_1_UNIT):
+        raise BenchError(f"the attached FM-1 is unit {FM1_1_UNIT}, FM-1-1: refusing")
 
 
 def do_backup(board, want):
@@ -150,7 +170,7 @@ def do_backup(board, want):
     s = wait_status(board, idle_play, "an idle Play boot", 60)
     if not fw(s).get("can_back_up"):
         raise BenchError("the Firmware page can't back up now: " + json.dumps(fw(s).get("blocked")))
-    s, secs = run_job(board, "/bench/act?kind=backup", s.get("uptime_ms"))
+    s, secs = run_job(board, "/bench/act?kind=backup", s.get("uptime_ms"), (fw(s).get("result") or {}).get("seq"))
     refuse_fm1_1(board)
     return {"kind": "backup", "seconds": secs, "result": fw(s).get("result"), "lines": fw(s).get("lines"),
             "ok": bool((fw(s).get("result") or {}).get("ok")) and not fw(s).get("unfinished")}
@@ -173,7 +193,8 @@ def do_switch(board, label, want):
         raise BenchError(f"the plan for {label} can't be held: {plan.get('lines')}")
     if label not in plan.get("hold", ""):
         raise BenchError(f"the plan's hold says '{plan.get('hold')}', not {label}")
-    s, secs = run_job(board, f"/bench/act?kind=switch&index={index}", s.get("uptime_ms"))
+    s, secs = run_job(board, f"/bench/act?kind=switch&index={index}", s.get("uptime_ms"),
+                      (fw(s).get("result") or {}).get("seq"))
     rec = {"kind": "switch", "to": label, "before": before, "plan": plan["lines"], "seconds": secs,
            "result": fw(s).get("result"), "unfinished": fw(s).get("unfinished"), "title": fw(s).get("title")}
     if fw(s).get("unfinished"):

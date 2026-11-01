@@ -12,6 +12,7 @@
 // - only on the FM-1 whose unit ID the caller names, and never FM-1-1 (Chad's main FM-1);
 // - a dry run unless write is set: it reads every sector and reports which differ.
 // Each written sector is read back and compared, with one retry, as the Loader does.
+// Any stop after the FM-1 enters ROM boot resets it to its firmware.
 //
 // Pure C++ on fm1_loader's RomClient, so tests/test_bench_writer.cpp runs it
 // against the Mac's mock FM-1.

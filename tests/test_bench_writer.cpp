@@ -175,6 +175,35 @@ static void test_verify_retries_then_fails() {
   const bench::Report r = bench::write_sectors(rom, host, blob(), {mark(0x9F000, 0x11)}, o);
   CHECK(r.stop == bench::Stop::VerifyFailed);
   CHECK(r.erased);
+  CHECK(rom.was_reset);  // back to its firmware, not left in ROM boot
+}
+
+static void test_read_failure_erases_nothing() {
+  Image f = flash();
+  MockRom rom(f, blob());
+  rom.disconnect_after = 60;  // the device stops answering partway through the reads
+  FakeHost host;
+  bench::WriteOptions o;
+  o.unit = unit_of(f);
+  const bench::Report r = bench::write_sectors(rom, host, blob(), {mark(0x9F000, 1), mark(0xA0000, 2)}, o);
+  CHECK(!r.ok());
+  CHECK(!r.erased);
+}
+
+static void test_first_erase_comes_early() {
+  Image f = flash();
+  MockRom rom(f, blob());
+  FakeHost host;
+  bench::WriteOptions o;
+  o.unit = unit_of(f);
+  o.write = true;
+  std::vector<bench::Sector> many;
+  for (uint32_t a = 0xA0000; a < 0xB4000; a += kSector) many.push_back(mark(a, 0x33));
+  const bench::Report r = bench::write_sectors(rom, host, blob(), many, o);
+  CHECK(r.ok());
+  CHECK_EQ(r.written, 20);
+  // The unit sector and the first target: no more reads before the first erase.
+  CHECK_EQ(rom.reads_before_first_erase, 2 * int(kSector / 512));
 }
 
 static void test_flaky_write_retried() {
@@ -214,6 +243,8 @@ int main() {
   test_fm1_1_refused();
   test_verify_retries_then_fails();
   test_flaky_write_retried();
+  test_read_failure_erases_nothing();
+  test_first_erase_comes_early();
   test_no_rom_device();
   if (failures) {
     printf("bench_writer: %d failure(s)\n", failures);

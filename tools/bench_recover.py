@@ -19,6 +19,7 @@ import os
 import pathlib
 import subprocess
 import sys
+import tempfile
 import time
 
 RECOVERY = pathlib.Path(os.environ.get("FM1_RECOVERY", pathlib.Path.home() / "Projects/TROUBLESHOOTING/FM1-firmware-recovery"))
@@ -91,7 +92,8 @@ def main(argv=None):
     ap.add_argument("--recovery", type=pathlib.Path, default=RECOVERY)
     a = ap.parse_args(argv)
     try:
-        out = a.out or a.recovery / "backups"
+        # A mock's dumps are fake: never next to the real ones.
+        out = a.out or (tempfile.mkdtemp(prefix="bench-recover-mock-") if a.mock else a.recovery / "backups")
         path, _ = dump(a, out)
         if a.command == "recover":
             if not a.package:

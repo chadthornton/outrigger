@@ -8,13 +8,16 @@ Knobs on the instance make it fail the ways the real board can.
 
 
 class FakeBoard:
-    def __init__(self, labels=("Stock V15", "Felucca 1.8.0", "Skiff 2.1.1"), running="Stock V15"):
+    # Labels as the real store names them (Waveshare-2's /status, 2026-11-01).
+    def __init__(self, labels=("M-VAVE stock V15", "Felucca 1.8.0", "Skiff 2.1.1"), running="M-VAVE stock V15"):
         self.host = "fake"
         self.t = 0.0
         self.labels = list(labels)
         self.running = running
         self.mac, self.board = "d8:3b:da:a0:67:d0", "waveshare-1"
         self.units = [{"id": "0123456789abcdef"}]
+        self.last_unit = "0123456789abcdef"  # the FM-1 attached
+        self.refuse_holds = False   # the Loader refuses the hold: no restart, a result on the same boot
         self.selected = -1
         self.boot_at = 0.0
         self.offline_until = 0.0
@@ -69,7 +72,7 @@ class FakeBoard:
             return {"board": self.board, "mac": self.mac, "seq": len(self.posts), "taken": len(self.posts),
                     "pending": False, "last": ""}
         if path == "/store":
-            return {"units": self.units}
+            return {"last_unit": self.last_unit, "units": self.units}
         if path != "/status":
             return None
         items = [{"label": l, "note": "running" if l == self.running else ""} for l in self.labels]
@@ -91,6 +94,8 @@ class FakeBoard:
         self.posts.append(path)
         if path.startswith("/bench/select?index="):
             self.selected = int(path.split("=")[1])
+        elif path.startswith("/bench/act") and self.refuse_holds:
+            self.result = {"headline": "Nothing started", "ok": False, "seq": self.result.get("seq", 0) + 1}
         elif path.startswith("/bench/act?kind=switch"):
             label = self.labels[int(path.split("index=")[1])]
             self.job = ("switch", label, self.t + 180)
