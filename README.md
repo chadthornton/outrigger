@@ -35,7 +35,7 @@ change. Check the board's schematic for a USB-C port wired to the ESP32-S3's nat
 
 ```
 make test      # midi_core, platform and fm1_loader tests on the Mac (fetches fixtures once)
-make check     # merge gate step 2: a clean clone of HEAD, then test, ui-shots and site (several minutes)
+make check     # merge gate step 2: a clean checkout of HEAD, then test, ui-shots and site (~2 min re-run, ~13 min cold)
 make ui-shots  # render and check every page; build/ui-shots/sheet_*.png (needs LVGL 9.6.0, see Makefile)
 make fixtures  # FM-1 packages and wl82loader.bin for the tests, pinned by SHA-256 (gitignored)
 make golden    # regenerate tests/golden/ from the Unbricker and jl-uboot-tool (Python venv in build/)
@@ -167,8 +167,8 @@ crash can be read without the screen. `tools/diag.py` fetches them from the Mac.
 Nothing lands on `master` until all three pass, on the branch's last commit:
 
 1. **Mac tests.** `make test` passes every suite on the Mac.
-2. **Clean check.** `make check` passes on the Mac: it clones the branch's last commit fresh into `build/check` (so
-   nothing uncommitted can help), then runs `make test`, `make ui-shots` and `make site` (every board × app set builds,
+2. **Clean check.** `make check` passes on the Mac: it resets its clone in `build/check` to the branch's last commit,
+   with every untracked and ignored file removed (so nothing uncommitted can help), then runs `make test`, `make ui-shots` and `make site` (every board × app set builds,
    the site stages, and the `wl82loader.bin` scan runs). The PR quotes its last lines. GitHub Actions CI is off the gate
    (Chad, 2026-10-31); `ci.yml` stays for a manual run, which is free once the repo is public.
 3. **Hardware smoke check** on the Waveshare, with the branch's own build:
