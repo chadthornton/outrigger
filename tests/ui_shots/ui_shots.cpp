@@ -7,9 +7,11 @@
 // the firmware's own: Play's statuses come from midi_core's stage_status() and
 // the FM-1 pages' from loader_messages.cpp. Each visible label must be
 // unclipped by its parents (unless scrolled out of a page's view), at least
-// one line tall and on the glass; lines cut with "..." are listed. Collapsed
-// Play must fit at S and M. Taps land with a finger that drifts 0, 8 and 16 px
-// and must still work; holds fire after 2 s and not before.
+// one line tall, on the glass and in the text size's type scale; lines cut
+// with "..." are listed. Collapsed Play must fit at every size, and the FM-1
+// stage's last line must show when it opens. Taps land with a finger that
+// drifts 0, 8 and 16 px and must still work; holds fire after 2 s and not
+// before.
 //
 // Writes <out>/<board>/<build>/<size>_<page>.png, <out>/sheet_<board>.png and
 // <out>/report.txt (fits or scrolls, per shot); exits 1 on any layout problem
@@ -193,6 +195,16 @@ static void check_labels(lv_obj_t *o) {
       const int tx2 = tx1 + tw, inset = R ? 3 : 2;
       const bool unsafe = !off_view && t[0] && (!on_glass(tx1, a.y1, inset) || !on_glass(tx2, a.y1, inset) ||
                                                 !on_glass(tx1, a.y2, inset) || !on_glass(tx2, a.y2, inset));
+      // Every label takes its font from the text size's type scale, so the
+      // setting reaches it (host_ui.cpp, "Fonts").
+      const void *scale[12];
+      const int n = ui_scale_fonts(scale, 12);
+      bool in_scale = false;
+      for (int k = 0; k < n; ++k) in_scale |= scale[k] == font;
+      if (!in_scale) {
+        ++results->problems;
+        printf("  !! %s: '%s' has a font outside the text size's scale\n", where, t);
+      }
       if (cut || wide || short_ || unsafe) {
         ++results->problems;
         printf("  !! %s: '%s' x %d..%d y %d..%d%s%s%s%s\n", where, t, (int)a.x1, (int)a.x2, (int)a.y1, (int)a.y2,
@@ -226,6 +238,21 @@ static lv_obj_t *find_text(lv_obj_t *o, const char *s, bool exact = false) {
   return nullptr;
 }
 static bool shows(const char *s) { return find_text(lv_screen_active(), s) != nullptr; }
+// The label that says `s` is in view as it stands, not scrolled off or cut.
+static bool shows_whole(const char *s) {
+  lv_obj_t *l = find_text(lv_screen_active(), s);
+  if (!l) return false;
+  lv_area_t a, vis;
+  lv_obj_get_coords(l, &a);
+  vis = a;
+  for (lv_obj_t *p = lv_obj_get_parent(l); p; p = lv_obj_get_parent(p)) {
+    lv_area_t pa;
+    lv_obj_get_coords(p, &pa);
+    vis.y1 = LV_MAX(vis.y1, pa.y1);
+    vis.y2 = LV_MIN(vis.y2, pa.y2);
+  }
+  return vis.y1 == a.y1 && vis.y2 == a.y2 && a.y2 < H;
+}
 
 // The clickable object around the label that says `s` (exactly, if one does).
 static lv_obj_t *find_target(const char *s) {
@@ -425,13 +452,17 @@ static void play_pages(bool fm1) {
   ui_update(frame(1));
   run(100);
   shoot("play");
-  if (size_char != 'L' && any_scrolls(lv_screen_active())) fail("collapsed Play scrolls");
-  // A tap opens a stage, a second closes it, with a finger that drifts.
-  for (int drift = 0; drift <= 16; drift += 8) {
+  if (any_scrolls(lv_screen_active())) fail("collapsed Play scrolls");
+  // A tap opens a stage, a second closes it, with a finger that drifts. Where
+  // the open stage makes Play scroll (L on the 1.69"), a 16 px drift is a
+  // scroll, so the drift stops at 8 there.
+  bool open_scrolls = false;
+  for (int drift = 0; drift <= (open_scrolls ? 8 : 16); drift += 8) {
     snprintf(where, sizeof where, "%s %s %c play, drift %d px", sim->id, build_name, size_char, drift);
     if (!tap_on("Hub", 80, drift)) return;
     if (!shows("USB channels in use")) fail("a tap on Hub didn't open it");
     if (drift == 0) shoot("play_hub");
+    open_scrolls = any_scrolls(lv_screen_active());
     tap_on("Hub", 80, drift);
     if (shows("USB channels in use")) fail("a second tap on Hub didn't close it");
   }
@@ -447,6 +478,8 @@ static void play_pages(bool fm1) {
     tap_on("FM-1");
     if (!shows("runs Skiff 1.4")) fail("the FM-1 stage doesn't say what it runs");
     shoot("play_fm1");
+    // The FM-1's lines, the last one included, show on the 1.69" at every size.
+    if (!shows_whole("itself sent")) fail("the FM-1 stage's last line is off the screen");
     tap_on("FM-1");
   }
   // A problem opens its own stage, with the fix card.
