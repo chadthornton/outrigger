@@ -256,8 +256,8 @@ store-add: $(TOOLS_PY)
 	$(if $(PKGS)$(LIST),,$(error PKGS="file.fwsc ..." names the packages to add; LIST=1 only lists))
 	$(TOOLS_PY) tools/store_add.py firmware/$(BOARD)/partitions.csv $(PORT) $(if $(PIN),--pin) $(if $(LIST),--list) $(PKGS)
 
-# The merge gate's step 2 (README.md): the branch's last commit, cloned fresh
-# into build/check so nothing uncommitted can help, then make test, make
+# The merge gate's step 2 (README.md): the branch's last commit, checked out
+# clean in build/check so nothing uncommitted can help, then make test, make
 # ui-shots and make site (every board x app set built and staged, with
 # build_site.py's wl82loader.bin scan). Run it on the Mac and paste the summary
 # into the PR. The fixtures are copied in (pinned by SHA-256, gitignored).
@@ -290,7 +290,7 @@ check:
 	$(MAKE) -C $(CHECK_DIR) test ui-shots site CACHE_ROOT=$(CURDIR)/$(CHECK_CACHES)/$$(cat $(CHECK_CACHES)/.key) > $(CHECK_DIR).log 2>&1 \
 		|| { tail -30 $(CHECK_DIR).log; echo "check FAILED at $$(git rev-parse --short HEAD); log: $(CHECK_DIR).log"; exit 1; }
 	@grep -E "passed|keeps the install|Sketch uses" $(CHECK_DIR).log
-	@echo "check passed at $$(git rev-parse --short HEAD) (clean clone; log: $(CHECK_DIR).log)"
+	@echo "check passed at $$(git rev-parse --short HEAD) (clean checkout; log: $(CHECK_DIR).log)"
 
 # Stage the firmware into site/ for the browser installer (site/installer/).
 # fixtures brings wl82loader.bin, so build_site can scan for pieces of it.
