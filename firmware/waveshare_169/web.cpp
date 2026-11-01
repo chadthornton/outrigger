@@ -28,6 +28,10 @@
 #include "log_ring.h"
 #include "request_guard.h"
 #include "routes.h"
+#if BENCH
+#include <esp_mac.h>
+#include "bench.h"
+#endif
 
 using web_core::json_escape;
 
@@ -42,9 +46,17 @@ extern char last_crash[3][40];  // app.cpp: the last abnormal reset, if any
 #define FW_DIRTY 0
 #endif
 
+#if BENCH
+// A bench build answers under its own name: tools/soak_watch.py and the rig's
+// bookmarks reach fm1hub.local, never the bench (Makefile, BENCH=1).
+static const char kHostname[] = "fm1bench";
+static const char kMdnsName[] = "fm1bench.local";
+static const char kSetupSsid[] = "fm1bench-setup";
+#else
 static const char kHostname[] = "fm1hub";
 static const char kMdnsName[] = "fm1hub.local";
 static const char kSetupSsid[] = "fm1hub-setup";
+#endif
 
 // ---------- The log: one ring per producing task, drained by the server task ----------
 static web_core::LineRing<32> *usb_ring;
@@ -467,7 +479,7 @@ static esp_err_t on_status(httpd_req_t *req) {
       o.key_str("todo", r.todo);
       o.key_str("detail", r.detail);
       o.key_str("fix", r.fix_label);
-      o.raw(",\"seq\":%lu}", (unsigned long)r.seq);
+      o.raw(",\"ok\":%s,\"seq\":%lu}", r.ok ? "true" : "false", (unsigned long)r.seq);
     }
     o.raw(",\"unfinished\":%s,\"can_back_up\":%s,\"can_retry\":%s", L.unfinished ? "true" : "false",
           L.can_back_up ? "true" : "false", L.can_retry ? "true" : "false");
@@ -619,6 +631,76 @@ static esp_err_t on_setup_join(httpd_req_t *req) {
   return send_json(req, kOk, sizeof kOk - 1);
 }
 
+#if BENCH
+// ---------- Bench API (BENCH=1 builds on a listed spare only) ----------
+// One command waits at a time; the loop takes it (web_take_bench_command) and
+// presses what the screen would. The Mac reads the outcome from /status.
+static const char *bench_board = nullptr;  // "waveshare-1", or null: no bench API
+static char bench_mac[18] = "";
+static web_core::BenchCommand bench_pending;
+static bool bench_has_pending = false;
+static uint32_t bench_seq = 0, bench_taken_seq = 0;
+static char bench_last[64] = "";
+
+static esp_err_t on_bench_state(httpd_req_t *req) {
+  if (!guard(req)) return ESP_OK;
+  char buf[256];
+  {
+    Lock l;
+    snprintf(buf, sizeof buf,
+             "{\"board\":\"%s\",\"mac\":\"%s\",\"seq\":%lu,\"taken\":%lu,\"pending\":%s,\"last\":\"%s\"}",
+             bench_board ? bench_board : "unknown", bench_mac, (unsigned long)bench_seq,
+             (unsigned long)bench_taken_seq, bench_has_pending ? "true" : "false", bench_last);
+  }
+  return send_json(req, buf, strlen(buf));
+}
+
+static esp_err_t on_bench_command(httpd_req_t *req) {
+  if (!guard(req)) return ESP_OK;
+  char path[32] = "", query[48] = "";
+  const char *q = strchr(req->uri, '?');
+  const size_t plen = q ? size_t(q - req->uri) : strlen(req->uri);
+  if (plen >= sizeof path) return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "not found");
+  memcpy(path, req->uri, plen);
+  httpd_req_get_url_query_str(req, query, sizeof query);
+  web_core::BenchCommand c;
+  const char *why = "";
+  if (!web_core::parse_bench_command(path, query, c, &why)) return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, why);
+  uint32_t seq;
+  {
+    Lock l;
+    if (bench_has_pending) return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "a command is still waiting");
+    bench_pending = c;
+    bench_has_pending = true;
+    seq = ++bench_seq;
+    snprintf(bench_last, sizeof bench_last, "%s %d queued", web_core::bench_kind_name(c.kind), c.index);
+  }
+  DLOG_LOOP("bench: %s %d queued as %lu", web_core::bench_kind_name(c.kind), c.index, (unsigned long)seq);
+  char buf[48];
+  snprintf(buf, sizeof buf, "{\"seq\":%lu}", (unsigned long)seq);
+  return send_json(req, buf, strlen(buf));
+}
+
+bool web_take_bench_command(web_core::BenchCommand &out) {
+  Lock l;
+  if (!bench_has_pending) return false;
+  out = bench_pending;
+  bench_has_pending = false;
+  bench_taken_seq = bench_seq;
+  snprintf(bench_last, sizeof bench_last, "%s %d taken", web_core::bench_kind_name(out.kind), out.index);
+  return true;
+}
+
+static void bench_check_board() {
+  uint8_t mac[6] = {};
+  esp_efuse_mac_get_default(mac);
+  bench_board = web_core::waveshare_name(mac);
+  snprintf(bench_mac, sizeof bench_mac, "%02x:%02x:%02x:%02x:%02x:%02x", mac[0], mac[1], mac[2], mac[3], mac[4],
+           mac[5]);
+  DLOG_LOOP("bench: board %s is %s", bench_mac, bench_board ? bench_board : "not a listed Waveshare: no bench API");
+}
+#endif  // BENCH
+
 static esp_err_t on_not_found(httpd_req_t *req, httpd_err_code_t) {
   if (via_hotspot(req)) return redirect_to_setup(req);  // captive-portal probes
   httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "not found");
@@ -639,6 +721,9 @@ static void start_server() {
   cfg.stack_size = 8192;
   cfg.max_open_sockets = 7;
   cfg.max_uri_handlers = web_core::kRouteCount;
+#if BENCH
+  cfg.max_uri_handlers += web_core::kBenchRouteCount;
+#endif
   cfg.lru_purge_enable = true;
   cfg.send_wait_timeout = 2;
   cfg.recv_wait_timeout = 2;
@@ -658,6 +743,18 @@ static void start_server() {
     u.handler = handlers[i];
     httpd_register_uri_handler(server, &u);
   }
+#if BENCH
+  // Only on one of Chad's Waveshares; tools/bench.py checks it's the one it asked for.
+  if (bench_board) {
+    for (const web_core::Route &r : web_core::kBenchRoutes) {
+      httpd_uri_t u{};
+      u.uri = r.uri;
+      u.method = r.method == web_core::Method::Get ? HTTP_GET : HTTP_POST;
+      u.handler = r.method == web_core::Method::Get ? on_bench_state : on_bench_command;
+      httpd_register_uri_handler(server, &u);
+    }
+  }
+#endif
   httpd_register_err_handler(server, HTTPD_404_NOT_FOUND, on_not_found);
 }
 
@@ -765,6 +862,9 @@ static void join(const char *ssid, const char *pass) {
 void web_begin(bool safe_mode) {
   if (started) return;
   safe = safe_mode;
+#if BENCH
+  bench_check_board();
+#endif
   const esp_reset_reason_t r = esp_reset_reason();
   const bool abnormal = r == ESP_RST_PANIC || r == ESP_RST_INT_WDT || r == ESP_RST_TASK_WDT ||
                         r == ESP_RST_WDT || r == ESP_RST_BROWNOUT;

@@ -631,6 +631,19 @@ void loop() {
   if (millis() > 100000) esp_restart();
 #endif
 #endif
+#if BENCH && APP_LOADER
+  // The bench's commands press what the screen would (web.cpp, Bench API).
+  web_core::BenchCommand bench;
+  if (web_take_bench_command(bench)) {
+    switch (bench.kind) {
+      case web_core::BenchKind::Select: loader_select(bench.index); break;
+      case web_core::BenchKind::Switch: loader_act(UiAct::Switch, bench.index); break;
+      case web_core::BenchKind::Backup: loader_act(UiAct::Backup, -1); break;
+      case web_core::BenchKind::Retry: loader_act(UiAct::Retry, -1); break;
+      default: break;
+    }
+  }
+#endif
   static uint32_t last_net = 0;
   if (millis() - last_net > 1000) {
     last_net = millis();

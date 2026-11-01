@@ -40,7 +40,7 @@ apps ask it for them. See `docs/architecture.md`, and the merge gate below befor
 | `tests/ui_shots/` | `make ui-shots`: renders every `host_ui` page (docs/ui-redesign.md) with LVGL on the Mac, on 240×280, 320×480 and 480×320 at S/M/L, hub and hub-loader, plus an encoder board's focus ring, using the firmware's own wording. Taps them with a drifting finger, holds the holds, and fails on a clipped or off-glass label. PNGs, `report.txt` and a `sheet_<board>.png` per board in `build/ui-shots/`. Check UI changes here before booking the board. |
 | `firmware/config/lv_conf.h` | LVGL configuration (fonts, clib malloc so big buffers can use PSRAM). |
 | `site/`, `tools/build_site.py` | Browser installer (`site/installer/`, on esptool-js) and the script that stages firmware into it. |
-| `.github/workflows/ci.yml` | CI, the same checks as `make check` on GitHub's machines, on pushes to master and PRs. Not part of the merge gate. |
+| `.github/workflows/ci.yml` | CI, the merge gate: the same checks as `make check`, with one job per board × app set, on pushes to master and PRs. Its `ci-ok` check is the one to read. |
 | `firmware/waveshare_169/` | The Arduino sketch every board builds (named for the first board): `app.cpp` (USB host, routing, gathers the frame) and `board.cpp` (display, touch and expander drivers, from the build's `board_config.h`). Code stays out of the `.ino` (see below). |
 | `firmware/boards.json`, `tools/boards.py` | The board profiles (pins, chips, screen, memory) and the script that checks them and generates each build's `board_config.h` and the screens `make ui-shots` renders. |
 
@@ -51,7 +51,7 @@ the Makefile, the site and the installer pick it up from there.
 
 ```
 make test      # midi_core, platform and fm1_loader tests on the Mac (fetches fixtures once)
-make check     # merge gate step 2: HEAD checked out clean in the clone all worktrees share, then test, ui-shots and site (~2 min; ~12 min after a core or library update)
+make check     # the production deploy's check: HEAD checked out clean in the clone all worktrees share, then test, ui-shots and site (~2 min; ~12 min after a core or library update)
 make ui-shots  # render and check every page; build/ui-shots/sheet_*.png (needs LVGL 9.6.0, see Makefile)
 make fixtures  # FM-1 packages and wl82loader.bin for the tests, pinned by SHA-256 (gitignored)
 make golden    # regenerate tests/golden/ from the Unbricker and jl-uboot-tool (Python venv in build/)
@@ -151,7 +151,8 @@ make deploy-site CHANNEL=production  # outrigger.music
 ```
 
 - **What gets uploaded:** `make deploy-site` runs `make check`, then uploads the `site/` that the check built from that
-  commit (`build/checked/site`). Nothing uncommitted or unpushed goes live, and every upload passed the merge gate.
+  commit (`build/checked/site`). Nothing uncommitted or unpushed goes live, and every upload passed `make check` on that
+  exact commit. Production also waits for Chad's "ship it" in the deploying session's chat.
 - **What gets checked first:** `tools/deploy_site.py` refuses a dirty tree, an unpushed HEAD, or production from
   anything but `origin/master`. Before uploading it scans every file again: under Pages' 25 MiB per-file and
   20,000-file limits, and free of `wl82loader.bin` (by name, SHA-256 and 1 KiB pieces). A local copy of the blob is
@@ -180,24 +181,37 @@ crash can be read without the screen. `tools/diag.py` fetches them from the Mac.
 
 ## Merge gate
 
-Nothing lands on `master` until all three pass, on the branch's last commit:
+Nothing lands on `master` until **GitHub CI is green** on the PR's head commit: the `ci-ok` check (`gh pr checks`).
+It runs `make test`, `make ui-shots`, one build per board × app set in parallel, then stages the installer site with
+the `wl82loader.bin` scan. A PR that only touches docs, site copy (`site/`), `tests/installer/` or `.md` files skips
+the firmware builds and gets a licensing scan of `site/` instead. Run `make test` locally while working; it is not a
+gate step, and neither is `make check` (Chad, 2026-11-01). A briefly broken `master` is tolerated: fix forward.
 
-1. **Mac tests.** `make test` passes every suite on the Mac.
-2. **Clean check.** `make check` passes on the Mac: it resets the clone every worktree shares
-   (`~/Library/Caches/outrigger-check`, one check at a time; `tools/check.py`) to the branch's last commit, with every
-   untracked and ignored file removed (so nothing uncommitted can help), then runs `make test`, `make ui-shots` and `make site` (every board × app set builds,
-   the site stages, and the `wl82loader.bin` scan runs). The PR quotes its last lines. GitHub Actions CI is off the gate
-   (Chad, 2026-10-31); `ci.yml` runs on pushes to master and on PRs as an extra signal.
-3. **Hardware smoke check** on the Waveshare, with the branch's own build:
+**Exception:** a PR that changes the FM-1 loader, the store or flash writes, or the USB host stack (`lib/fm1_loader/`,
+the loader and store code in `firmware/`, `partitions.csv`, `lib/EspUsbHost/`) also passes the hardware smoke check
+below with its own build before merging.
+
+### Shipping to production
+
+Once per ship (Chad, 2026-11-01), in this order:
+
+1. **Hardware smoke check** with `master`'s build, the commit about to ship:
    1. Install it the way a user would: the web installer (`make serve`), from Computer mode, with the app set the
-      branch changes (MIDI Hub if none).
+      ship changes (MIDI Hub if none).
    2. Put the board back in the rig: hub power brick → hub, hub upstream cable → Waveshare, FM-1 and Launchkey on the
       hub's USB-C ports.
-   3. Pass when Setup shows the branch's commit, Play's four lines are green with the hub at `USB 8/8`, and playing the
+   3. Pass when Setup shows the commit, Play's four lines are green with the hub at `USB 8/8`, and playing the
       Launchkey sounds the FM-1.
+2. **Chad says "ship it"** in the deploying session's chat, after the smoke check passes.
+3. **`make deploy-site CHANNEL=production`** re-runs `make check` on the Mac on the exact commit it uploads
+   ("Publishing the site").
 
-There is one Waveshare. A session books it in the shared notes queue before asking Chad to move it, and reflashes the
-`master` build when done.
+### Boards
+
+There are three: Waveshare-1 (1.69", V2, MAC `D8:3B:DA:A0:67:D0`), Waveshare-2 (1.69", V1, MAC `a0:85:e3:f0:a2:3c`)
+and Board-3 (Waveshare 3.5"). A session books a board and the Mac's USB slot through the orchestrator session
+(`local_3a47bdc2-23d3-4414-b549-9e1e85c6718a`), checks the board's MAC before flashing, and reflashes the `master`
+build when done.
 
 An app also lands with its row in the mode table, its claims and tests in the broker, its NVS namespace with a `schema`
 key, and its build flag (`docs/architecture.md`, "How an app lands on `master`"). Guarded work (anything that writes the

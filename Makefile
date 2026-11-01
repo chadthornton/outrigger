@@ -38,6 +38,13 @@ WRITE_FLAGS += $(if $(filter 1,$(SOAK)),-DLOADER_SOAK=1)
 # Back to MIDI does) 100 s after each boot, so tools/boot_probe.py can time Wi-Fi
 # across many software restarts unattended. Never a release.
 WRITE_FLAGS += $(if $(filter 1,$(WIFI_BOOTLOOP)),-DWIFI_BOOTLOOP=1)
+# BENCH=1 (with DIAG_WEB=1, APPS=hub-loader): the test bench's control API at
+# fm1bench.local (lib/web_core/src/bench.h), answered only on Chad's Waveshares.
+# tools/bench.py drives it. Never a release: make site checks no shipped build has it.
+ifeq ($(BENCH),1)
+$(if $(filter 1,$(DIAG_WEB)),,$(error BENCH=1 needs DIAG_WEB=1))
+WRITE_FLAGS += -DBENCH=1
+endif
 APP_LIBS_hub :=
 APP_LIBS_hub-loader := --library lib/fm1_loader
 APP_LIBS_everything := --library lib/fm1_loader --library lib/web_core
@@ -56,6 +63,9 @@ BUILD_SUFFIX := $(BUILD_SUFFIX)-soak
 endif
 ifeq ($(WIFI_BOOTLOOP),1)
 BUILD_SUFFIX := $(BUILD_SUFFIX)-bootloop
+endif
+ifeq ($(BENCH),1)
+BUILD_SUFFIX := $(BUILD_SUFFIX)-bench
 endif
 # The sketch is still named for the first board; it's every board's. Renaming
 # it waits for the branches editing it to land.
@@ -91,7 +101,7 @@ FM1_TESTS := build/test_fm1_package build/test_fm1_library build/test_fm1_instal
 	build/test_fm1_softkey build/test_fm1_posix build/test_fm1_locked build/test_fm1_library_posix \
 	build/test_fm1_receive
 
-test: build/check_package build/test_fm1_interop build/test_touch_map build/test_midi_core build/test_status build/test_boot_mode build/test_broker build/test_describe build/test_web_core build/test_store_json build/test_loader_messages $(FM1_TESTS) build/receive_pipe fixtures $(TOOLS_PY)
+test: build/check_package build/test_fm1_interop build/test_touch_map build/test_midi_core build/test_status build/test_boot_mode build/test_broker build/test_describe build/test_web_core build/test_store_json build/test_loader_messages build/test_bench_writer $(FM1_TESTS) build/receive_pipe fixtures $(TOOLS_PY)
 	./build/test_touch_map
 	./build/test_midi_core
 	./build/test_status
@@ -101,6 +111,7 @@ test: build/check_package build/test_fm1_interop build/test_touch_map build/test
 	./build/test_web_core
 	./build/test_store_json build/store.json
 	./build/test_loader_messages
+	./build/test_bench_writer
 	python3 -I -c "import json; json.load(open('build/store.json'))"
 	for t in $(FM1_TESTS); do ./$$t || exit 1; done
 	python3 -c "import shutil; shutil.rmtree('build/interop', ignore_errors=True)"
@@ -114,6 +125,8 @@ test: build/check_package build/test_fm1_interop build/test_touch_map build/test
 	node --test tests/installer/*.test.mjs
 	python3 -I tests/test_deploy_site.py
 	python3 -I tests/test_check.py
+	python3 -I tests/test_bench.py
+	python3 -I tests/test_bench_recover.py
 	python3 -I tests/test_guide.py
 
 # The Mac tests may write the mock FM-1 (FM1_LOADER_WRITES=1); test_fm1_locked
@@ -131,6 +144,11 @@ build/test_fm1_library_posix: tests/test_fm1_library.cpp $(FM1_TEST_SRC) $(FM1_H
 build/test_fm1_%: tests/test_fm1_%.cpp $(FM1_TEST_SRC) $(FM1_HDR) firmware/waveshare_169/switch_chain.h
 	mkdir -p build
 	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -DFM1_LOADER_WRITES=1 -Ilib/fm1_loader/src -Ifirmware/waveshare_169 -Itests -o $@ $< $(FM1_TEST_SRC)
+
+# The bench's sector writer (BENCH=1 builds only) against the mock FM-1.
+build/test_bench_writer: tests/test_bench_writer.cpp firmware/waveshare_169/bench_writer.cpp firmware/waveshare_169/bench_writer.h $(FM1_TEST_SRC) $(FM1_HDR)
+	mkdir -p build
+	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -DFM1_LOADER_WRITES=1 -Ilib/fm1_loader/src -Ifirmware/waveshare_169 -Itests -o $@ $< firmware/waveshare_169/bench_writer.cpp $(FM1_TEST_SRC)
 
 # The board for the page's add-firmware tests (tests/installer/add.test.mjs).
 build/receive_pipe: tests/receive_pipe.cpp $(FM1_TEST_SRC) $(FM1_HDR)
@@ -303,11 +321,11 @@ store-add: $(TOOLS_PY)
 	$(if $(PKGS)$(LIST),,$(error PKGS="file.fwsc ..." names the packages to add; LIST=1 only lists))
 	$(TOOLS_PY) tools/store_add.py $(SKETCH)/partitions.csv $(PORT) $(if $(PIN),--pin) $(if $(LIST),--list) $(PKGS)
 
-# The merge gate's step 2 (README.md): the worktree's last commit, checked out
+# The production deploy's check (README.md): the worktree's last commit, checked out
 # clean in one clone every worktree shares (~/Library/Caches/outrigger-check),
 # one check at a time, then make test, make ui-shots and make site (every board
 # x app set built and staged, with build_site.py's wl82loader.bin scan). Run it
-# on the Mac and paste the summary into the PR. tools/check.py says how; a pass
+# on the Mac; make deploy-site runs it first. tools/check.py says how; a pass
 # leaves the site and its commit in build/checked/ for make deploy-site.
 CHECK_HOME ?= $(HOME)/Library/Caches/outrigger-check
 check:
@@ -324,6 +342,7 @@ site: build-all fixtures $(TOOLS_PY)
 	for b in $(BOARDS); do \
 		$(TOOLS_PY) tools/store_template.py $(SKETCH)/partitions.csv build/$$b/store-template.json || exit 1; \
 		for a in $(APP_SETS); do \
+		if grep -q /bench/ build/$$b/$$a/*.ino.bin; then echo "build/$$b/$$a has the bench API"; exit 1; fi; \
 		python3 tools/build_site.py $$b $$a build/$$b/$$a $(ESP32_CORE)/tools/partitions/boot_app0.bin \
 			$(shell git describe --always --dirty) build/$$b/store-template.json || exit 1; done; done
 
