@@ -1,4 +1,21 @@
-# usb-midi-host
+# Outrigger
+
+**Outrigger lets a USB MIDI controller play an M-VAVE FM-1 with no computer, and switches the FM-1's firmware for
+you, backing it up first.** It runs on a small ESP32-S3 touchscreen board that sits on a powered USB hub next to the
+FM-1. Install it from your browser at **[outrigger.music](https://outrigger.music)**.
+
+- **Status: beta.** Tested on a Waveshare ESP32-S3-Touch-LCD-1.69 with a Novation Launchkey Mini MK4 37. Expect
+  rough edges; firmware switching writes to your FM-1, so read the beta guide first.
+- **Beta guide:** [`docs/beta/`](docs/beta/01-what-you-need.md), from what you need to
+  [what to do if your FM-1 won't boot](docs/beta/06-if-your-fm1-wont-boot.md) and the
+  [known issues](docs/beta/07-known-issues.md).
+- **Feedback:** feedback@outrigger.music.
+- **License:** [GPL-3.0](LICENSE). Third-party code and its licenses: [NOTICE](NOTICE). No M-VAVE firmware is in
+  this repo; your browser downloads it at install time and checks each file.
+
+The rest of this README is for working on the code.
+
+## For developers
 
 A computer-free USB MIDI host. The first target is the Waveshare ESP32-S3-Touch-LCD-1.69: its USB-C port runs as
 a USB host through a powered hub, and incoming MIDI is shown on its screen. The goal is to play an M-VAVE FM-1
@@ -23,7 +40,7 @@ apps ask it for them. See `docs/architecture.md`, and the merge gate below befor
 | `tests/ui_shots/` | `make ui-shots`: renders every `host_ui` page (docs/ui-redesign.md) with LVGL on the Mac, on 240×280, 320×480 and 480×320 at S/M/L, hub and hub-loader, plus an encoder board's focus ring, using the firmware's own wording. Taps them with a drifting finger, holds the holds, and fails on a clipped or off-glass label. PNGs, `report.txt` and a `sheet_<board>.png` per board in `build/ui-shots/`. Check UI changes here before booking the board. |
 | `firmware/config/lv_conf.h` | LVGL configuration (fonts, clib malloc so big buffers can use PSRAM). |
 | `site/`, `tools/build_site.py` | Browser installer (`site/installer/`, on esptool-js) and the script that stages firmware into it. |
-| `.github/workflows/ci.yml` | CI, the same checks as `make check` on GitHub's machines. Disabled on GitHub while the repo is private (2026-10-31); free once it is public; `gh workflow enable CI`, then "Run workflow". Not part of the merge gate. |
+| `.github/workflows/ci.yml` | CI, the same checks as `make check` on GitHub's machines. Not part of the merge gate. |
 | `firmware/waveshare_169/` | Arduino sketch for the Waveshare board: `app.cpp` (USB host, routing, gathers the frame) and `board_waveshare_169.cpp` (board profile, display and touch drivers). Code stays out of the `.ino` (see below). |
 
 To add a board: copy the sketch folder, write a new `board_*.cpp` with its `BoardProfile` (size, shape, corner

@@ -1,9 +1,9 @@
-Outrigger (usb-midi-host)
+Outrigger
 Copyright (c) 2026 Chad Thornton
 
 Outrigger is free software: you can redistribute it and/or modify it under the
 terms of the GNU General Public License, version 3 (LICENSE). Its source is
-https://github.com/chadthornton/usb-midi-host.
+https://github.com/chadthornton/outrigger.
 
 This project includes, or is built from, the third-party work below. The
 firmware on the installer site (site/firmware/) is compiled from this
