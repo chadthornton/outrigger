@@ -36,7 +36,7 @@ A board is a profile, not new code:
 3. **Run `python3 -I tools/boards.py check`.** It refuses pins on the USB lines (19/20), on the flash lines (26–32), on
    octal PSRAM (33–37), a pin with two jobs, and memory below 16 MB flash and 8 MB PSRAM.
 4. **Run `make ui-shots`.** Every screen renders at the new resolution; it fails on text that doesn't fit.
-5. **Run `make probe BOARD=<id>`** with the board in download mode (hold BOOT, tap RST). It runs the profile's drivers
+5. **Run `make probe BOARD=<id>`** with the board in download mode (hold BOOT, tap RST; after a flash from download mode, unplug and replug it to start the new program). It runs the profile's drivers
    with the USB port left a serial device: the log lists the I2C chips that answer, and the screen shows red, green,
    blue and white corner squares (top-left, top-right, bottom-left, bottom-right) and a yellow dot under each tap.
 6. **Run `make build BOARD=<id> APPS=hub-loader`,** flash it, and check the FM-1 plays through it. Add the board's row
@@ -88,7 +88,7 @@ From Waveshare's repo (`waveshareteam/ESP32-S3-Touch-LCD-3.5`): the V1 and V2 sc
 examples `08_gfx_helloworld` and `11_lvgl_arduino_v8`. Board-3 (MAC 44:BD:8D:61:2B:28) read as ESP32-S3 with 8 MB
 embedded PSRAM and 16 MB flash.
 
-- **Display:** ST7796, 320×480 IPS, run in landscape (480×320, rotation 1; touch turns with it). SPI on SCK 5, MOSI 1, MISO 2, DC 3, in SPI mode 0: Arduino_GFX 1.6 defaults the ST7796 to mode 3, which left Board-3's screen dark (CS is tied low). CS is tied low. Backlight on GPIO6. The
+- **Display:** ST7796, 320×480 IPS, run in landscape (480×320, rotation 1, USB-C on the right; touch turns with it, checked on Board-3). SPI on SCK 5, MOSI 1, MISO 2, DC 3, in SPI mode 0: Arduino_GFX 1.6 defaults the ST7796 to mode 3, which left Board-3's screen dark (CS is tied low). CS is tied low. Backlight on GPIO6. The
   panel's reset is pin 1 of the TCA9554 expander (EXIO1), so the driver pulses it over I2C.
 - **Touch:** FT6336 at 0x38 on I2C SDA 8, SCL 7, shared with the expander (0x20), the AXP2101 power chip, the
   ES8311 codec, the RTC and the IMU. Its interrupt is EXIO2; no reset line.
