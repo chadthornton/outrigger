@@ -119,6 +119,11 @@
   .install-note { color: var(--muted); }
   .install-read { font-weight: 600; }
   .install-error { font-weight: 600; color: var(--warn); }
+  /* Add a firmware (site/installer/add_area.js): the Hub's list, one row each. */
+  .add-list { list-style: none; padding: 0; margin: 0; display: grid; }
+  .add-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: .9375rem; }
+  .add-list button { padding: 6px 16px; width: auto; flex: none; }
+  .add-list small { color: var(--muted); }
   .install-done { display: grid; gap: 6px; border-left: 3px solid var(--accent); padding-left: 12px; }
   .install-version { font-size: .75rem; color: var(--muted); }
   .install button:disabled { opacity: .45; cursor: default; }

@@ -18,23 +18,19 @@ import { ChunkedTransport, readFlashInPieces } from "./serial.js";
 import { describeBoard, buildName } from "./board.js";
 import { checkChip, USB_BRIDGES } from "./chip.js";
 import { readBoard, fetchBuild, install, finish, prepareStore } from "./install.js";
+import { PORT_FILTER, SERIAL_OPTIONS, port as lock, h } from "./ui.js";
 
 // Shown under each install area and in Details, so a bug report says which
 // installer ran. Bump it with every change to site/installer/.
-export const INSTALLER_VERSION = "2026-11-01.3";
+export const INSTALLER_VERSION = "2026-11-01.4";
 
-// The ESP32-S3's own USB port (USB-Serial-JTAG), in Computer mode or BOOT+RST.
-// Converter chips are listed too, so a board that can't host (a Cheap Yellow
-// Display, say) shows up and hears why (chip.js) instead of not being listed.
-const PORT_FILTER = [{ usbVendorId: 0x303a, usbProductId: 0x1001 },
-  ...Object.keys(USB_BRIDGES).map((vid) => ({ usbVendorId: Number(vid) }))];
+// Installing lists converter chips beside the ESP32-S3's own port (ui.js), so
+// a board that can't host (a Cheap Yellow Display, say) shows up and hears why
+// (chip.js) instead of not being listed.
+const INSTALL_PORT_FILTER = [...PORT_FILTER, ...Object.keys(USB_BRIDGES).map((vid) => ({ usbVendorId: Number(vid) }))];
 // The board's own USB port runs at full USB speed whatever baud rate is set,
 // and asking its ROM to change baud hangs the connection, so stay at 115200.
 const BAUD = 115200;
-// Web Serial's default 255-byte buffer can't take a flash-read packet (up to
-// 4 KiB, more once SLIP-escaped): reads stalled after "Flash ID" in Brave.
-// ESP Web Tools opened this board with 8192.
-const SERIAL_OPTIONS = { bufferSize: 16384 };
 const READ_TIMEOUT_MS = 30000;
 const STORE_TIMEOUT_MS = 120000;
 // esptool-js's progress lines: the latest shows while the board is read, and
@@ -59,23 +55,12 @@ async function withTimeout(promise, ms, what) {
     clearTimeout(timer);
   }
 }
-// One install at a time on the page: every area shares the one board and the log.
-let busy = false;
 
 // Chad's wording (2026-10-31) for a store region that holds data but no store.
 const UNREADABLE = "Your ESP32 has storage we can't read. Email feedback@outrigger.music before continuing. Nothing was installed.";
 
 const KEEPS = "Checking reads the board and changes nothing: nothing is installed until you confirm. Installing replaces the program only. Settings, Wi-Fi and FM-1 backups stay.";
 
-const h = (tag, attrs = {}, ...kids) => {
-  const el = document.createElement(tag);
-  for (const [k, v] of Object.entries(attrs)) {
-    if (k === "on") Object.entries(v).forEach(([ev, fn]) => el.addEventListener(ev, fn));
-    else if (v !== false && v != null) el.setAttribute(k, v === true ? "" : v);
-  }
-  el.append(...kids.flat().filter((k) => k != null && k !== false));
-  return el;
-};
 
 let areas = 0;
 
@@ -128,14 +113,14 @@ class InstallArea {
   }
 
   async connect(choice) {
-    if (busy || !choice) return;
+    if (lock.busy || !choice) return;
     let port;
     try {
-      port = await navigator.serial.requestPort({ filters: PORT_FILTER });
+      port = await navigator.serial.requestPort({ filters: INSTALL_PORT_FILTER });
     } catch {
       return; // closed the picker
     }
-    busy = true;
+    lock.busy = true;
     try {
       if (!choice.manifest) return await this.checkOnly(port);
       this.show(h("p", { class: "install-note", role: "status" }, "Downloading the firmware…"));
@@ -166,7 +151,7 @@ class InstallArea {
         this.ready(this.explain(e, "Couldn't read the board."));
       }
     } finally {
-      busy = false;
+      lock.busy = false;
       onLogLine = () => {};
     }
   }
@@ -250,8 +235,8 @@ class InstallArea {
   }
 
   async run(build, board, store) {
-    if (busy) return;
-    busy = true;
+    if (lock.busy) return;
+    lock.busy = true;
     const label = { verify: "Checking every part", "verify store": "Checking the new store" };
     try {
       const { storeProblem } = await install({
@@ -268,7 +253,7 @@ class InstallArea {
       await this.close();
       this.ready(this.explain(e, "The install stopped."));
     } finally {
-      busy = false;
+      lock.busy = false;
     }
   }
 

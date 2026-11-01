@@ -730,6 +730,10 @@ static void run_computer(const SimBoard &b) {
   ui_show_computer_mode("Firmware 4d1d09e+ hub+L");
   run(100);
   shoot("computer");
+  ui_set_computer_status("Adding Felucca 8 Patterns 1.6.1_and_sequences_2: 40%");
+  run(100);
+  shoot("computer_adding");
+  ui_set_computer_status("");
 }
 
 // ---------- Contact sheets ----------
@@ -739,7 +743,7 @@ static const char *const kColumns[] = {
     "play",       "play_hub",  "play5",      "play5_open",  "play_fm1",   "problem",  "nav_focus", "play_focus",
     "fm1_list",   "fm1_list_focus", "plan_wait", "plan",    "plan_fresh", "backups",  "job_switch", "job_backup", "job_chain_backup", "job_chain_write",
     "switched",   "err_retry", "err_norom",  "err_stale",   "not_ready",  "unfinished", "setup",   "computer_confirm",
-    "switching",  "computer"};
+    "switching",  "computer", "computer_adding"};
 constexpr int kCols = sizeof kColumns / sizeof *kColumns, kGap = 8, kCaption = 18;
 static uint8_t caption_rgb[480 * kCaption * 3];
 static int caption_w;

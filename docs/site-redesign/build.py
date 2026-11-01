@@ -373,6 +373,11 @@ STYLE = """
   .install-note { color: var(--muted); }
   .install-read { font-weight: 600; }
   .install-error { font-weight: 600; color: var(--warn); }
+  /* Add a firmware (site/installer/add_area.js): the Hub's list, one row each. */
+  .add-list { list-style: none; padding: 0; margin: 0; display: grid; }
+  .add-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: .9375rem; }
+  .add-list button { padding: 6px 16px; width: auto; flex: none; }
+  .add-list small { color: var(--muted); }
   .install-done { display: grid; gap: 6px; border-left: 3px solid var(--accent); padding-left: 12px; }
   .install-version { font-size: .75rem; color: var(--muted); }
   .install button:disabled { opacity: .45; cursor: default; }
@@ -485,10 +490,20 @@ def install_area(label, app_set):
             '      <p class="install-note">Installing needs Chrome or Edge on a computer, with JavaScript on.</p>\n    </div>')
 
 
-REAL_STEP2 = f"""<li><div><b>Three firmwares come with it</b><p>On a new ESP32 the installer also puts M-VAVE stock V15, Felucca
-    and Skiff on Outrigger, downloaded from the Firmware Hub straight into your browser. Adding others from the
-    browser is next. Beta testers who want one sooner: <a href="{FEEDBACK}">email us</a>.</p></div></li>
+REAL_STEP2 = """<li><div><b>Three firmwares come with it</b><p>On a new ESP32 the installer also puts M-VAVE stock V15, Felucca
+    and Skiff on Outrigger, downloaded from the Firmware Hub straight into your browser. Add more from the Hub's list
+    any time: see <a href="#add">Add a firmware</a>.</p></div></li>
   <li><div><b>Plug everything into the hub</b>"""
+
+# Adding a Firmware Hub firmware to a set-up Outrigger (site/installer/add_area.js), its own section under the hero.
+ADD_SECTION = """<section class="section" id="add" style="max-width:760px"><h2>Add a firmware</h2>
+    <p>Put any firmware from the Firmware Hub's list on Outrigger, up to ten in all. Your browser downloads it from
+      thefirmwarehub.com and checks it, and Outrigger checks it again before storing it. Nothing else on Outrigger
+      changes: your backups and the firmwares already there stay as they are. Switching to a firmware we haven't
+      tested with yours clears the old one's data first, and keeps a copy that comes back when you switch back.</p>
+    <div class="install add-firmware"><p class="install-note">Adding a firmware needs Chrome or Edge on a computer, with JavaScript on.</p></div>
+  </section>
+  <section class="section" id="need">"""
 
 real = MOCK
 for a, b in [
@@ -502,9 +517,10 @@ for a, b in [
      """<dd>Switching needs a 24 KB file from the FM-1's chip maker that we can't host ourselves. On a new ESP32 the
       installer downloads it straight from GitHub into your browser, and the three starter firmwares from the Firmware
       Hub, checks every one, and puts them on Outrigger. If a download fails, nothing is written.</dd>"""),
+    ('<section class="section" id="need">', ADD_SECTION),
     ('<title>Outrigger: B3</title>', '<title>Outrigger: FM-1\u2019s new best friend</title>\n'
      '<meta name="description" content="Play the M-VAVE FM-1 from any MIDI controller with a USB connection, and switch between 100+ firmwares without a laptop.">\n'
-     '<script type="module" src="installer/area.js"></script>'),
+     '<script type="module" src="installer/area.js"></script>\n<script type="module" src="installer/add_area.js"></script>'),
     ('<link rel="stylesheet" href="shared.css">', '<link rel="stylesheet" href="style.css">'),
     ('<a class="link" href="#trouble">Help</a>',
      '<a class="link" href="#trouble">Help</a><a class="link" href="beta/">Beta testers</a>'),
