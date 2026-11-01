@@ -43,6 +43,13 @@ struct DiagState {
 void web_begin(bool safe_mode);
 void web_loop(uint32_t now_ms);
 void web_publish(const DiagState &state);
+#if BENCH
+#include "bench.h"
+// The command the Mac posted to /bench/select or /bench/act, once: the loop
+// presses it (app.cpp). False when none is waiting.
+bool web_take_bench_command(web_core::BenchCommand &out);
+#endif
+
 // The settings page's network line: address, or the hotspot and its password.
 const char *web_network_line();
 
