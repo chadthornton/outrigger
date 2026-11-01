@@ -15,6 +15,7 @@
 
 #include "board_config.h"
 #include "board_profile.h"
+#include "touch_map.h"
 
 using namespace board_config;
 
@@ -23,17 +24,20 @@ extern const BoardProfile kBoard = BOARD_PROFILE_INIT;
 // A profile's pin: GPIO n is n, expander pin n is 100 + n, none is -1.
 constexpr int16_t kExio = 100;
 constexpr int8_t gpio_or_none(int16_t pin) { return pin >= 0 && pin < kExio ? pin : GFX_NOT_DEFINED; }
+// The panel unturned: Arduino_GFX takes these and turns the picture itself.
+static const int16_t kNativeW = kRotation & 1 ? kBoard.height : kBoard.width;
+static const int16_t kNativeH = kRotation & 1 ? kBoard.width : kBoard.height;
 
 static Arduino_DataBus *bus = new Arduino_ESP32SPI(gpio_or_none(kLcdDc), gpio_or_none(kLcdCs), gpio_or_none(kLcdSck),
                                                    gpio_or_none(kLcdMosi), gpio_or_none(kLcdMiso));
 #if BOARD_DISPLAY_ST7789
-static Arduino_GFX *panel = new Arduino_ST7789(bus, gpio_or_none(kLcdRst), kRotation, kIps, kBoard.width, kBoard.height,
+static Arduino_GFX *panel = new Arduino_ST7789(bus, gpio_or_none(kLcdRst), kRotation, kIps, kNativeW, kNativeH,
                                                kOffsets[0], kOffsets[1], kOffsets[2], kOffsets[3]);
 #elif BOARD_DISPLAY_ST7796
-static Arduino_ST7796 *panel = new Arduino_ST7796(bus, gpio_or_none(kLcdRst), kRotation, kIps, kBoard.width, kBoard.height,
+static Arduino_ST7796 *panel = new Arduino_ST7796(bus, gpio_or_none(kLcdRst), kRotation, kIps, kNativeW, kNativeH,
                                                kOffsets[0], kOffsets[1], kOffsets[2], kOffsets[3]);
 #elif BOARD_DISPLAY_ILI9341
-static Arduino_GFX *panel = new Arduino_ILI9341(bus, gpio_or_none(kLcdRst), kRotation, kIps, kBoard.width, kBoard.height,
+static Arduino_GFX *panel = new Arduino_ILI9341(bus, gpio_or_none(kLcdRst), kRotation, kIps, kNativeW, kNativeH,
                                                 kOffsets[0], kOffsets[1], kOffsets[2], kOffsets[3]);
 #endif
 
@@ -139,14 +143,11 @@ bool board_touch_read(int16_t *x, int16_t *y) {
   for (uint8_t &b : buf) b = Wire.read();
   const uint8_t fingers = buf[2] & 0x0F;
   if (buf[2] == 0xFF || fingers == 0) return false;
-  // Clamp, don't drop: a press reported a pixel past the edge (the glass's
-  // bottom rim) is still a press on whatever sits there.
   const int16_t rx = ((buf[3] & 0x0F) << 8) | buf[4], ry = ((buf[5] & 0x0F) << 8) | buf[6];
 #if UI_TOUCH_PROBE
   board_touch_raw[0] = rx;
   board_touch_raw[1] = ry;
 #endif
-  *x = rx < kBoard.width ? rx : kBoard.width - 1;
-  *y = ry < kBoard.height ? ry : kBoard.height - 1;
+  touch_map::to_screen(rx, ry, kRotation, kNativeW, kNativeH, x, y);
   return true;
 }

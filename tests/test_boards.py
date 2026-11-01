@@ -187,9 +187,9 @@ class OutputTest(unittest.TestCase):
     def test_shots_table_is_the_real_screens(self):
         t = boards.shots_table(REAL)
         self.assertIn('{"240x280", 240, 280, 40, 0, InputKind::Touch}', t)
-        self.assertIn('{"320x480", 320, 480, 0, 1, InputKind::Touch}', t)
+        self.assertIn('{"480x320", 480, 320, 0, 1, InputKind::Touch}', t)
         self.assertIn('{"240x320", 240, 320, 0, 0, InputKind::Touch}', t)
-        self.assertLess(t.index("240x280"), t.index("320x480"))
+        self.assertLess(t.index("240x280"), t.index("480x320"))
 
     def test_shots_with_one_resolution_get_distinct_ids(self):
         table = {"boards": {"a": REAL["boards"]["waveshare_169"],

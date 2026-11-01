@@ -2,7 +2,7 @@
 // it, and checks the layout without a board.
 //
 // Every page of docs/ui-redesign.md on each board's screen (firmware/boards.json:
-// 240x280 rounded, 320x480 upright), plus 480x320 sideways for boards to come,
+// 240x280 rounded, 480x320 sideways, 240x320), plus 320x480 upright for boards to come,
 // at text sizes S, M and L, in the hub and
 // hub-loader builds, plus the focus ring on a board without touch. The text is
 // the firmware's own: Play's statuses come from midi_core's stage_status() and
@@ -46,9 +46,10 @@ struct SimBoard {
   InputKind input;
 };
 // The real boards' screens (BOARD_SHOTS, generated from firmware/boards.json),
-// then shapes no board has yet: sideways, and the 1.69 driven by an encoder.
+// then shapes no board has yet: a big portrait screen, and the 1.69 driven by
+// an encoder.
 static const SimBoard kBoards[] = {BOARD_SHOTS,
-                                   {"480x320", 480, 320, 0, 1, InputKind::Touch},
+                                   {"320x480", 320, 480, 0, 1, InputKind::Touch},
                                    {"240x280-encoder", 240, 280, 40, 0, InputKind::Encoder}};
 constexpr int kBoardCount = sizeof kBoards / sizeof *kBoards;
 static const SimBoard *sim = &kBoards[0];

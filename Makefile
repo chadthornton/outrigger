@@ -88,7 +88,8 @@ FM1_TESTS := build/test_fm1_package build/test_fm1_library build/test_fm1_instal
 	build/test_fm1_softkey build/test_fm1_posix build/test_fm1_locked build/test_fm1_library_posix \
 	build/test_fm1_receive
 
-test: build/check_package build/test_fm1_interop build/test_midi_core build/test_status build/test_boot_mode build/test_broker build/test_describe build/test_web_core build/test_store_json build/test_loader_messages $(FM1_TESTS) build/receive_pipe fixtures $(TOOLS_PY)
+test: build/check_package build/test_fm1_interop build/test_touch_map build/test_midi_core build/test_status build/test_boot_mode build/test_broker build/test_describe build/test_web_core build/test_store_json build/test_loader_messages $(FM1_TESTS) build/receive_pipe fixtures $(TOOLS_PY)
+	./build/test_touch_map
 	./build/test_midi_core
 	./build/test_status
 	./build/test_boot_mode
@@ -158,6 +159,11 @@ $(GOLDEN_PY):
 golden: $(GOLDEN_PY) fixtures
 	$(GOLDEN_PY) tools/gen_golden.py tests/golden
 	git diff --stat --exit-code -- tests/golden
+
+# The touch chip's portrait coordinates turned to the screen's (board.cpp).
+build/test_touch_map: tests/test_touch_map.cpp firmware/waveshare_169/touch_map.h
+	mkdir -p build
+	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -Ifirmware/waveshare_169 -o $@ $<
 
 build/test_midi_core: tests/test_midi_core.cpp lib/midi_core/src/midi_core.cpp lib/midi_core/src/midi_core.h
 	mkdir -p build
@@ -268,10 +274,10 @@ PROBE_BUILD := build/$(BOARD)/probe
 probe:
 	$(if $(filter $(BOARD),$(BOARDS)),,$(error BOARD=$(BOARD); known: $(BOARDS)))
 	python3 -I tools/boards.py header $(BOARD) $(BOARD_GEN)/$(BOARD)/board_config.h
-	arduino-cli compile --fqbn $(FQBN),CDCOnBoot=cdc --build-property "tools.ctags.path=$(CTAGS_DIR)" \
+	arduino-cli compile --fqbn $(subst USBMode=default,USBMode=hwcdc,$(FQBN)),CDCOnBoot=cdc --build-property "tools.ctags.path=$(CTAGS_DIR)" \
 		--build-property "compiler.cpp.extra_flags=-I$(BOARD_GEN)/$(BOARD) -I$(CURDIR)/firmware/waveshare_169 -I$(CURDIR)/lib/host_ui/src" \
 		--build-path $(CACHE_ROOT)/$(BOARD)/probe --output-dir $(PROBE_BUILD) firmware/board_probe
-	arduino-cli upload --fqbn $(FQBN),CDCOnBoot=cdc --input-dir $(PROBE_BUILD) --port $(PORT) firmware/board_probe
+	arduino-cli upload --fqbn $(subst USBMode=default,USBMode=hwcdc,$(FQBN)),CDCOnBoot=cdc --input-dir $(PROBE_BUILD) --port $(PORT) firmware/board_probe
 
 # The store partition's first setup: a LittleFS image holding JieLi's loader
 # (from tests/fixtures). JieLi's code, so it stays in build/ and is never staged

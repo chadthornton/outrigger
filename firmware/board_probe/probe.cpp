@@ -75,10 +75,24 @@ static void report() {
   }
 }
 
+// Prints from boot, in its own task: if the drivers hang, the log still says
+// the board is alive and how far setup got.
+static volatile const char *stage = "boot";
+static void heartbeat(void *) {
+  for (;;) {
+    Serial.printf("probe: alive %lu ms, at %s\n", (unsigned long)millis(), (const char *)stage);
+    delay(2000);
+  }
+}
+
 void setup() {
   Serial.begin(115200);
+  xTaskCreate(heartbeat, "probe", 4096, nullptr, 1, nullptr);
+  stage = "board_display_begin";
   display_ok = board_display_begin();
+  stage = "pattern";
   pattern();
+  stage = "running";
   report();
 }
 
