@@ -131,7 +131,7 @@ const FWSC_NO_CHAR = 0x7d;
 const APP_START = 0x4000;
 const APP_END = 0x93000;
 
-function crc16(data, c = 0) {
+export function crc16(data, c = 0) {
   for (const b of data) {
     c ^= b << 8;
     for (let i = 0; i < 8; i++) c = (c & 0x8000 ? (c << 1) ^ 0x1021 : c << 1) & 0xffff;

@@ -596,6 +596,32 @@ history. The browser the web UI already uses is the archive.
 - **Chad's own downloads:** non-redistributable ones like V16 and Baud Girl get uploaded through the page.
 - **Never:** `wl82loader.bin` is never offered for download.
 
+## Adding firmware from the browser (added 2026-11-01)
+
+Approach B of the scope (fw-add-scope.md, Chad's pick): the board receives the package and stores it with its own
+`Library::add_package`, so the board's littlefs stays the only writer of the store.
+
+- **Where:** Computer mode. The USB host is off and the port is the chip's USB-Serial-JTAG, so the page talks to the
+  running app, not the ROM. `firmware/waveshare_169/add_firmware.cpp` mounts the store (never formats) and runs
+  `lib/fm1_loader/src/receive.h`'s `Receiver` on its own task; the screen shows a line per add.
+- **Protocol:** framed (magic, type, length, CRC-16/XMODEM), one request and one reply at a time, replies under 120
+  bytes (the browser lost bytes in long replies from the ROM loader). The page writes at most 1 KiB per write (the
+  4 KiB stall in `site/installer/serial.js`). `receive.h` has the frames.
+- **What it refuses, before any data:** a blocked project (Melodee, Tessera), a file without a catalog project (files
+  of your own come later, behind a setting, off by default), a different file under a stored name, an 11th package
+  (the FM-1 page shows 10), and an add that would leave less than one whole backup free (every switch backs up
+  first). After the data: a SHA-256 that isn't the one the page checked, or a package `parse_package` refuses.
+- **It only adds:** new sectors and one `m/pkg/` manifest; it never removes or rewrites a key, and never collects
+  garbage (sectors orphaned by an add that failed partway only cost space). `tests/test_fm1_receive.cpp` snapshots the
+  store around an add.
+- **The page** (`site/installer/add.js`, `add_area.js`): the Hub's catalog minus Melodee/Tessera, the 18 Felucca
+  0.9/SLOOP-store firmwares from the 2026-11-01 survey (and any whose `base` names one), firmwares with no license, and
+  `amenity` (fails our checks). It downloads the file into the browser, checks the catalog's SHA-256 and parses it as
+  the board will, then sends it. `tests/installer/add.test.mjs` runs it against the board's own `Receiver`
+  (`build/receive_pipe`).
+- **Not proven on hardware yet:** a 600 KB send from Chrome and Brave on macOS to the running app, and whether opening
+  the port from the page resets the board.
+
 ## Design
 
 | Part | Where | What |

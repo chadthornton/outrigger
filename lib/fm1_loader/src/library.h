@@ -15,6 +15,9 @@
 
 namespace fm1_loader {
 
+// A library id or project: 1-64 of [A-Za-z0-9._-].
+bool key_safe(const std::string &id);
+
 // One hash per flash sector of a whole-flash image.
 using FlashHashes = std::vector<Hash>;  // kSectors entries
 
@@ -165,6 +168,10 @@ struct DataDecision {
   // Why this firmware can't be installed yet, for the screen; null when it can.
   const char *blocked = nullptr;
 };
+
+// Why a project can't be installed yet (it writes the unit-ID sector), for the
+// screen; null when it can.
+const char *blocked_reason(const std::string &project);
 
 // Whether a hardware test proved this switch, in either direction: such a pair
 // switches the family map as before; every other switch is a clean slate.

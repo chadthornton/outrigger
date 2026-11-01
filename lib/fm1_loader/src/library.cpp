@@ -30,6 +30,8 @@ std::string clean(const std::string &s) {
   return out;
 }
 
+}  // namespace
+
 bool key_safe(const std::string &id) {
   if (id.empty() || id.size() > 64) return false;
   for (char c : id)
@@ -38,8 +40,6 @@ bool key_safe(const std::string &id) {
       return false;
   return true;
 }
-
-}  // namespace
 
 std::string unit_id_of(const uint8_t *sector) {
   bool all_ff = true, all_00 = true;
@@ -116,6 +116,12 @@ bool tested_pair(const std::string &from_project, const std::string &from_identi
       return true;
   }
   return false;
+}
+
+const char *blocked_reason(const std::string &project) {
+  for (const char *p : kBlocked)
+    if (project == p) return kBlockedReason;
+  return nullptr;
 }
 
 int data_era(const std::string &project, const std::string &identity) {
@@ -464,11 +470,7 @@ SaveState capture_save(const std::string &unit_id, const Firmware &fw, const Fla
 DataDecision decide_data(const std::string &unit_id, const Firmware &current,
                          const PackageInfo &target, const std::vector<SaveState> &saves) {
   DataDecision d;
-  for (const char *p : kBlocked)
-    if (target.project == p) {
-      d.blocked = kBlockedReason;
-      return d;
-    }
+  if ((d.blocked = blocked_reason(target.project))) return d;
   if (current.known() && current.app_sha256 == target.app_sha256) return d;  // no-op
   const int era = data_era(target.project, target.identity);
   if (!current.project.empty() && current.project == target.project &&

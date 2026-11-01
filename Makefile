@@ -74,9 +74,10 @@ VERSION_DIR := $(CACHE_ROOT)/version
 FM1_SRC := $(wildcard lib/fm1_loader/src/*.cpp)
 FM1_HDR := $(wildcard lib/fm1_loader/src/*.h) $(wildcard tests/support/*.h)
 FM1_TESTS := build/test_fm1_package build/test_fm1_library build/test_fm1_installer \
-	build/test_fm1_softkey build/test_fm1_posix build/test_fm1_locked build/test_fm1_library_posix
+	build/test_fm1_softkey build/test_fm1_posix build/test_fm1_locked build/test_fm1_library_posix \
+	build/test_fm1_receive
 
-test: build/check_package build/test_fm1_interop build/test_midi_core build/test_status build/test_boot_mode build/test_broker build/test_describe build/test_web_core build/test_store_json build/test_loader_messages $(FM1_TESTS) fixtures $(TOOLS_PY)
+test: build/check_package build/test_fm1_interop build/test_midi_core build/test_status build/test_boot_mode build/test_broker build/test_describe build/test_web_core build/test_store_json build/test_loader_messages $(FM1_TESTS) build/receive_pipe fixtures $(TOOLS_PY)
 	./build/test_midi_core
 	./build/test_status
 	./build/test_boot_mode
@@ -114,6 +115,11 @@ build/test_fm1_library_posix: tests/test_fm1_library.cpp $(FM1_TEST_SRC) $(FM1_H
 build/test_fm1_%: tests/test_fm1_%.cpp $(FM1_TEST_SRC) $(FM1_HDR) firmware/waveshare_169/switch_chain.h
 	mkdir -p build
 	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -DFM1_LOADER_WRITES=1 -Ilib/fm1_loader/src -Ifirmware/waveshare_169 -Itests -o $@ $< $(FM1_TEST_SRC)
+
+# The board for the page's add-firmware tests (tests/installer/add.test.mjs).
+build/receive_pipe: tests/receive_pipe.cpp $(FM1_TEST_SRC) $(FM1_HDR)
+	mkdir -p build
+	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -Ilib/fm1_loader/src -Itests -o $@ $< $(FM1_TEST_SRC)
 
 # Packages and the loader blob for the fm1_loader tests, pinned by SHA-256 and
 # kept out of git (tests/fixtures/).
