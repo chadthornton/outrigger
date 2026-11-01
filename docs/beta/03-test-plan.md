@@ -5,9 +5,10 @@ check says what should happen. Anything else is worth an email, even if it fixed
 
 ## The checks
 
-1. **Install.** Follow "Set up once" on [outrigger.music](https://outrigger.music/#install).
-   *Expected:* the installer reads your board, installs in a couple of minutes, and says it's done. Outrigger restarts
-   by itself.
+1. **Install.** Follow "Set up once" on [outrigger.music](https://outrigger.music/#install): **Check my board**, then
+   **Install**.
+   *Expected:* Check my board says what's on your ESP32 and changes nothing. Install takes a couple of minutes, sets up
+   firmware switching, and says it's done. Outrigger restarts by itself.
 2. **First start on the hub.** Wire it up as in [Install and first setup](02-install-and-setup.md).
    *Expected:* within a few seconds the **Play** screen shows the hub, your controller and the FM-1 (with its
    firmware's name), all green.
@@ -22,7 +23,8 @@ check says what should happen. Anything else is worth an email, even if it fixed
    *Expected:* the setting is still there after the restart.
 7. **Back up your FM-1.** On the **FM-1** screen, open **Backups** and hold the button.
    *Expected:* it reads the FM-1 twice, writes nothing to it, and says the backup is saved.
-8. **Switch firmware once** (only if you've done the one-time switching setup; email us for it). Read
+8. **Switch firmware once** (only once you've added firmwares, a one-time setup that isn't in the browser yet;
+   email us for it). Read
    [Switching FM-1 firmware](04-switching-firmware.md) first, then pick another firmware on the **FM-1** screen.
    *Expected:* in about a minute the FM-1 restarts in the new firmware. Switch back, and your songs are where you
    left them.

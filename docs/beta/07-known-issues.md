@@ -5,8 +5,11 @@ A living list. If you hit something that isn't here, email
 
 ## Setup
 
-- **Switching firmware needs a one-time setup outside the browser.** It needs a small file from the FM-1's chip maker
-  that the website can't host yet. Email us and we'll walk you through it. Playing from a controller doesn't need it.
+- **Adding firmwares needs a one-time setup outside the browser.** The installer sets up switching by itself, but
+  putting new firmwares on Outrigger isn't in the browser yet. Email us and we'll walk you through it. Playing from a
+  controller doesn't need it.
+- **An ESP32 that ran an earlier beta may stop at "storage we can't read".** Nothing was installed. Email us before
+  going further: your backups may be in there.
 - **Installing needs Chrome or Edge on a computer.** Phones, Safari and Firefox can't talk to the board's USB port.
 - **There's no way back to an earlier build from the website.** See [Install and first setup](02-install-and-setup.md).
 
