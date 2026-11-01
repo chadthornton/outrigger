@@ -50,6 +50,9 @@ BUILD_SUFFIX := $(BUILD_SUFFIX)-bootloop
 endif
 SKETCH := firmware/$(BOARD)
 BUILD := build/$(BOARD)/$(APPS)$(BUILD_SUFFIX)
+# arduino-cli's build paths and ui-shots' LVGL objects. make check points it
+# outside its clone, so a check recompiles only what the commit changed.
+CACHE_ROOT ?= $(CURDIR)/build/cache
 # Mac tests use the Mac's clang; CI sets clang++ too (GCC's -Wformat-truncation
 # objects to the deliberate cut-off of screen lines).
 TEST_CXX ?= c++
@@ -59,8 +62,12 @@ SITE_PORT ?= 8088
 APP_SLOT := 3145728
 STORE_OFFSET := 0x3D0000
 # Shown on the computer-mode screen, and makes every commit a distinct build.
+# make build writes them to $(VERSION_DIR)/fw_version.h, rewritten only when
+# they change: as -D flags they changed arduino-cli's build options, and it
+# recompiled everything for every commit.
 FW_VERSION := 0x$(shell git rev-parse --short=7 HEAD)
 FW_DIRTY := $(if $(shell git status --porcelain --untracked-files=no),1,0)
+VERSION_DIR := $(CACHE_ROOT)/version
 
 .PHONY: check test ui-shots ui-mocks build build-all flash site serve clean fixtures golden store-image flash-store store-add check-latest deploy-site
 
@@ -180,9 +187,9 @@ ifeq ($(shell grep -qx 'version=$(LVGL_VERSION)' $(LVGL_DIR)/library.properties 
 $(error ui-shots needs LVGL $(LVGL_VERSION) in LVGL_DIR=$(LVGL_DIR): git clone --depth 1 --branch v$(LVGL_VERSION) https://github.com/lvgl/lvgl build/lvgl, then add LVGL_DIR=build/lvgl)
 endif
 endif
-LVGL_OBJ := $(patsubst $(LVGL_DIR)/src/%.c,build/lvgl-obj/%.o,$(shell find $(LVGL_DIR)/src -name '*.c' 2>/dev/null))
+LVGL_OBJ := $(patsubst $(LVGL_DIR)/src/%.c,$(CACHE_ROOT)/lvgl-obj/%.o,$(shell find $(LVGL_DIR)/src -name '*.c' 2>/dev/null))
 UI_FLAGS := -DLV_CONF_INCLUDE_SIMPLE -Ifirmware/config -I$(LVGL_DIR) -I$(LVGL_DIR)/src -Itests/ui_shots/stub
-build/lvgl-obj/%.o: $(LVGL_DIR)/src/%.c firmware/config/lv_conf.h
+$(CACHE_ROOT)/lvgl-obj/%.o: $(LVGL_DIR)/src/%.c firmware/config/lv_conf.h
 	@mkdir -p $(dir $@)
 	@$(CC) -O1 $(UI_FLAGS) -c $< -o $@
 # The shots use the firmware's own wording: Play's statuses (status.cpp) and
@@ -211,12 +218,16 @@ ui-mocks: build/ui_mocks
 
 build:
 	$(if $(filter $(APPS),$(APP_SETS)),,$(error APPS=$(APPS); known: $(APP_SETS)))
+	mkdir -p $(VERSION_DIR)
+	printf '#define FW_VERSION %s\n#define FW_DIRTY %s\n' $(FW_VERSION) $(FW_DIRTY) > $(VERSION_DIR)/fw_version.h.$$$$ \
+		&& { cmp -s $(VERSION_DIR)/fw_version.h.$$$$ $(VERSION_DIR)/fw_version.h \
+			&& rm $(VERSION_DIR)/fw_version.h.$$$$ || mv $(VERSION_DIR)/fw_version.h.$$$$ $(VERSION_DIR)/fw_version.h; }
 	arduino-cli compile --fqbn $(FQBN) --build-property "tools.ctags.path=$(CTAGS_DIR)" \
 		--build-property "upload.maximum_size=$(APP_SLOT)" \
-		--build-property "compiler.cpp.extra_flags=-DFW_VERSION=$(FW_VERSION) -DFW_DIRTY=$(FW_DIRTY) -DESP_USB_HOST_MAX_SERIAL_PORTS=0 $(APP_FLAGS_$(APPS)) $(WRITE_FLAGS) -DLV_CONF_INCLUDE_SIMPLE -I$(CURDIR)/firmware/config" \
+		--build-property "compiler.cpp.extra_flags=-I$(VERSION_DIR) -DESP_USB_HOST_MAX_SERIAL_PORTS=0 $(APP_FLAGS_$(APPS)) $(WRITE_FLAGS) -DLV_CONF_INCLUDE_SIMPLE -I$(CURDIR)/firmware/config" \
 		--build-property "compiler.c.extra_flags=-DLV_CONF_INCLUDE_SIMPLE -I$(CURDIR)/firmware/config" \
 		--library lib/midi_core --library lib/EspUsbHost --library lib/host_ui --library lib/platform $(APP_LIBS_$(APPS)) \
-		--build-path $(CURDIR)/build/cache/$(BOARD)/$(APPS)$(BUILD_SUFFIX) --output-dir $(BUILD) $(SKETCH)
+		--build-path $(CACHE_ROOT)/$(BOARD)/$(APPS)$(BUILD_SUFFIX) --output-dir $(BUILD) $(SKETCH)
 
 build-all:
 	for b in $(BOARDS); do for a in $(APP_SETS); do $(MAKE) build BOARD=$$b APPS=$$a || exit 1; done; done
@@ -250,13 +261,33 @@ store-add: $(TOOLS_PY)
 # ui-shots and make site (every board x app set built and staged, with
 # build_site.py's wl82loader.bin scan). Run it on the Mac and paste the summary
 # into the PR. The fixtures are copied in (pinned by SHA-256, gitignored).
+# The clone is kept between checks and reset to the commit (checkout -f, then
+# clean -ffdx drops every untracked and ignored file), so git rewrites only the
+# files that changed and arduino-cli's mtime checks rebuild only those. The
+# compiled objects live in build/check-cache/<key>, outside the clone; the key
+# hashes arduino-cli, the ESP32 core and the Arduino libraries (LVGL and the
+# rest), so updating any of them starts a fresh cache instead of a stale pass.
 CHECK_DIR := build/check
+CHECK_CACHES := build/check-cache
+# Finder can write .DS_Store into a folder while rm -rf empties it ("Directory
+# not empty"): delete those first, and try once more.
+RM_CHECK = find $(CHECK_DIR) -name .DS_Store -delete 2>/dev/null; rm -rf $(CHECK_DIR) \
+	|| { sleep 1; find $(CHECK_DIR) -name .DS_Store -delete 2>/dev/null; rm -rf $(CHECK_DIR); }
 check:
-	rm -rf $(CHECK_DIR)
-	git clone -q --shared . $(CHECK_DIR)
-	git -C $(CHECK_DIR) checkout -q --detach $$(git rev-parse HEAD)
+	@key=$$({ arduino-cli version; arduino-cli core list; arduino-cli lib list; } | shasum | cut -c1-12) || exit 1; \
+	mkdir -p $(CHECK_CACHES) && find $(CHECK_CACHES) -mindepth 1 -maxdepth 1 ! -name $$key -exec rm -rf {} + ; \
+	echo "check cache: $(CHECK_CACHES)/$$key"; echo $$key > $(CHECK_CACHES)/.key
+	@sha=$$(git rev-parse HEAD); \
+	if [ "$$(git -C $(CHECK_DIR) rev-parse --show-toplevel 2>/dev/null)" = "$(CURDIR)/$(CHECK_DIR)" ] \
+		&& git -C $(CHECK_DIR) checkout -q -f --detach $$sha && git -C $(CHECK_DIR) clean -q -ffdx; then \
+		echo "check: reusing $(CHECK_DIR), reset to $$(git rev-parse --short HEAD)"; \
+	else \
+		echo "check: fresh clone into $(CHECK_DIR)"; \
+		$(RM_CHECK) && git clone -q --shared . $(CHECK_DIR) && git -C $(CHECK_DIR) checkout -q --detach $$sha; \
+	fi
+	test "$$(git -C $(CHECK_DIR) rev-parse HEAD)" = "$$(git rev-parse HEAD)" && test -z "$$(git -C $(CHECK_DIR) status --porcelain --ignored | grep -v '\.DS_Store$$')"
 	mkdir -p $(CHECK_DIR)/tests/fixtures && cp tests/fixtures/* $(CHECK_DIR)/tests/fixtures/
-	$(MAKE) -C $(CHECK_DIR) test ui-shots site > $(CHECK_DIR).log 2>&1 \
+	$(MAKE) -C $(CHECK_DIR) test ui-shots site CACHE_ROOT=$(CURDIR)/$(CHECK_CACHES)/$$(cat $(CHECK_CACHES)/.key) > $(CHECK_DIR).log 2>&1 \
 		|| { tail -30 $(CHECK_DIR).log; echo "check FAILED at $$(git rev-parse --short HEAD); log: $(CHECK_DIR).log"; exit 1; }
 	@grep -E "passed|keeps the install|Sketch uses" $(CHECK_DIR).log
 	@echo "check passed at $$(git rev-parse --short HEAD) (clean clone; log: $(CHECK_DIR).log)"
