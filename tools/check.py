@@ -3,7 +3,7 @@
 
     tools/check.py [--home DIR] [--key KEY] [--cmd CMD]
 
-The merge gate's step 2 (README.md). Every worktree of this repo checks in the
+The production deploy's check (make deploy-site; README.md). Every worktree of this repo checks in the
 same clone, ~/Library/Caches/outrigger-check/clone, one check at a time. A
 worktree is a folder for editing; a check edits nothing, it only asks whether a
 commit passes, so one clone at one path serves them all, and because the path
