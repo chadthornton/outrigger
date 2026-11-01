@@ -23,7 +23,8 @@ Which switches we've run on a real FM-1, with these exact versions:
 |---|---|
 | Felucca 1.8.0 → Skiff 2.1.1 → Felucca 1.8.0 | **Yes.** Skiff started fresh; Felucca's songs came back. |
 | Felucca 1.7.0 → 1.8.0 | **Yes.** Songs kept. |
-| Stock V15 → Felucca 1.8.0, and back | **Being tested now.** Until this line says yes, tell us before you try it. |
+| Stock V15 → Felucca 1.8.0 → stock V15 | **Yes.** The FM-1 started each time. |
+| Adding JIANT FM, then stock V15 → JIANT → stock V15 | **Yes.** |
 | Skiff 2.1.1 → stock V15 | **Not yet.** Ask us first (below). |
 
 - **Skiff → stock: ask us first.** Skiff saves its patterns into part of the FM-1's memory where stock keeps its factory
@@ -32,6 +33,7 @@ Which switches we've run on a real FM-1, with these exact versions:
 - **During a firmware switch the board restarts 2–3 times, and the FM-1 goes dark for about a minute.** That's normal.
   A crash looks different: a safe-mode screen that says where it stopped and "RST to try again". If you see that,
   email us.
+- **After several switches in a row, your MIDI controller may stop sending.** Unplug it and plug it back in.
 - What can go wrong during a switch, and what to do, is on [Switching FM-1 firmware](04-switching-firmware.md).
 
 ## Setup
@@ -59,8 +61,6 @@ Which switches we've run on a real FM-1, with these exact versions:
 
 ## On the board
 
-- **Some first-revision (V1) 1.69 boards tick audibly,** about once a second. It's harmless. We're checking whether
-  a firmware update quiets it; for now, get the V2 (it has a "V2" sticker on the USB port).
 - **The largest text size pushes some lines off the screen.** Use small or medium for now.
 - **Your backups can't be copied to a computer yet.** They live on Outrigger only. See
   [Your backups](05-your-backups.md).
