@@ -110,10 +110,9 @@ void describe_plan(const PlanInput &in, UiPlan &out) {
         }
         break;
     }
-    // Skiff 2.x writes stock's resources: in the last line, where the cap can't
-    // drop it (the job screen says MIDI stops too).
+    // Skiff 2.x writes stock's resources: the warning takes the last line (the
+    // job screen says MIDI stops too).
     if (p.decision.stock_resources_warning && warn < 0) {
-      if (n == kPlanLines) --n;
       warn = n;
       line("Returning to stock may lose stock resources.");
     } else {

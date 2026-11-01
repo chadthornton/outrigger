@@ -421,8 +421,7 @@ bool Installer::plan_ops() {
   } else {
     decision_ = decide_data(unit_.id, current_, target, lib_.saves_of(unit_.id));
     if (decision_.blocked) return fail(Failure::Blocked, true), false;
-    // A clean slate erases more than the outgoing shelf holds (staging): it asks too.
-    if ((decision_.action == DataAction::FreshStart || decision_.clean_slate) && !opts_.fresh_start_ok)
+    if (needs_erase_ok(decision_) && !opts_.fresh_start_ok)
       return fail(Failure::NeedsFreshStartOk, true), false;
     // Safety rule 6: a family change that keeps the old data needs the user's OK too.
     if (decision_.action == DataAction::Keep && decision_.layout_warning && !opts_.layout_change_ok)

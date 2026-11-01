@@ -17,7 +17,6 @@ const Range kFeluccaSave[] = {
 };
 
 const Range kSettingsErase[] = {{kVmStart, kVmEnd}, {kGlobalsStart, kGlobalsEnd}};
-const Range kCleanSlate[] = {{kCleanStart, kVmEnd}, {kGlobalsStart, kGlobalsEnd}};
 const Range kApp[] = {{kAppStart, kAppEnd}};
 
 const FamilyInfo kStock = {Family::Stock, "stock", nullptr, 0, false};
@@ -60,7 +59,7 @@ bool guard(uint32_t addr, uint32_t len, Right right, Family family, const char *
       if (!inside(addr, len, kSettingsErase, 2)) return refuse(why, "outside the settings areas");
       return true;
     case Right::CleanSlate:
-      if (!inside(addr, len, kCleanSlate, 2)) return refuse(why, "outside the clean-slate areas");
+      if (!inside(addr, len, kCleanSlate, kCleanSlateCount)) return refuse(why, "outside the clean-slate areas");
       return true;
     case Right::SaveRestore: {
       if (overlaps(addr, end, kStagingStart, kStagingEnd))

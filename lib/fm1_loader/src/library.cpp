@@ -513,17 +513,23 @@ std::vector<SectorOp> plan_app(const FlashHashes &flash, const PackageInfo &targ
 
 namespace {
 
-void plan_ranges(Family family, const FlashHashes &flash,
+// Every sector of the ranges that differs from want (blank where want has none).
+void plan_ranges(const Range *ranges, size_t count, Right right, Family family, const FlashHashes &flash,
                  const std::vector<std::pair<uint32_t, Hash>> &want, std::vector<SectorOp> &ops) {
-  const FamilyInfo &f = family_info(family);
-  for (size_t r = 0; r < f.save_range_count; ++r) {
-    for (uint32_t a = f.save_ranges[r].start; a < f.save_ranges[r].end; a += kSector) {
+  for (size_t r = 0; r < count; ++r) {
+    for (uint32_t a = ranges[r].start; a < ranges[r].end; a += kSector) {
       Hash h = SectorStore::blank();
       for (const auto &w : want)
         if (w.first == a) h = w.second;
-      if (flash[a / kSector] != h) ops.push_back({a, h, Right::SaveRestore, family});
+      if (flash[a / kSector] != h) ops.push_back({a, h, right, family});
     }
   }
+}
+
+void plan_family(Family family, const FlashHashes &flash, const std::vector<std::pair<uint32_t, Hash>> &want,
+                 std::vector<SectorOp> &ops) {
+  const FamilyInfo &f = family_info(family);
+  plan_ranges(f.save_ranges, f.save_range_count, Right::SaveRestore, family, flash, want, ops);
 }
 
 }  // namespace
@@ -550,9 +556,11 @@ bool plan_restore(const SaveState &s, const std::string &unit_id, const PackageI
                   const FlashHashes &flash, std::vector<SectorOp> &ops) {
   ops.clear();
   if (!save_fits(s, unit_id, target) || flash.size() != kSectors) return false;
-  plan_ranges(s.family, flash, s.sectors, ops);
+  plan_family(s.family, flash, s.sectors, ops);
   return true;
 }
+
+bool needs_erase_ok(const DataDecision &d) { return d.action == DataAction::FreshStart || d.clean_slate; }
 
 bool plan_data(Library &lib, const std::string &unit_id, const DataDecision &d, const PackageInfo &target,
                const FlashHashes &flash, std::vector<SectorOp> &ops) {
@@ -574,23 +582,15 @@ bool plan_clean(const SaveState *s, const std::string &unit_id, const PackageInf
                 const FlashHashes &flash, std::vector<SectorOp> &ops) {
   ops.clear();
   if ((s && !save_fits(*s, unit_id, target)) || flash.size() != kSectors) return false;
-  const Range slate[] = {{kCleanStart, kVmEnd}, {kGlobalsStart, kGlobalsEnd}};
-  for (const Range &r : slate) {
-    for (uint32_t a = r.start; a < r.end; a += kSector) {
-      Hash h = SectorStore::blank();
-      if (s)
-        for (const auto &w : s->sectors)
-          if (w.first == a) h = w.second;
-      if (flash[a / kSector] != h) ops.push_back({a, h, Right::CleanSlate, target.family});
-    }
-  }
+  plan_ranges(kCleanSlate, kCleanSlateCount, Right::CleanSlate, target.family, flash,
+              s ? s->sectors : std::vector<std::pair<uint32_t, Hash>>(), ops);
   return true;
 }
 
 std::vector<SectorOp> plan_fresh(Family family, const FlashHashes &flash) {
   std::vector<SectorOp> ops;
   if (family_info(family).saves_enabled && flash.size() == kSectors)
-    plan_ranges(family, flash, {}, ops);
+    plan_family(family, flash, {}, ops);
   return ops;
 }
 

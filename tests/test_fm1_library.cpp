@@ -308,12 +308,14 @@ static void test_decide_data() {
                                   save_of("A", felucca, 8), save_of("A", skiff2, 10)};
   d = decide_data("A", running(sloop), skiff, saves);
   CHECK(d.action == DataAction::Restore && d.save_id == "A-s7" && d.clean_slate && !d.layout_warning);
+  CHECK(needs_erase_ok(d));  // the hold's consent covers a clean-slate restore too
   // Felucca 1.6.1 <-> Skiff 1.4 is the tested pair (checkpoint 3): the family
   // map, both ways, no clean slate.
   d = decide_data("A", running(felucca), skiff, none);
   CHECK(d.action == DataAction::FreshStart && d.layout_warning && !d.clean_slate);
   d = decide_data("A", running(skiff), felucca, saves);
   CHECK(d.action == DataAction::Restore && d.save_id == "A-s8" && !d.clean_slate);
+  CHECK(!needs_erase_ok(d));
   // Another version on either side isn't the tested pair (Skiff 1.3, Felucca 1.7).
   d = decide_data("A", running(felucca), skiff13, none);
   CHECK(d.action == DataAction::FreshStart && d.clean_slate);

@@ -32,7 +32,7 @@ MIDI stops while this runs, and comes back when the FM-1 does.
 - **Tested pairs** skip the clearing and work as they always have. So far that's Felucca 1.6.1 and Skiff 1.4.
   Felucca 1.8.0, Skiff 2.1.1 and stock are being tested now.
 - **M-VAVE's stock firmware:** nobody has mapped how it stores its settings yet, so the board can't keep a shelf
-  for it. Switching to stock clears the old firmware's data and stock starts with its own defaults; switching
+  for it. Switching to stock clears the old firmware's data (we're still testing how stock takes that); switching
   away from stock doesn't save stock's settings (the board's full backup still holds them). If presets look
   scrambled after switching to stock, use **System > Reset Patches** on the FM-1.
 - **Skiff 2.x, then stock:** Skiff 2.x stores patterns in the area where stock keeps some of its factory

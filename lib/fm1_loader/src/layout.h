@@ -35,6 +35,11 @@ struct Range {
   uint32_t start, end;
 };
 
+// What a clean slate erases (Right::CleanSlate): stock's VM but its factory
+// sector, and the globals. Every save range lies inside it.
+constexpr Range kCleanSlate[] = {{kCleanStart, kVmEnd}, {kGlobalsStart, kGlobalsEnd}};
+constexpr size_t kCleanSlateCount = sizeof kCleanSlate / sizeof kCleanSlate[0];
+
 // Firmware families differ in where they keep user data, so save states are per family.
 enum class Family { Stock, Felucca };
 

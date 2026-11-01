@@ -205,6 +205,11 @@ bool plan_restore(const SaveState &s, const std::string &unit_id, const PackageI
 // Non-blank sectors of the target family's save ranges, to erase.
 std::vector<SectorOp> plan_fresh(Family family, const FlashHashes &flash);
 
+// Whether the user must agree before this decision runs (InstallOptions::
+// fresh_start_ok): a fresh start, or a clean slate, which erases more than the
+// outgoing shelf holds.
+bool needs_erase_ok(const DataDecision &d);
+
 // The data sectors a decision writes: its save restored, or a fresh start, each
 // on a clean slate when the decision says so. False when its save is missing or
 // doesn't fit (another unit's, another project's).
