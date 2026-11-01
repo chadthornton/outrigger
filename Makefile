@@ -108,6 +108,7 @@ test: build/check_package build/test_fm1_interop build/test_midi_core build/test
 	python3 -I tests/test_deploy_site.py
 	python3 -I tests/test_check.py
 	python3 -I tests/test_bench.py
+	python3 -I tests/test_bench_recover.py
 
 # The Mac tests may write the mock FM-1 (FM1_LOADER_WRITES=1); test_fm1_locked
 # is built without it, as every firmware build is until hardware checkpoint 3.
