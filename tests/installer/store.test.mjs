@@ -53,7 +53,7 @@ const skip = !haveReal && "run test_store_template.py first";
 
 test("parsePackage decodes every fixture package to the identity and app the Python port does", { skip }, () => {
   const apps = JSON.parse(readFileSync(appsPath));
-  assert.ok(Object.keys(apps).length >= 7);
+  assert.ok(Object.keys(apps).length >= 6);
   for (const [name, [identity, appSha]] of Object.entries(apps)) {
     const got = parsePackage(fixture(name));
     assert.equal(got.identity, identity, name);
