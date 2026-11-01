@@ -95,7 +95,7 @@ test: build/check_package build/test_fm1_interop build/test_midi_core build/test
 	python3 -I tools/check_partitions.py firmware/$(BOARD)/partitions.csv
 	python3 -I tests/installer/test_tables.py
 	$(TOOLS_PY) tests/installer/test_store_template.py
-	node --test tests/installer/
+	node --test tests/installer/*.test.mjs
 	python3 -I tests/test_deploy_site.py
 	python3 -I tests/test_check.py
 	python3 -I tests/test_guide.py

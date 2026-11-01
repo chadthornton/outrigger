@@ -5,7 +5,7 @@ tree and the full history: 243 commits on every local and remote branch, plus Gi
 
 **Verdict:** the history holds no M-VAVE firmware, no JieLi loader and no secrets. It holds two low-sensitivity
 personal items, Chad's FM-1 unit ID and his commit email. This branch fixes the working tree. A history rewrite
-is optional and put to Chad as a decision. The project is GPL-3.0 (Chad, 2026-10-31), partly because one ported file descends from
+was optional; Chad chose to leave the history as is (2026-10-31). The project is GPL-3.0 (Chad, 2026-10-31), partly because one ported file descends from
 GPL-3.0 code.
 
 ## How it was checked
@@ -102,8 +102,8 @@ The alternatives were MIT with the `ota.c` risk noted, or asking Quixotic7 first
 |---|---|---|
 | README described CI as off because Actions minutes cost money | `README.md` lines 26 and 112 | **Fixed:** says CI is free once the repo is public and still not part of the gate. |
 | README said the site is "not published anywhere yet" | `README.md` Licensing section | **Fixed:** names beta.outrigger.music. |
-| `deploy_site.py` repeats `build_site.py`'s `wl82loader.bin` scan | `tools/deploy_site.py` (from PR #12, now on `master`) and `tools/build_site.py` | Not fixed here: a follow-up can share one scan function now that PR #12 and `esptool-installer` are both on `master`. Reported to the orchestrator. |
-| Re-enable CI after going public | `.github/workflows/ci.yml` | Optional: `gh workflow enable CI` as an extra, free signal. The gate stays `make check`. |
+| `deploy_site.py` repeats `build_site.py`'s `wl82loader.bin` scan | `tools/deploy_site.py` (from PR #12, now on `master`) and `tools/build_site.py` | **Fixed** (repo tidy, 2026-11-01): both call `build_site.py`'s `wl82_problem()` and `load_wl82_blob()`. |
+| Re-enable CI after going public | `.github/workflows/ci.yml` | **Done** (repo tidy, 2026-11-01): CI runs on pushes to `master` and on PRs as an extra signal. The gate stays `make check`. |
 
 ## History rewrite: optional, not recommended
 
