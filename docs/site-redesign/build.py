@@ -469,17 +469,15 @@ def install_area(label, app_set):
             '      <p class="install-note">Installing needs Chrome or Edge on a computer, with JavaScript on.</p>\n    </div>')
 
 
-REAL_STEP2 = """<li><div><b>Three firmwares come with it</b><p>On a new ESP32 the installer also puts M-VAVE stock V15, Felucca
-    and Skiff on Outrigger, downloaded from the Firmware Hub straight into your browser. Add more from the Hub's list
-    any time: see <a href="#add">Add a firmware</a>.</p></div></li>
+REAL_STEP2 = """<li><div><b>Add firmwares</b><p>Stock V15, Felucca and Skiff come with it. Add more from the Firmware
+    Hub's list, right on this page: <a href="#add">Add a firmware</a>.</p></div></li>
   <li><div><b>Plug everything into the hub</b>"""
 
 # Adding a Firmware Hub firmware to a set-up Outrigger (site/installer/add_area.js), its own section under the hero.
 ADD_SECTION = """<section class="section" id="add" style="max-width:760px"><h2>Add a firmware</h2>
-    <p>Put any firmware from the Firmware Hub's list on Outrigger, up to ten in all. Your browser downloads it from
-      thefirmwarehub.com and checks it, and Outrigger checks it again before storing it. Nothing else on Outrigger
-      changes: your backups and the firmwares already there stay as they are. Switching to a firmware we haven't
-      tested with yours clears the old one's data first, and keeps a copy that comes back when you switch back.</p>
+    <p>Pick any firmware on the Firmware Hub's list, up to ten in all. Your backups and the firmwares already on
+      Outrigger stay as they are. Switching to one we haven't tested clears the old firmware's data first, and keeps
+      a copy for when you switch back.</p>
     <div class="install add-firmware"><p class="install-note">Adding a firmware needs Chrome or Edge on a computer, with JavaScript on.</p></div>
   </section>
   <section class="section" id="need">"""
