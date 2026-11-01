@@ -114,7 +114,7 @@ Only two items in old commits would need `git filter-repo`: the unit ID (present
   those.
 - **Leave as is:** the unit ID identifies one FM-1 and unlocks nothing, and the email is already public.
 
-Recommended: leave the history as is. The decision is on the tracker.
+Recommended: leave the history as is. Chad chose to leave it as is (2026-10-31).
 
 ## Branches not on `master`
 
