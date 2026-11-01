@@ -1,0 +1,37 @@
+name: Support my board
+description: Ask for Outrigger on an ESP32-S3 board it doesn't run on yet.
+labels: [board request]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Outrigger needs an ESP32-S3 (its USB port runs the USB host). A screen helps but isn't required.
+  - type: input
+    id: model
+    attributes:
+      label: Board model
+      description: Maker and exact model, with a link to its page or wiki if you have one.
+      placeholder: LilyGO T-Display-S3
+    validations:
+      required: true
+  - type: input
+    id: chip
+    attributes:
+      label: Chip or module
+      description: Printed on the metal can, or in the board's specs.
+      placeholder: ESP32-S3-WROOM-1-N16R8
+    validations:
+      required: true
+  - type: input
+    id: memory
+    attributes:
+      label: Flash and PSRAM
+      description: Outrigger is built for 16 MB flash with 8 MB PSRAM.
+      placeholder: 16 MB flash, 8 MB PSRAM
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else
+      description: Screen, touch, buttons, how its USB port is wired, or whether you'd test builds.

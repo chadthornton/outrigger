@@ -1,0 +1,68 @@
+name: Bug report
+description: Something on Outrigger, the installer or a firmware switch went wrong.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing. If your FM-1 went dark during a switch, keep it switched on and read
+        [If your FM-1 won't boot](https://outrigger.music/beta/#if-your-fm1-wont-boot) first.
+        Prefer email? feedback@outrigger.music takes the same details.
+  - type: dropdown
+    id: board
+    attributes:
+      label: Board
+      options:
+        - Waveshare ESP32-S3-Touch-LCD-1.69
+        - Other (say which below)
+    validations:
+      required: true
+  - type: dropdown
+    id: revision
+    attributes:
+      label: Board revision
+      description: The V2 has a small "V2" sticker on the USB port. No sticker means V1.
+      options:
+        - V2 (sticker on the USB port)
+        - V1 (no sticker)
+        - Not sure
+    validations:
+      required: true
+  - type: input
+    id: build
+    attributes:
+      label: Outrigger build
+      description: As shown on the board's Settings screen, like `ccbc36d hub+L`.
+      placeholder: ccbc36d hub+L
+    validations:
+      required: true
+  - type: input
+    id: fm1_firmware
+    attributes:
+      label: FM-1 firmware
+      description: What the FM-1 was running, and the one you were switching to if this happened during a switch.
+      placeholder: Felucca 1.8.0 → Skiff 2.1.1
+    validations:
+      required: true
+  - type: input
+    id: setup
+    attributes:
+      label: Controller and hub
+      placeholder: Launchkey Mini MK4 37, Anker 4-port hub
+  - type: textarea
+    id: what_happened
+    attributes:
+      label: What happened
+      description: What you expected, what you saw instead. A photo of the screen helps a lot.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to get there
+      placeholder: |
+        1. Plugged in the FM-1
+        2. Tapped Switch firmware → Skiff
+        3. ...
+    validations:
+      required: true

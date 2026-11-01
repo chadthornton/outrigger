@@ -14,7 +14,6 @@ answers "which commit is live?".
 Credentials: ~/.config/cloudflare/outrigger-pages.env (CLOUDFLARE_API_TOKEN with
 Account > Cloudflare Pages > Edit, and CLOUDFLARE_ACCOUNT_ID). Never printed.
 """
-import hashlib
 import json
 import os
 import shutil
@@ -24,7 +23,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from build_site import APP_SETS, WL82_CHUNK, WL82_SHA256  # noqa: E402
+from build_site import APP_SETS, WL82_SHA256, load_wl82_blob, wl82_chunks, wl82_problem  # noqa: E402
 
 PROJECT = "outrigger"
 # Pages branch per channel. The project's production branch is master; beta.outrigger.music
@@ -79,15 +78,15 @@ def site_problems(site, blob, sha=WL82_SHA256, max_file=MAX_FILE, max_files=MAX_
         problems.append(f"{len(files)} files, Pages takes {max_files}")
     if blob is None:
         problems.append("no local wl82loader.bin to scan against (tests/fixtures/ or $WL82_BLOB); run make fixtures")
-    chunks = [blob[i:i + WL82_CHUNK] for i in range(0, len(blob) - WL82_CHUNK + 1, WL82_CHUNK)] if blob else []
+    chunks = wl82_chunks(blob)
     for path in files:
         name = path.relative_to(site)
         data = path.read_bytes()
         if len(data) > max_file:
             problems.append(f"{name} is {len(data)} bytes, Pages takes {max_file} per file")
-        if "wl82" in path.name.lower() or hashlib.sha256(data).hexdigest() == sha \
-                or any(chunk in data for chunk in chunks):
-            problems.append(f"{name} is or contains JieLi's wl82loader.bin; it must not be published")
+        problem = wl82_problem(path.name, data, chunks, sha)
+        if problem:
+            problems.append(f"{name} {problem}; it must not be published")
     return problems
 
 
@@ -151,9 +150,7 @@ def deploy(channel, site):
     if problem:
         fail(problem)
     stage(site, STAGE)
-    blob_path = next((Path(p) for p in (os.environ.get("WL82_BLOB"), ROOT / "tests/fixtures/wl82loader.bin")
-                      if p and Path(p).is_file()), None)
-    problems = site_problems(STAGE, blob_path.read_bytes() if blob_path else None)
+    problems = site_problems(STAGE, load_wl82_blob())
     if problems:
         fail("refusing to upload:\n  " + "\n  ".join(problems))
     env = load_credentials()

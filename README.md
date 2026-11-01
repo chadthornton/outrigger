@@ -40,7 +40,7 @@ apps ask it for them. See `docs/architecture.md`, and the merge gate below befor
 | `tests/ui_shots/` | `make ui-shots`: renders every `host_ui` page (docs/ui-redesign.md) with LVGL on the Mac, on 240×280, 320×480 and 480×320 at S/M/L, hub and hub-loader, plus an encoder board's focus ring, using the firmware's own wording. Taps them with a drifting finger, holds the holds, and fails on a clipped or off-glass label. PNGs, `report.txt` and a `sheet_<board>.png` per board in `build/ui-shots/`. Check UI changes here before booking the board. |
 | `firmware/config/lv_conf.h` | LVGL configuration (fonts, clib malloc so big buffers can use PSRAM). |
 | `site/`, `tools/build_site.py` | Browser installer (`site/installer/`, on esptool-js) and the script that stages firmware into it. |
-| `.github/workflows/ci.yml` | CI, the same checks as `make check` on GitHub's machines. Not part of the merge gate. |
+| `.github/workflows/ci.yml` | CI, the same checks as `make check` on GitHub's machines, on pushes to master and PRs. Not part of the merge gate. |
 | `firmware/waveshare_169/` | The Arduino sketch every board builds (named for the first board): `app.cpp` (USB host, routing, gathers the frame) and `board.cpp` (display, touch and expander drivers, from the build's `board_config.h`). Code stays out of the `.ino` (see below). |
 | `firmware/boards.json`, `tools/boards.py` | The board profiles (pins, chips, screen, memory) and the script that checks them and generates each build's `board_config.h` and the screens `make ui-shots` renders. |
 
@@ -187,7 +187,7 @@ Nothing lands on `master` until all three pass, on the branch's last commit:
    (`~/Library/Caches/outrigger-check`, one check at a time; `tools/check.py`) to the branch's last commit, with every
    untracked and ignored file removed (so nothing uncommitted can help), then runs `make test`, `make ui-shots` and `make site` (every board × app set builds,
    the site stages, and the `wl82loader.bin` scan runs). The PR quotes its last lines. GitHub Actions CI is off the gate
-   (Chad, 2026-10-31); `ci.yml` stays for a manual run, which is free once the repo is public.
+   (Chad, 2026-10-31); `ci.yml` runs on pushes to master and on PRs as an extra signal.
 3. **Hardware smoke check** on the Waveshare, with the branch's own build:
    1. Install it the way a user would: the web installer (`make serve`), from Computer mode, with the app set the
       branch changes (MIDI Hub if none).
