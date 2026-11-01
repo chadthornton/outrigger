@@ -11,10 +11,9 @@ Firmware switches run from the Mac against FM-1-2 (Chad's second FM-1), with nob
 | FM-1-2 (Chad's second FM-1) | the only FM-1 the bench switches or writes. Never FM-1-1, Chad's main FM-1 (unit `69bb070aaa87bd10`) |
 | FM-1 Transporter (XIAO RP2040, Quixotic7/MvaveFM1Unbricker @ `707470a`) | FM-1-2's pristine dump; recovery when the FM-1 can't take the SysEx key |
 
-Board revisions (2026-11-01): Waveshare-1 is a V2 board (quiet). Waveshare-2 has no "V2" sticker on its USB port,
-so it's a V1 board. V1 boards wire the buzzer to GPIO33, an octal-PSRAM line, so Waveshare-2 may tick in time with
-memory traffic. That's harmless, and only cutting or removing the buzzer would cure it. (A test flash of master with the
-GPIO42 fix will tell whether its ticking was firmware or hardware.)
+Buzzer (2026-11-01): both Waveshares ticked or chattered while GPIO42, the buzzer pin in Waveshare's pin map, was left
+floating. Master since PR #30 holds it low, and Waveshare-2 (no "V2" sticker on its USB port) went silent on it. So
+the sticker doesn't predict the buzzer pin, at least on this unit.
 
 Test sessions may erase either Waveshare. The build answers `/bench/` only on one of them, and `tools/bench.py`
 checks the board's MAC matches the Waveshare it was asked for (`--board`, default `waveshare-1`). Every script
