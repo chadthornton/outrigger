@@ -19,13 +19,15 @@ Which switches we've run on a real FM-1, with these exact versions:
 | Switch | Tested? |
 |---|---|
 | Felucca 1.8.0 → Skiff 2.1.1 → Felucca 1.8.0 | **Yes.** Skiff started fresh; Felucca's songs came back. |
-| Stock V15 → Felucca 1.8.0 → Skiff 2.1.1 → stock V15 | **Yes.** The FM-1 started each time. |
 | Felucca 1.7.0 → 1.8.0 | **Yes.** Songs kept. |
+| Stock V15 → Felucca 1.8.0, and back | **Being tested now.** Until this line says yes, tell us before you try it. |
+| Skiff 2.1.1 → stock V15 | **Not yet.** Ask us first (below). |
 
-- **Skiff → stock, after a lot of Skiff patterns: ask us first.** Skiff saves its patterns into part of the FM-1's
-  memory where stock keeps its factory resources. After many Skiff pattern saves, those resources may be gone, and the
-  board can't put them back. Our test switched back to stock after only a few saves. If you've saved a lot of Skiff
-  patterns, email us before switching to stock; the plan page warns about it too.
+- **Skiff → stock: ask us first.** Skiff saves its patterns into part of the FM-1's memory where stock keeps its factory
+  resources. After many Skiff pattern saves, those resources may be gone, and the board can't put them back. Nobody has
+  tested what stock does without them. Email us before switching from Skiff to stock.
+- **Felucca's FM6 user presets may not survive a round trip.** Switching away from Felucca and back brings its songs
+  and settings back, but may lose the FM6 user presets you saved. Write down any you care about before switching.
 - **During a firmware switch the board restarts 2–3 times, and the FM-1 goes dark for about a minute.** That's normal.
   A crash looks different: a safe-mode screen that says where it stopped and "RST to try again". If you see that,
   email us.
