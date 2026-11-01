@@ -103,7 +103,7 @@ The alternatives were MIT with the `ota.c` risk noted, or asking Quixotic7 first
 | README described CI as off because Actions minutes cost money | `README.md` lines 26 and 112 | **Fixed:** says CI is free once the repo is public and still not part of the gate. |
 | README said the site is "not published anywhere yet" | `README.md` Licensing section | **Fixed:** names beta.outrigger.music. |
 | `deploy_site.py` repeats `build_site.py`'s `wl82loader.bin` scan | `tools/deploy_site.py` (from PR #12, now on `master`) and `tools/build_site.py` | **Fixed** (repo tidy, 2026-11-01): both call `build_site.py`'s `wl82_problem()` and `load_wl82_blob()`. |
-| Re-enable CI after going public | `.github/workflows/ci.yml` | **Done** (repo tidy, 2026-11-01): CI runs on pushes to `master` and on PRs as an extra signal. The gate stays `make check`. |
+| Re-enable CI after going public | `.github/workflows/ci.yml` | **Done** (repo tidy, 2026-11-01): CI runs on pushes to `master` and on PRs as an extra signal. Since the CI merge gate (2026-11-01), green CI is the merge gate and `make check` gates production deploys only. |
 
 ## History rewrite: optional, not recommended
 

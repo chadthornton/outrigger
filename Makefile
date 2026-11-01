@@ -264,11 +264,11 @@ store-add: $(TOOLS_PY)
 	$(if $(PKGS)$(LIST),,$(error PKGS="file.fwsc ..." names the packages to add; LIST=1 only lists))
 	$(TOOLS_PY) tools/store_add.py firmware/$(BOARD)/partitions.csv $(PORT) $(if $(PIN),--pin) $(if $(LIST),--list) $(PKGS)
 
-# The merge gate's step 2 (README.md): the worktree's last commit, checked out
+# The production deploy's check (README.md): the worktree's last commit, checked out
 # clean in one clone every worktree shares (~/Library/Caches/outrigger-check),
 # one check at a time, then make test, make ui-shots and make site (every board
 # x app set built and staged, with build_site.py's wl82loader.bin scan). Run it
-# on the Mac and paste the summary into the PR. tools/check.py says how; a pass
+# on the Mac; make deploy-site runs it first. tools/check.py says how; a pass
 # leaves the site and its commit in build/checked/ for make deploy-site.
 CHECK_HOME ?= $(HOME)/Library/Caches/outrigger-check
 check:
