@@ -202,13 +202,33 @@ def make_manifest(board, app_set, version, tag, parts, store_template=None):
     return manifest
 
 
-def check_licensing(files):
-    blob = None
+def load_wl82_blob():
+    """The local wl82loader.bin ($WL82_BLOB, else tests/fixtures/), or None."""
     for candidate in (os.environ.get("WL82_BLOB"), ROOT / "tests/fixtures/wl82loader.bin"):
         if candidate and Path(candidate).is_file():
-            blob = Path(candidate).read_bytes()
-            break
-    chunks = [blob[i:i + WL82_CHUNK] for i in range(0, len(blob) - WL82_CHUNK + 1, WL82_CHUNK)] if blob else []
+            return Path(candidate).read_bytes()
+    return None
+
+
+def wl82_chunks(blob):
+    return [blob[i:i + WL82_CHUNK] for i in range(0, len(blob) - WL82_CHUNK + 1, WL82_CHUNK)] if blob else []
+
+
+def wl82_problem(name, data, chunks, sha=WL82_SHA256):
+    """Why a file to publish is, or holds part of, JieLi's wl82loader.bin; None if it doesn't.
+    build_site.py and deploy_site.py both scan with this."""
+    if "wl82" in name.lower():
+        return "looks like JieLi's loader blob"
+    if hashlib.sha256(data).hexdigest() == sha:
+        return "is JieLi's wl82loader.bin"
+    if any(chunk in data for chunk in chunks):
+        return "contains part of JieLi's wl82loader.bin"
+    return None
+
+
+def check_licensing(files):
+    blob = load_wl82_blob()
+    chunks = wl82_chunks(blob)
     package_sha = set()
     app_hex = []
     for pkg in sorted((ROOT / "tests/fixtures").glob("*.fwsc")):
@@ -220,16 +240,12 @@ def check_licensing(files):
             if c.count(c[0]) != len(c):  # all-0xFF and all-zero pieces are in every image
                 app_hex.append((pkg.name, c.hex().encode()))
     for path in files:
-        if "wl82" in path.name.lower():
-            fail(f"{path} looks like JieLi's loader blob; it must not be published")
         if path.suffix.lower() == ".fwsc":
             fail(f"{path} is an FM-1 firmware package; it must not be published")
         data = path.read_bytes()
-        if hashlib.sha256(data).hexdigest() == WL82_SHA256:
-            fail(f"{path} is JieLi's wl82loader.bin; it must not be published")
-        for chunk in chunks:
-            if chunk in data:
-                fail(f"{path} contains part of JieLi's wl82loader.bin; it must not be published")
+        problem = wl82_problem(path.name, data, chunks)
+        if problem:
+            fail(f"{path} {problem}; it must not be published")
         if hashlib.sha256(data).hexdigest() in package_sha:
             fail(f"{path} is an FM-1 firmware package; it must not be published")
         for name, chunk in app_hex if path.suffix == ".json" else []:
