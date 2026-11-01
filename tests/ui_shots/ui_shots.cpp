@@ -1,8 +1,9 @@
 // `make ui-shots`: renders host_ui on the Mac (or CI) the way a board shows
 // it, and checks the layout without a board.
 //
-// Every page of docs/ui-redesign.md on each screen shape (240x280 rounded,
-// 320x480 upright, 480x320 sideways) at text sizes S, M and L, in the hub and
+// Every page of docs/ui-redesign.md on each board's screen (firmware/boards.json:
+// 240x280 rounded, 320x480 upright), plus 480x320 sideways for boards to come,
+// at text sizes S, M and L, in the hub and
 // hub-loader builds, plus the focus ring on a board without touch. The text is
 // the firmware's own: Play's statuses come from midi_core's stage_status() and
 // the FM-1 pages' from loader_messages.cpp. Each visible label must be
@@ -27,6 +28,7 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include "board_shots.h"
 #include "host_ui.h"
 #include "loader_messages.h"
 #include "png.h"
@@ -43,8 +45,9 @@ struct SimBoard {
   uint8_t boost;
   InputKind input;
 };
-static const SimBoard kBoards[] = {{"240x280", 240, 280, 40, 0, InputKind::Touch},
-                                   {"320x480", 320, 480, 0, 1, InputKind::Touch},
+// The real boards' screens (BOARD_SHOTS, generated from firmware/boards.json),
+// then shapes no board has yet: sideways, and the 1.69 driven by an encoder.
+static const SimBoard kBoards[] = {BOARD_SHOTS,
                                    {"480x320", 480, 320, 0, 1, InputKind::Touch},
                                    {"240x280-encoder", 240, 280, 40, 0, InputKind::Encoder}};
 constexpr int kBoardCount = sizeof kBoards / sizeof *kBoards;

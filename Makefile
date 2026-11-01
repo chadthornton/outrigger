@@ -1,16 +1,18 @@
-FQBN := esp32:esp32:esp32s3:USBMode=default,FlashSize=16M,PSRAM=opi
 PORT ?= $(firstword $(wildcard /dev/cu.usbmodem*))
 ESP32_CORE ?= $(shell arduino-cli config get directories.data)/packages/esp32/hardware/esp32/3.3.12
 # Arduino's bundled ctags is x86-only on Apple Silicon; CI sets /usr/bin.
 CTAGS_DIR ?= /opt/homebrew/bin
 
 # Board x app set (docs/architecture.md, "App sets and builds").
-# `make build BOARD=waveshare_169 APPS=hub-loader`; `make site` builds them all.
-BOARDS := waveshare_169
+# `make build BOARD=waveshare_35 APPS=hub-loader`; `make site` builds them all.
+# The boards are the profiles in firmware/boards.json (docs/boards.md, "Adding a
+# board"); every board builds the one sketch, with its board_config.h.
+BOARDS := $(shell python3 -I tools/boards.py ids)
 APP_SETS := hub hub-loader everything
 # littlefs-python for the store image and the installer's store template (rule below).
 TOOLS_PY := build/tools-venv/bin/python
 BOARD ?= waveshare_169
+FQBN := $(shell python3 -I tools/boards.py fqbn $(BOARD))
 APPS ?= hub
 APP_FLAGS_hub :=
 APP_FLAGS_hub-loader := -DAPP_LOADER=1
@@ -48,7 +50,9 @@ endif
 ifeq ($(WIFI_BOOTLOOP),1)
 BUILD_SUFFIX := $(BUILD_SUFFIX)-bootloop
 endif
-SKETCH := firmware/$(BOARD)
+# The sketch is still named for the first board; it's every board's. Renaming
+# it waits for the branches editing it to land.
+SKETCH := firmware/waveshare_169
 BUILD := build/$(BOARD)/$(APPS)$(BUILD_SUFFIX)
 # arduino-cli's build paths and ui-shots' LVGL objects. make check points it
 # outside its clone, so a check recompiles only what the commit changed.
@@ -68,6 +72,9 @@ STORE_OFFSET := 0x3D0000
 FW_VERSION := 0x$(shell git rev-parse --short=7 HEAD)
 FW_DIRTY := $(if $(shell git status --porcelain --untracked-files=no),1,0)
 VERSION_DIR := $(CACHE_ROOT)/version
+# tools/boards.py's generated headers: each board's board_config.h, and the
+# screens ui-shots renders. Rewritten only when they change, like fw_version.h.
+BOARD_GEN := $(CACHE_ROOT)/boards
 
 .PHONY: check test ui-shots ui-mocks build build-all flash site serve clean fixtures golden store-image flash-store store-add check-latest deploy-site
 
@@ -91,7 +98,8 @@ test: build/check_package build/test_fm1_interop build/test_midi_core build/test
 	python3 -I tools/fm1lib.py selftest build/interop tests/fixtures/skiff-1.4.fwsc \
 		tests/fixtures/sloop-2.8.1.fwsc tests/fixtures/FM-1_015.fwsc
 	./build/test_fm1_interop build/interop
-	python3 -I tools/check_partitions.py firmware/$(BOARD)/partitions.csv
+	python3 -I tools/check_partitions.py $(SKETCH)/partitions.csv
+	python3 -I tests/test_boards.py
 	python3 -I tests/installer/test_tables.py
 	$(TOOLS_PY) tests/installer/test_store_template.py
 	node --test tests/installer/
@@ -198,10 +206,14 @@ $(CACHE_ROOT)/lvgl-obj/%.o: $(LVGL_DIR)/src/%.c firmware/config/lv_conf.h
 # the FM-1 pages' (loader_messages.cpp, with fm1_loader).
 UI_SHOTS_SRC := tests/ui_shots/ui_shots.cpp lib/host_ui/src/host_ui.cpp lib/midi_core/src/status.cpp \
 	lib/midi_core/src/midi_core.cpp firmware/waveshare_169/loader_messages.cpp $(FM1_SRC)
+# Every board's screen comes from its profile (firmware/boards.json).
+$(BOARD_GEN)/board_shots.h: firmware/boards.json tools/boards.py
+	python3 -I tools/boards.py shots $@
+	touch $@
 build/ui_shots: $(UI_SHOTS_SRC) $(wildcard tests/ui_shots/*.h tests/ui_shots/stub/*.h lib/host_ui/src/*.h lib/midi_core/src/*.h) \
-		firmware/waveshare_169/loader_messages.h $(FM1_HDR) $(LVGL_OBJ)
+		firmware/waveshare_169/loader_messages.h $(FM1_HDR) $(LVGL_OBJ) $(BOARD_GEN)/board_shots.h
 	@echo "$(TEST_CXX) ... -o $@"
-	@$(TEST_CXX) -std=c++17 -O1 -Wall -Wextra -Werror -Wno-deprecated-declarations $(UI_FLAGS) -DAPP_LOADER=1 \
+	@$(TEST_CXX) -std=c++17 -O1 -Wall -Wextra -Werror -Wno-deprecated-declarations $(UI_FLAGS) -DAPP_LOADER=1 -I$(BOARD_GEN) \
 		-Ilib/host_ui/src -Ilib/midi_core/src -Ilib/fm1_loader/src -Ilib/platform/src -Ifirmware/waveshare_169 \
 		-o $@ $(UI_SHOTS_SRC) $(LVGL_OBJ) -lz
 ui-shots: build/ui_shots
@@ -220,13 +232,15 @@ ui-mocks: build/ui_mocks
 
 build:
 	$(if $(filter $(APPS),$(APP_SETS)),,$(error APPS=$(APPS); known: $(APP_SETS)))
+	$(if $(filter $(BOARD),$(BOARDS)),,$(error BOARD=$(BOARD); known: $(BOARDS)))
+	python3 -I tools/boards.py header $(BOARD) $(BOARD_GEN)/$(BOARD)/board_config.h
 	mkdir -p $(VERSION_DIR)
 	printf '#define FW_VERSION %s\n#define FW_DIRTY %s\n' $(FW_VERSION) $(FW_DIRTY) > $(VERSION_DIR)/fw_version.h.$$$$ \
 		&& { cmp -s $(VERSION_DIR)/fw_version.h.$$$$ $(VERSION_DIR)/fw_version.h \
 			&& rm $(VERSION_DIR)/fw_version.h.$$$$ || mv $(VERSION_DIR)/fw_version.h.$$$$ $(VERSION_DIR)/fw_version.h; }
 	arduino-cli compile --fqbn $(FQBN) --build-property "tools.ctags.path=$(CTAGS_DIR)" \
 		--build-property "upload.maximum_size=$(APP_SLOT)" \
-		--build-property "compiler.cpp.extra_flags=-I$(VERSION_DIR) -DESP_USB_HOST_MAX_SERIAL_PORTS=0 $(APP_FLAGS_$(APPS)) $(WRITE_FLAGS) -DLV_CONF_INCLUDE_SIMPLE -I$(CURDIR)/firmware/config" \
+		--build-property "compiler.cpp.extra_flags=-I$(VERSION_DIR) -I$(BOARD_GEN)/$(BOARD) -DESP_USB_HOST_MAX_SERIAL_PORTS=0 $(APP_FLAGS_$(APPS)) $(WRITE_FLAGS) -DLV_CONF_INCLUDE_SIMPLE -I$(CURDIR)/firmware/config" \
 		--build-property "compiler.c.extra_flags=-DLV_CONF_INCLUDE_SIMPLE -I$(CURDIR)/firmware/config" \
 		--library lib/midi_core --library lib/EspUsbHost --library lib/host_ui --library lib/platform $(APP_LIBS_$(APPS)) \
 		--build-path $(CACHE_ROOT)/$(BOARD)/$(APPS)$(BUILD_SUFFIX) --output-dir $(BUILD) $(SKETCH)
@@ -245,7 +259,7 @@ $(TOOLS_PY):
 	python3 -m venv build/tools-venv
 	$(TOOLS_PY) -m pip install -q littlefs-python==0.19.0
 store-image: $(TOOLS_PY) fixtures
-	$(TOOLS_PY) tools/store_image.py firmware/$(BOARD)/partitions.csv build/store/store.bin
+	$(TOOLS_PY) tools/store_image.py $(SKETCH)/partitions.csv build/store/store.bin
 flash-store: store-image
 	$(if $(filter erase-store,$(CONFIRM)),,$(error flash-store erases every backup in the store: add CONFIRM=erase-store))
 	$(firstword $(wildcard $(ESP32_CORE)/../../../tools/esptool_py/*/esptool)) --chip esp32s3 --port $(PORT) \
@@ -256,7 +270,7 @@ flash-store: store-image
 # writes it back. Board in Computer mode. make store-add PKGS="a.fwsc b.fwsc" [PIN=1]
 store-add: $(TOOLS_PY)
 	$(if $(PKGS)$(LIST),,$(error PKGS="file.fwsc ..." names the packages to add; LIST=1 only lists))
-	$(TOOLS_PY) tools/store_add.py firmware/$(BOARD)/partitions.csv $(PORT) $(if $(PIN),--pin) $(if $(LIST),--list) $(PKGS)
+	$(TOOLS_PY) tools/store_add.py $(SKETCH)/partitions.csv $(PORT) $(if $(PIN),--pin) $(if $(LIST),--list) $(PKGS)
 
 # The merge gate's step 2 (README.md): the worktree's last commit, checked out
 # clean in one clone every worktree shares (~/Library/Caches/outrigger-check),
@@ -277,7 +291,7 @@ site: build-all fixtures $(TOOLS_PY)
 	cp NOTICE site/NOTICE.txt
 	cp LICENSE site/LICENSE.txt
 	for b in $(BOARDS); do \
-		$(TOOLS_PY) tools/store_template.py firmware/$$b/partitions.csv build/$$b/store-template.json || exit 1; \
+		$(TOOLS_PY) tools/store_template.py $(SKETCH)/partitions.csv build/$$b/store-template.json || exit 1; \
 		for a in $(APP_SETS); do \
 		python3 tools/build_site.py $$b $$a build/$$b/$$a $(ESP32_CORE)/tools/partitions/boot_app0.bin \
 			$(shell git describe --always --dirty) build/$$b/store-template.json || exit 1; done; done

@@ -28,6 +28,7 @@
 #include "build_tag.h"
 #include "crumbs.h"
 #include "diag.h"
+#include "board_config.h"
 #include "board_profile.h"
 #include "boot_mode.h"
 #include "broker.h"
@@ -61,7 +62,7 @@ static Preferences prefs;
 // Read off the board by the web installer (build_tag.h). Settings prints it, so
 // the linker keeps it.
 extern "C" const platform::BuildTag kBuildTag __attribute__((section(".rodata_custom_desc"))) = {
-    platform::kBuildTagMagic, platform::kBuildTagLayout, FW_DIRTY, 0, FW_VERSION, APP_SET_LABEL};
+    platform::kBuildTagMagic, platform::kBuildTagLayout, FW_DIRTY, BOARD_TAG_ID, FW_VERSION, APP_SET_LABEL};
 static bool host_running = false;
 #if APP_LOADER && LOADER_SOAK
 static uint32_t soak_restart_at = 0;  // safe mode in a soak build: carry on after this
