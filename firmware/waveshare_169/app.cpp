@@ -46,11 +46,17 @@ extern const BoardProfile kBoard;
 
 EspUsbHost usb;
 static Preferences prefs;
+// fw_version.h: written by make build (FW_VERSION, the commit; FW_DIRTY, 1 with
+// uncommitted changes). A header, not a -D flag, so a new commit recompiles
+// only the files that include it.
+#if __has_include("fw_version.h")
+#include "fw_version.h"
+#endif
 #ifndef FW_VERSION
-#define FW_VERSION 0  // set by the Makefile to the commit
+#define FW_VERSION 0
 #endif
 #ifndef FW_DIRTY
-#define FW_DIRTY 0    // 1 when built with uncommitted changes
+#define FW_DIRTY 0
 #endif
 // Read off the board by the web installer (build_tag.h). Settings prints it, so
 // the linker keeps it.

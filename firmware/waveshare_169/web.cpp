@@ -32,6 +32,9 @@
 using web_core::json_escape;
 
 extern char last_crash[3][40];  // app.cpp: the last abnormal reset, if any
+#if __has_include("fw_version.h")
+#include "fw_version.h"  // app.cpp says why
+#endif
 #ifndef FW_VERSION
 #define FW_VERSION 0
 #endif
