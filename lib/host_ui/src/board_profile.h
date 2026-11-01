@@ -1,5 +1,6 @@
-// What the UI needs to know about a board's screen. Each board sketch defines
-// one BoardProfile plus the three driver hooks below; host_ui does the rest.
+// What the UI needs to know about a board's screen. The sketch's board.cpp
+// defines one BoardProfile (from the build's profile in firmware/boards.json)
+// plus the three driver hooks below; host_ui does the rest.
 #pragma once
 
 #include <stdint.h>

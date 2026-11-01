@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """Stage firmware into site/ for the browser installer (site/installer/).
 
-    tools/build_site.py <board sketch> <app set> <arduino build dir> <boot_app0.bin> <version> [<store-template.json>]
+    tools/build_site.py <board> <app set> <arduino build dir> <boot_app0.bin> <version> [<store-template.json>]
 
 Writes site/firmware/<board-id>/<app set>/{bootloader,partitions,boot_app0,app}.bin
 and its manifest.json. App sets with the loader also get store-template.json
 (tools/store_template.py): the store the installer writes onto a blank board,
-with a placeholder where the browser puts JieLi's loader. The board is named by its sketch (waveshare_169), the
-app set by the Makefile's APPS= (docs/architecture.md, "App sets and builds").
+with a placeholder where the browser puts JieLi's loader. The board is named by the Makefile's BOARD= (its profile in
+firmware/boards.json gives the site's folder name), the app set by APPS= (docs/architecture.md, "App sets and builds").
 
 Why four parts and not one merged image: esptool can patch flash mode/size
 into a merged image's bootloader header, but Arduino already
@@ -34,6 +34,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import boards as board_table  # noqa: E402
 import fm1lib  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -50,14 +51,23 @@ PARTS = [
     (0x10000, "app.bin", "{sketch}.ino.bin"),
 ]
 
-BOARDS = {
-    "waveshare-esp32-s3-touch-lcd-1.69": {
-        "sketch": "waveshare_169",
-        "name": "usb-midi-host (Waveshare ESP32-S3-Touch-LCD-1.69)",
-        "chip": "ESP32-S3",
-        "flash_bytes": 16 * 1024 * 1024,
-    },
-}
+# Every board builds the one sketch, so its files carry the sketch's name.
+SKETCH = "waveshare_169"
+
+
+def site_boards(table):
+    """The profiles as the installer sees them, by their folder under site/firmware/."""
+    return {b["site_id"]: {
+        "make_id": make_id,
+        "name": f"usb-midi-host ({b['name']})",
+        "short_name": b["short_name"],
+        "chip": b["chip"],
+        "flash_bytes": b["flash_mb"] * 1024 * 1024,
+        "tag_id": b["tag_id"],
+    } for make_id, b in board_table.checked(table)["boards"].items()}
+
+
+BOARDS = site_boards(board_table.load())
 
 
 # Installer names for the Makefile's app sets.
@@ -154,23 +164,26 @@ def check_layout(parts, board):
 
 
 def read_build_tag(app):
-    """{commit, dirty, app_set} from an app image, or None without a tag."""
+    """{commit, dirty, app_set, board} from an app image, or None without a tag."""
     tag = app[TAG_OFFSET:TAG_OFFSET + 20]
     if len(tag) < 20:
         return None
-    magic, layout, dirty, _, commit = struct.unpack("<IHBBI", tag[:12])
+    magic, layout, dirty, board, commit = struct.unpack("<IHBBI", tag[:12])
     if magic != TAG_MAGIC or layout != TAG_LAYOUT:
         return None
-    return {"commit": f"{commit:07x}", "dirty": bool(dirty), "app_set": tag[12:].split(b"\0")[0].decode()}
+    return {"commit": f"{commit:07x}", "dirty": bool(dirty), "app_set": tag[12:].split(b"\0")[0].decode(),
+            "board": board}
 
 
-def check_build_tag(app, app_set):
+def check_build_tag(app, app_set, board):
     """The tag the page will read off a board; refuses a build without one."""
     tag = read_build_tag(app)
     if tag is None:
         fail(f"the app has no build tag at {TAG_OFFSET:#x}; the installer couldn't name it on a board")
     if tag["app_set"] not in APP_SET_LABELS[app_set]:
         fail(f"the app's build tag says {tag['app_set']!r}, staged as {app_set}")
+    if tag["board"] != board["tag_id"]:
+        fail(f"the app's build tag says board {tag['board']}, staged as {board['make_id']} ({board['tag_id']})")
     return tag
 
 
@@ -241,11 +254,11 @@ def check_licensing(files):
 def main():
     if len(sys.argv) not in (6, 7):
         fail(__doc__.strip().splitlines()[2].strip())
-    sketch, app_set, build_dir, boot_app0, version = sys.argv[1:6]
+    make_id, app_set, build_dir, boot_app0, version = sys.argv[1:6]
     template = Path(sys.argv[6]) if len(sys.argv) == 7 else None
-    board_id = next((k for k, b in BOARDS.items() if b["sketch"] == sketch), None)
+    board_id = next((k for k, b in BOARDS.items() if b["make_id"] == make_id), None)
     if board_id is None:
-        fail(f"unknown board {sketch}; known: {', '.join(b['sketch'] for b in BOARDS.values())}")
+        fail(f"unknown board {make_id}; known: {', '.join(b['make_id'] for b in BOARDS.values())}")
     board = BOARDS[board_id]
     if app_set not in APP_SETS:
         fail(f"unknown app set {app_set}; known: {', '.join(APP_SETS)}")
@@ -255,12 +268,12 @@ def main():
 
     parts = {}
     for offset, _, src in PARTS:
-        path = Path(boot_app0) if src is None else build_dir / src.format(sketch=board["sketch"])
+        path = Path(boot_app0) if src is None else build_dir / src.format(sketch=SKETCH)
         if not path.is_file():
             fail(f"missing {path}; run `make build` first")
         parts[offset] = path.read_bytes()
     check_layout(parts, board)
-    tag = check_build_tag(parts[0x10000], app_set)
+    tag = check_build_tag(parts[0x10000], app_set, board)
 
     out = SITE / "firmware" / board_id / app_set
     # Builds before app sets were staged flat in the board folder; don't keep serving them.

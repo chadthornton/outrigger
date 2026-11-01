@@ -7,7 +7,8 @@
 // FM-1 into its ROM bootloader or a firmware installer.
 //
 // This file gathers what the host knows into a UiFrame; host_ui (LVGL) draws
-// it and runs the settings page. Board specifics live in board_*.cpp.
+// it and runs the settings page. Board specifics live in board.cpp, from the
+// build's profile in firmware/boards.json.
 //
 // Because the USB port is the host, the Mac loses this board's serial port
 // once the host starts. Settings > Computer restarts with the host off and

@@ -2,7 +2,12 @@
 // four states it moves through in place (ready, board read, installing,
 // done). No dialog: the only pop-up is the browser's own port picker.
 //
-//   <div class="install" data-builds='[{"label":"Install","manifest":"firmware/.../hub/manifest.json"}]'></div>
+//   <div class="install" data-builds='[{"label":"Install","manifest":"firmware/.../hub/manifest.json",
+//     "board":"Waveshare 1.69\"","tag_id":0}, ...]'></div>
+//
+// One entry per button and board (firmware/boards.json). With more than one
+// board the area asks which one first: the chip can't tell which board it sits
+// on, and the wrong build leaves the screen dark.
 //
 // Without JavaScript, or in a browser without Web Serial, the area says so and
 // the text around it still reads on its own.
@@ -13,7 +18,7 @@ import { readBoard, fetchBuild, install, finish, prepareStore } from "./install.
 
 // Shown under each install area and in Details, so a bug report says which
 // installer ran. Bump it with every change to site/installer/.
-export const INSTALLER_VERSION = "2026-10-31.12";
+export const INSTALLER_VERSION = "2026-11-01.1";
 
 // The ESP32-S3's own USB port (USB-Serial-JTAG), in Computer mode or BOOT+RST.
 const PORT_FILTER = [{ usbVendorId: 0x303a, usbProductId: 0x1001 }];
@@ -66,10 +71,16 @@ const h = (tag, attrs = {}, ...kids) => {
   return el;
 };
 
+let areas = 0;
+
 class InstallArea {
   constructor(el) {
     this.el = el;
     this.builds = JSON.parse(el.dataset.builds);
+    this.boards = [...new Map(this.builds.filter((b) => b.board).map((b) => [b.board, b])).values()];
+    this.names = Object.fromEntries(this.boards.map((b) => [b.tag_id, b.board]));
+    this.board = this.boards.length === 1 ? this.boards[0].board : null;
+    this.id = ++areas;
     this.helpHref = el.dataset.help || "#no-port";
     this.trace = "";
     this.ready();
@@ -89,15 +100,28 @@ class InstallArea {
       note ? h("p", { class: "install-error", role: "alert" }, note) : null,
       note && LOG.length ? h("details", { class: "install-log" }, h("summary", {}, "Details"),
         h("pre", {}, [`Installer ${INSTALLER_VERSION}`, ...LOG.slice(-25), "", ...this.trace.split("\n").slice(-40).map((l) => l.slice(0, 160))].join("\n"))) : null,
-      h("div", { class: "row" }, this.builds.map((b, i) =>
-        h("button", { class: i ? "alt" : null, on: { click: () => this.connect(b) } }, b.label))),
+      this.boards.length > 1 ? this.boardPicker() : null,
+      h("div", { class: "row" }, [...new Set(this.builds.map((b) => b.label))].map((label, i) =>
+        h("button", { class: i ? "alt" : null, "data-needs-board": this.boards.length > 1, disabled: !this.board && this.boards.length > 1,
+          on: { click: () => this.connect(this.builds.find((b) => b.label === label && (!b.board || b.board === this.board))) } }, label))),
       h("p", { class: "install-note" }, KEEPS, " ", h("a", { href: this.helpHref }, "No board listed?")),
       h("p", { class: "install-version" }, `Installer ${INSTALLER_VERSION}`),
     );
   }
 
+  boardPicker() {
+    const pick = (board) => {
+      this.board = board;
+      for (const b of this.el.querySelectorAll("button[data-needs-board]")) b.disabled = false;
+    };
+    return h("fieldset", { class: "install-boards" }, h("legend", {}, "Which ESP32 do you have?"),
+      this.boards.map((b) => h("label", {},
+        h("input", { type: "radio", name: `board-${this.id}`, value: b.board, checked: this.board === b.board,
+          on: { change: () => pick(b.board) } }), " ", b.board)));
+  }
+
   async connect(choice) {
-    if (busy) return;
+    if (busy || !choice) return;
     let port;
     try {
       port = await navigator.serial.requestPort({ filters: PORT_FILTER });
@@ -145,7 +169,7 @@ class InstallArea {
     const loader = this.loader;
     loader.readFlash = (addr, size, onPacket) => readFlashInPieces(loader, addr, size, onPacket || undefined);
     const chip = await loader.main();
-    if (!/ESP32-S3/.test(chip)) throw new Error(`That's an ${chip}, not the Waveshare's ESP32-S3.`);
+    if (!/ESP32-S3/.test(chip)) throw new Error(`That's an ${chip}, not an ESP32-S3.`);
     return loader;
   }
 
@@ -162,7 +186,7 @@ class InstallArea {
   }
 
   confirm(choice, build, board, store) {
-    const words = describeBoard(board, build.manifest.build);
+    const words = describeBoard(board, build.manifest.build, this.names);
     const name = buildName(build.manifest.build.app_set);
     const noStore = store.unfinished ? "Its store was being set up when the last install stopped, so it has no store yet."
       : store.previousFirmware ? "This board ran other firmware before, so it has no store." : "It has no store yet.";
@@ -179,6 +203,7 @@ class InstallArea {
         "They download from thefirmwarehub.com, and the file the loader needs from the FM-1's chip maker from GitHub, straight into this browser.";
     this.show(
       h("p", { class: "install-read" }, words.board),
+      words.warning ? h("p", { class: "install-error", role: "alert" }, words.warning) : null,
       h("p", {}, words.install),
       storeWords ? h("p", {}, storeWords) : null,
       h("div", { class: "row" },
@@ -228,7 +253,7 @@ class InstallArea {
 
   explain(e, lead) {
     const msg = String(e && e.message ? e.message : e);
-    if (/Nothing was written|didn't read back|download|not the Waveshare|template/.test(msg)) return `${lead} ${msg}`;
+    if (/Nothing was written|didn't read back|download|not an ESP32-S3|template/.test(msg)) return `${lead} ${msg}`;
     return `${lead} Check the cable is a data cable and the board is in Computer mode (or BOOT+RST), then try again. (${msg})`;
   }
 }

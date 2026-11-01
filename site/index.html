@@ -123,6 +123,11 @@
   .install-error { font-weight: 600; color: var(--warn); }
   .install-done { display: grid; gap: 6px; border-left: 3px solid var(--accent); padding-left: 12px; }
   .install-version { font-size: .75rem; color: var(--muted); }
+  .install button:disabled { opacity: .45; cursor: default; }
+  .install-boards { border: 0; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: .9375rem; }
+  .install-boards legend { padding: 0; margin-bottom: 6px; font-weight: 600; font-size: .875rem; }
+  .install-boards label { display: flex; gap: 6px; align-items: center; cursor: pointer; }
+  .install-boards input { accent-color: var(--accent); margin: 0; }
   .install-log { border: 0; padding: 0; font-size: .8125rem; color: var(--muted); }
   .install-log pre { margin: 6px 0 0; max-height: 14em; overflow: auto; white-space: pre-wrap; font: .75rem ui-monospace, "SF Mono", Menlo, monospace; }
   .install .check { display: flex; gap: 8px; align-items: baseline; }
@@ -213,7 +218,7 @@
       <div class="card"><p class="eyebrow">Set up once</p><ol class="steps3">
   <li><div><b>Install Outrigger on your ESP32</b><p>Plug your ESP32 into a computer and click Check my board: it
     says what's on the board and changes nothing. Then click Install. About two minutes, free.</p>
-    <div class="install" data-builds='[{"label":"Check my board","manifest":"firmware/waveshare-esp32-s3-touch-lcd-1.69/hub-loader/manifest.json"}]' data-help="#no-port">
+    <div class="install" data-builds="[{&quot;label&quot;: &quot;Check my board&quot;, &quot;manifest&quot;: &quot;firmware/waveshare-esp32-s3-touch-lcd-1.69/hub-loader/manifest.json&quot;, &quot;board&quot;: &quot;Waveshare 1.69\&quot;&quot;, &quot;tag_id&quot;: 0}, {&quot;label&quot;: &quot;Check my board&quot;, &quot;manifest&quot;: &quot;firmware/waveshare-esp32-s3-touch-lcd-3.5/hub-loader/manifest.json&quot;, &quot;board&quot;: &quot;Waveshare 3.5\&quot;&quot;, &quot;tag_id&quot;: 1}]" data-help="#no-port">
       <p class="install-note">Installing needs Chrome or Edge on a computer, with JavaScript on.</p>
     </div></div></li>
   <li><div><b>Three firmwares come with it</b><p>On a new ESP32 the installer also puts M-VAVE stock V15, Felucca
@@ -263,6 +268,7 @@
       <p>This runs Outrigger. Most ESP32-S3 boards with a screen should work; we're still testing.</p>
       <ul class="picks">
         <li><span class="tag">Tested</span><a class="" href="https://www.amazon.com/s?k=Waveshare+ESP32-S3-Touch-LCD-1.69" target="_blank" rel="noopener">Waveshare ESP32-S3 Touch LCD 1.69 ↗</a></li>
+        <li><span class="tag">Testing</span><a class="" href="https://www.amazon.com/dp/B0F3WS2W5R" target="_blank" rel="noopener">Waveshare ESP32-S3 Touch LCD 3.5 ↗</a></li>
         <li><span class="tag">Likely</span><a class="" href="https://www.amazon.com/gp/product/B0DSVK5576" target="_blank" rel="noopener">Waveshare ESP32-S3 1.8-inch AMOLED ↗</a></li>
         <li><span class="tag">Likely</span><a class="" href="https://www.amazon.com/Waveshare-Capacitive-Development-Resolution-Dual-Core/dp/B0D925SBYF" target="_blank" rel="noopener">Waveshare ESP32-S3 4.3-inch Touch, Board B ↗</a></li>
       </ul>
@@ -360,7 +366,7 @@
 </div>
 <footer><div class="wrap fine">
   <p>For developers: Everything adds a Wi-Fi status page; its loader can't write.</p>
-  <div class="install" data-builds='[{"label":"Check my board (Everything)","manifest":"firmware/waveshare-esp32-s3-touch-lcd-1.69/everything/manifest.json"}]' data-help="#no-port">
+  <div class="install" data-builds="[{&quot;label&quot;: &quot;Check my board (Everything)&quot;, &quot;manifest&quot;: &quot;firmware/waveshare-esp32-s3-touch-lcd-1.69/everything/manifest.json&quot;, &quot;board&quot;: &quot;Waveshare 1.69\&quot;&quot;, &quot;tag_id&quot;: 0}, {&quot;label&quot;: &quot;Check my board (Everything)&quot;, &quot;manifest&quot;: &quot;firmware/waveshare-esp32-s3-touch-lcd-3.5/everything/manifest.json&quot;, &quot;board&quot;: &quot;Waveshare 3.5\&quot;&quot;, &quot;tag_id&quot;: 1}]" data-help="#no-port">
       <p class="install-note">Installing needs Chrome or Edge on a computer, with JavaScript on.</p>
     </div>
   <p>Installs with <a href="https://github.com/espressif/esptool-js">esptool-js</a> 0.7.0 (Apache-2.0), served from this site.

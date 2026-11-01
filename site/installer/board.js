@@ -11,8 +11,9 @@ const TAG_MAGIC = 0x54484d55; // "UMHT"
 const TAG_LAYOUT = 1;
 
 // bytes: the app's first TAG_OFFSET + TAG_LENGTH bytes or more.
-// Returns {commit, dirty, app_set}, or null for no tag (a build from before
-// tags, other firmware) or a layout this page doesn't know.
+// Returns {commit, dirty, app_set, board}, or null for no tag (a build from
+// before tags, other firmware) or a layout this page doesn't know. board is the
+// profile's tag_id (firmware/boards.json): 0, the 1.69, in builds from before it.
 export function readBuildTag(bytes) {
   if (bytes.length < TAG_OFFSET + TAG_LENGTH) return null;
   const view = new DataView(bytes.buffer, bytes.byteOffset + TAG_OFFSET, TAG_LENGTH);
@@ -22,6 +23,7 @@ export function readBuildTag(bytes) {
   return {
     commit: view.getUint32(8, true).toString(16).padStart(7, "0"),
     dirty: view.getUint8(6) !== 0,
+    board: view.getUint8(7),
     app_set: new TextDecoder().decode(end < 0 ? label : label.subarray(0, end)),
   };
 }
@@ -56,12 +58,30 @@ export function buildName(label) {
 const version = (tag) => `${tag.commit}${tag.dirty ? "+" : ""}`;
 
 // board: {tag, layout, store}; build: the tag of the build about to be
-// installed (manifest.json "build"). Returns two sentences: what the board
-// holds, and what installing does to it.
-export function describeBoard(board, build) {
+// installed (manifest.json "build"); names: tag_id -> the boards' short names.
+// Returns two sentences: what the board holds, and what installing does to it;
+// plus a warning when it runs the build for another board than the one picked.
+// The chip can't say which board it sits on, so the pick is the user's.
+export function describeBoard(board, build, names = {}) {
+  const words = describeBuild(board, build);
+  const theirs = board.tag ? board.tag.board ?? 0 : null;
+  const picked = build.board ?? 0;
+  if (theirs === null || theirs === picked) return words;
+  const name = (id) => (names[id] ? `the ${names[id]}` : "another board");
+  return {
+    board: words.board,
+    install: `Installing ${buildName(build.app_set)} ${version(build)} replaces it. ${keepsFor(board)}`,
+    warning: `This board runs the build for ${name(theirs)}, and you picked ${name(picked)}. ` +
+      "Pick the board you have: the wrong build leaves its screen dark or garbled. Installing again with the right pick fixes that.",
+  };
+}
+
+const keepsFor = (board) => (board.store ? "Your settings, Wi-Fi and backups stay." : "Your settings and Wi-Fi stay.");
+
+function describeBuild(board, build) {
   const next = `${buildName(build.app_set)} ${version(build)}`;
   const storeClause = board.store ? " and has a backup store, where the loader keeps FM-1 backups" : "";
-  const keeps = board.store ? "Your settings, Wi-Fi and backups stay." : "Your settings and Wi-Fi stay.";
+  const keeps = keepsFor(board);
 
   if (board.layout === "blank") return { board: "This board is empty.", install: `Installing puts ${next} on it.` };
   if (board.layout === "other") {

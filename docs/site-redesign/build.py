@@ -7,11 +7,15 @@ Round 2's generator (A2 and B2 from shared pieces) is in git history; its output
 Wording: "MIDI controller" ("with a USB connection" where it matters), never "keyboard" on its own (Chad: it reads as a typing keyboard). The user's
 device is "your ESP32" before install and "Outrigger" after, never "the board".
 """
+import html
+import json
+import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 
 BUY_BOARD = "https://www.amazon.com/s?k=Waveshare+ESP32-S3-Touch-LCD-1.69"
+BUY_35 = "https://www.amazon.com/dp/B0F3WS2W5R"
 BUY_AMOLED = "https://www.amazon.com/gp/product/B0DSVK5576"
 BUY_43B = "https://www.amazon.com/Waveshare-Capacitive-Development-Resolution-Dual-Core/dp/B0D925SBYF"
 BUY_43B_CASE = "https://www.amazon.com/gp/product/B0DCNSRT31"
@@ -131,6 +135,7 @@ NEED = f"""<div class="need-items">
       <p>This runs Outrigger. Most ESP32-S3 boards with a screen should work; we're still testing.</p>
       <ul class="picks">
         {pick("Tested", BUY_BOARD, "Waveshare ESP32-S3 Touch LCD 1.69 ↗")}
+        {pick("Testing", BUY_35, "Waveshare ESP32-S3 Touch LCD 3.5 ↗")}
         {pick("Likely", BUY_AMOLED, "Waveshare ESP32-S3 1.8-inch AMOLED ↗")}
         {pick("Likely", BUY_43B, "Waveshare ESP32-S3 4.3-inch Touch, Board B ↗")}
       </ul>
@@ -368,6 +373,11 @@ STYLE = """
   .install-error { font-weight: 600; color: var(--warn); }
   .install-done { display: grid; gap: 6px; border-left: 3px solid var(--accent); padding-left: 12px; }
   .install-version { font-size: .75rem; color: var(--muted); }
+  .install button:disabled { opacity: .45; cursor: default; }
+  .install-boards { border: 0; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: .9375rem; }
+  .install-boards legend { padding: 0; margin-bottom: 6px; font-weight: 600; font-size: .875rem; }
+  .install-boards label { display: flex; gap: 6px; align-items: center; cursor: pointer; }
+  .install-boards input { accent-color: var(--accent); margin: 0; }
   .install-log { border: 0; padding: 0; font-size: .8125rem; color: var(--muted); }
   .install-log pre { margin: 6px 0 0; max-height: 14em; overflow: auto; white-space: pre-wrap; font: .75rem ui-monospace, "SF Mono", Menlo, monospace; }
   .install .check { display: flex; gap: 8px; align-items: baseline; }
@@ -457,12 +467,15 @@ print("wrote b3-sidebar.html")
 # The real page: the same page with the real install area (site/installer/area.js) in place of the mock button, and
 # setup as it is today. The Mac step stays until the installer fetches the loader file itself (tracker: site-loader-fetch).
 SITE = HERE.parent.parent / "site"
-FW = "firmware/waveshare-esp32-s3-touch-lcd-1.69"
+sys.path.insert(0, str(HERE.parent.parent / "tools"))
+import boards  # noqa: E402
 
 
 def install_area(label, app_set):
-    builds = f'[{{"label":"{label}","manifest":"{FW}/{app_set}/manifest.json"}}]'
-    return (f"<div class=\"install\" data-builds='{builds}' data-help=\"#no-port\">\n"
+    """One install button per board in firmware/boards.json; the area asks which board first (site/installer/area.js)."""
+    builds = [{"label": label, "manifest": f"firmware/{b['site_id']}/{app_set}/manifest.json",
+               "board": b["short_name"], "tag_id": b["tag_id"]} for b in boards.checked(boards.load())["boards"].values()]
+    return (f'<div class="install" data-builds="{html.escape(json.dumps(builds))}" data-help="#no-port">\n'
             '      <p class="install-note">Installing needs Chrome or Edge on a computer, with JavaScript on.</p>\n    </div>')
 
 

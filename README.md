@@ -41,12 +41,11 @@ apps ask it for them. See `docs/architecture.md`, and the merge gate below befor
 | `firmware/config/lv_conf.h` | LVGL configuration (fonts, clib malloc so big buffers can use PSRAM). |
 | `site/`, `tools/build_site.py` | Browser installer (`site/installer/`, on esptool-js) and the script that stages firmware into it. |
 | `.github/workflows/ci.yml` | CI, the same checks as `make check` on GitHub's machines. Not part of the merge gate. |
-| `firmware/waveshare_169/` | Arduino sketch for the Waveshare board: `app.cpp` (USB host, routing, gathers the frame) and `board_waveshare_169.cpp` (board profile, display and touch drivers). Code stays out of the `.ino` (see below). |
+| `firmware/waveshare_169/` | The Arduino sketch every board builds (named for the first board): `app.cpp` (USB host, routing, gathers the frame) and `board.cpp` (display, touch and expander drivers, from the build's `board_config.h`). Code stays out of the `.ino` (see below). |
+| `firmware/boards.json`, `tools/boards.py` | The board profiles (pins, chips, screen, memory) and the script that checks them and generates each build's `board_config.h` and the screens `make ui-shots` renders. |
 
-To add a board: copy the sketch folder, write a new `board_*.cpp` with its `BoardProfile` (size, shape, corner
-radius, font boost) and the three driver hooks in `lib/host_ui/src/board_profile.h`. `app.cpp` and `host_ui` don't
-change. Check the board's schematic for a USB-C port wired to the ESP32-S3's native USB (GPIO19/20). Then add it to
-`BOARDS` in the `Makefile` and in `tools/build_site.py`, and a card in `site/index.html`.
+To add a board: add its profile to `firmware/boards.json` (`docs/boards.md`, "Adding a board"). `app.cpp`, `host_ui`,
+the Makefile, the site and the installer pick it up from there.
 
 ## Commands
 
@@ -56,7 +55,7 @@ make check     # merge gate step 2: HEAD checked out clean in the clone all work
 make ui-shots  # render and check every page; build/ui-shots/sheet_*.png (needs LVGL 9.6.0, see Makefile)
 make fixtures  # FM-1 packages and wl82loader.bin for the tests, pinned by SHA-256 (gitignored)
 make golden    # regenerate tests/golden/ from the Unbricker and jl-uboot-tool (Python venv in build/)
-make build     # compile one board x app set: BOARD=waveshare_169 (default) APPS=hub|hub-loader|everything
+make build     # compile one board x app set: BOARD=waveshare_169 (default)|waveshare_35 APPS=hub|hub-loader|everything
 make build-all # every board x app set, into build/<board>/<app set>/
 make build APPS=hub-loader DIAG_WEB=1  # hub-loader plus the read-only web diagnostics (build/<board>/hub-loader-web/)
 python3 tools/diag.py all              # status, log, crash and store into build/diag/<time>/, plus the core dump
