@@ -147,6 +147,9 @@ void ui_update_loader(const UiLoader &loader);
 // The network line on Setup and Computer mode (the Web UI's address, or how to
 // reach its setup hotspot). Empty hides it.
 void ui_set_network(const char *line);
+// The Computer mode screen's line about a firmware being added from the
+// browser ("Adding Felucca 1.8.0: 40%"). Empty hides it.
+void ui_set_computer_status(const char *line);
 // Runs LVGL; call often (every few ms).
 void ui_tick();
 // For ui-shots: the fonts a label may use at the current text size, one per
