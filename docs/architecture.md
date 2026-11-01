@@ -307,8 +307,9 @@ App sets are chosen at build time. The Router is always built; the others are sw
 
 ## How an app lands on `master`
 
-The merge gate in `README.md`: green GitHub CI and a hardware smoke check on the Waveshare (install, then the
-Launchkey plays the FM-1 through the hub) before anything lands. An app also lands with:
+The merge gate in `README.md`: green GitHub CI before anything lands, plus a hardware smoke check on the Waveshare
+(install, then the Launchkey plays the FM-1 through the hub) for PRs that touch the loader, the store, flash writes
+or the USB host stack. Every production ship gets the smoke check too. An app also lands with:
 
 1. Its row in the mode table and its claims in the broker, with tests.
 2. Its NVS namespace with a `schema` key.
