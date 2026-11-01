@@ -134,6 +134,8 @@ NEED = f"""<div class="need-items">
         {pick("Likely", BUY_AMOLED, "Waveshare ESP32-S3 1.8-inch AMOLED ↗")}
         {pick("Likely", BUY_43B, "Waveshare ESP32-S3 4.3-inch Touch, Board B ↗")}
       </ul>
+      <p style="margin-top:8px"><b>Get the V2 of the 1.69</b>: it has a small "V2" sticker on the USB port. The first revision works too, but
+        some tick audibly, about once a second.</p>
       <details class="nitpick"><summary>The nitpicky part: picking the right ESP32</summary>
         <ul>
           <li><b>ESP32-S3 or ESP32-P4.</b> A plain ESP32 can't connect USB devices.</li>
