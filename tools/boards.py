@@ -2,7 +2,8 @@
 the build needs from them, so a new board is a new profile, not new code.
 
     python3 -I tools/boards.py check
-    python3 -I tools/boards.py ids                  # the Makefile's BOARDS
+    python3 -I tools/boards.py ids                  # the Makefile's BOARDS: tested boards, the ones built and installed
+    python3 -I tools/boards.py all-ids              # every profile, tested or not
     python3 -I tools/boards.py fqbn <id>            # arduino-cli's board options
     python3 -I tools/boards.py get <id> <field>     # one value, e.g. site_id
     python3 -I tools/boards.py header <id> <out>    # board_config.h for the firmware
@@ -48,8 +49,14 @@ def load(path=TABLE):
     return json.loads(Path(path).read_text())
 
 
-def ids(table):
+def all_ids(table):
     return list(table["boards"])
+
+
+def ids(table):
+    """The boards CI, make site and the installer build: only ones someone has run Outrigger on (tested: true).
+    An untested profile still builds and probes by name (make build BOARD=...)."""
+    return [bid for bid, b in table["boards"].items() if b.get("tested", False)]
 
 
 def field(board, path, default=KeyError):
@@ -257,11 +264,13 @@ def write_if_changed(path, text):
 def main(argv):
     table = checked(load())
     cmd, args = (argv[0], argv[1:]) if argv else ("check", [])
-    board = lambda bid: table["boards"].get(bid) or sys.exit(f"unknown board {bid}; known: {' '.join(ids(table))}")  # noqa: E731
+    board = lambda bid: table["boards"].get(bid) or sys.exit(f"unknown board {bid}; known: {' '.join(all_ids(table))}")  # noqa: E731
     if cmd == "check":
         print(f"boards: {len(table['boards'])} profiles, all good")
     elif cmd == "ids":
         print(" ".join(ids(table)))
+    elif cmd == "all-ids":
+        print(" ".join(all_ids(table)))
     elif cmd == "fqbn":
         print(fqbn(board(args[0])))
     elif cmd == "get":

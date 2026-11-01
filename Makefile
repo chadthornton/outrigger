@@ -7,7 +7,10 @@ CTAGS_DIR ?= /opt/homebrew/bin
 # `make build BOARD=waveshare_35 APPS=hub-loader`; `make site` builds them all.
 # The boards are the profiles in firmware/boards.json (docs/boards.md, "Adding a
 # board"); every board builds the one sketch, with its board_config.h.
+# BOARDS are the tested ones: CI, make site and the installer build only those.
+# Any profile builds and probes by name (ALL_BOARDS).
 BOARDS := $(shell python3 -I tools/boards.py ids)
+ALL_BOARDS := $(shell python3 -I tools/boards.py all-ids)
 ifeq ($(BOARDS),)
 $(error firmware/boards.json has a problem: python3 -I tools/boards.py check says what)
 endif
@@ -248,7 +251,7 @@ ui-mocks: build/ui_mocks
 
 build:
 	$(if $(filter $(APPS),$(APP_SETS)),,$(error APPS=$(APPS); known: $(APP_SETS)))
-	$(if $(filter $(BOARD),$(BOARDS)),,$(error BOARD=$(BOARD); known: $(BOARDS)))
+	$(if $(filter $(BOARD),$(ALL_BOARDS)),,$(error BOARD=$(BOARD); known: $(ALL_BOARDS)))
 	python3 -I tools/boards.py header $(BOARD) $(BOARD_GEN)/$(BOARD)/board_config.h
 	mkdir -p $(VERSION_DIR)
 	printf '#define FW_VERSION %s\n#define FW_DIRTY %s\n' $(FW_VERSION) $(FW_DIRTY) > $(VERSION_DIR)/fw_version.h.$$$$ \
@@ -272,7 +275,7 @@ flash: build
 # what it finds. `make probe BOARD=waveshare_35`, board in download mode.
 PROBE_BUILD := build/$(BOARD)/probe
 probe:
-	$(if $(filter $(BOARD),$(BOARDS)),,$(error BOARD=$(BOARD); known: $(BOARDS)))
+	$(if $(filter $(BOARD),$(ALL_BOARDS)),,$(error BOARD=$(BOARD); known: $(ALL_BOARDS)))
 	python3 -I tools/boards.py header $(BOARD) $(BOARD_GEN)/$(BOARD)/board_config.h
 	arduino-cli compile --fqbn $(subst USBMode=default,USBMode=hwcdc,$(FQBN)),CDCOnBoot=cdc --build-property "tools.ctags.path=$(CTAGS_DIR)" \
 		--build-property "compiler.cpp.extra_flags=-I$(BOARD_GEN)/$(BOARD) -I$(CURDIR)/firmware/waveshare_169 -I$(CURDIR)/lib/host_ui/src" \

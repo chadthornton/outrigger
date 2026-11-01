@@ -16,7 +16,6 @@ HERE = Path(__file__).resolve().parent
 
 BUY_BOARD = "https://www.amazon.com/s?k=Waveshare+ESP32-S3-Touch-LCD-1.69"
 BUY_35 = "https://www.amazon.com/dp/B0F3WS2W5R"
-BUY_FREENOVE = "https://www.amazon.com/s?k=Freenove+ESP32-S3+Display+2.8+FNK0104B"
 BUY_AMOLED = "https://www.amazon.com/gp/product/B0DSVK5576"
 BUY_43B = "https://www.amazon.com/Waveshare-Capacitive-Development-Resolution-Dual-Core/dp/B0D925SBYF"
 BUY_43B_CASE = "https://www.amazon.com/gp/product/B0DCNSRT31"
@@ -137,7 +136,6 @@ NEED = f"""<div class="need-items">
       <ul class="picks">
         {pick("Tested", BUY_BOARD, "Waveshare ESP32-S3 Touch LCD 1.69 ↗")}
         {pick("Testing", BUY_35, "Waveshare ESP32-S3 Touch LCD 3.5 ↗")}
-        {pick("Untested", BUY_FREENOVE, "Freenove ESP32-S3 Display 2.8 (FNK0104B) ↗")}
         {pick("Likely", BUY_AMOLED, "Waveshare ESP32-S3 1.8-inch AMOLED ↗")}
         {pick("Likely", BUY_43B, "Waveshare ESP32-S3 4.3-inch Touch, Board B ↗")}
       </ul>
@@ -479,14 +477,17 @@ import boards  # noqa: E402
 
 
 def install_area(label, app_set):
-    """One install button per board in firmware/boards.json, plus "another board", which only checks the chip; the
-    area asks which board first (site/installer/area.js)."""
+    """One install button per built board (tested ones, tools/boards.py ids), plus "another board", which only checks
+    the chip; the area asks which board first (site/installer/area.js). data-suggest names every profile, for the
+    chip check's "you need an ESP32-S3 such as ..." line."""
+    table = boards.checked(boards.load())
     builds = [{"label": label, "manifest": f"firmware/{b['site_id']}/{app_set}/manifest.json",
-               "board": b["short_name"] + ("" if b["tested"] else " (untested)"), "tag_id": b["tag_id"],
-               "flash_mb": b["flash_mb"], "psram_mb": b["psram_mb"], "tested": b["tested"]}
-              for b in boards.checked(boards.load())["boards"].values()]
+               "board": b["short_name"], "tag_id": b["tag_id"], "flash_mb": b["flash_mb"], "psram_mb": b["psram_mb"],
+               "tested": b["tested"]} for b in (table["boards"][bid] for bid in boards.ids(table))]
     builds.append({"label": label, "manifest": None, "board": "Another ESP32-S3 board", "tag_id": None})
-    return (f'<div class="install" data-builds="{html.escape(json.dumps(builds))}" data-help="#no-port">\n'
+    suggest = [b["short_name"] for b in table["boards"].values()]
+    return (f'<div class="install" data-builds="{html.escape(json.dumps(builds))}" '
+            f'data-suggest="{html.escape(json.dumps(suggest))}" data-help="#no-port">\n'
             '      <p class="install-note">Installing needs Chrome or Edge on a computer, with JavaScript on.</p>\n    </div>')
 
 

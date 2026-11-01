@@ -2,7 +2,8 @@
 
 Outrigger builds for every board with a profile in `firmware/boards.json`: today the Waveshare ESP32-S3-Touch-LCD-1.69,
 the Waveshare ESP32-S3-Touch-LCD-3.5, and the Freenove ESP32-S3 Display 2.8" (FNK0104B), which should work but nobody
-has run yet. The installer on outrigger.music asks which one you have, then checks the chip before it writes anything
+has run yet. CI, `make site` and the installer build only tested boards (`"tested": true`), so the Freenove builds by
+name (`make build BOARD=freenove_28`) until someone runs it. The installer on outrigger.music asks which board you have, then checks the chip before it writes anything
 (`site/installer/chip.js`): an original ESP32, C3 or C6, an S2 or P4, an S3 behind a converter chip, or an S3 without
 16 MB flash and 8 MB PSRAM each get told why, in plain words, and nothing is written.
 
@@ -40,7 +41,7 @@ A board is a profile, not new code:
    with the USB port left a serial device: the log lists the I2C chips that answer, and the screen shows red, green,
    blue and white corner squares (top-left, top-right, bottom-left, bottom-right) and a yellow dot under each tap.
 6. **Run `make build BOARD=<id> APPS=hub-loader`,** flash it, and check the FM-1 plays through it. Add the board's row
-   below and set `tested` to true.
+   below and set `tested` to true: from then on CI, `make site` and the installer build it.
 
 `make site` builds every board and the installer lists them all.
 
@@ -111,7 +112,8 @@ the touch sketches. Cross-checked with fm1buddy's `cyd-s3` PlatformIO environmen
 - **USB:** one USB-C, straight to GPIO19/20. VBUS feeds the board through a Schottky diode, so the hub powers it.
 - **Not to confuse with** the original "Cheap Yellow Display" (ESP32-2432S028): an original ESP32 behind a CH340,
   which can never host.
-- Untested until someone runs it: the installer and the homepage say so.
+- Untested until someone runs it, so it isn't in the installer or on the homepage yet; `make build BOARD=freenove_28`
+  and `make probe BOARD=freenove_28` work.
 
 ## ESP32-P4
 

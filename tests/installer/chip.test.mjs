@@ -8,13 +8,16 @@ import { checkChip, chipFamily, flashBytesFromId, psramMbFromFeatures } from "..
 const { cases } = JSON.parse(readFileSync(new URL("chips.json", import.meta.url)));
 // The site's boards, as docs/site-redesign/build.py passes them (firmware/boards.json).
 const boards = JSON.parse(readFileSync(new URL("../../firmware/boards.json", import.meta.url))).boards;
-const profiles = Object.values(boards).map((b) => ({ board: b.short_name, tag_id: b.tag_id, flash_mb: b.flash_mb, psram_mb: b.psram_mb, tested: b.tested }));
+// The site builds tested boards only; the chip check still names every profile as an example.
+const all = Object.values(boards).map((b) => ({ board: b.short_name, tag_id: b.tag_id, flash_mb: b.flash_mb, psram_mb: b.psram_mb, tested: b.tested }));
+const profiles = all.filter((p) => p.tested);
+const examples = all.map((p) => p.board);
 
 for (const c of cases) {
   test(`checkChip: ${c.name}`, () => {
-    const picked = c.picked === null ? null : profiles.find((p) => p.board === c.picked);
+    const picked = c.picked === null ? null : all.find((p) => p.board === c.picked);
     assert.ok(c.picked === null || picked, `no profile named ${c.picked}`);
-    const got = checkChip(c.facts, picked, profiles);
+    const got = checkChip(c.facts, picked, profiles, examples);
     assert.equal(got.ok, c.expect.ok, got.words);
     for (const w of c.expect.words) assert.ok(got.words.includes(w), `wanted ${JSON.stringify(w)} in: ${got.words}`);
   });

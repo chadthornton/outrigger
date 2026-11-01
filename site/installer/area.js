@@ -71,6 +71,8 @@ class InstallArea {
     this.boards = [...new Map(this.builds.filter((b) => b.board).map((b) => [b.board, b])).values()];
     this.names = Object.fromEntries(this.boards.filter((b) => b.manifest).map((b) => [b.tag_id, b.board]));
     this.profiles = this.boards.filter((b) => b.manifest);
+    // Every board with a profile, built or not, for the chip check's suggestion.
+    this.suggest = el.dataset.suggest ? JSON.parse(el.dataset.suggest) : this.profiles.map((p) => p.board);
     this.board = this.boards.length === 1 ? this.boards[0].board : null;
     this.id = ++areas;
     this.helpHref = el.dataset.help || "#no-port";
@@ -182,7 +184,7 @@ class InstallArea {
       flashId: await loader.readFlashId(),
       usbVendorId: port.getInfo().usbVendorId,
     };
-    const verdict = checkChip(facts, picked, this.profiles);
+    const verdict = checkChip(facts, picked, this.profiles, this.suggest);
     if (!verdict.ok) throw Object.assign(new Error(verdict.words), { plain: true });
     this.chipWords = verdict.words;
     return loader;

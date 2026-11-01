@@ -48,12 +48,13 @@ const mb = (bytes) => `${bytes / 1048576} MB`;
 
 // facts: {chip, features, flashId, usbVendorId} from esptool-js and the port.
 // picked: the profile the user chose ({board, flash_mb, psram_mb, tested}),
-// or null for "another board". profiles: every board the site builds.
+// or null for "another board". profiles: every board the site builds;
+// suggest: the boards to name as examples (every profile, built or not).
 // Returns {ok, words}: ok means installing the picked board's build is safe
 // as far as the chip can tell; words say why, in plain English.
-export function checkChip(facts, picked, profiles) {
+export function checkChip(facts, picked, profiles, examples = profiles.map((p) => p.board)) {
   const family = chipFamily(facts.chip);
-  const suggest = `You need an ESP32-S3 board, such as the ${anyOf(profiles.map((p) => p.board))}.`;
+  const suggest = `You need an ESP32-S3 board, such as the ${anyOf(examples)}.`;
   const bridge = USB_BRIDGES[facts.usbVendorId];
   const named = family || `an ESP32 this page doesn't know (${facts.chip || "it didn't say which"})`;
 
