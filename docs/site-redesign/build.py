@@ -485,6 +485,8 @@ for a, b in [
      '<meta name="description" content="Play the M-VAVE FM-1 from any MIDI controller with a USB connection, and switch between 100+ firmwares without a laptop.">\n'
      '<script type="module" src="installer/area.js"></script>'),
     ('<link rel="stylesheet" href="shared.css">', '<link rel="stylesheet" href="style.css">'),
+    ('<a class="link" href="#trouble">Help</a>',
+     '<a class="link" href="#trouble">Help</a><a class="link" href="beta/">Beta testers</a>'),
     ('<footer><div class="wrap fine">Firmware screenshots by their authors, via the Firmware Hub. Not affiliated with M-VAVE or Waveshare.</div></footer>',
      f"""<footer><div class="wrap fine">
   <p>For developers: Everything adds a Wi-Fi status page; its loader can't write.</p>
@@ -508,3 +510,8 @@ for sub in ["shots", "shots/fw", "fonts"]:
 for src in [*HERE.glob("shots/*.png"), *HERE.glob("shots/fw/*.png"), *HERE.glob("fonts/*.woff2")]:
     (SITE / src.relative_to(HERE)).write_bytes(src.read_bytes())
 print("wrote site/index.html and its assets")
+
+# The beta testers' guide, outrigger.music/beta/, from docs/beta.
+from guide import write_guide  # noqa: E402
+write_guide(HERE.parent / "beta", SITE / "beta" / "index.html")
+print("wrote site/beta/index.html")

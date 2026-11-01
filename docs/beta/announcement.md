@@ -1,40 +1,33 @@
 # Beta 1 announcement (draft for the M-VAVE firmware Discord)
 
-Chad posts this himself. Two placeholders to fill before posting:
-
-- `<TEST PLAN LINK>` and `<KNOWN ISSUES LINK>`: the docs are only in the repo, which is private today. Once it's
-  public they are `https://github.com/chadthornton/outrigger/blob/master/docs/beta/03-test-plan.md` and
-  `.../07-known-issues.md`. If the repo isn't public by posting time, drop both links: the DM below carries the checks.
-- The risk line says stock ↔ Felucca is "being tested today". Update it once Chad's second FM-1 has run it.
+Chad posts this himself, once https://outrigger.music/beta/ (the testers' guide, built from these docs) is live.
+Which switches have been tested is on the guide's Known issues page, not in the post, so the post doesn't change when
+stock ↔ Felucca passes.
 
 ## The post
 
-> Hey all, I'm looking for 3–5 FM-1 owners to beta test **Outrigger**.
+> Hey all, I'm looking for 3–5 FM-1 owners to beta test **Outrigger**: https://outrigger.music
 >
-> **What it is**
-> A palm-sized ESP32 touchscreen that sits on a USB hub next to your FM-1. It does two jobs:
-> - Plug in any USB MIDI controller and it plays the FM-1. No laptop.
-> - Switch FM-1 firmware right on its screen in about a minute. It backs the FM-1 up first, every time, and your
->   songs come back when you switch back.
+> It's a little ESP32 touchscreen that sits on a USB hub next to your FM-1. Plug in any USB MIDI controller and it
+> plays the FM-1, no laptop. And it switches FM-1 firmware right on its screen, backing up first, every time.
 >
-> Beta 1 comes with stock V15, Felucca 1.8.0 and Skiff 2.1.1. It's free and unofficial, and not affiliated with M-VAVE.
+> If you've seen konsumer's fm1buddy: it does a ton, and it's great. Outrigger is trying to be a bit friendlier:
+> install from your browser in a couple of minutes, and your songs are waiting when you switch back.
 >
-> **What you need** (shopping list with links: https://outrigger.music/#need)
-> - A Waveshare ESP32-S3-Touch-LCD-1.69, the board we've tested
-> - A powered USB-C hub that can charge a laptop through it, with 4 data ports or fewer
-> - Your FM-1 and a USB MIDI controller
-> - Chrome or Edge on a computer. Install is from the browser and takes about 2 minutes.
-> - Ideally, a Transporter recovery kit (XIAO RP2040 + a USB-C pigtail, about $15, no soldering)
+> Beta 1 starts with three firmwares (stock V15, Felucca, Skiff), because those are the switches we're testing first.
+> Adding any firmware from the Firmware Hub is next. Tell me which ones you want and I'll test those first.
 >
-> **What I'm asking**
-> Run 8 quick checks: install, play, unplug and replug, and one firmware switch. That's about an hour. Then use it
-> normally for a week and tell me what breaks. Test plan: <TEST PLAN LINK>
+> **What you need:** a Waveshare ESP32-S3 touchscreen board, a USB-C hub that can charge a laptop, your FM-1, and a
+> USB MIDI controller. The shopping list has links.
 >
-> **The honest risk:** it rewrites your FM-1's firmware. Felucca ↔ Skiff is tested on hardware, and stock ↔ Felucca is
-> being tested today. Worst case is a dark FM-1, which is recoverable with the kit. Known issues: <KNOWN ISSUES LINK>
+> **What I'm asking:** 8 quick checks (about an hour), then a week of normal use, and tell me what breaks. It's all in
+> the testers' guide: https://outrigger.music/beta/
 >
-> **Sign up:** reply here or email feedback@outrigger.music with your MIDI controller, your hub (if you have one), and
-> whether you have a recovery kit. I'll pick 3–5 folks and DM you.
+> **The honest risk:** it rewrites your FM-1's firmware. Worst case is a dark FM-1, which is recoverable with a $15
+> kit. Known issues are in the guide.
+>
+> **Sign up:** reply here or email feedback@outrigger.music with your MIDI controller and hub. I'll pick 3–5 folks
+> and DM you.
 >
 > Cheers, Chad
 
@@ -63,7 +56,7 @@ Chad posts this himself. Two placeholders to fill before posting:
 > Report anything to feedback@outrigger.music with the build from Settings (like `ccbc36d hub+L`), your controller
 > and hub, your FM-1 firmware, what happened, and a photo of the screen. "All eight passed" is useful too.
 >
-> Full test plan and known issues: <TEST PLAN LINK>, <KNOWN ISSUES LINK>
+> Full guide, with the known issues: https://outrigger.music/beta/
 >
 > Cheers, Chad
 
