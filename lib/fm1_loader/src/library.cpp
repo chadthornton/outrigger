@@ -86,6 +86,38 @@ constexpr FormatBreak kBreaks[] = {
 };
 }  // namespace
 
+namespace {
+// Firmware pairs proven on hardware, either direction. Matched by project and
+// exact identity: another version is another test.
+struct TestedPair {
+  const char *a_project, *a_identity, *b_project, *b_identity;
+  bool tested;  // false: owed, the pair switches by clean slate until it passes
+};
+constexpr TestedPair kTestedPairs[] = {
+    {"felucca", "FM-1_916", "skiff", "FM-1_714", true},   // Felucca 1.6.1 <-> Skiff 1.4, checkpoint 3
+    {"felucca", "FM-1_918", "skiff", "FM-1_721", false},  // Felucca 1.8.0 <-> Skiff 2.1.1, bench test 2
+    {"stock", "FM-1_015", "felucca", "FM-1_918", false},  // V15 <-> Felucca 1.8.0, bench test 2
+};
+
+// Projects the loader can't take a unit to yet: they write 0xE9000, the sector
+// whose hash is the unit ID (fw-map-bench.md finding 2).
+constexpr const char *kBlocked[] = {"melodee", "tessera"};
+constexpr const char *kBlockedReason = "Not yet: it writes the FM-1's Bluetooth sector";
+}  // namespace
+
+bool tested_pair(const std::string &from_project, const std::string &from_identity,
+                 const std::string &to_project, const std::string &to_identity) {
+  for (const TestedPair &p : kTestedPairs) {
+    if (!p.tested) continue;
+    if ((from_project == p.a_project && from_identity == p.a_identity && to_project == p.b_project &&
+         to_identity == p.b_identity) ||
+        (from_project == p.b_project && from_identity == p.b_identity && to_project == p.a_project &&
+         to_identity == p.a_identity))
+      return true;
+  }
+  return false;
+}
+
 int data_era(const std::string &project, const std::string &identity) {
   if (identity.size() <= 5) return 0;
   const unsigned long n = strtoul(identity.c_str() + 5, nullptr, 10);
@@ -208,6 +240,7 @@ bool Library::unit(const std::string &id, Unit &out) {
     out.pending.package_id = m.get("pending");
     out.pending.action = parse_action(m.get("pending_action"));
     out.pending.save_id = m.get("pending_save");
+    out.pending.clean_slate = m.get("pending_clean") == "1";
     out.pending.before_backup = m.get("pending_backup");
   }
   return true;
@@ -225,6 +258,7 @@ bool Library::put_unit(const Unit &u) {
     m.fields["pending"] = u.pending.package_id;
     m.fields["pending_action"] = action_name(u.pending.action);
     m.fields["pending_save"] = u.pending.save_id;
+    if (u.pending.clean_slate) m.fields["pending_clean"] = "1";
     m.fields["pending_backup"] = u.pending.before_backup;
   }
   // Empty values would serialize as "key " and parse back as empty: drop them.
@@ -310,16 +344,15 @@ InstallPreview preview_install(Library &lib, const std::string &unit_id, const s
   std::vector<Hash> app(flash.begin() + kAppStart / kSector, flash.begin() + kAppEnd / kSector);
   p.current = lib.identify_app(app);
   p.decision = decide_data(unit_id, p.current, target, lib.saves_of(unit_id));
+  if (p.decision.blocked) {
+    p.problem = p.decision.blocked;
+    return p;
+  }
   p.app_sectors = uint32_t(plan_app(flash, target).size());
   std::vector<SectorOp> data;
-  if (p.decision.action == DataAction::Restore) {
-    SaveState s;
-    if (!lib.save(p.decision.save_id, s) || !plan_restore(s, unit_id, target, flash, data)) {
-      p.problem = "save state unusable";
-      return p;
-    }
-  } else if (p.decision.action == DataAction::FreshStart) {
-    data = plan_fresh(target.family, flash);
+  if (!plan_data(lib, unit_id, p.decision, target, flash, data)) {
+    p.problem = "save state unusable";
+    return p;
   }
   p.data_sectors = uint32_t(data.size());
   p.ok = true;
@@ -431,11 +464,24 @@ SaveState capture_save(const std::string &unit_id, const Firmware &fw, const Fla
 DataDecision decide_data(const std::string &unit_id, const Firmware &current,
                          const PackageInfo &target, const std::vector<SaveState> &saves) {
   DataDecision d;
+  for (const char *p : kBlocked)
+    if (target.project == p) {
+      d.blocked = kBlockedReason;
+      return d;
+    }
   if (current.known() && current.app_sha256 == target.app_sha256) return d;  // no-op
   const int era = data_era(target.project, target.identity);
   if (!current.project.empty() && current.project == target.project &&
       data_era(current.project, current.identity) == era)
     return d;  // another version of the same project: the autosave is the rollback
+  d.clean_slate = !tested_pair(current.project, current.identity, target.project, target.identity);
+  if (target.project == "stock") {
+    // Skiff 2.x on this unit, now or earlier (data era 2 is Skiff 2.0 and up).
+    bool skiff2 = current.project == "skiff" && data_era(current.project, current.identity) == 2;
+    for (const SaveState &s : saves)
+      skiff2 |= s.unit == unit_id && s.project == "skiff" && data_era(s.project, s.identity) == 2;
+    d.stock_resources_warning = skiff2;
+  }
   if (family_info(target.family).saves_enabled) {
     for (auto it = saves.rbegin(); it != saves.rend(); ++it) {
       if (it->unit == unit_id && it->project == target.project && data_era(it->project, it->identity) == era) {
@@ -446,8 +492,8 @@ DataDecision decide_data(const std::string &unit_id, const Firmware &current,
     }
   }
   d.layout_warning = true;
-  if (!family_info(target.family).saves_enabled) {
-    d.stock_unmapped = true;
+  if (!family_info(target.family).saves_enabled && !d.clean_slate) {
+    d.stock_unmapped = true;  // a tested pair to stock: its data stays in place
     return d;
   }
   d.action = DataAction::FreshStart;
@@ -467,17 +513,41 @@ std::vector<SectorOp> plan_app(const FlashHashes &flash, const PackageInfo &targ
 
 namespace {
 
-void plan_ranges(Family family, const FlashHashes &flash,
+// Every sector of the ranges that differs from want (blank where want has none).
+void plan_ranges(const Range *ranges, size_t count, Right right, Family family, const FlashHashes &flash,
                  const std::vector<std::pair<uint32_t, Hash>> &want, std::vector<SectorOp> &ops) {
-  const FamilyInfo &f = family_info(family);
-  for (size_t r = 0; r < f.save_range_count; ++r) {
-    for (uint32_t a = f.save_ranges[r].start; a < f.save_ranges[r].end; a += kSector) {
+  for (size_t r = 0; r < count; ++r) {
+    for (uint32_t a = ranges[r].start; a < ranges[r].end; a += kSector) {
       Hash h = SectorStore::blank();
       for (const auto &w : want)
         if (w.first == a) h = w.second;
-      if (flash[a / kSector] != h) ops.push_back({a, h, Right::SaveRestore, family});
+      if (flash[a / kSector] != h) ops.push_back({a, h, right, family});
     }
   }
+}
+
+void plan_family(Family family, const FlashHashes &flash, const std::vector<std::pair<uint32_t, Hash>> &want,
+                 std::vector<SectorOp> &ops) {
+  const FamilyInfo &f = family_info(family);
+  plan_ranges(f.save_ranges, f.save_range_count, Right::SaveRestore, family, flash, want, ops);
+}
+
+}  // namespace
+
+namespace {
+
+// A save the target may get back: this unit's, the target project's shelf and
+// data era (decide_data), any version that wrote it, every sector in its ranges.
+bool save_fits(const SaveState &s, const std::string &unit_id, const PackageInfo &target) {
+  if (s.unit != unit_id || s.project != target.project ||
+      data_era(s.project, s.identity) != data_era(target.project, target.identity) ||
+      s.family != target.family || !family_info(s.family).saves_enabled)
+    return false;
+  const FamilyInfo &f = family_info(s.family);
+  for (const auto &sec : s.sectors)
+    if (sec.first % kSector || !inside(sec.first, kSector, f.save_ranges, f.save_range_count))
+      return false;
+  return true;
 }
 
 }  // namespace
@@ -485,23 +555,42 @@ void plan_ranges(Family family, const FlashHashes &flash,
 bool plan_restore(const SaveState &s, const std::string &unit_id, const PackageInfo &target,
                   const FlashHashes &flash, std::vector<SectorOp> &ops) {
   ops.clear();
-  // The target project's shelf, same data era (decide_data): any version that wrote it.
-  if (s.unit != unit_id || s.project != target.project ||
-      data_era(s.project, s.identity) != data_era(target.project, target.identity) ||
-      s.family != target.family || !family_info(s.family).saves_enabled || flash.size() != kSectors)
-    return false;
-  const FamilyInfo &f = family_info(s.family);
-  for (const auto &sec : s.sectors)
-    if (sec.first % kSector || !inside(sec.first, kSector, f.save_ranges, f.save_range_count))
-      return false;
-  plan_ranges(s.family, flash, s.sectors, ops);
+  if (!save_fits(s, unit_id, target) || flash.size() != kSectors) return false;
+  plan_family(s.family, flash, s.sectors, ops);
+  return true;
+}
+
+bool needs_erase_ok(const DataDecision &d) { return d.action == DataAction::FreshStart || d.clean_slate; }
+
+bool plan_data(Library &lib, const std::string &unit_id, const DataDecision &d, const PackageInfo &target,
+               const FlashHashes &flash, std::vector<SectorOp> &ops) {
+  ops.clear();
+  if (d.action == DataAction::Restore) {
+    SaveState s;
+    if (!lib.save(d.save_id, s)) return false;
+    return d.clean_slate ? plan_clean(&s, unit_id, target, flash, ops)
+                         : plan_restore(s, unit_id, target, flash, ops);
+  }
+  if (d.action == DataAction::FreshStart) {
+    if (d.clean_slate) return plan_clean(nullptr, unit_id, target, flash, ops);
+    ops = plan_fresh(target.family, flash);
+  }
+  return true;
+}
+
+bool plan_clean(const SaveState *s, const std::string &unit_id, const PackageInfo &target,
+                const FlashHashes &flash, std::vector<SectorOp> &ops) {
+  ops.clear();
+  if ((s && !save_fits(*s, unit_id, target)) || flash.size() != kSectors) return false;
+  plan_ranges(kCleanSlate, kCleanSlateCount, Right::CleanSlate, target.family, flash,
+              s ? s->sectors : std::vector<std::pair<uint32_t, Hash>>(), ops);
   return true;
 }
 
 std::vector<SectorOp> plan_fresh(Family family, const FlashHashes &flash) {
   std::vector<SectorOp> ops;
   if (family_info(family).saves_enabled && flash.size() == kSectors)
-    plan_ranges(family, flash, {}, ops);
+    plan_family(family, flash, {}, ops);
   return ops;
 }
 

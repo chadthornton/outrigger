@@ -77,12 +77,13 @@ enum class Failure {
   WriteVerifyFailed,   // a sector read back wrong twice
   MidiNotBack,         // flash verified, but the FM-1 didn't come back as MIDI
   WritesLocked,        // this build can't write the FM-1 (FM1_LOADER_WRITES off)
+  Blocked,             // the loader can't take a unit to this firmware yet (DataDecision::blocked)
 };
 const char *failure_text(Failure f);
 
 struct InstallOptions {
   bool confirmed = false;       // the 2-second hold on the confirm screen
-  bool fresh_start_ok = false;  // the user agreed to erase data for a clean start
+  bool fresh_start_ok = false;  // the user agreed to erase data: a fresh start or a clean slate
   bool layout_change_ok = false;  // the user saw the data-layout warning and went on
   std::string unit_name;        // for a unit seen for the first time
   // Install: the unit the preview was for (empty: the unit backed up last).

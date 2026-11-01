@@ -58,11 +58,11 @@ void describe_plan(const PlanInput &in, UiPlan &out) {
     line("An install is unfinished.");
     line("Retry it from the FM-1 page first.");
   } else if (!in.has_unit) {
-    // The switch backs it up first; the plan proper comes from that backup.
-    line("No backup yet, so it backs it up first.");
+    // The switch backs it up first; the plan proper comes from that backup, and
+    // a plan that erases data stops there for the user's OK (its own result).
+    line("Backs up the FM-1 first.");
     snprintf(buf, sizeof buf, "Then writes %s.", in.target);
     line(buf);
-    line("It asks first if it would erase songs.");
     line("MIDI stops until it's done.");
   } else if (!p.ok) {
     warn = 0;
@@ -77,8 +77,8 @@ void describe_plan(const PlanInput &in, UiPlan &out) {
     else snprintf(buf, sizeof buf, "Switches from a firmware this board doesn't know.");
     line(buf);
     // One read must match the latest backup; if the FM-1 changed, the switch
-    // backs up first (switch_chain.h).
-    line("Backs up only if the FM-1 changed.");
+    // backs up first (switch_chain.h). Only the ROM-boot read can tell, so the
+    // plan doesn't say: the job page shows the backup when it runs.
     if (p.current.known() && family_info(p.current.family).saves_enabled) {
       snprintf(buf, sizeof buf, "Saves %s's songs.", running);
       line(buf);
@@ -87,13 +87,17 @@ void describe_plan(const PlanInput &in, UiPlan &out) {
     line(buf);
     char target[28];
     name_of(in.target, target, sizeof target);
+    // A clean slate (an untested switch) clears the old firmware's data first.
+    const bool clean = p.decision.clean_slate;
     switch (p.decision.action) {
       case DataAction::Restore:
-        snprintf(buf, sizeof buf, "Brings back %s's songs.", target);
+        snprintf(buf, sizeof buf, clean ? "Clears old data, brings back %s's songs." : "Brings back %s's songs.",
+                 target);
         line(buf);
         break;
       case DataAction::FreshStart:
-        snprintf(buf, sizeof buf, "Starts %s fresh: no songs saved yet.", target);
+        snprintf(buf, sizeof buf, clean ? "Clears old data: %s starts fresh." : "Starts %s fresh: no songs saved yet.",
+                 target);
         line(buf);
         break;
       case DataAction::Keep:
@@ -106,7 +110,14 @@ void describe_plan(const PlanInput &in, UiPlan &out) {
         }
         break;
     }
-    line("MIDI stops until it's done.");
+    // Skiff 2.x writes stock's resources: the warning takes the last line (the
+    // job screen says MIDI stops too).
+    if (p.decision.stock_resources_warning && warn < 0) {
+      warn = n;
+      line("Returning to stock may lose stock resources.");
+    } else {
+      line("MIDI stops until it's done.");
+    }
   }
   out.line_count = uint8_t(n);
   out.warn_from = uint8_t(warn < 0 ? n : warn);
@@ -415,6 +426,11 @@ static void describe_stage(const JobOutcome &in, UiResult &out) {
         PUT(out.why, "%s.", failure_text(in.failure));
         PUT(out.todo, "Open it again to see the plan, then hold.");
       }
+      break;
+    case Failure::Blocked:
+      PUT(out.why, "Not yet supported: it writes the FM-1's Bluetooth sector.");
+      PUT(out.todo, "Pick another firmware.");
+      out.fix = UiAct::None;
       break;
     case Failure::WritesLocked:
       PUT(out.why, "This build can't write to the FM-1.");
