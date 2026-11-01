@@ -26,8 +26,6 @@ Which switches we've run on a real FM-1, with these exact versions:
 - **Skiff → stock: ask us first.** Skiff saves its patterns into part of the FM-1's memory where stock keeps its factory
   resources. After many Skiff pattern saves, those resources may be gone, and the board can't put them back. Nobody has
   tested what stock does without them. Email us before switching from Skiff to stock.
-- **Felucca's FM6 user presets may not survive a round trip.** Switching away from Felucca and back brings its songs
-  and settings back, but may lose the FM6 user presets you saved. Write down any you care about before switching.
 - **During a firmware switch the board restarts 2–3 times, and the FM-1 goes dark for about a minute.** That's normal.
   A crash looks different: a safe-mode screen that says where it stopped and "RST to try again". If you see that,
   email us.
