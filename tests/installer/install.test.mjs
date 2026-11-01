@@ -3,6 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { readFileSync, existsSync } from "node:fs";
 import { readBoard, install, restart, finish, fetchBuild, storeIsBlank, prepareStore } from "../../site/installer/install.js";
 
 const MB = 1024 * 1024;
@@ -220,89 +221,133 @@ test("storeIsBlank: the board's MD5 of the store region against an erased region
   assert.equal(await storeIsBlank(b, RANGE, BLANK_MD5), false);
 });
 
-test("install: writes a store onto a blank region and reads it back", async () => {
+// Store writes as prepareStore makes them: runs with the MD5 the build machine
+// computed, the superblock pair (the store's first two blocks) last.
+const run = (rel, size, fill) => {
+  const data = new Uint8Array(size).fill(fill);
+  return { offset: 0x3d0000 + rel, data, md5: md5(data) };
+};
+const storeRuns = () => [run(0x2000, 0x3000, 0x43), run(0x9000, 0x1000, 0x44), run(0x0, 0x2000, 0x42)];
+const writes = (b) => b.calls.filter((c) => c[0] === "writeFlash").map((c) => c[1].fileArray.map((f) => f.address));
+
+test("install: writes the store's runs, checks each by MD5, and only then its superblock pair", async () => {
   const b = boardWithBlankStore();
   const { manifest, parts } = hubBuild();
-  const store = [{ offset: 0x3d0000, data: new Uint8Array(0x1000).fill(0x42) }, { offset: 0x3d4000, data: new Uint8Array(0x1000).fill(0x43) }];
   const steps = [];
-  await install({ loader: b, board: await readBoard(b), manifest, parts, storeWrites: store, storeWritable: true, onStep: (s) => steps.push(s.step) });
-  assert.deepEqual(b.flash.subarray(0x3d0000, 0x3d1000), store[0].data);
-  assert.deepEqual(b.flash.subarray(0x3d4000, 0x3d5000), store[1].data);
+  const result = await install({ loader: b, board: await readBoard(b), manifest, parts, storeWrites: storeRuns(), storeWritable: true, onStep: (s) => steps.push(s.step) });
+  assert.equal(result.storeProblem, null);
+  assert.deepEqual(writes(b), [[0x0, 0x8000, 0xe000, 0x10000, 0x3d2000, 0x3d9000], [0x3d0000]]);
+  for (const r of storeRuns()) assert.deepEqual(b.flash.subarray(r.offset, r.offset + r.data.length), r.data);
+  // Every run's MD5 is asked for before the superblock goes in, and nothing in the store is read back.
+  const second = b.calls.findIndex((c, i) => c[0] === "writeFlash" && i > b.calls.findIndex((d) => d[0] === "writeFlash"));
+  const before = b.calls.slice(0, second).filter((c) => c[0] === "flashMd5sum").map((c) => c[1]);
+  assert.ok(before.includes(0x3d2000) && before.includes(0x3d9000));
+  assert.ok(b.calls.slice(second).some((c) => c[0] === "flashMd5sum" && c[1] === 0x3d0000));
+  assert.equal(b.calls.filter((c) => c[0] === "readFlash" && c[1] >= 0x3d0000).length, 2, "only readBoard's two store heads");
   assert.ok(steps.includes("verify store"));
-  const opts = b.calls.find((c) => c[0] === "writeFlash")[1];
-  assert.deepEqual(opts.fileArray.map((f) => f.address), [0x0, 0x8000, 0xe000, 0x10000, 0x3d0000, 0x3d4000]);
 });
 
-test("install: a store block that reads back wrong is reported, after a verified program install", async () => {
+test("install: a store run that doesn't verify is written once more", async () => {
   const b = boardWithBlankStore();
   const realWrite = b.writeFlash.bind(b);
-  b.writeFlash = async (o) => { await realWrite(o); b.flash[0x3d0010] ^= 0xff; };
+  let first = true;
+  b.writeFlash = async (o) => { await realWrite(o); if (first) b.flash[0x3d9010] ^= 0xff; first = false; };
   const { manifest, parts } = hubBuild();
-  const result = await install({ loader: b, board: await readBoard(b), manifest, parts,
-    storeWrites: [{ offset: 0x3d0000, data: new Uint8Array(0x1000).fill(0x42) }], storeWritable: true });
-  assert.match(result.storeProblem, /store/);
+  const result = await install({ loader: b, board: await readBoard(b), manifest, parts, storeWrites: storeRuns(), storeWritable: true });
+  assert.equal(result.storeProblem, null);
+  assert.deepEqual(writes(b), [[0x0, 0x8000, 0xe000, 0x10000, 0x3d2000, 0x3d9000], [0x3d9000], [0x3d0000]]);
+  assert.equal(b.flash[0x3d9010], 0x44);
 });
 
-// prepareStore: what the install does to the store, worked out before anything is written.
-const TEMPLATE = {
-  size: 0xc20000, blank_md5: BLANK_MD5, blob_size: 8,
-  loader: { url: "https://example.invalid/wl82loader.bin", sha256: createHash("sha256").update("LOADERAB").digest("hex") },
-  blocks: [{ offset: 0x0, hex: "00".repeat(0x1000) }, { offset: 0x2000, hex: "11".repeat(0x1000) }],
-  extents: [[0x2008, 0, 8]],
-};
+test("install: a store run that won't verify leaves the superblock pair unwritten and says so", async () => {
+  const b = boardWithBlankStore();
+  const realWrite = b.writeFlash.bind(b);
+  b.writeFlash = async (o) => { await realWrite(o); b.flash[0x3d2010] ^= 0xff; };
+  const { manifest, parts } = hubBuild();
+  const result = await install({ loader: b, board: await readBoard(b), manifest, parts, storeWrites: storeRuns(), storeWritable: true });
+  assert.match(result.storeProblem, /store/);
+  assert.ok(!writes(b).flat().includes(0x3d0000), "wrote the superblock over a store that didn't verify");
+  assert.ok(b.flash.subarray(0x3d0000, 0x3d2000).every((x) => x === 0xff));
+});
+
+// prepareStore against the real template (tools/store_template.py), the
+// downloads served from the fixtures.
+const root = new URL("../../", import.meta.url);
+const templatePath = new URL("build/store-template.json", root);
+const haveTemplate = existsSync(templatePath) && existsSync(new URL("tests/fixtures/skiff-2.1.1.fwsc", root));
+const skip = !haveTemplate && "run test_store_template.py first";
+const TEMPLATE = haveTemplate ? JSON.parse(readFileSync(templatePath)) : null;
 const loaderBuild = () => ({ ...hubBuild(), template: TEMPLATE });
-const github = async () => ({ ok: true, arrayBuffer: async () => new TextEncoder().encode("LOADERAB").buffer });
+function hub(override = {}) {
+  let fetched = 0;
+  const fn = async (url) => {
+    fetched++;
+    if (url in override) return override[url]();
+    const data = new Uint8Array(readFileSync(new URL(`tests/fixtures/${url.split("/").pop()}`, root)));
+    return { ok: true, arrayBuffer: async () => data.buffer };
+  };
+  fn.count = () => fetched;
+  return fn;
+}
 
 test("prepareStore: MIDI Hub leaves the store alone, without asking the board", async () => {
   const b = boardWithBlankStore();
-  const got = await prepareStore({ loader: b, board: await readBoard(b), build: hubBuild(), fetchFn: github });
+  const got = await prepareStore({ loader: b, board: await readBoard(b), build: hubBuild(), fetchFn: hub() });
   assert.equal(got.action, "none");
   assert.equal(b.calls.filter((c) => c[0] === "flashMd5sum").length, 0);
 });
 
-test("prepareStore: a blank region gets the template with the loader, at the store's offset", async () => {
+test("prepareStore: a blank region gets the starter store, in runs at the store's offset, the superblock pair last", { skip }, async () => {
   const b = boardWithBlankStore();
-  const got = await prepareStore({ loader: b, board: await readBoard(b), build: loaderBuild(), fetchFn: github });
+  const got = await prepareStore({ loader: b, board: await readBoard(b), build: loaderBuild(), fetchFn: hub() });
   assert.equal(got.action, "create");
   assert.equal(got.storeWritable, true);
-  assert.deepEqual(got.storeWrites.map((w) => w.offset), [0x3d0000, 0x3d2000]);
-  assert.equal(new TextDecoder().decode(got.storeWrites[1].data.subarray(8, 16)), "LOADERAB");
-  assert.equal(got.loaderProblem, null);
+  assert.equal(got.downloadProblem, null);
+  assert.deepEqual(got.storeWrites.map((w) => [w.offset, w.data.length, w.md5]), TEMPLATE.runs.map((r) => [0x3d0000 + r.offset, r.size, r.md5]));
+  assert.equal(got.storeWrites.at(-1).offset, 0x3d0000);
+  assert.deepEqual(got.starter, ["M-VAVE stock V15", "Felucca 1.8.0", "Skiff 2.1.1", "SLOOP 2.8.4"]);
 });
 
-test("prepareStore: data with no readable store stops before anything is written", async () => {
+test("prepareStore: data with no readable store stops before anything is written", { skip }, async () => {
   const b = boardWithBlankStore();
   b.flash.fill(0x00, 0x3d0000, 0x3d1000); // something, but not a store
-  const got = await prepareStore({ loader: b, board: await readBoard(b), build: loaderBuild(), fetchFn: github });
+  const fetchFn = hub();
+  const got = await prepareStore({ loader: b, board: await readBoard(b), build: loaderBuild(), fetchFn });
   assert.equal(got.action, "unreadable");
   assert.deepEqual(got.storeWrites, []);
+  assert.equal(fetchFn.count(), 0);
 });
 
-test("prepareStore: an existing store is kept and the loader isn't downloaded", async () => {
+test("prepareStore: an existing store is kept and nothing is downloaded", { skip }, async () => {
   const b = boardWithLoaderAndBackups();
-  let fetched = 0;
-  const got = await prepareStore({ loader: b, board: await readBoard(b), build: loaderBuild(), fetchFn: async () => { fetched++; return github(); } });
+  const fetchFn = hub();
+  const got = await prepareStore({ loader: b, board: await readBoard(b), build: loaderBuild(), fetchFn });
   assert.equal(got.action, "keep");
-  assert.equal(fetched, 0);
+  assert.deepEqual(got.storeWrites, []);
+  assert.equal(fetchFn.count(), 0);
 });
 
-test("prepareStore: a template that doesn't fit the build's store is a build error, not unreadable storage", async () => {
+test("prepareStore: a template that doesn't fit the build's store is a build error, not unreadable storage", { skip }, async () => {
   const b = boardWithBlankStore();
   const build = { ...hubBuild(), template: { ...TEMPLATE, size: 0x100000 } };
-  await assert.rejects(prepareStore({ loader: b, board: await readBoard(b), build, fetchFn: github }), /template/);
+  await assert.rejects(prepareStore({ loader: b, board: await readBoard(b), build, fetchFn: hub() }), /template/);
 });
 
-test("prepareStore: if GitHub fails, the install goes ahead without a store and says why", async () => {
-  const b = boardWithBlankStore();
-  const got = await prepareStore({ loader: b, board: await readBoard(b), build: loaderBuild(), fetchFn: async () => ({ ok: false, status: 503 }) });
-  assert.equal(got.action, "create");
-  assert.deepEqual(got.storeWrites, []);
-  assert.match(got.loaderProblem, /503/);
+test("prepareStore: if any download fails, nothing may be written and the page is told which", { skip }, async () => {
+  const skiff = TEMPLATE.packages.find((p) => p.id === "skiff-2.1.1").url;
+  for (const fetchFn of [hub({ [skiff]: async () => ({ ok: false, status: 404 }) }), hub({ [TEMPLATE.loader.url]: async () => ({ ok: false, status: 503 }) })]) {
+    const b = boardWithBlankStore();
+    const got = await prepareStore({ loader: b, board: await readBoard(b), build: loaderBuild(), fetchFn });
+    assert.equal(got.action, "create");
+    assert.deepEqual(got.storeWrites, []);
+    assert.equal(got.storeWritable, false);
+    assert.match(got.downloadProblem, /404 for Skiff 2\.1\.1|503/);
+  }
 });
 
 test("fetchBuild: a loader build's store template must match the manifest's SHA-256", async () => {
   const { manifest, parts } = hubBuild();
-  const templateText = JSON.stringify(TEMPLATE);
+  const templateText = JSON.stringify({ size: 0xc20000, blocks: [], runs: [] });
   const files = new Map(parts.map((p) => [`p${p.offset}.bin`, p.data]));
   files.set("store-template.json", new TextEncoder().encode(templateText));
   const serve = (m) => async (url) => {
@@ -311,17 +356,18 @@ test("fetchBuild: a loader build's store template must match the manifest's SHA-
     return { ok: true, arrayBuffer: async () => files.get(name).slice().buffer };
   };
   const good = { ...manifest, store_template: "store-template.json", store_template_sha256: createHash("sha256").update(templateText).digest("hex") };
-  assert.deepEqual((await fetchBuild("fw/hub-loader/manifest.json", serve(good))).template, TEMPLATE);
+  assert.deepEqual((await fetchBuild("fw/hub-loader/manifest.json", serve(good))).template, JSON.parse(templateText));
   await assert.rejects(fetchBuild("fw/hub-loader/manifest.json", serve({ ...good, store_template_sha256: "0".repeat(64) })), /template/);
 });
 
-test("prepareStore: a board from other firmware (no store in its table) gets a store over leftovers, without an MD5", async () => {
+test("prepareStore: a board from other firmware (no store in its table) gets a store over leftovers, without an MD5", { skip }, async () => {
   const b = new FakeBoard();
   b.flash.set(table([["nvs", 1, 0x9000, 0x5000], ["otadata", 1, 0xe000, 0x2000], ["app0", 0, 0x10000, 0x300000],
     ["spiffs", 1, 0x310000, 0xe0000], ["coredump", 1, 0x3f0000, 0x10000]]), 0x8000);
   b.flash.fill(0x00, 0x7f0000, 0x7f3000); // the demo firmware's old crash dump, inside the new store region
-  const got = await prepareStore({ loader: b, board: await readBoard(b), build: loaderBuild(), fetchFn: github });
+  const got = await prepareStore({ loader: b, board: await readBoard(b), build: loaderBuild(), fetchFn: hub() });
   assert.equal(got.action, "create");
-  assert.equal(got.storeWrites.length, 2);
+  assert.equal(got.storeWrites.length, TEMPLATE.runs.length);
+  assert.equal(got.previousFirmware, true);
   assert.equal(b.calls.filter((c) => c[0] === "flashMd5sum").length, 0);
 });

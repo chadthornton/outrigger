@@ -129,6 +129,6 @@ export function planInstall({ parts, boardTable, flashBytes, storeWrites = [], s
 
   const ok = problems.length === 0;
   const writes = ok ? [...PARTS.map((k) => ({ offset: k.offset, name: k.name, data: byOffset.get(k.offset) })),
-    ...storeWrites.map((w) => ({ offset: w.offset, name: "store", data: w.data }))] : [];
+    ...storeWrites.map((w) => ({ offset: w.offset, name: "store", data: w.data, md5: w.md5 }))] : [];
   return { ok, problems, writes, store };
 }

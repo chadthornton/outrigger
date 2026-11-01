@@ -2,11 +2,12 @@
 // takes an esptool-js ESPLoader (or anything with the same few calls), so
 // `make test` runs it against a fake board (tests/installer/install.test.mjs).
 //
-// The only write is one writeFlash of the parts plan.js allows, with
-// eraseAll false and the flash settings kept as built. Nothing here erases.
+// Every write is a writeFlash of what plan.js allows, with eraseAll false and
+// the flash settings kept as built: the parts and a new store's runs, then
+// that store's superblock pair once the rest verified. Nothing here erases.
 import { planInstall, parseTable, PARTS } from "./plan.js";
 import { readBuildTag, hasStore, classifyLayout, TAG_OFFSET, TAG_LENGTH } from "./board.js";
-import { storeAction, spliceStore, fetchLoader, sha256Hex } from "./store.js";
+import { storeAction, fetchStarter, buildStore, sha256Hex } from "./store.js";
 
 export const FLASH_BYTES = 16 * 1024 * 1024;
 const TABLE = { offset: 0x8000, size: 0xc00 };
@@ -60,10 +61,15 @@ export async function fetchBuild(manifestUrl, fetchFn = fetch) {
 // What this install does to the board's store, worked out before anything
 // is written (store.js storeAction). build comes from fetchBuild; a build
 // with a store template runs the loader. Returns {action, storeWrites,
-// storeWritable, loaderProblem}: storeWrites is empty unless a store will be
-// created; loaderProblem says why it won't be when GitHub didn't deliver.
+// storeWritable, downloadProblem, previousFirmware, starter}: storeWrites is
+// the new store's runs ({offset, data, md5}, the superblock pair last), empty
+// unless a store will be created; starter names its firmwares. When a
+// download fails, downloadProblem says which and the store may not be
+// written: the page must not install, so the board stays as it was and the
+// next try can create the store (a board from other firmware would otherwise
+// get our table over its leftovers and read as unreadable from then on).
 export async function prepareStore({ loader, board, build, fetchFn = fetch }) {
-  const none = { storeWrites: [], storeWritable: false, loaderProblem: null, previousFirmware: false };
+  const none = { storeWrites: [], storeWritable: false, downloadProblem: null, previousFirmware: false, starter: [] };
   if (!build.template) return { action: "none", ...none };
   if (board.store) return { action: "keep", ...none };
   const tablePart = build.parts.find((p) => p.offset === 0x8000);
@@ -78,12 +84,13 @@ export async function prepareStore({ loader, board, build, fetchFn = fetch }) {
   const action = storeAction({ runsLoader: true, hasStore: false, hadStorePartition, blank });
   if (action !== "create") return { action, ...none };
   const previousFirmware = !hadStorePartition && board.layout !== "blank";
+  const starter = (build.template.packages || []).map((p) => `${p.name} ${p.version}`);
   try {
-    const blob = await fetchLoader(build.template, fetchFn);
-    const storeWrites = spliceStore(build.template, blob).map((b) => ({ offset: offset + b.offset, data: b.data }));
-    return { action, storeWrites, storeWritable: true, loaderProblem: null, previousFirmware };
+    const runs = await buildStore(build.template, await fetchStarter(build.template, fetchFn));
+    const storeWrites = runs.map((r) => ({ offset: offset + r.offset, data: r.data, md5: r.md5 }));
+    return { action, storeWrites, storeWritable: true, downloadProblem: null, previousFirmware, starter };
   } catch (e) {
-    return { action, storeWrites: [], storeWritable: true, loaderProblem: e.message, previousFirmware };
+    return { action, ...none, downloadProblem: e.message, previousFirmware, starter };
   }
 }
 
@@ -98,41 +105,67 @@ export async function storeIsBlank(loader, storeRange, blankMd5) {
 // prepareStore cleared it). board comes from readBoard on this connection.
 // onStep({step, part?, written?, total?}): "write" per part, "verify", then
 // "verify store" when a store was written. Returns {plan, storeProblem}:
-// storeProblem says why a new store didn't read back (the program is in
-// place and checked by then, so the install still finishes).
+// storeProblem says why a new store didn't verify (the program is in place
+// and checked by then, so the install still finishes).
+//
+// The store's last write is its superblock pair, the blocks that make it a
+// store (board.js hasStore). It goes in only after every other run matches
+// the MD5 the build machine computed, so a cable pulled mid-store leaves a
+// region that reads as no store, never as a store with parts missing.
 export async function install({ loader, board, manifest, parts, storeWrites = [], storeWritable = false, onStep = () => {} }) {
   const plan = planInstall({ parts, boardTable: board.tableBytes, flashBytes: FLASH_BYTES, storeWrites, storeWritable });
   if (!plan.ok) throw new Error(`Nothing was written: ${plan.problems.join("; ")}.`);
+  const program = plan.writes.filter((w) => w.name !== "store");
+  const store = plan.writes.filter((w) => w.name === "store");
+  const superblock = store.pop();
 
-  await loader.writeFlash({
-    fileArray: plan.writes.map((w) => ({ data: w.data, address: w.offset })),
-    flashMode: "keep",
-    flashFreq: "keep",
-    flashSize: "keep",
-    eraseAll: false,
-    compress: true,
-    reportProgress: (i, written, total) => onStep({ step: "write", part: plan.writes[i].name, written, total }),
-  });
-
+  await write(loader, [...program, ...store], onStep);
   onStep({ step: "verify" });
   const md5 = new Map(manifest.builds[0].parts.map((p) => [p.offset, p.md5]));
-  for (const w of plan.writes.filter((w) => w.name !== "store")) {
+  for (const w of program) {
     const got = await loader.flashMd5sum(w.offset, w.data.length);
     if (got !== md5.get(w.offset)) {
       throw new Error(`The ${w.name} didn't read back as written. Your settings and backups weren't touched; install again.`);
     }
   }
-  // The store blocks hold the loader the browser downloaded, so the manifest
-  // has no MD5 for them: read them back instead (a few KiB).
-  const store = plan.writes.filter((w) => w.name === "store");
-  if (store.length) onStep({ step: "verify store" });
-  for (const w of store) {
-    const got = await loader.readFlash(w.offset, w.data.length);
-    if (got.length !== w.data.length || got.some((b, i) => b !== w.data[i])) {
-      return { plan, storeProblem: `the new store didn't read back as written at 0x${w.offset.toString(16)}; email feedback@outrigger.music before installing again` };
-    }
+  if (!superblock) return { plan, storeProblem: null };
+  onStep({ step: "verify store" });
+  let bad = await settle(loader, store, onStep);
+  if (!bad) {
+    await write(loader, [superblock], onStep);
+    bad = await settle(loader, [superblock], onStep);
   }
+  if (bad) return { plan, storeProblem: `the new store didn't verify at 0x${bad.offset.toString(16)}; email feedback@outrigger.music before installing again` };
   return { plan, storeProblem: null };
+}
+
+async function write(loader, writes, onStep) {
+  await loader.writeFlash({
+    fileArray: writes.map((w) => ({ data: w.data, address: w.offset })),
+    flashMode: "keep",
+    flashFreq: "keep",
+    flashSize: "keep",
+    eraseAll: false,
+    compress: true,
+    reportProgress: (i, written, total) => onStep({ step: "write", part: writes[i].name, written, total }),
+  });
+}
+
+// Checks store writes by the board's MD5 and writes the ones that differ once
+// more (the region is the new store's alone). The first that still differs,
+// or null.
+async function settle(loader, writes, onStep) {
+  const differ = async (ws) => {
+    const out = [];
+    for (const w of ws) if (await loader.flashMd5sum(w.offset, w.data.length) !== w.md5) out.push(w);
+    return out;
+  };
+  let bad = await differ(writes);
+  if (bad.length) {
+    await write(loader, bad, onStep);
+    bad = await differ(bad);
+  }
+  return bad[0] || null;
 }
 
 // An RTC watchdog reset, as esptool's --after watchdog-reset: unlike the RTS

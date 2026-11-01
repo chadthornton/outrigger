@@ -216,9 +216,9 @@
     <div class="install" data-builds='[{"label":"Check my board","manifest":"firmware/waveshare-esp32-s3-touch-lcd-1.69/hub-loader/manifest.json"}]' data-help="#no-port">
       <p class="install-note">Installing needs Chrome or Edge on a computer, with JavaScript on.</p>
     </div></div></li>
-  <li><div><b>Add firmwares, once</b><p>The installer sets up firmware switching by itself. Adding firmwares to
-    Outrigger needs a one-time setup that isn't in the browser yet. Beta testers:
-    <a href="mailto:feedback@outrigger.music">email us</a> and we'll walk you through it.</p></div></li>
+  <li><div><b>Four firmwares come with it</b><p>On a new ESP32 the installer also puts M-VAVE stock V15, Felucca,
+    Skiff and SLOOP on Outrigger, downloaded from the Firmware Hub straight into your browser. Adding others from the
+    browser is next. Beta testers who want one sooner: <a href="mailto:feedback@outrigger.music">email us</a>.</p></div></li>
   <li><div><b>Plug everything into the hub</b><p>From then on, everything happens on Outrigger's screen.</p></div></li>
 </ol>
 <details class="overview"><summary>Installation overview</summary>
@@ -228,7 +228,8 @@
       restarts it. Nothing goes near your FM-1, and your backups are never touched.</dd>
     <dt>Firmware switching</dt>
     <dd>Switching needs a 24 KB file from the FM-1's chip maker that we can't host ourselves. On a new ESP32 the
-      installer downloads it straight from GitHub into your browser and puts it on Outrigger.</dd>
+      installer downloads it straight from GitHub into your browser, and the four starter firmwares from the Firmware
+      Hub, checks every one, and puts them on Outrigger. If a download fails, nothing is written.</dd>
     <dt>On the hub</dt>
     <dd>Outrigger runs on power from the hub's host port. It finds the FM-1 and your MIDI controller by itself, and its
       Play screen turns green when notes are getting through.</dd>
