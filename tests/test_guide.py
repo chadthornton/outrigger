@@ -58,6 +58,13 @@ class GuideTest(unittest.TestCase):
             self.assertIn(target, ids)
         self.assertNotIn("announcement", page.lower())
 
+    def test_the_site_copy_is_current(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d) / "index.html"
+            write_guide(ROOT / "docs/beta", out)
+            self.assertEqual((ROOT / "site/beta/index.html").read_text(), out.read_text(),
+                             "docs/beta changed: run python3 docs/site-redesign/build.py")
+
 
 if __name__ == "__main__":
     unittest.main()
