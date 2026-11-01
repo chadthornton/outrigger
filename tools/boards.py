@@ -100,6 +100,10 @@ def check_board(bid, b):
     for where, chip in (("touch.address", t), ("expander.address", b["expander"])):
         if chip is not None and not (isinstance(chip["address"], int) and 0x08 <= chip["address"] <= 0x77):
             out.append(f"{bid}: {where} {chip['address']} isn't a 7-bit I2C address (0x08-0x77)")
+    if "spi_mode" in d and (d["driver"] != "st7796" or d["spi_mode"] not in (0, 1, 2, 3)):
+        out.append(f"{bid}: display.spi_mode is 0-3, and only for the st7796 (Arduino_GFX takes a mode only there)")
+    if not isinstance(b.get("restart_on_power_on", False), bool):
+        out.append(f"{bid}: restart_on_power_on is true or false")
     if not isinstance(b.get("tested", False), bool):
         out.append(f"{bid}: tested is true or false, not {b['tested']!r}")
     if b["chip"] != "ESP32-S3":
@@ -204,6 +208,8 @@ def header(bid, b):
         f"constexpr int16_t {pins(('kLcdDc', d['dc']), ('kLcdCs', d.get('cs')), ('kLcdSck', d['sck']), ('kLcdMosi', d['mosi']))};",
         f"constexpr int16_t {pins(('kLcdMiso', d.get('miso')), ('kLcdRst', d.get('rst')), ('kLcdBl', d['backlight']))};",
         f"constexpr uint32_t kSpiHz = {d['spi_hz']};",
+        f"constexpr int8_t kSpiMode = {d.get('spi_mode', -1)};  // -1: the driver's own",
+        f"constexpr bool kRestartOnPowerOn = {'true' if b.get('restart_on_power_on') else 'false'};",
         f"constexpr bool kIps = {'true' if d['ips'] else 'false'};",
         f"constexpr uint8_t kRotation = {d['rotation']};",
         f"constexpr int16_t kOffsets[4] = {{{', '.join(str(o) for o in d['offsets'])}}};",

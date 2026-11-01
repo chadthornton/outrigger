@@ -131,6 +131,14 @@ class CheckTest(unittest.TestCase):
     def test_tested_is_a_yes_or_no(self):
         self.assertRefused(one(**{"tested": "maybe"}), "tested")
 
+    def test_spi_mode(self):
+        self.assertRefused(one(**{"display.spi_mode": 4}), "spi_mode")
+        self.assertRefused(dict(REAL["boards"]["waveshare_169"], display={**REAL["boards"]["waveshare_169"]["display"], "spi_mode": 0}),
+                           "spi_mode")  # Arduino_GFX takes a mode only for the ST7796
+
+    def test_restart_on_power_on_is_a_yes_or_no(self):
+        self.assertRefused(one(restart_on_power_on="once"), "restart_on_power_on")
+
     def test_board_ids_are_make_and_c_names(self):
         found = boards.check({"boards": {"bad-id": one()}})
         self.assertTrue(any("bad-id" in p for p in found), found)
@@ -151,14 +159,15 @@ class OutputTest(unittest.TestCase):
     def test_header_for_the_35(self):
         h = boards.header("waveshare_35", REAL["boards"]["waveshare_35"])
         for want in ["#define BOARD_DISPLAY_ST7796 1", "#define BOARD_TOUCH_FT6336 1", "#define BOARD_EXPANDER_TCA9554 1",
-                     "#define BOARD_TAG_ID 1", "kLcdRst = 101", "kLcdCs = -1", "kHoldLow[] = {107}", "kSpiHz = 40000000"]:
+                     "#define BOARD_TAG_ID 1", "kLcdRst = 101", "kLcdCs = -1", "kHoldLow[] = {107}", "kSpiHz = 40000000",
+                     "kSpiMode = 0", "kRestartOnPowerOn = true"]:
             self.assertIn(want, h)
 
     def test_header_for_the_169(self):
         h = boards.header("waveshare_169", REAL["boards"]["waveshare_169"])
         for want in ["#define BOARD_DISPLAY_ST7789 1", "#define BOARD_TOUCH_CST816 1", "#define BOARD_TAG_ID 0",
                      "kHoldLow[] = {42}", "kSpiHz = 80000000", "kOffsets[4] = {0, 20, 0, 20}",
-                     "ScreenShape::Rounded, 40, 0}"]:
+                     "ScreenShape::Rounded, 40, 0}", "kSpiMode = -1", "kRestartOnPowerOn = false"]:
             self.assertIn(want, h)
         self.assertNotIn("BOARD_EXPANDER", h)
 

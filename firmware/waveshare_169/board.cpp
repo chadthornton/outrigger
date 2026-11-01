@@ -11,6 +11,7 @@
 #include <Arduino.h>
 #include <Arduino_GFX_Library.h>
 #include <Wire.h>
+#include <esp_system.h>
 
 #include "board_config.h"
 #include "board_profile.h"
@@ -29,7 +30,7 @@ static Arduino_DataBus *bus = new Arduino_ESP32SPI(gpio_or_none(kLcdDc), gpio_or
 static Arduino_GFX *panel = new Arduino_ST7789(bus, gpio_or_none(kLcdRst), kRotation, kIps, kBoard.width, kBoard.height,
                                                kOffsets[0], kOffsets[1], kOffsets[2], kOffsets[3]);
 #elif BOARD_DISPLAY_ST7796
-static Arduino_GFX *panel = new Arduino_ST7796(bus, gpio_or_none(kLcdRst), kRotation, kIps, kBoard.width, kBoard.height,
+static Arduino_ST7796 *panel = new Arduino_ST7796(bus, gpio_or_none(kLcdRst), kRotation, kIps, kBoard.width, kBoard.height,
                                                kOffsets[0], kOffsets[1], kOffsets[2], kOffsets[3]);
 #elif BOARD_DISPLAY_ILI9341
 static Arduino_GFX *panel = new Arduino_ILI9341(bus, gpio_or_none(kLcdRst), kRotation, kIps, kBoard.width, kBoard.height,
@@ -72,6 +73,13 @@ static void pin_write(int16_t pin, bool high) {
   digitalWrite(pin, high ? HIGH : LOW);
 }
 
+static bool begin_panel() {
+#if BOARD_DISPLAY_ST7796
+  if (kSpiMode >= 0) return panel->begin(kSpiHz, kSpiMode);
+#endif
+  return panel->begin(kSpiHz);
+}
+
 bool board_display_begin() {
 #if BOARD_EXPANDER_TCA9554
   Wire.begin(kTpSda, kTpScl, 400000);
@@ -88,7 +96,10 @@ bool board_display_begin() {
     pin_write(kLcdRst, true);
     delay(200);
   }
-  if (!panel->begin(kSpiHz)) return false;
+  if (!begin_panel()) return false;
+  // Some panels miss their first start after a cold power-on; their makers'
+  // firmware restarts once, after the bus is up (boards.json, restart_why).
+  if (kRestartOnPowerOn && esp_reset_reason() == ESP_RST_POWERON) esp_restart();
   panel->fillScreen(0);
   pin_write(kLcdBl, true);
 
