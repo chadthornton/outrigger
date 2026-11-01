@@ -1,7 +1,7 @@
 # Switching FM-1 firmware: what can go wrong
 
-Outrigger can put a different firmware on your FM-1: Felucca, Skiff, SLOOP, M-VAVE's own, and most of the
-Firmware Hub catalog. This page explains what happens during a switch, what can go wrong, and how to make it
+Outrigger can put a different firmware on your FM-1. Beta 1 comes with three: M-VAVE's stock V15, Felucca and
+Skiff; more of the Firmware Hub catalog follows. This page explains what happens during a switch, what can go wrong, and how to make it
 unlikely. Read it before your first switch.
 
 ## What happens when you switch
