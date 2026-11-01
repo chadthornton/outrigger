@@ -39,8 +39,6 @@ FIXTURES = [
      "a31760f2588b39bcb3a8d6f78f6041a1a550978a972ecd71564e45513698ecd6"),
     ("skiff-2.1.1.fwsc", "skiff", GITHUB + "illuminus5/skiff/releases/download/v2.1.1/skiff-2.1.1.fwsc",
      "0cfae2431f351365d83842bf1a381ee48baead371e81f77faaa2b3c6aabbd304"),
-    ("sloop-2.8.4.fwsc", "sloop", GITHUB + "isod89/sloop-fm1/releases/download/v2.8.4/sloop-2.8.4.fwsc",
-     "5a6a0843c868650dba6718cf85e43e719aec18c3dc5cc803c57c38b382158d4e"),
     # JieLi's loader, from jl-uboot-tool at the commit the Unbricker pins.
     ("wl82loader.bin", None, JLUB_RAW + "data/loaderblobs/usb/wl82loader.bin",
      "d41da6126760c9d66660bcc0cac8d27d221806c5e369a8036921efe68dca5376"),

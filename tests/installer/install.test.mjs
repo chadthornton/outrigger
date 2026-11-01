@@ -322,7 +322,7 @@ test("prepareStore: a blank region gets the starter store, in runs at the store'
   assert.equal(got.downloadProblem, null);
   assert.deepEqual(got.storeWrites.map((w) => [w.offset, w.data.length, w.md5]), TEMPLATE.runs.map((r) => [0x3d0000 + r.offset, r.size, r.md5]));
   assert.equal(got.storeWrites.at(-1).offset, 0x3d0000);
-  assert.deepEqual(got.starter, ["M-VAVE stock V15", "Felucca 1.8.0", "Skiff 2.1.1", "SLOOP 2.8.4"]);
+  assert.deepEqual(got.starter, ["M-VAVE stock V15", "Felucca 1.8.0", "Skiff 2.1.1"]);
 });
 
 test("prepareStore: data with no readable store stops before anything is written", { skip }, async () => {

@@ -5,8 +5,9 @@ A living list. If you hit something that isn't here, email
 
 ## Setup
 
-- **Outrigger comes with four firmwares, and adding others isn't in the browser yet.** A new ESP32 gets stock V15,
-  Felucca 1.8.0, Skiff 2.1.1 and SLOOP 2.8.4 at install. Other firmwares, and newer versions of these, need a setup
+- **Outrigger comes with three firmwares, and adding others isn't in the browser yet.** A new ESP32 gets stock V15,
+  Felucca 1.8.0 and Skiff 2.1.1 at install. SLOOP isn't one of them yet: it's built on an older Felucca, and going
+  from SLOOP to Felucca or Skiff can leave data that crashes them, so it waits until we know where SLOOP keeps it. Other firmwares, and newer versions of these, need a setup
   outside the browser for now: email us and we'll walk you through it. Playing from a controller doesn't need it.
 - **The starter firmwares can stop downloading when one of them releases.** The Firmware Hub keeps only each
   firmware's newest file, so a fresh install says a download failed and writes nothing until we update the site.

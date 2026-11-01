@@ -30,7 +30,6 @@ EXPECTED = [
     ("stock-V15", "M-VAVE stock", "V15", "stock", "FM-1_015", "https://thefirmwarehub.com/fw/mvave/FM-1_015.fwsc"),
     ("felucca-1.8.0", "Felucca", "1.8.0", "felucca", "FM-1_918", "https://thefirmwarehub.com/fw/felucca-1.8.0.fwsc"),
     ("skiff-2.1.1", "Skiff", "2.1.1", "skiff", "FM-1_721", "https://thefirmwarehub.com/fw/skiff-2.1.1.fwsc"),
-    ("sloop-2.8.4", "SLOOP", "2.8.4", "sloop", "FM-1_900", "https://thefirmwarehub.com/fw/sloop-2.8.4.fwsc"),
 ]
 
 

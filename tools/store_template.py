@@ -47,8 +47,12 @@ LOADER_URL = ("https://raw.githubusercontent.com/kagaimiq/jl-uboot-tool/"
 MARK = 0xA5000000
 HUB = "https://thefirmwarehub.com/"
 
-# The starter set (Chad, 2026-10-31, tracker ask fw-add-browser): stock and the
-# three projects proven on hardware, at the catalog's versions that day. Named
+# The starter set (Chad, 2026-10-31, tracker ask fw-add-browser): stock and
+# Felucca-family projects, at the catalog's versions that day. SLOOP is left
+# out (Chad, 2026-11-01, asks/starter-set-sloop): it's built on Felucca 0.9,
+# and the board only clears Felucca 1.x's data map when switching, so SLOOP
+# then Felucca or Skiff could brick an FM-1 until a store dump shows where
+# SLOOP keeps its data. Named
 # as tools/store_add.py names catalog packages. The Firmware Hub keeps only
 # each project's latest file, so when one releases, its URL here stops
 # answering and the installer sets up no store until these are bumped (with
@@ -61,8 +65,6 @@ STARTER = [
      "a31760f2588b39bcb3a8d6f78f6041a1a550978a972ecd71564e45513698ecd6"),
     ("skiff-2.1.1", "Skiff", "2.1.1", "skiff", "skiff-2.1.1.fwsc", "fw/skiff-2.1.1.fwsc",
      "0cfae2431f351365d83842bf1a381ee48baead371e81f77faaa2b3c6aabbd304"),
-    ("sloop-2.8.4", "SLOOP", "2.8.4", "sloop", "sloop-2.8.4.fwsc", "fw/sloop-2.8.4.fwsc",
-     "5a6a0843c868650dba6718cf85e43e719aec18c3dc5cc803c57c38b382158d4e"),
 ]
 
 
