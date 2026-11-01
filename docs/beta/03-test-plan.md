@@ -25,7 +25,8 @@ check says what should happen. Anything else is worth an email, even if it fixed
    *Expected:* it reads the FM-1 twice, writes nothing to it, and says the backup is saved.
 8. **Switch firmware once** (a new ESP32 comes with stock V15, Felucca and Skiff). Read
    [Switching FM-1 firmware](04-switching-firmware.md) and the switching part of [Known issues](07-known-issues.md)
-   first. Start with Felucca ↔ Skiff, the tested pair, on the **FM-1** screen. Ask us before switching Skiff to stock.
+   first, then pick another of the three on the **FM-1** screen. If you've saved a lot of Skiff patterns, ask us
+   before switching Skiff to stock.
    *Expected:* in about a minute the FM-1 restarts in the new firmware. Switch back, and your songs are where you
    left them.
 
