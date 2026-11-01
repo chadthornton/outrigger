@@ -14,8 +14,10 @@ stock ↔ Felucca passes.
 > If you've seen konsumer's fm1buddy: it does a ton, and it's great. Outrigger is trying to be a bit friendlier:
 > install from your browser in a couple of minutes, and your songs are waiting when you switch back.
 >
-> Beta 1 starts with three firmwares (stock V15, Felucca, Skiff), because those are the switches we're testing first.
-> Adding any firmware from the Firmware Hub is next. Tell me which ones you want and I'll test those first.
+> Beta 1 comes with three firmwares (stock V15, Felucca, Skiff), the switches we're testing first. Add any other from
+> the Firmware Hub's list on outrigger.music, straight from your browser. Switches we haven't tested clear the old
+> firmware's data first and keep a copy. Melodee, Tessera and the SLOOP family aren't addable yet. Firmware authors:
+> your own builds come next; tell me which ones you want and I'll test those first.
 >
 > **What you need:** a Waveshare ESP32-S3 touchscreen board, a USB-C hub that can charge a laptop, your FM-1, and a
 > USB MIDI controller. The shopping list has links.

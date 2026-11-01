@@ -6,10 +6,13 @@ A living list for beta 1. If you hit something that isn't here, email
 ## What beta 1 has, and doesn't
 
 - **Three FM-1 firmwares come with it.** A new ESP32 gets M-VAVE stock V15, Felucca 1.8.0 and Skiff 2.1.1 at install.
-- **SLOOP is left out on purpose.** It's built on an older Felucca, and going from SLOOP to Felucca or Skiff can leave
+- **SLOOP, and the firmwares built on it or on Felucca 0.9, are left out on purpose.** SLOOP is built on an older Felucca, and going from SLOOP to Felucca or Skiff can leave
   data that crashes them. It waits until we know where SLOOP keeps its data.
-- **Adding other firmwares isn't in the browser yet.** Other firmwares, and newer versions of these three, need a setup
-  outside the browser for now: email us and we'll walk you through it. Playing from a controller doesn't need it.
+- **Add firmwares from the Firmware Hub's list** on the homepage, up to ten in all: see
+  [Adding a firmware](04a-adding-firmware.md). Files of your own (not on the Hub's list) can't be added yet, and
+  there's no way to remove a firmware yet.
+- **Melodee and Tessera can't be added yet.** They write the part of the FM-1's memory Outrigger uses to tell FM-1s
+  apart.
 - **No Wi-Fi.** Beta 1's Install button gives you Outrigger without Wi-Fi and without its own web page. Both are coming.
 
 ## Firmware switching
@@ -38,6 +41,8 @@ Which switches we've run on a real FM-1, with these exact versions:
 - **The starter firmwares can stop downloading when one of them releases.** The Firmware Hub keeps only each
   firmware's newest file, so a fresh install says a download failed and writes nothing until we update the site.
   Email us if you see it.
+- **Adding a firmware needs Outrigger in Computer mode, on a build from this page.** After an install it restarts into
+  MIDI: go back to Computer mode before adding.
 - **Installing needs Chrome or Edge on a computer.** Phones, Safari and Firefox can't talk to the board's USB port.
 - **There's no way back to an earlier build from the website.** See [Install and first setup](02-install-and-setup.md).
 
