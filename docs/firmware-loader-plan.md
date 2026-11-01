@@ -590,8 +590,9 @@ history. The browser the web UI already uses is the archive.
   browser read is proven on the board.
 
 **Firmware sources**
-- **Catalog firmwares:** the device downloads them itself over Wi-Fi. Browsers block the page from fetching
-  thefirmwarehub.com across origins.
+- **Catalog firmwares:** the device downloads them itself over Wi-Fi. (Stale since 2026-10-31: thefirmwarehub.com
+  answers with `access-control-allow-origin: *`, and the web installer's starter set downloads from it in the
+  browser; GitHub release assets still send no CORS header.)
 - **Chad's own downloads:** non-redistributable ones like V16 and Baud Girl get uploaded through the page.
 - **Never:** `wl82loader.bin` is never offered for download.
 
