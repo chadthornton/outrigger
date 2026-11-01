@@ -131,8 +131,12 @@ def main():
     for r, (off, data) in zip(template["runs"], runs):
         if r["md5"] != hashlib.md5(data).hexdigest():
             failures.append(f"run {off:#x}: md5 isn't its data's")
+        if r.get("blocks") != [hashlib.md5(data[i:i + BLOCK]).hexdigest() for i in range(0, len(data), BLOCK)]:
+            failures.append(f"run {off:#x}: its block MD5s aren't its blocks'")
         if r.get("blank_md5") != hashlib.md5(b"\xff" * r["size"]).hexdigest():
             failures.append(f"run {off:#x}: blank_md5 isn't an erased run's")
+    if template.get("blank_block_md5") != hashlib.md5(b"\xff" * BLOCK).hexdigest():
+        failures.append("blank_block_md5 isn't an erased block's")
     # The gaps and the runs tile the store, so a check of both covers every byte (install.js unfinished).
     pieces = sorted([(r["offset"], r["size"]) for r in template["runs"]] + [(g["offset"], g["size"]) for g in template.get("gaps", [])])
     if not pieces or pieces[0][0] != 0 or sum(n for _, n in pieces) != size or any(a + n != b for (a, n), (b, _) in zip(pieces, pieces[1:])):

@@ -358,13 +358,21 @@ test("prepareStore: a template that doesn't rebuild is a site build error, not a
 
 // A board whose install stopped partway through the store (the cable pulled):
 // our table, some of the template's runs written, the superblock pair not.
-async function cutShort() {
+// midRun: also stop inside the next run, its last block half programmed.
+async function cutShort({ midRun = false } = {}) {
   const b = boardWithBlankStore();
   const first = await prepareStore({ loader: b, board: await readBoard(b), build: loaderBuild(), fetchFn: hub() });
   const runs = first.storeWrites.slice(0, -1);
-  for (const w of runs.slice(0, Math.floor(runs.length / 2))) b.flash.set(w.data, w.offset);
+  const half = Math.floor(runs.length / 2);
+  for (const w of runs.slice(0, half)) b.flash.set(w.data, w.offset);
+  let partial = null;
+  if (midRun) {
+    const w = runs.slice(half).find((r) => r.data.length >= 8 * 0x1000); // more erased blocks left than PARTIAL_BLOCKS
+    b.flash.set(w.data.subarray(0, 0x1000 + 0x800), w.offset); // one whole block, then half of the next
+    partial = w.offset + 0x1000;
+  }
   b.calls = [];
-  return { b, runs: first.storeWrites };
+  return { b, runs: first.storeWrites, partial };
 }
 
 test("prepareStore: an install cut short in the store is finished by the next one", { skip }, async () => {
@@ -377,6 +385,25 @@ test("prepareStore: an install cut short in the store is finished by the next on
   assert.equal(got.storeWritable, true);
   assert.deepEqual(got.storeWrites.map((w) => [w.offset, w.md5]), runs.map((w) => [w.offset, w.md5]));
   assert.equal(b.calls.filter((c) => c[0] === "readFlash" && c[1] >= 0x3d0000 && c[2] > 16).length, 0, "read the store region back");
+});
+
+test("prepareStore: an install cut short inside a run, mid-block, is finished too", { skip }, async () => {
+  const { b, runs } = await cutShort({ midRun: true });
+  const got = await prepareStore({ loader: b, board: await readBoard(b), build: loaderBuild(), fetchFn: hub() });
+  assert.equal(got.action, "create");
+  assert.equal(got.unfinished, true);
+  assert.deepEqual(got.storeWrites.map((w) => w.offset), runs.map((w) => w.offset));
+  const reads = b.calls.filter((c) => c[0] === "readFlash" && c[1] >= 0x3d0000 && c[2] > 16);
+  assert.equal(reads.length, 1, "read back only the half-programmed block");
+});
+
+test("prepareStore: a half-programmed block holding bits the build never wrote stops as unreadable", { skip }, async () => {
+  const cut = await cutShort({ midRun: true });
+  const at = cut.partial + 0x900; // past the half that was programmed, so it should still be 0xFF
+  cut.b.flash[at] = 0x00;
+  const got = await prepareStore({ loader: cut.b, board: await readBoard(cut.b), build: loaderBuild(), fetchFn: hub() });
+  assert.equal(got.action, "unreadable");
+  assert.deepEqual(got.storeWrites, []);
 });
 
 test("prepareStore: a cut-short store with anything else in it stops as unreadable", { skip }, async () => {

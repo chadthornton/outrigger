@@ -82,7 +82,8 @@ export async function prepareStore({ loader, board, build, fetchFn = fetch }) {
   // board from other firmware, what's there isn't FM-1 backups.
   const hadStorePartition = Boolean(board.table.store);
   const blank = hadStorePartition && await storeIsBlank(loader, { offset, size }, build.template.blank_md5);
-  const unfinished = hadStorePartition && !blank && await unfinishedStore(loader, offset, build.template);
+  const partial = hadStorePartition && !blank ? await unfinishedStore(loader, offset, build.template) : null;
+  const unfinished = partial !== null;
   const action = storeAction({ runsLoader: true, hasStore: false, hadStorePartition, blank, unfinished });
   if (action !== "create") return { action, ...none };
   const previousFirmware = !hadStorePartition && board.layout !== "blank";
@@ -97,27 +98,49 @@ export async function prepareStore({ loader, board, build, fetchFn = fetch }) {
   const runs = await buildStore(build.template, downloads).catch((e) => {
     throw new Error(`This build's store template doesn't rebuild its store (a site build problem; nothing was written): ${e.message}.`);
   });
+  // The blocks the last write stopped in: theirs only if every bit on the board is on its way to the store's.
+  for (const at of partial || []) {
+    const run = runs.find((r) => r.offset <= at && at < r.offset + r.data.length);
+    const want = run.data.subarray(at - run.offset, at - run.offset + 0x1000);
+    if (!onTheWay(await loader.readFlash(offset + at, 0x1000), want)) return { action: "unreadable", ...none };
+  }
   const storeWrites = runs.map((r) => ({ offset: offset + r.offset, data: r.data, md5: r.md5 }));
   return { action, storeWrites, storeWritable: true, downloadProblem: null, previousFirmware, starter, unfinished };
 }
 
 // Whether the store region holds this build's store written partway and
-// nothing else: every run either as the build machine made it or erased, the
-// superblock pair (the last run) erased, and every gap between runs erased.
-// The board computes each MD5, so nothing is read back. A template without
-// gaps (an older build) never matches.
+// nothing else: the superblock pair (the last run) and every gap between runs
+// erased, and every other block erased, as built, or (at most
+// PARTIAL_BLOCKS of them: where the write stopped) neither. The board
+// computes each MD5, so nothing is read back here. Returns the store-relative
+// offsets of the blocks that were neither, which prepareStore reads back once
+// it has the store's bytes, or null if the region is something else. A
+// template without gaps (an older build) never matches.
+const PARTIAL_BLOCKS = 4;
 export async function unfinishedStore(loader, offset, template) {
-  if (!template.gaps || !template.runs.length) return false;
+  if (!template.gaps || !template.blank_block_md5 || !template.runs.length) return null;
+  const md5 = (at, size) => loader.flashMd5sum(offset + at, size);
   const superblock = template.runs.at(-1);
-  for (const r of template.runs) {
-    const got = await loader.flashMd5sum(offset + r.offset, r.size);
-    if (got !== r.blank_md5 && (r === superblock || got !== r.md5)) return false;
+  if (await md5(superblock.offset, superblock.size) !== superblock.blank_md5) return null;
+  for (const g of template.gaps) if (await md5(g.offset, g.size) !== g.blank_md5) return null;
+  const partial = [];
+  for (const r of template.runs.slice(0, -1)) {
+    const got = await md5(r.offset, r.size);
+    if (got === r.md5 || got === r.blank_md5) continue;
+    for (let i = 0; i < r.blocks.length; i++) {
+      const at = r.offset + i * 0x1000;
+      const block = await md5(at, 0x1000);
+      if (block !== r.blocks[i] && block !== template.blank_block_md5) partial.push(at);
+      if (partial.length > PARTIAL_BLOCKS) return null;
+    }
   }
-  for (const g of template.gaps) {
-    if (await loader.flashMd5sum(offset + g.offset, g.size) !== g.blank_md5) return false;
-  }
-  return true;
+  return partial;
 }
+
+// Whether a block on the board is on its way to `want`: flash programming
+// only clears bits, so a block whose write stopped partway has every 0 bit
+// of `want` either cleared already or still 1, and no 0 bit `want` lacks.
+const onTheWay = (got, want) => got.length === want.length && got.every((b, i) => (b & want[i]) === want[i]);
 
 // Whether the store region is factory-blank: the board computes the MD5 of
 // the whole region (seconds, where reading it back takes minutes) and it's

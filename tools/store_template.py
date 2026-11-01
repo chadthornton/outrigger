@@ -13,8 +13,9 @@ rebuild it:
 - every block that is one 4 KiB sector of a firmware as just that sector's
   SHA-256 (fm1lib's store keeps each sector as a one-block file);
 - the MD5 of each run of blocks as written, and the SHA-256 of the whole;
-- the MD5 of each run and of each gap between runs when erased, so an
-  install cut short mid-store can be told from anything else and finished.
+- the MD5 of each run and of each gap between runs when erased, and of each
+  block of a run as written, so an install cut short mid-store can be told
+  from anything else and finished.
 The browser downloads the loader from the pinned jl-uboot-tool commit and
 each package from the Firmware Hub, checks their SHA-256, decodes each
 package to its app (site/installer/store.js), and fills the blocks in. If
@@ -180,9 +181,11 @@ def build_template(store_size, loader, packages):
         "packages": meta,
         "blocks": blocks,
         "extents": loader_extents(image, real, words),
-        "runs": [{"offset": off, "size": n, "md5": hashlib.md5(real[off:off + n]).hexdigest(), "blank_md5": blank_md5(n)}
+        "runs": [{"offset": off, "size": n, "md5": hashlib.md5(real[off:off + n]).hexdigest(), "blank_md5": blank_md5(n),
+                  "blocks": [hashlib.md5(real[a:a + BLOCK]).hexdigest() for a in range(off, off + n, BLOCK)]}
                  for off, n in runs],
         "gaps": gaps_of(runs, store_size),
+        "blank_block_md5": blank_md5(BLOCK),
         "sha256": hashlib.sha256(b"".join(off.to_bytes(4, "little") + real[off:off + BLOCK] for off in used)).hexdigest(),
     }
     spliced = dict(splice(template, loader, packages))
