@@ -246,7 +246,7 @@ first.
 
 **Checkpoint 1: passed, 2026-10-27** (Chad at the board; build `e848423`, read-only). On the recovered unit:
 - **Result:** "Backed up. Nothing written."
-- **Same unit:** unit `69bb070aaa87bd10`, the dump's.
+- **Same unit:** the dump's unit.
 - **Untouched areas:** the boot head (`d9f43191…`) and the Bluetooth data plus factory voices (`70a8f5be…`) equal
   the 2026-10-25 dump.
 
@@ -576,6 +576,14 @@ history. The browser the web UI already uses is the archive.
   install must be able to finish or roll back with the laptop gone.
 - **Freed up:** older history, archives and rarely used packages live on the laptop. The on-device library becomes
   "favorites, ready to go".
+
+**From the web installer (measured 2026-10-31, deferred)**
+- **What it would be:** the installer page saving the whole store partition to the laptop before an install. A raw
+  read restores through `tools/store_dump.py`.
+- **Why it isn't in the first installer:** in Chrome and Brave on macOS the board's USB-Serial-JTAG replies stop
+  partway through reads longer than one USB packet, so the page reads 64 bytes at a time: about 8 min for the 12.1 MB
+  store (esptool from a Mac: 79 s). Chad took it out of the installer PR; it comes back with this work, once a faster
+  browser read is proven on the board.
 
 **Firmware sources**
 - **Catalog firmwares:** the device downloads them itself over Wi-Fi. Browsers block the page from fetching

@@ -3,6 +3,7 @@
 // generator's additions (reset, loader-mode inquiry product). Flash has NOR
 // semantics: erase sets 0xFF, programming can only clear bits. Every command is
 // logged in the golden-vector line format of tools/gen_golden.py.
+// Ported from MvaveFM1Unbricker (MIT, Michael P Jones): see NOTICE.
 #pragma once
 
 #include <map>

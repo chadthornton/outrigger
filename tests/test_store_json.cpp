@@ -19,7 +19,7 @@ int main(int argc, char **argv) {
         PackageError::None);
   CHECK(lib.set_pinned("skiff-1.4", true));
   Unit u;
-  u.id = "69bb070aaa87bd10";
+  u.id = "0123456789abcdef";
   u.installed_package = "skiff-1.4";
   CHECK(lib.put_unit(u));
 

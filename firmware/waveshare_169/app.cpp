@@ -25,6 +25,7 @@
 #include <soc/usb_serial_jtag_reg.h>
 
 #include "apps.h"
+#include "build_tag.h"
 #include "crumbs.h"
 #include "diag.h"
 #include "board_profile.h"
@@ -51,6 +52,10 @@ static Preferences prefs;
 #ifndef FW_DIRTY
 #define FW_DIRTY 0    // 1 when built with uncommitted changes
 #endif
+// Read off the board by the web installer (build_tag.h). Settings prints it, so
+// the linker keeps it.
+extern "C" const platform::BuildTag kBuildTag __attribute__((section(".rodata_custom_desc"))) = {
+    platform::kBuildTagMagic, platform::kBuildTagLayout, FW_DIRTY, 0, FW_VERSION, APP_SET_LABEL};
 static bool host_running = false;
 #if APP_LOADER && LOADER_SOAK
 static uint32_t soak_restart_at = 0;  // safe mode in a soak build: carry on after this
@@ -523,8 +528,8 @@ void setup() {
   // An old "typeface" key from builds with a Pixel font stays in NVS, unread.
   const UiSettings settings = {prefs.getUChar("text_size", 1)};
   static char firmware[24];
-  snprintf(firmware, sizeof firmware, "v %07lx%s %s", (unsigned long)FW_VERSION, FW_DIRTY ? "+" : "",
-           platform::kAppSetLabel);
+  snprintf(firmware, sizeof firmware, "v %07lx%s %s", (unsigned long)kBuildTag.commit, kBuildTag.dirty ? "+" : "",
+           kBuildTag.app_set);
   UiHooks hooks = {save_settings, connect_computer, back_to_host, nullptr, nullptr};
 #if APP_LOADER
   hooks.loader_select = loader_select;

@@ -1,6 +1,7 @@
 // Hashes, CRCs and ciphers the FM-1 loader needs: SHA-256 for the content-addressed
 // store and package checks, CRC-16/XMODEM and JieLi's two scramblers for the UFW
 // package headers and the ROM-boot protocol. Plain C++, no Arduino headers.
+// Ported in part from jl-uboot-tool (MIT, Andrey Grigoryev) and the Unbricker (MIT, Michael P Jones): see NOTICE.
 #pragma once
 
 #include <stddef.h>

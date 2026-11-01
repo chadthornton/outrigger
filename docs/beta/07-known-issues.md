@@ -1,0 +1,32 @@
+# Known issues
+
+A living list. If you hit something that isn't here, email
+[feedback@outrigger.music](mailto:feedback@outrigger.music).
+
+## Setup
+
+- **Switching firmware needs a one-time setup outside the browser.** It needs a small file from the FM-1's chip maker
+  that the website can't host yet. Email us and we'll walk you through it. Playing from a controller doesn't need it.
+- **Installing needs Chrome or Edge on a computer.** Phones, Safari and Firefox can't talk to the board's USB port.
+- **There's no way back to an earlier build from the website.** See [Install and first setup](02-install-and-setup.md).
+
+## The hub
+
+- **One MIDI controller at a time.** The ESP32-S3 has room for eight USB connections, and the hub, the FM-1 and one
+  controller use all eight. A second controller shows its name but doesn't play.
+- **On some hubs, some ports never work.** Hubs with more than four data ports usually hide a second hub chip inside,
+  and Outrigger can't reach the ports behind it. On the hub we tested, those were its USB-A ports. Use a hub with four
+  data ports or fewer.
+- **Unplugging the hub's charger restarts everything.** Outrigger runs on the hub's power. Don't unplug it during a
+  firmware switch.
+
+## On the board
+
+- **The largest text size pushes some lines off the screen.** Use small or medium for now.
+- **Your backups can't be copied to a computer yet.** They live on Outrigger only. See
+  [Your backups](05-your-backups.md).
+
+## Firmware switching
+
+What can go wrong during a switch, and what to do, is on [Switching FM-1 firmware](04-switching-firmware.md). If your
+FM-1 won't start afterwards, keep it switched on and see [If your FM-1 won't boot](06-if-your-fm1-wont-boot.md).

@@ -12,6 +12,8 @@ HEAD_END, APP_END = 0x4000, 0x93000
 FWSC_BLOCK, FWSC_MARKED, FWSC_NO_CHAR = 0x2F, 20, 0x7D
 
 
+# parse_fwsc, crc16 and jl_enc follow MvaveFM1Unbricker (MIT, Michael P Jones)
+# and its ota.c lineage: see NOTICE.
 def parse_fwsc(data):
     stride = FWSC_BLOCK + 1
     image, chars = bytearray(), []
