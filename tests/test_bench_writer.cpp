@@ -152,15 +152,15 @@ static void test_wrong_unit_refused() {
   CHECK_EQ(host2.keys, 0);
 }
 
-static void test_rig_unit_refused() {
+static void test_fm1_1_refused() {
   FakeHost host;
   bench::WriteOptions o;
-  o.unit = bench::kRigUnit;
+  o.unit = bench::kFm11Unit;
   o.write = true;
   Image f = flash();
   MockRom rom(f, blob());
   const bench::Report r = bench::write_sectors(rom, host, blob(), {mark(0x9F000, 1)}, o);
-  CHECK(r.stop == bench::Stop::RigUnit);
+  CHECK(r.stop == bench::Stop::Fm11Unit);
   CHECK_EQ(host.keys, 0);
 }
 
@@ -211,7 +211,7 @@ int main() {
   test_protected_needs_flag();
   test_head_and_app_always_refused();
   test_wrong_unit_refused();
-  test_rig_unit_refused();
+  test_fm1_1_refused();
   test_verify_retries_then_fails();
   test_flaky_write_retried();
   test_no_rom_device();

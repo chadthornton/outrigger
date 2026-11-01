@@ -635,7 +635,7 @@ static esp_err_t on_setup_join(httpd_req_t *req) {
 // ---------- Bench API (BENCH=1 builds on a listed spare only) ----------
 // One command waits at a time; the loop takes it (web_take_bench_command) and
 // presses what the screen would. The Mac reads the outcome from /status.
-static web_core::BenchBoard bench_board = web_core::BenchBoard::Unknown;
+static const char *bench_board = nullptr;  // "waveshare-1", or null: no bench API
 static char bench_mac[18] = "";
 static web_core::BenchCommand bench_pending;
 static bool bench_has_pending = false;
@@ -649,7 +649,7 @@ static esp_err_t on_bench_state(httpd_req_t *req) {
     Lock l;
     snprintf(buf, sizeof buf,
              "{\"board\":\"%s\",\"mac\":\"%s\",\"seq\":%lu,\"taken\":%lu,\"pending\":%s,\"last\":\"%s\"}",
-             web_core::bench_board_name(bench_board), bench_mac, (unsigned long)bench_seq,
+             bench_board ? bench_board : "unknown", bench_mac, (unsigned long)bench_seq,
              (unsigned long)bench_taken_seq, bench_has_pending ? "true" : "false", bench_last);
   }
   return send_json(req, buf, strlen(buf));
@@ -694,11 +694,10 @@ bool web_take_bench_command(web_core::BenchCommand &out) {
 static void bench_check_board() {
   uint8_t mac[6] = {};
   esp_efuse_mac_get_default(mac);
-  bench_board = web_core::classify_mac(mac);
+  bench_board = web_core::waveshare_name(mac);
   snprintf(bench_mac, sizeof bench_mac, "%02x:%02x:%02x:%02x:%02x:%02x", mac[0], mac[1], mac[2], mac[3], mac[4],
            mac[5]);
-  DLOG_LOOP("bench: board %s is %s%s", bench_mac, web_core::bench_board_name(bench_board),
-            bench_board == web_core::BenchBoard::Bench ? "" : ": no bench API");
+  DLOG_LOOP("bench: board %s is %s", bench_mac, bench_board ? bench_board : "not a listed Waveshare: no bench API");
 }
 #endif  // BENCH
 
@@ -745,8 +744,8 @@ static void start_server() {
     httpd_register_uri_handler(server, &u);
   }
 #if BENCH
-  // Only on a listed spare: the rig, or any unlisted board, answers no bench route.
-  if (bench_board == web_core::BenchBoard::Bench) {
+  // Only on one of Chad's Waveshares; tools/bench.py checks it's the one it asked for.
+  if (bench_board) {
     for (const web_core::Route &r : web_core::kBenchRoutes) {
       httpd_uri_t u{};
       u.uri = r.uri;

@@ -1,15 +1,15 @@
 // The test bench's sector writer (BENCH=1 builds only, never a release):
-// writes whole 4 KiB sectors of the bench FM-1's flash that the Loader's guard
+// writes whole 4 KiB sectors of FM-1-2's flash that the Loader's guard
 // keeps out of reach on purpose. The bench uses it for test marks in every
 // firmware's data areas, the Skiff-style fill of 0xEA000-0xFBFFF (test 1), and
-// putting that area back from the bench FM-1's pristine dump afterwards.
+// putting that area back from FM-1-2's pristine dump afterwards.
 //
 // Its own rules, separate from fm1_loader's guard:
 // - never the boot head (0x0000-0x3FFF), the app (0x4000-0x92FFF: installs are
 //   the Loader's job) or key_mac (0xFF000-0xFFFFF);
 // - 0xE9000 (the unit ID) and 0xEA000-0xFBFFF (stock's resources) only with
 //   protected_ok;
-// - only on the FM-1 whose unit ID the caller names, and never the rig FM-1;
+// - only on the FM-1 whose unit ID the caller names, and never FM-1-1 (Chad's main FM-1);
 // - a dry run unless write is set: it reads every sector and reports which differ.
 // Each written sector is read back and compared, with one retry, as the Loader does.
 //
@@ -27,7 +27,7 @@
 
 namespace bench {
 
-constexpr const char *kRigUnit = "69bb070aaa87bd10";
+constexpr const char *kFm11Unit = "69bb070aaa87bd10";
 
 struct Sector {
   uint32_t addr;
@@ -37,14 +37,14 @@ struct Sector {
 struct WriteOptions {
   bool write = false;         // false: a dry run, nothing erased or written
   bool protected_ok = false;  // may touch 0xE9000 and 0xEA000-0xFBFFF
-  std::string unit;           // the bench FM-1's unit ID; anything else is refused
+  std::string unit;           // FM-1-2's unit ID; anything else is refused
   bool key_sent = false;      // the FM-1 is in ROM boot already
   uint32_t rom_timeout_ms = 15000;
   uint32_t midi_timeout_ms = 20000;
 };
 
 enum class Stop : uint8_t {
-  None, Refused, KeyNotSent, NoRom, NotWl82, LoaderBad, LoaderFailed, IdsWrong, WrongUnit, RigUnit,
+  None, Refused, KeyNotSent, NoRom, NotWl82, LoaderBad, LoaderFailed, IdsWrong, WrongUnit, Fm11Unit,
   ReadFailed, EraseFailed, WriteFailed, VerifyFailed, MidiNotBack,
 };
 const char *stop_text(Stop s);

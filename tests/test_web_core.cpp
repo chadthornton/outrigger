@@ -169,12 +169,12 @@ static void test_bench_routes_apart() {
 }
 
 static void test_bench_mac() {
-  const uint8_t rig[6] = {0xA0, 0x85, 0xE3, 0xF0, 0xA2, 0x3C};
-  const uint8_t spare1[6] = {0xD8, 0x3B, 0xDA, 0xA0, 0x67, 0xD0};
+  const uint8_t w1[6] = {0xD8, 0x3B, 0xDA, 0xA0, 0x67, 0xD0};
+  const uint8_t w2[6] = {0xA0, 0x85, 0xE3, 0xF0, 0xA2, 0x3C};
   const uint8_t other[6] = {0xD8, 0x3B, 0xDA, 0xA0, 0x67, 0xD1};
-  EXPECT(classify_mac(rig) == BenchBoard::Rig, "the rig is refused");
-  EXPECT(classify_mac(spare1) == BenchBoard::Bench, "spare 1 is a bench board");
-  EXPECT(classify_mac(other) == BenchBoard::Unknown, "an unlisted board is not a bench board");
+  EXPECT(waveshare_name(w1) && strcmp(waveshare_name(w1), "waveshare-1") == 0, "Waveshare-1 by MAC");
+  EXPECT(waveshare_name(w2) && strcmp(waveshare_name(w2), "waveshare-2") == 0, "Waveshare-2 by MAC");
+  EXPECT(!waveshare_name(other), "an unlisted board gets no bench API");
 }
 
 static void test_bench_commands() {

@@ -30,7 +30,7 @@ WRITE_FLAGS += $(if $(filter 1,$(SOAK)),-DLOADER_SOAK=1)
 # across many software restarts unattended. Never a release.
 WRITE_FLAGS += $(if $(filter 1,$(WIFI_BOOTLOOP)),-DWIFI_BOOTLOOP=1)
 # BENCH=1 (with DIAG_WEB=1, APPS=hub-loader): the test bench's control API at
-# fm1bench.local (lib/web_core/src/bench.h), answered only on a listed spare.
+# fm1bench.local (lib/web_core/src/bench.h), answered only on Chad's Waveshares.
 # tools/bench.py drives it. Never a release: make site checks no shipped build has it.
 ifeq ($(BENCH),1)
 $(if $(filter 1,$(DIAG_WEB)),,$(error BENCH=1 needs DIAG_WEB=1))

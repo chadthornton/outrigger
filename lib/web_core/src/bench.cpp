@@ -7,10 +7,14 @@ namespace web_core {
 
 namespace {
 
-constexpr uint8_t kRig[6] = {0xA0, 0x85, 0xE3, 0xF0, 0xA2, 0x3C};
-// Spare 1 (read by esptool, 2026-11-01). Spare 2 joins once its MAC is read.
-constexpr uint8_t kSpares[][6] = {
-    {0xD8, 0x3B, 0xDA, 0xA0, 0x67, 0xD0},
+// Chad's names for his boards (read by esptool, 2026-11-01).
+struct Waveshare {
+  const char *name;
+  uint8_t mac[6];
+};
+constexpr Waveshare kWaveshares[] = {
+    {"waveshare-1", {0xD8, 0x3B, 0xDA, 0xA0, 0x67, 0xD0}},
+    {"waveshare-2", {0xA0, 0x85, 0xE3, 0xF0, 0xA2, 0x3C}},
 };
 
 // The value of key in a query string ("a=1&b=2"), copied into out.
@@ -43,19 +47,10 @@ bool parse_index(const char *query, int &out) {
 
 }  // namespace
 
-BenchBoard classify_mac(const uint8_t mac[6]) {
-  if (memcmp(mac, kRig, 6) == 0) return BenchBoard::Rig;
-  for (const auto &s : kSpares)
-    if (memcmp(mac, s, 6) == 0) return BenchBoard::Bench;
-  return BenchBoard::Unknown;
-}
-
-const char *bench_board_name(BenchBoard b) {
-  switch (b) {
-    case BenchBoard::Bench: return "bench";
-    case BenchBoard::Rig: return "rig";
-    default: return "unknown";
-  }
+const char *waveshare_name(const uint8_t mac[6]) {
+  for (const Waveshare &w : kWaveshares)
+    if (memcmp(mac, w.mac, 6) == 0) return w.name;
+  return nullptr;
 }
 
 const char *bench_kind_name(BenchKind k) {

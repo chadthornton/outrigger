@@ -8,7 +8,7 @@ usage:
   [--port /dev/cu.usbmodemX] [--mock DUMP]
 
 Every command dumps first and refuses the FM-1 if its unit ID (the loader's:
-sha256 of sector 0xE9000, first 8 bytes) is the rig FM-1's. --mock runs the
+sha256 of sector 0xE9000, first 8 bytes) is FM-1-1's (Chad's main FM-1). --mock runs the
 Unbricker's in-process mock Transporter seeded from DUMP and never opens a
 serial port. --port names the Transporter so a board on the Mac is never
 probed. Only the Unbricker writes, and only 0x4000-0x92FFF (the app).
@@ -22,7 +22,7 @@ import sys
 import time
 
 RECOVERY = pathlib.Path(os.environ.get("FM1_RECOVERY", pathlib.Path.home() / "Projects/TROUBLESHOOTING/FM1-firmware-recovery"))
-RIG_UNIT = "69bb070aaa87bd10"
+FM1_1_UNIT = "69bb070aaa87bd10"
 UNIT_SECTOR = 0xE9000
 FLASH = 0x100000
 
@@ -75,8 +75,8 @@ def dump(a, out_dir):
         f.write(f"{digest}  {path.name}\n")
     uid = unit_id(data)
     print(f"dump {path} sha256 {digest} unit {uid or '(blank)'}")
-    if uid == RIG_UNIT:
-        raise RecoverError(f"unit {uid} is Chad's own FM-1 (the rig's): refusing to go on")
+    if uid == FM1_1_UNIT:
+        raise RecoverError(f"unit {uid} is FM-1-1, Chad's main FM-1: refusing to go on")
     return path, uid
 
 

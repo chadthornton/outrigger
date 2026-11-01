@@ -49,8 +49,8 @@ const char *stop_text(Stop s) {
     case Stop::LoaderBad: return "the loader blob is damaged";
     case Stop::LoaderFailed: return "the loader didn't start";
     case Stop::IdsWrong: return "chip key or flash ID isn't the FM-1's";
-    case Stop::WrongUnit: return "not the bench FM-1";
-    case Stop::RigUnit: return "that is the rig FM-1";
+    case Stop::WrongUnit: return "not FM-1-2";
+    case Stop::Fm11Unit: return "that is FM-1-1, Chad's main FM-1";
     case Stop::ReadFailed: return "a read failed";
     case Stop::EraseFailed: return "an erase failed";
     case Stop::WriteFailed: return "a write failed";
@@ -90,7 +90,7 @@ Report write_sectors(ScsiTransport &scsi, LoaderHost &host, const std::vector<ui
     if (!allowed(s.addr, o.protected_ok, &why)) return stop(Stop::Refused, at(why, s.addr));
   }
   if (o.unit.empty()) return stop(Stop::WrongUnit, "no bench unit named");
-  if (o.unit == kRigUnit) return stop(Stop::RigUnit);
+  if (o.unit == kFm11Unit) return stop(Stop::Fm11Unit);
   if (!kWritesEnabled && o.write) return stop(Stop::WriteFailed, "this build can't write (FM1_LOADER_WRITES)");
   if (hex(sha256(blob.data(), blob.size())) != kLoaderSha256) return stop(Stop::LoaderBad);
   if (loader_needs_host_scramble(true, true)) return stop(Stop::LoaderBad, "the loader would need scrambling");
@@ -127,9 +127,9 @@ Report write_sectors(ScsiTransport &scsi, LoaderHost &host, const std::vector<ui
   std::vector<uint8_t> buf(kSector);
   if (!read_sector(rom, kUnitSector, chunk, buf.data())) return stop(Stop::ReadFailed, at("read", kUnitSector));
   r.unit = unit_id_of(buf.data());
-  if (r.unit == kRigUnit || r.unit != o.unit) {
+  if (r.unit == kFm11Unit || r.unit != o.unit) {
     rom.run_app(kResetArg);
-    return stop(r.unit == kRigUnit ? Stop::RigUnit : Stop::WrongUnit, "FM-1 unit " + r.unit);
+    return stop(r.unit == kFm11Unit ? Stop::Fm11Unit : Stop::WrongUnit, "FM-1 unit " + r.unit);
   }
 
   std::vector<const Sector *> todo;

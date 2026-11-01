@@ -6,7 +6,7 @@ usage:
   bench.py state                      what the board and its Firmware page say
   bench.py switch "Skiff 2.1.1"       switch firmware, watch the FM-1 come back, back it up
   bench.py backup                     back up the FM-1
-  [--host fm1bench.local] [--runs build/bench/runs.jsonl] [--dry-run]
+  [--board waveshare-1] [--host fm1bench.local] [--runs build/bench/runs.jsonl] [--dry-run]
 
 A switch presses what the screen would: it opens the row's plan, checks the
 plan is for that firmware, then holds. The Loader decides keep or fresh start
@@ -14,9 +14,9 @@ itself, as it does for a person; the plan's lines go into the run's record.
 Each job runs in boots of its own, so the board drops off Wi-Fi in between;
 the runner waits it out and reads the result from /status.
 
-Safety: the board answers /bench/ only on a listed spare (lib/web_core/src/bench.cpp),
-and this script refuses a board whose /bench/state isn't "bench", and the rig's
-MAC by name. It refuses an FM-1 whose unit is Chad's own (the rig FM-1).
+Safety: the board answers /bench/ only on Chad's Waveshares (lib/web_core/src/bench.cpp),
+and this script refuses any board but the one --board names, by its MAC. It
+refuses FM-1-1 (Chad's main FM-1) by unit ID: the bench switches FM-1-2 only.
 --dry-run talks to an in-process fake board and never opens a socket.
 Standard library only. One JSON line per run goes to --runs.
 """
@@ -29,8 +29,8 @@ import urllib.error
 import urllib.request
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-RIG_MAC = "a0:85:e3:f0:a2:3c"
-RIG_UNIT = "69bb070aaa87bd10"   # the rig FM-1's unit ID: destructive runs never touch it
+WAVESHARES = {"waveshare-1": "d8:3b:da:a0:67:d0", "waveshare-2": "a0:85:e3:f0:a2:3c"}
+FM1_1_UNIT = "69bb070aaa87bd10"  # FM-1-1, Chad's main FM-1: the bench never switches it
 JOB_TIMEOUT_S = 20 * 60          # a switch chain is a backup, then an install: minutes each
 COME_BACK_S = 60                 # the FM-1 must re-enumerate as MIDI within this
 WATCH_S = 60                     # then stay put this long: a boot loop shows as disconnects
@@ -70,14 +70,13 @@ class Board:
         return time.monotonic()
 
 
-def check_board(board):
+def check_board(board, want):
     st = board.get("/bench/state")
     if st is None:
         raise BenchError(f"{board.host} doesn't answer /bench/state: not a bench build, or off Wi-Fi")
-    if st.get("mac", "").lower() == RIG_MAC:
-        raise BenchError("that is the rig board: refusing")
-    if st.get("board") != "bench":
-        raise BenchError(f"board {st.get('mac')} is '{st.get('board')}', not a listed bench spare: refusing")
+    mac = st.get("mac", "").lower()
+    if want not in WAVESHARES or mac != WAVESHARES[want] or st.get("board") != want:
+        raise BenchError(f"board {mac} says it is '{st.get('board')}', not {want}: refusing")
     return st
 
 
@@ -139,27 +138,27 @@ def watch_fm1(board):
     return first, changes
 
 
-def refuse_rig_unit(board):
+def refuse_fm1_1(board):
     store = board.get("/store") or {}
     for u in store.get("units", []):
-        if str(u.get("id", "")).startswith(RIG_UNIT):
-            raise BenchError(f"the board's store knows unit {RIG_UNIT}: that is Chad's own FM-1, refusing")
+        if str(u.get("id", "")).startswith(FM1_1_UNIT):
+            raise BenchError(f"the board's store knows unit {FM1_1_UNIT}: that is FM-1-1, refusing")
 
 
-def do_backup(board):
-    check_board(board)
+def do_backup(board, want):
+    check_board(board, want)
     s = wait_status(board, idle_play, "an idle Play boot", 60)
     if not fw(s).get("can_back_up"):
         raise BenchError("the Firmware page can't back up now: " + json.dumps(fw(s).get("blocked")))
     s, secs = run_job(board, "/bench/act?kind=backup", s.get("uptime_ms"))
-    refuse_rig_unit(board)
+    refuse_fm1_1(board)
     return {"kind": "backup", "seconds": secs, "result": fw(s).get("result"), "lines": fw(s).get("lines"),
             "ok": bool((fw(s).get("result") or {}).get("ok")) and not fw(s).get("unfinished")}
 
 
-def do_switch(board, label):
-    check_board(board)
-    refuse_rig_unit(board)
+def do_switch(board, label, want):
+    check_board(board, want)
+    refuse_fm1_1(board)
     s = wait_status(board, idle_play, "an idle Play boot", 60)
     labels = [i["label"] for i in fw(s).get("items", [])]
     if label not in labels:
@@ -181,7 +180,7 @@ def do_switch(board, label):
         rec["ok"] = False
         return rec
     rec["devices"], rec["usb_changes"] = watch_fm1(board)
-    rec["after_backup"] = do_backup(board)
+    rec["after_backup"] = do_backup(board, want)
     running = next((i["label"] for i in fw(board.get("/status") or {}).get("items", []) if i.get("note") == "running"), "")
     rec["running"] = running
     rec["ok"] = (bool((rec["result"] or {}).get("ok")) and running == label and rec["usb_changes"] == 0
@@ -193,6 +192,8 @@ def main(argv=None, board=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("command", choices=["state", "switch", "backup"])
     ap.add_argument("firmware", nargs="?", help="the library row to switch to, as the screen labels it")
+    ap.add_argument("--board", default="waveshare-1", choices=sorted(WAVESHARES),
+                    help="the Waveshare the run expects; any other board is refused")
     ap.add_argument("--host", default="fm1bench.local")
     ap.add_argument("--runs", default=str(ROOT / "build" / "bench" / "runs.jsonl"))
     ap.add_argument("--dry-run", action="store_true", help="a fake board in-process; no network")
@@ -206,15 +207,15 @@ def main(argv=None, board=None):
             board = Board(a.host)
     try:
         if a.command == "state":
-            rec = {"bench": check_board(board), "status": board.get("/status")}
+            rec = {"bench": check_board(board, a.board), "status": board.get("/status")}
             print(json.dumps(rec, indent=1))
             return 0
         if a.command == "switch":
             if not a.firmware:
                 ap.error("switch needs a firmware label")
-            rec = do_switch(board, a.firmware)
+            rec = do_switch(board, a.firmware, a.board)
         else:
-            rec = do_backup(board)
+            rec = do_backup(board, a.board)
     except BenchError as e:
         rec = {"kind": a.command, "to": a.firmware, "ok": False, "error": str(e)}
     rec["at"] = time.strftime("%Y-%m-%dT%H:%M:%S%z")

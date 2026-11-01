@@ -13,7 +13,7 @@ class FakeBoard:
         self.t = 0.0
         self.labels = list(labels)
         self.running = running
-        self.mac, self.board = "d8:3b:da:a0:67:d0", "bench"
+        self.mac, self.board = "d8:3b:da:a0:67:d0", "waveshare-1"
         self.units = [{"id": "0123456789abcdef"}]
         self.selected = -1
         self.boot_at = 0.0

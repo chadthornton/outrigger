@@ -1,8 +1,8 @@
 // The test bench's control API (BENCH=1 builds only, never a release): the Mac
-// (tools/bench.py) starts a firmware switch or a backup on a spare board wired
-// to the bench FM-1, with nobody at the screen. Everything here is pure, so
-// the Mac tests hold it; the routes are registered only when the board's MAC
-// is a bench spare (classify_mac), never on the rig.
+// (tools/bench.py) starts a firmware switch or a backup on a Waveshare wired
+// to FM-1-2, with nobody at the screen. Everything here is pure, so the Mac
+// tests hold it; the routes are registered only when the board's MAC is one of
+// Chad's Waveshares (waveshare_name), and the Mac checks it's the one it asked for.
 //
 // The API presses what the screen would press: select a row (its plan is
 // previewed), then act on it. The Loader still refuses an act whose row
@@ -24,11 +24,9 @@ constexpr Route kBenchRoutes[] = {
 };
 constexpr int kBenchRouteCount = sizeof kBenchRoutes / sizeof kBenchRoutes[0];
 
-enum class BenchBoard : uint8_t { Bench, Rig, Unknown };
-// The rig board (a0:85:e3:f0:a2:3c) is refused by name; only listed spares
-// are Bench. Anything else is Unknown, and gets no bench API either.
-BenchBoard classify_mac(const uint8_t mac[6]);
-const char *bench_board_name(BenchBoard b);
+// Chad's Waveshares by MAC ("waveshare-1", "waveshare-2"); null for any other
+// board, which gets no bench API.
+const char *waveshare_name(const uint8_t mac[6]);
 
 enum class BenchKind : uint8_t { None, Select, Switch, Backup, Retry };
 struct BenchCommand {
