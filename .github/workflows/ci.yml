@@ -1,5 +1,5 @@
-# Run by hand only (Actions tab, "Run workflow"): Actions minutes on this private
-# repo cost money, so the merge gate uses `make check` on the Mac instead (README).
+# An extra signal on pushes to master and on PRs, free now the repo is public. The
+# merge gate is still `make check` on the Mac (README, "Before merging").
 # The Mac-style tests and the UI shots, then every board x app set built and staged
 # into the installer site. Nothing is published: the staged firmware is a
 # private workflow artifact. JieLi's wl82loader.bin is fetched for the tests
@@ -7,7 +7,14 @@
 name: CI
 
 on:
+  push:
+    branches: [master]
+  pull_request:
   workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
