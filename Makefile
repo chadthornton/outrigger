@@ -269,6 +269,10 @@ store-add: $(TOOLS_PY)
 # rest), so updating any of them starts a fresh cache instead of a stale pass.
 CHECK_DIR := build/check
 CHECK_CACHES := build/check-cache
+# The commit under test, read once when make starts: every line below names this
+# one, even if the worktree commits again while the check runs.
+CHECK_SHA := $(shell git rev-parse HEAD)
+CHECK_SHORT := $(shell git rev-parse --short HEAD)
 # Finder can write .DS_Store into a folder while rm -rf empties it ("Directory
 # not empty"): delete those first, and try once more.
 RM_CHECK = find $(CHECK_DIR) -name .DS_Store -delete 2>/dev/null; rm -rf $(CHECK_DIR) \
@@ -277,20 +281,20 @@ check:
 	@key=$$({ arduino-cli version; arduino-cli core list; arduino-cli lib list; } | shasum | cut -c1-12) || exit 1; \
 	mkdir -p $(CHECK_CACHES) && find $(CHECK_CACHES) -mindepth 1 -maxdepth 1 ! -name $$key -exec rm -rf {} + ; \
 	echo "check cache: $(CHECK_CACHES)/$$key"; echo $$key > $(CHECK_CACHES)/.key
-	@sha=$$(git rev-parse HEAD); \
+	@sha=$(CHECK_SHA); echo "check: testing $(CHECK_SHORT)"; \
 	if [ "$$(git -C $(CHECK_DIR) rev-parse --show-toplevel 2>/dev/null)" = "$(CURDIR)/$(CHECK_DIR)" ] \
 		&& git -C $(CHECK_DIR) checkout -q -f --detach $$sha && git -C $(CHECK_DIR) clean -q -ffdx; then \
-		echo "check: reusing $(CHECK_DIR), reset to $$(git rev-parse --short HEAD)"; \
+		echo "check: reusing $(CHECK_DIR)"; \
 	else \
 		echo "check: fresh clone into $(CHECK_DIR)"; \
 		$(RM_CHECK) && git clone -q --shared . $(CHECK_DIR) && git -C $(CHECK_DIR) checkout -q --detach $$sha; \
 	fi
-	test "$$(git -C $(CHECK_DIR) rev-parse HEAD)" = "$$(git rev-parse HEAD)" && test -z "$$(git -C $(CHECK_DIR) status --porcelain --ignored | grep -v '\.DS_Store$$')"
+	test "$$(git -C $(CHECK_DIR) rev-parse HEAD)" = "$(CHECK_SHA)" && test -z "$$(git -C $(CHECK_DIR) status --porcelain --ignored | grep -v '\.DS_Store$$')"
 	mkdir -p $(CHECK_DIR)/tests/fixtures && cp tests/fixtures/* $(CHECK_DIR)/tests/fixtures/
 	$(MAKE) -C $(CHECK_DIR) test ui-shots site CACHE_ROOT=$(CURDIR)/$(CHECK_CACHES)/$$(cat $(CHECK_CACHES)/.key) > $(CHECK_DIR).log 2>&1 \
-		|| { tail -30 $(CHECK_DIR).log; echo "check FAILED at $$(git rev-parse --short HEAD); log: $(CHECK_DIR).log"; exit 1; }
+		|| { tail -30 $(CHECK_DIR).log; echo "check FAILED at $(CHECK_SHORT); log: $(CHECK_DIR).log"; exit 1; }
 	@grep -E "passed|keeps the install|Sketch uses" $(CHECK_DIR).log
-	@echo "check passed at $$(git rev-parse --short HEAD) (clean checkout; log: $(CHECK_DIR).log)"
+	@echo "check passed at $(CHECK_SHORT) (clean checkout; log: $(CHECK_DIR).log)"
 
 # Stage the firmware into site/ for the browser installer (site/installer/).
 # fixtures brings wl82loader.bin, so build_site can scan for pieces of it.
