@@ -1,0 +1,97 @@
+#include "bench.h"
+
+#include <stdlib.h>
+#include <string.h>
+
+namespace web_core {
+
+namespace {
+
+constexpr uint8_t kRig[6] = {0xA0, 0x85, 0xE3, 0xF0, 0xA2, 0x3C};
+// Spare 1 (read by esptool, 2026-11-01). Spare 2 joins once its MAC is read.
+constexpr uint8_t kSpares[][6] = {
+    {0xD8, 0x3B, 0xDA, 0xA0, 0x67, 0xD0},
+};
+
+// The value of key in a query string ("a=1&b=2"), copied into out.
+bool query_value(const char *query, const char *key, char *out, size_t len) {
+  const size_t klen = strlen(key);
+  for (const char *p = query; p && *p;) {
+    const char *end = strchr(p, '&');
+    const size_t n = end ? size_t(end - p) : strlen(p);
+    if (n > klen && strncmp(p, key, klen) == 0 && p[klen] == '=') {
+      const size_t v = n - klen - 1;
+      if (v >= len) return false;
+      memcpy(out, p + klen + 1, v);
+      out[v] = 0;
+      return true;
+    }
+    p = end ? end + 1 : nullptr;
+  }
+  return false;
+}
+
+bool parse_index(const char *query, int &out) {
+  char buf[8];
+  if (!query_value(query, "index", buf, sizeof buf) || !buf[0]) return false;
+  char *end = nullptr;
+  const long v = strtol(buf, &end, 10);
+  if (*end || v < 0 || v > 63) return false;
+  out = int(v);
+  return true;
+}
+
+}  // namespace
+
+BenchBoard classify_mac(const uint8_t mac[6]) {
+  if (memcmp(mac, kRig, 6) == 0) return BenchBoard::Rig;
+  for (const auto &s : kSpares)
+    if (memcmp(mac, s, 6) == 0) return BenchBoard::Bench;
+  return BenchBoard::Unknown;
+}
+
+const char *bench_board_name(BenchBoard b) {
+  switch (b) {
+    case BenchBoard::Bench: return "bench";
+    case BenchBoard::Rig: return "rig";
+    default: return "unknown";
+  }
+}
+
+const char *bench_kind_name(BenchKind k) {
+  switch (k) {
+    case BenchKind::Select: return "select";
+    case BenchKind::Switch: return "switch";
+    case BenchKind::Backup: return "backup";
+    case BenchKind::Retry: return "retry";
+    default: return "none";
+  }
+}
+
+bool parse_bench_command(const char *path, const char *query, BenchCommand &out, const char **why) {
+  const char *dummy;
+  if (!why) why = &dummy;
+  out = BenchCommand{};
+  if (!query) query = "";
+  if (strcmp(path, "/bench/select") == 0) {
+    if (!parse_index(query, out.index)) return *why = "select needs index=0..63", false;
+    out.kind = BenchKind::Select;
+    return true;
+  }
+  if (strcmp(path, "/bench/act") != 0) return *why = "not a bench command", false;
+  char kind[8];
+  if (!query_value(query, "kind", kind, sizeof kind)) return *why = "act needs kind=switch|backup|retry", false;
+  if (strcmp(kind, "switch") == 0) {
+    if (!parse_index(query, out.index)) return *why = "switch needs index=0..63", false;
+    out.kind = BenchKind::Switch;
+  } else if (strcmp(kind, "backup") == 0) {
+    out.kind = BenchKind::Backup;
+  } else if (strcmp(kind, "retry") == 0) {
+    out.kind = BenchKind::Retry;
+  } else {
+    return *why = "kind must be switch, backup or retry", false;
+  }
+  return true;
+}
+
+}  // namespace web_core

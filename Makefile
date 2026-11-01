@@ -29,6 +29,13 @@ WRITE_FLAGS += $(if $(filter 1,$(SOAK)),-DLOADER_SOAK=1)
 # Back to MIDI does) 100 s after each boot, so tools/boot_probe.py can time Wi-Fi
 # across many software restarts unattended. Never a release.
 WRITE_FLAGS += $(if $(filter 1,$(WIFI_BOOTLOOP)),-DWIFI_BOOTLOOP=1)
+# BENCH=1 (with DIAG_WEB=1, APPS=hub-loader): the test bench's control API at
+# fm1bench.local (lib/web_core/src/bench.h), answered only on a listed spare.
+# tools/bench.py drives it. Never a release: make site checks no shipped build has it.
+ifeq ($(BENCH),1)
+$(if $(filter 1,$(DIAG_WEB)),,$(error BENCH=1 needs DIAG_WEB=1))
+WRITE_FLAGS += -DBENCH=1
+endif
 APP_LIBS_hub :=
 APP_LIBS_hub-loader := --library lib/fm1_loader
 APP_LIBS_everything := --library lib/fm1_loader --library lib/web_core
@@ -47,6 +54,9 @@ BUILD_SUFFIX := $(BUILD_SUFFIX)-soak
 endif
 ifeq ($(WIFI_BOOTLOOP),1)
 BUILD_SUFFIX := $(BUILD_SUFFIX)-bootloop
+endif
+ifeq ($(BENCH),1)
+BUILD_SUFFIX := $(BUILD_SUFFIX)-bench
 endif
 SKETCH := firmware/$(BOARD)
 BUILD := build/$(BOARD)/$(APPS)$(BUILD_SUFFIX)
@@ -97,6 +107,7 @@ test: build/check_package build/test_fm1_interop build/test_midi_core build/test
 	node --test tests/installer/
 	python3 -I tests/test_deploy_site.py
 	python3 -I tests/test_check.py
+	python3 -I tests/test_bench.py
 
 # The Mac tests may write the mock FM-1 (FM1_LOADER_WRITES=1); test_fm1_locked
 # is built without it, as every firmware build is until hardware checkpoint 3.
@@ -278,6 +289,7 @@ site: build-all fixtures $(TOOLS_PY)
 	for b in $(BOARDS); do \
 		$(TOOLS_PY) tools/store_template.py firmware/$$b/partitions.csv build/$$b/store-template.json || exit 1; \
 		for a in $(APP_SETS); do \
+		if grep -q /bench/ build/$$b/$$a/*.ino.bin; then echo "build/$$b/$$a has the bench API"; exit 1; fi; \
 		python3 tools/build_site.py $$b $$a build/$$b/$$a $(ESP32_CORE)/tools/partitions/boot_app0.bin \
 			$(shell git describe --always --dirty) build/$$b/store-template.json || exit 1; done; done
 

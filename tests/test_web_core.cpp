@@ -8,6 +8,7 @@
 #include <thread>
 #include <vector>
 
+#include "bench.h"
 #include "hotspot_channel.h"
 #include "json_field.h"
 #include "log_ring.h"
@@ -155,6 +156,47 @@ static void test_routes_read_only() {
     for (const Route &r : kRoutes) found = found || (strcmp(r.uri, w) == 0 && r.method == Method::Get);
     EXPECT(found, w);
   }
+}
+
+// ---------- Bench API (BENCH=1 builds only) ----------
+static void test_bench_routes_apart() {
+  // The release table never gains a bench route; the bench table holds only /bench/.
+  for (const Route &r : kRoutes) EXPECT(strncmp(r.uri, "/bench", 6) != 0, "no bench route in the release table");
+  for (const Route &r : kBenchRoutes) {
+    EXPECT(strncmp(r.uri, "/bench/", 7) == 0, "bench routes live under /bench/");
+    EXPECT(!r.hotspot_only, "bench routes answer on the LAN");
+  }
+}
+
+static void test_bench_mac() {
+  const uint8_t rig[6] = {0xA0, 0x85, 0xE3, 0xF0, 0xA2, 0x3C};
+  const uint8_t spare1[6] = {0xD8, 0x3B, 0xDA, 0xA0, 0x67, 0xD0};
+  const uint8_t other[6] = {0xD8, 0x3B, 0xDA, 0xA0, 0x67, 0xD1};
+  EXPECT(classify_mac(rig) == BenchBoard::Rig, "the rig is refused");
+  EXPECT(classify_mac(spare1) == BenchBoard::Bench, "spare 1 is a bench board");
+  EXPECT(classify_mac(other) == BenchBoard::Unknown, "an unlisted board is not a bench board");
+}
+
+static void test_bench_commands() {
+  BenchCommand c;
+  const char *why = nullptr;
+  EXPECT(parse_bench_command("/bench/select", "index=3", c, &why) && c.kind == BenchKind::Select && c.index == 3,
+         "select a row");
+  EXPECT(parse_bench_command("/bench/act", "kind=switch&index=2", c, &why) && c.kind == BenchKind::Switch &&
+             c.index == 2, "switch names its row");
+  EXPECT(parse_bench_command("/bench/act", "index=2&kind=switch", c, &why) && c.kind == BenchKind::Switch,
+         "any order");
+  EXPECT(parse_bench_command("/bench/act", "kind=backup", c, &why) && c.kind == BenchKind::Backup, "backup");
+  EXPECT(parse_bench_command("/bench/act", "kind=retry", c, &why) && c.kind == BenchKind::Retry, "retry");
+  EXPECT(!parse_bench_command("/bench/act", "kind=switch", c, &why) && why, "switch without a row");
+  EXPECT(!parse_bench_command("/bench/act", "kind=erase", c, &why), "unknown kind");
+  EXPECT(!parse_bench_command("/bench/select", "index=-1", c, &why), "negative row");
+  EXPECT(!parse_bench_command("/bench/select", "index=3x", c, &why), "junk after the row");
+  EXPECT(!parse_bench_command("/bench/select", "", c, &why), "no row");
+  EXPECT(!parse_bench_command("/bench/select", nullptr, c, &why), "no query");
+  EXPECT(!parse_bench_command("/bench/act", "kindx=backup", c, &why), "a longer key isn't kind");
+  EXPECT(!parse_bench_command("/status", "kind=backup", c, &why), "not a bench path");
+  EXPECT(c.kind == BenchKind::None, "a refused command names nothing");
 }
 
 // ---------- Request guard (from the spike) ----------
@@ -339,6 +381,9 @@ int main() {
   test_history_evicts();
   test_drain_merges();
   test_routes_read_only();
+  test_bench_routes_apart();
+  test_bench_mac();
+  test_bench_commands();
   test_host_guard();
   test_json_fields();
   test_hotspot_channel();
