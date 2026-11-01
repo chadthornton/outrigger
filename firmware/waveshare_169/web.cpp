@@ -23,6 +23,7 @@
 #include "crumbs.h"
 #include "diag.h"
 #include "hotspot_channel.h"
+#include "wifi_fallback.h"
 #include "json_field.h"
 #include "log_ring.h"
 #include "request_guard.h"
@@ -107,8 +108,9 @@ static bool started = false, safe = false;
 static Preferences wifi_prefs;
 static httpd_handle_t server = nullptr;
 static DNSServer dns;
-static bool mdns_on = false, joining_from_setup = false, ever_online = false;
-static uint32_t join_at = 0, retry_saved_at = 0, connect_started = 0, online_since = 0, last_drain = 0;
+static bool mdns_on = false, joining_from_setup = false;
+static web_core::WifiFallback fallback;  // nudges, the hotspot and retries of the saved network
+static uint32_t join_at = 0, connect_started = 0, online_since = 0, last_drain = 0;
 // The station's last disconnect reason, from Wi-Fi's event task; the loop logs
 // it. The first join after a boot sometimes stalls with no reason at all
 // (2026-10-30), and these lines say which kind of failure a slow boot was.
@@ -729,7 +731,6 @@ static void start_hotspot(uint32_t now) {
     Lock l;
     ap_on = true;
   }
-  retry_saved_at = saved_ssid[0] ? now + 120000 : 0;
   set_ips();
   DLOG_LOOP("wifi: hotspot %s on channel %u", kSetupSsid, hotspot_channel);
 }
@@ -801,6 +802,7 @@ void web_begin(bool safe_mode) {
   if (saved_ssid[0]) {
     WiFi.mode(WIFI_STA);
     join(saved_ssid, saved_pass);
+    fallback.boot_join(millis());
   } else {
     start_hotspot(millis());
   }
@@ -877,7 +879,6 @@ void web_loop(uint32_t now) {
   if (connected && net != Net::Online) {
     net = Net::Online;
     online_since = now;
-    ever_online = true;
     if (trial_ssid[0] && WiFi.SSID() == trial_ssid) {  // they work: keep them
       memcpy(saved_ssid, trial_ssid, sizeof saved_ssid);
       memcpy(saved_pass, trial_pass, sizeof saved_pass);
@@ -908,28 +909,39 @@ void web_loop(uint32_t now) {
         joining_from_setup = false;
         stop_hotspot();
       }
-    } else if (connect_started && now - connect_started > 15000 && (joining_from_setup || retry_saved_at == 0)) {
-      // A join that didn't work. Stop the station retrying: its channel hops
-      // would drag the hotspot (and the phone) around.
+    } else if (joining_from_setup && connect_started && now - connect_started > 15000) {
+      // A join from the setup page that didn't work. Stop the station retrying:
+      // its channel hops would drag the hotspot (and the phone) around.
       WiFi.disconnect();
       connect_started = 0;
       joining_from_setup = false;
-      if (saved_ssid[0]) retry_saved_at = now + 120000;
       DLOG_LOOP("wifi: join failed");
-    } else if (retry_saved_at && int32_t(now - retry_saved_at) >= 0 && saved_ssid[0] && !joining_from_setup) {
-      // The saved network may be back (a router reboot). Retry it, but not
-      // while a phone is on the hotspot.
-      retry_saved_at = now + 120000;
-      if (WiFi.softAPgetStationNum() == 0) {
-        join(saved_ssid, saved_pass);
-        retry_saved_at = 0;  // the failure branch above re-arms it
-      }
     }
-  } else if (!connected && saved_ssid[0] && !ever_online && connect_started && now - connect_started > 20000) {
-    // A saved network that never answered since boot: open the hotspot. Once it
-    // has worked, a drop only retries the station: the hotspot's scan blocks
-    // the loop ~2 s, which mustn't happen in the middle of a loader job.
-    start_hotspot(now);
+  }
+  // Not associated. Status 6 also covers a join still under way, but by the
+  // first nudge (20 s) a working join has long finished (~1-5 s).
+  const bool stalled = status == WL_DISCONNECTED || status == WL_CONNECT_FAILED || status == WL_NO_SSID_AVAIL;
+  const int phones = ap_on ? WiFi.softAPgetStationNum() : 0;
+  switch (fallback.tick(now, {saved_ssid[0] != 0, connected, stalled, ap_on, phones, joining_from_setup})) {
+    case web_core::WifiFallback::Do::Nothing:
+      break;
+    case web_core::WifiFallback::Do::Nudge: {
+      const bool ok = WiFi.reconnect();  // esp_wifi_connect() only: never a disconnect over a join
+      fallback.nudge_result(now, ok);
+      DLOG_LOOP("wifi: nudge at status %d, reconnect %s", int(status), ok ? "ok" : "failed");
+      break;
+    }
+    case web_core::WifiFallback::Do::OpenHotspot:
+      start_hotspot(now);
+      break;
+    case web_core::WifiFallback::Do::Join:
+      join(saved_ssid, saved_pass);
+      break;
+    case web_core::WifiFallback::Do::StopJoin:
+      WiFi.disconnect();  // as above: a retry still hopping would drag the hotspot along
+      connect_started = 0;
+      DLOG_LOOP("wifi: join failed");
+      break;
   }
   static uint32_t last_ips = 0;
   if (connected && now - last_ips > 5000) {  // refresh RSSI
