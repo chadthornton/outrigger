@@ -12,10 +12,12 @@
 //
 // Serial commands (115200): t = start 440 Hz tone (2 ch, 16 bit, 44.1 kHz),
 // s = stop tone, r = print the topology report now, p = one software replug,
-// c = ten software replugs. A software replug switches the root port off and
-// on (usb_host_lib_set_root_port_power), so the hub and everything behind it
-// disconnect and re-enumerate as after a cable pull, then checks that the
-// settled topology matches the one before the first cycle.
+// c = ten software replugs. A software replug stops and restarts the USB host
+// (usb.end() / usb.begin()), so the hub and everything behind it disconnect and
+// re-enumerate and forced full speed is set again, then checks that the
+// settled topology matches the one before the first cycle. Toggling root port
+// power alone does not work: the port refuses to power back on
+// (ESP_ERR_INVALID_STATE) while the hub's handle is still held.
 //
 // Log lines are prefixed so docs/p4-usb-probe.md can quote them: CONNECTED,
 // DISCONNECTED, DEVICE, AUDIO_STREAM, CHANNELS, NOTE, PROBE, TONE.
@@ -25,6 +27,7 @@
 #include "soc/usb_dwc_struct.h"
 
 EspUsbHost usb;
+static EspUsbHostConfig hostConfig;
 
 static constexpr uint32_t REPORT_INTERVAL_MS = 3000;
 static constexpr uint32_t TONE_STATS_INTERVAL_MS = 10000;
@@ -51,6 +54,7 @@ static volatile uint32_t toneFramesWritten = 0;
 static bool toneRunning = false;
 static uint32_t toneStartMs = 0;
 static uint32_t toneLastUnderruns = 0;
+static void stopTone();
 
 static const char *speedName(usb_speed_t speed)
 {
@@ -151,7 +155,7 @@ static void reportTopology()
            downstream, midi, out44k);
 }
 
-// Software replug cycles: Off -> (1 s) On -> (8 s settle) compare -> next.
+// Software replug cycles: end() -> (1 s) begin() -> (8 s settle) compare -> next.
 static constexpr uint32_t CYCLE_OFF_MS = 1000;
 static constexpr uint32_t CYCLE_SETTLE_MS = 8000;
 static enum { CycleIdle, CycleOff, CycleOn } cycleState = CycleIdle;
@@ -184,10 +188,10 @@ static void runCycles()
   cycleAtMs = millis();
   if (cycleState == CycleOff)
   {
-    const esp_err_t err = usb_host_lib_set_root_port_power(true);
-    Serial.printf("CYCLE %lu/%lu power=on err=%s HCFG=0x%08lx FSLSSUPP=%u\n",
+    const bool ok = usb.begin(hostConfig);
+    Serial.printf("CYCLE %lu/%lu begin=%s HCFG=0x%08lx FSLSSUPP=%u\n",
                   static_cast<unsigned long>(cycleIndex + 1), static_cast<unsigned long>(cycleTotal),
-                  esp_err_to_name(err), static_cast<unsigned long>(USB_DWC_HS.hcfg_reg.val),
+                  ok ? "ok" : usb.lastErrorName(), static_cast<unsigned long>(USB_DWC_HS.hcfg_reg.val),
                   static_cast<unsigned>(USB_DWC_HS.hcfg_reg.fslssupp));
     cycleState = CycleOn;
     return;
@@ -210,9 +214,13 @@ static void runCycles()
     }
   }
   cycleScoring = true;
-  const esp_err_t err = usb_host_lib_set_root_port_power(false);
-  Serial.printf("CYCLE %lu/%lu power=off err=%s\n", static_cast<unsigned long>(cycleIndex + 1),
-                static_cast<unsigned long>(cycleTotal), esp_err_to_name(err));
+  if (toneRunning)
+  {
+    stopTone();
+  }
+  usb.end();
+  Serial.printf("CYCLE %lu/%lu end\n", static_cast<unsigned long>(cycleIndex + 1),
+                static_cast<unsigned long>(cycleTotal));
   cycleState = CycleOff;
 }
 
@@ -310,7 +318,7 @@ void setup()
   });
   usb.onAudioOutputRequest(fillTone);
 
-  EspUsbHostConfig config;
+  EspUsbHostConfig &config = hostConfig;
   config.port = ESP_USB_HOST_PORT_HIGH_SPEED;
   config.experimentalForceFullSpeed = true;
   // The default periodic-OUT FIFO caps an isochronous OUT endpoint at 512
