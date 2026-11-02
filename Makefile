@@ -38,6 +38,9 @@ WRITE_FLAGS += $(if $(filter 1,$(SOAK)),-DLOADER_SOAK=1)
 # Back to MIDI does) 100 s after each boot, so tools/boot_probe.py can time Wi-Fi
 # across many software restarts unattended. Never a release.
 WRITE_FLAGS += $(if $(filter 1,$(WIFI_BOOTLOOP)),-DWIFI_BOOTLOOP=1)
+# HEAP_ON_SCREEN=1: Setup's network line shows free internal and DMA RAM, for
+# sizing screens on a board whose USB port is busy hosting. Never a release.
+WRITE_FLAGS += $(if $(filter 1,$(HEAP_ON_SCREEN)),-DHEAP_ON_SCREEN=1)
 # BENCH=1 (with DIAG_WEB=1, APPS=hub-loader): the test bench's control API at
 # fm1bench.local (lib/web_core/src/bench.h), answered only on Chad's Waveshares.
 # tools/bench.py drives it. Never a release: make site checks no shipped build has it.
@@ -60,6 +63,9 @@ endif
 endif
 ifeq ($(SOAK),1)
 BUILD_SUFFIX := $(BUILD_SUFFIX)-soak
+endif
+ifeq ($(HEAP_ON_SCREEN),1)
+BUILD_SUFFIX := $(BUILD_SUFFIX)-heap
 endif
 ifeq ($(WIFI_BOOTLOOP),1)
 BUILD_SUFFIX := $(BUILD_SUFFIX)-bootloop
@@ -101,8 +107,9 @@ FM1_TESTS := build/test_fm1_package build/test_fm1_library build/test_fm1_instal
 	build/test_fm1_softkey build/test_fm1_posix build/test_fm1_locked build/test_fm1_library_posix \
 	build/test_fm1_receive
 
-test: build/check_package build/test_fm1_interop build/test_touch_map build/test_midi_core build/test_status build/test_boot_mode build/test_broker build/test_describe build/test_web_core build/test_store_json build/test_loader_messages build/test_bench_writer $(FM1_TESTS) build/receive_pipe fixtures $(TOOLS_PY)
+test: build/check_package build/test_fm1_interop build/test_touch_map build/test_panel test-board-configs build/test_midi_core build/test_status build/test_boot_mode build/test_broker build/test_describe build/test_web_core build/test_store_json build/test_loader_messages build/test_bench_writer $(FM1_TESTS) build/receive_pipe fixtures $(TOOLS_PY)
 	./build/test_touch_map
+	./build/test_panel
 	./build/test_midi_core
 	./build/test_status
 	./build/test_boot_mode
@@ -185,6 +192,19 @@ golden: $(GOLDEN_PY) fixtures
 build/test_touch_map: tests/test_touch_map.cpp firmware/waveshare_169/touch_map.h
 	mkdir -p build
 	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -Ifirmware/waveshare_169 -o $@ $<
+
+# The panel's MADCTL byte and the touch axes from a profile (board_config_types.h, touch_map.h).
+build/test_panel: tests/test_panel.cpp firmware/waveshare_169/board_config_types.h firmware/waveshare_169/touch_map.h
+	mkdir -p build
+	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -Ifirmware/waveshare_169 -o $@ $<
+
+# Every profile's generated board_config.h compiles and makes sense (tests/test_board_config.cpp).
+.PHONY: test-board-configs
+test-board-configs: tests/test_board_config.cpp firmware/waveshare_169/board_config_types.h firmware/boards.json tools/boards.py
+	for b in $(ALL_BOARDS); do \
+		python3 -I tools/boards.py header $$b build/board-configs/$$b/board_config.h || exit 1; \
+		$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -Ibuild/board-configs/$$b -Ifirmware/waveshare_169 -Ilib/host_ui/src \
+			-o build/board-configs/$$b/test $< && ./build/board-configs/$$b/test || exit 1; done
 
 build/test_midi_core: tests/test_midi_core.cpp lib/midi_core/src/midi_core.cpp lib/midi_core/src/midi_core.h
 	mkdir -p build

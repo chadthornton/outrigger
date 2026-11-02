@@ -138,8 +138,18 @@ class CheckTest(unittest.TestCase):
 
     def test_spi_mode(self):
         self.assertRefused(one(**{"display.spi_mode": 4}), "spi_mode")
-        self.assertRefused(dict(REAL["boards"]["waveshare_169"], display={**REAL["boards"]["waveshare_169"]["display"], "spi_mode": 0}),
-                           "spi_mode")  # Arduino_GFX takes a mode only for the ST7796
+        # Any panel: board.cpp sets the mode on the SPI bus, not the panel class.
+        self.assertEqual(problems(dict(REAL["boards"]["waveshare_169"],
+                                       display={**REAL["boards"]["waveshare_169"]["display"], "spi_mode": 0})), [])
+
+    def test_panel_and_touch_axis_fields_are_yes_or_no(self):
+        for field in ("display.bgr", "display.mirror_x", "display.mirror_y",
+                      "touch.swap_xy", "touch.invert_x", "touch.invert_y"):
+            self.assertRefused(one(**{field: "sometimes"}), field)
+            self.assertEqual(problems(one(**{field: True})), [], field)
+
+    def test_at_most_four_held_pins(self):
+        self.assertRefused(one(**{"hold_low": [9, 10, 11, 12, 13]}), "hold_low")
 
     def test_restart_on_power_on_is_a_yes_or_no(self):
         self.assertRefused(one(restart_on_power_on="once"), "restart_on_power_on")
@@ -163,31 +173,36 @@ class OutputTest(unittest.TestCase):
 
     def test_header_for_the_35(self):
         h = boards.header("waveshare_35", REAL["boards"]["waveshare_35"])
-        for want in ["#define BOARD_DISPLAY_ST7796 1", "#define BOARD_TOUCH_FT6336 1", "#define BOARD_EXPANDER_TCA9554 1",
-                     "#define BOARD_TAG_ID 1", "kLcdRst = 101", "kLcdCs = -1", "kHoldLow[] = {107}", "kSpiHz = 40000000",
-                     "kSpiMode = 0", "kRestartOnPowerOn = true"]:
+        for want in ["#define BOARD_TAG_ID 1", "/* panel */ PanelDriver::ST7796", "/* touch */ TouchDriver::FT6336",
+                     "/* expander */ ExpanderDriver::TCA9554", "/* lcd_rst */ 101", "/* lcd_cs */ -1",
+                     "/* hold_low */ {107, -1, -1, -1}", "/* spi_hz */ 40000000", "/* spi_mode */ 0",
+                     "/* rotation */ 1", "/* restart_on_power_on */ true", "/* bgr */ -1"]:
             self.assertIn(want, h)
 
     def test_header_for_the_169(self):
+        # The 1.69 sets none of the new fields: board.cpp keeps Arduino_GFX's own behaviour for it.
         h = boards.header("waveshare_169", REAL["boards"]["waveshare_169"])
-        for want in ["#define BOARD_DISPLAY_ST7789 1", "#define BOARD_TOUCH_CST816 1", "#define BOARD_TAG_ID 0",
-                     "kHoldLow[] = {42}", "kSpiHz = 80000000", "kOffsets[4] = {0, 20, 0, 20}",
-                     "ScreenShape::Rounded, 40, 0}", "kSpiMode = -1", "kRestartOnPowerOn = false"]:
+        for want in ["#define BOARD_TAG_ID 0", "/* panel */ PanelDriver::ST7789", "/* touch */ TouchDriver::CST816",
+                     "/* expander */ ExpanderDriver::None", "/* hold_low */ {42, -1, -1, -1}",
+                     "/* hold_high */ {-1, -1, -1, -1}", "/* spi_hz */ 80000000", "/* offsets */ {0, 20, 0, 20}",
+                     "ScreenShape::Rounded, 40, 0}", "/* spi_mode */ -1", "/* restart_on_power_on */ false",
+                     "/* bgr */ -1", "/* mirror_x */ -1", "/* touch_swap_xy */ -1"]:
             self.assertIn(want, h)
-        self.assertNotIn("BOARD_EXPANDER", h)
 
     def test_header_for_the_freenove(self):
         h = boards.header("freenove_28", REAL["boards"]["freenove_28"])
-        for want in ["#define BOARD_DISPLAY_ILI9341 1", "#define BOARD_TOUCH_FT6336 1", "#define BOARD_TAG_ID 2",
-                     "kHoldHigh[] = {1}", "kHoldLow[] = {-1}", "kTpRst = 18"]:
+        for want in ["#define BOARD_TAG_ID 2", "/* panel */ PanelDriver::ILI9341", "/* hold_high */ {1, -1, -1, -1}",
+                     "/* tp_rst */ 18"]:
             self.assertIn(want, h)
+
+    def test_header_fields(self):
+        h = boards.header("x", one(**{"display.bgr": True, "touch.invert_x": False}))
+        self.assertIn("/* bgr */ 1", h)
+        self.assertIn("/* touch_invert_x */ 0", h)
 
     def test_names_are_c_strings(self):
         self.assertIn('{"Freenove ESP32-S3 Display 2.8\\" (FNK0104B)", 240, 320,',
                       boards.header("freenove_28", REAL["boards"]["freenove_28"]))
-
-    def test_169_holds_nothing_high(self):
-        self.assertIn("kHoldHigh[] = {-1}", boards.header("waveshare_169", REAL["boards"]["waveshare_169"]))
 
     def test_shots_table_is_the_real_screens(self):
         t = boards.shots_table(REAL)

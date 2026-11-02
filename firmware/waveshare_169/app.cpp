@@ -647,7 +647,9 @@ void loop() {
   static uint32_t last_net = 0;
   if (millis() - last_net > 1000) {
     last_net = millis();
+#if !HEAP_ON_SCREEN  // the heap line has the spot (below)
     ui_set_network(web_network_line());
+#endif
     if (!host_running) publish_diag(nullptr);
   }
 #endif
@@ -724,6 +726,19 @@ void loop() {
     publish_diag(&frame);
 #endif
   }
+#if HEAP_ON_SCREEN
+  // Diagnostic builds only (Makefile HEAP_ON_SCREEN=1): free RAM on Setup.
+  static uint32_t last_heap = 0;
+  if (now - last_heap > 1000) {
+    last_heap = now;
+    char heap[48];
+    snprintf(heap, sizeof heap, "RAM free: int %u KB (min %u), DMA %u KB",
+             unsigned(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024),
+             unsigned(heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL) / 1024),
+             unsigned(heap_caps_get_free_size(MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL) / 1024));
+    ui_set_network(heap);
+  }
+#endif
   CRUMB_LOOP("ui_tick");
   ui_tick();
   delay(5);
