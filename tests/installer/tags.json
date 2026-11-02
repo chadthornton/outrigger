@@ -1,5 +1,5 @@
 {
-  "_about": "The build tag each firmware build carries right after esp_app_desc_t: app image offset 0x120, flash 0x10120 (lib/platform/src/build_tag.h). Little-endian: u32 magic 'UMHT', u16 layout 1, u8 dirty, u8 reserved, u32 commit, char[8] app set label. Read by tools/build_site.py (read_build_tag) and site/installer/board.js (readBuildTag); both run these cases.",
+  "_about": "The build tag each firmware build carries right after esp_app_desc_t: app image offset 0x120, flash 0x10120 (lib/platform/src/build_tag.h). Little-endian: u32 magic 'UMHT', u16 layout 1, u8 dirty, u8 board (its profile's tag_id in firmware/boards.json; 0, the 1.69, in builds from before the field), u32 commit, char[8] app set label. Read by tools/build_site.py (read_build_tag) and site/installer/board.js (readBuildTag); both run these cases.",
   "offset": 288,
   "cases": [
     {
@@ -8,7 +8,8 @@
       "expect": {
         "commit": "abc1234",
         "dirty": false,
-        "app_set": "hub+L"
+        "app_set": "hub+L",
+        "board": 0
       }
     },
     {
@@ -17,7 +18,8 @@
       "expect": {
         "commit": "0345678",
         "dirty": true,
-        "app_set": "hub"
+        "app_set": "hub",
+        "board": 0
       }
     },
     {
@@ -26,7 +28,8 @@
       "expect": {
         "commit": "a000000",
         "dirty": false,
-        "app_set": "all"
+        "app_set": "all",
+        "board": 0
       }
     },
     {
@@ -43,6 +46,16 @@
       "name": "too short",
       "hex": "554d4854",
       "expect": null
+    },
+    {
+      "name": "Hub + Loader for the Waveshare 3.5\" (board 1)",
+      "hex": "554d4854010000013412bc0a6875622b4c000000",
+      "expect": {
+        "commit": "abc1234",
+        "dirty": false,
+        "app_set": "hub+L",
+        "board": 1
+      }
     }
   ]
 }

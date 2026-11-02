@@ -23,7 +23,7 @@ struct BuildTag {
   uint32_t magic;
   uint16_t layout;
   uint8_t dirty;      // 1: built with uncommitted changes
-  uint8_t reserved;
+  uint8_t board;      // the profile's tag_id (firmware/boards.json); 0, the 1.69, in builds from before it
   uint32_t commit;    // FW_VERSION: the short commit as a number
   char app_set[8];    // APP_SET_LABEL, NUL-padded
 };

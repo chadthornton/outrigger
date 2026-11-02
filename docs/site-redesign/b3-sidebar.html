@@ -126,6 +126,11 @@
   .add-list small { color: var(--muted); }
   .install-done { display: grid; gap: 6px; border-left: 3px solid var(--accent); padding-left: 12px; }
   .install-version { font-size: .75rem; color: var(--muted); }
+  .install button:disabled { opacity: .45; cursor: default; }
+  .install-boards { border: 0; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: .9375rem; }
+  .install-boards legend { padding: 0; margin-bottom: 6px; font-weight: 600; font-size: .875rem; }
+  .install-boards label { display: flex; gap: 6px; align-items: center; cursor: pointer; }
+  .install-boards input { accent-color: var(--accent); margin: 0; }
   .install-log { border: 0; padding: 0; font-size: .8125rem; color: var(--muted); }
   .install-log pre { margin: 6px 0 0; max-height: 14em; overflow: auto; white-space: pre-wrap; font: .75rem ui-monospace, "SF Mono", Menlo, monospace; }
   .install .check { display: flex; gap: 8px; align-items: baseline; }
@@ -261,6 +266,7 @@
       <p>This runs Outrigger. Most ESP32-S3 boards with a screen should work; we're still testing.</p>
       <ul class="picks">
         <li><span class="tag">Tested</span><a class="" href="https://www.amazon.com/s?k=Waveshare+ESP32-S3-Touch-LCD-1.69" target="_blank" rel="noopener">Waveshare ESP32-S3 Touch LCD 1.69 ↗</a></li>
+        <li><span class="tag">Testing</span><a class="" href="https://www.amazon.com/dp/B0F3WS2W5R" target="_blank" rel="noopener">Waveshare ESP32-S3 Touch LCD 3.5 ↗</a></li>
         <li><span class="tag">Likely</span><a class="" href="https://www.amazon.com/gp/product/B0DSVK5576" target="_blank" rel="noopener">Waveshare ESP32-S3 1.8-inch AMOLED ↗</a></li>
         <li><span class="tag">Likely</span><a class="" href="https://www.amazon.com/Waveshare-Capacitive-Development-Resolution-Dual-Core/dp/B0D925SBYF" target="_blank" rel="noopener">Waveshare ESP32-S3 4.3-inch Touch, Board B ↗</a></li>
       </ul>

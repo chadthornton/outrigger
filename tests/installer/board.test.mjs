@@ -96,3 +96,23 @@ test("describeBoard: a dirty build of the same commit can't promise nothing chan
   const d = describeBoard({ tag: dirty, layout: "ours", store: false }, dirty);
   assert.equal(d.install, "It already runs this commit. Installing it again rewrites the program. Your settings and Wi-Fi stay.");
 });
+
+const boardNames = { 0: 'Waveshare 1.69"', 1: 'Waveshare 3.5"' };
+
+test("describeBoard: a build for another board than the one picked warns", () => {
+  const d = describeBoard({ tag: { ...loaderAbc, board: 1 }, layout: "ours", store: true }, { ...hubDef, board: 0 }, boardNames);
+  assert.equal(d.warning, 'This board runs the build for the Waveshare 3.5", and you picked the Waveshare 1.69". ' +
+    "Pick the board you have: the wrong build leaves its screen dark or garbled. Installing again with the right pick fixes that.");
+  assert.equal(d.board, "This board runs Hub + Loader abc1234 and has a backup store, where the loader keeps FM-1 backups.");
+});
+
+test("describeBoard: the same board, or builds from before the board byte, don't warn", () => {
+  assert.equal(describeBoard({ tag: { ...loaderAbc, board: 1 }, layout: "ours", store: false }, { ...hubDef, board: 1 }, boardNames).warning, undefined);
+  assert.equal(describeBoard({ tag: loaderAbc, layout: "ours", store: false }, { ...hubDef, board: 0 }, boardNames).warning, undefined);
+  assert.equal(describeBoard({ tag: null, layout: "blank", store: false }, { ...hubDef, board: 1 }, boardNames).warning, undefined);
+});
+
+test("describeBoard: a board this page has no name for", () => {
+  const d = describeBoard({ tag: { ...loaderAbc, board: 7 }, layout: "ours", store: false }, { ...hubDef, board: 0 }, boardNames);
+  assert.match(d.warning, /^This board runs the build for another board, and you picked the Waveshare 1\.69"\./);
+});

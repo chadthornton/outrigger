@@ -1,5 +1,52 @@
 # Boards: what can host, what to buy
 
+Outrigger builds for every board with a profile in `firmware/boards.json`: today the Waveshare ESP32-S3-Touch-LCD-1.69,
+the Waveshare ESP32-S3-Touch-LCD-3.5, and the Freenove ESP32-S3 Display 2.8" (FNK0104B), which should work but nobody
+has run yet. CI, `make site` and the installer build only tested boards (`"tested": true`), so the Freenove builds by
+name (`make build BOARD=freenove_28`) until someone runs it. The installer on outrigger.music asks which board you have, then checks the chip before it writes anything
+(`site/installer/chip.js`): an original ESP32, C3 or C6, an S2 or P4, an S3 behind a converter chip, or an S3 without
+16 MB flash and 8 MB PSRAM each get told why, in plain words, and nothing is written.
+
+## Will my board work?
+
+It needs all four:
+
+1. **An ESP32-S3.** The ESP32-S2 and P4 can host USB too, but Outrigger has no S2 or P4 build yet (P4 notes below). A
+   plain ESP32, C3 or C6 can't host USB at all, so the original "Cheap Yellow Display" (ESP32-2432S028) never will.
+2. **A USB port wired for host mode:** the USB-C goes straight to the chip's own USB pins (GPIO19/20 on the S3), not
+   through a converter chip. "The one test" below says how to tell.
+3. **16 MB of flash and 8 MB of PSRAM.** The firmware, its recovery copy and the backup store with the three starter
+   firmwares fill a 16 MB layout (`firmware/waveshare_169/partitions.csv`), and the loader works in PSRAM. Listings
+   say "N16R8". Smaller boards could run the MIDI hub alone, but no build does that yet.
+4. **A screen Outrigger can drive.** Today that's an SPI ST7789 or ST7796 panel up to 480×480, with CST816 or FT6336
+   touch, optionally behind a TCA9554 I/O expander. Another chip means a few lines of driver code in
+   `firmware/waveshare_169/board.cpp` as well as a profile.
+
+A board that passes 1 to 3 but has a different screen is still a good candidate: send us its schematic.
+
+## Adding a board
+
+A board is a profile, not new code:
+
+1. **Find the primary sources:** the maker's schematic and pin map, or its example code. Note every pin the screen,
+   touch and backlight use, the I2C address of each chip, and anything on the board that makes noise if left floating
+   (a buzzer, a speaker amplifier's enable).
+2. **Add a profile to `firmware/boards.json`,** copying the nearest one. The `_about` line explains the fields. Pins
+   are GPIO numbers, `"exioN"` for pin N of the I/O expander, or `null`. `hold_low` and `hold_high` list the noisy pins and the level that keeps
+   each quiet; say why in `hold_why`. Set `tested` to false until someone has run it. Pick the next free `tag_id` and a `site_id` (the folder on the site).
+3. **Run `python3 -I tools/boards.py check`.** It refuses pins on the USB lines (19/20), on the flash lines (26–32), on
+   octal PSRAM (33–37), a pin with two jobs, and memory below 16 MB flash and 8 MB PSRAM.
+4. **Run `make ui-shots`.** Every screen renders at the new resolution; it fails on text that doesn't fit.
+5. **Run `make probe BOARD=<id>`** with the board in download mode (hold BOOT, tap RST; after a flash from download mode, unplug and replug it to start the new program). It runs the profile's drivers
+   with the USB port left a serial device: the log lists the I2C chips that answer, and the screen shows red, green,
+   blue and white corner squares (top-left, top-right, bottom-left, bottom-right) and a yellow dot under each tap.
+6. **Run `make build BOARD=<id> APPS=hub-loader`,** flash it, and check the FM-1 plays through it. Add the board's row
+   below and set `tested` to true: from then on CI, `make site` and the installer build it.
+
+`make site` builds every board and the installer lists them all.
+
+## Research
+
 Research from 2026-10-27, done before Chad bought more boards. "Confirmed" means a primary source: a schematic, or a
 datasheet from the maker. Re-check before relying on any entry marked "likely".
 
@@ -27,13 +74,46 @@ A TF slot says nothing about hosting.
 
 | Board | Screen | Host? | Storage | Notes |
 |---|---|---|---|---|
-| Waveshare ESP32-S3-Touch-LCD-1.69 | 240×280 rounded, touch (CST816T) | **Confirmed**, in use | 16 MB flash, no TF | The current board. |
+| Waveshare ESP32-S3-Touch-LCD-1.69 | 240×280 rounded, touch (CST816T) | **Confirmed**, in use | 16 MB flash, no TF | Profile `waveshare_169`. The buzzer on GPIO42 is held low. |
 | Waveshare ESP32-S3-LCD-1.47 | 172×320, **no touch** (BOOT/RST only) | Likely: its USB plug is USB-A male; the wiki doesn't state the wiring | TF slot, 4-bit SDMMC (GPIO14–18, 21) | Needs a USB-A-female-to-USB-C-female adapter to reach the hub's upstream cable. |
 | Waveshare ESP32-S3-Touch-AMOLED-1.8 | 368×448 AMOLED, touch | Likely: the docs call its one USB-C the "ESP32-S3 USB port", the same wording as the 1.69" | TF slot | Speaker, mic, ES8311 codec, AXP2101. **V1** uses SH8601/FT3168, **V2** (since May 2026) CO5300/CST820, so the profile must match the unit received. |
-| Waveshare ESP32-S3-Touch-LCD-3.5 | 320×480, ST7796 (SPI), FT6336 touch | **Very likely**: the V1 and V2 schematics show no converter chip, with IO19/IO20 at the USB-C | TF slot (V1 SPI; V2 SDMMC plus card-detect) | Camera port. The same display and touch chips as the P4 3.5". |
+| Waveshare ESP32-S3-Touch-LCD-3.5 | 320×480, ST7796 (SPI), FT6336 touch | **Confirmed** (schematic): the V1 and V2 schematics show IO19/IO20 at the USB-C through 22 Ω, no converter chip | 16 MB flash, 8 MB PSRAM; TF slot (V1 SPI; V2 SDMMC plus card-detect) | Profile `waveshare_35`, details below. Camera port. The same display and touch chips as the P4 3.5". Not the **3.5B** (AXS15231B over QSPI), a different board. |
+| Freenove ESP32-S3 Display 2.8" (FNK0104B) | 240×320, ILI9341 (SPI), FT6336 touch | **Confirmed** (schematic): USB-C to GPIO19/20 through 0 Ω, no converter chip | 16 MB flash, 8 MB PSRAM (N16R8); TF slot | Profile `freenove_28`, **untested**. fm1buddy's "cyd-s3" target. Details below. FNK0104A is the same board without touch. |
 | AITRIP ESP32-S3 4.0" 480×480 (UPC 687117784421, ASIN B0GL1PHKYG) | 480×480 RGB parallel | **Likely not**: "one-click download" and one USB port point to a converter chip | TF slot | Looks like the Sunton/Guition ESP32-4848S040 family (unconfirmed). Could serve later as a Wi-Fi control panel. |
 | Waveshare ESP32-P4-WIFI6-Touch-LCD-4.3 | 480×800 MIPI-DSI (ST7701), GT911 | Unknown: "Type-C ports" | TF slot, 32 MB flash, 32 MB PSRAM | See "ESP32-P4" below. |
 | Waveshare ESP32-P4-WIFI6 3.5" Smart Vision | 320×480 ST7796 (SPI), FT6336 | Unknown: "Type-C ports" | TF slot, 16 MB flash, 32 MB PSRAM | OV5647 camera, mic, speaker, AXP2101. **The better P4 experiment**: same display and touch as the S3 3.5", so a spike isolates the USB question. |
+
+## Waveshare ESP32-S3-Touch-LCD-3.5
+
+From Waveshare's repo (`waveshareteam/ESP32-S3-Touch-LCD-3.5`): the V1 and V2 schematics' pin tables, and the Arduino
+examples `08_gfx_helloworld` and `11_lvgl_arduino_v8`. Board-3 (MAC 44:BD:8D:61:2B:28) read as ESP32-S3 with 8 MB
+embedded PSRAM and 16 MB flash.
+
+- **Display:** ST7796, 320×480 IPS, run in landscape (480×320, rotation 1, USB-C on the right; touch turns with it, checked on Board-3). SPI on SCK 5, MOSI 1, MISO 2, DC 3, in SPI mode 0: Arduino_GFX 1.6 defaults the ST7796 to mode 3, which left Board-3's screen dark (CS is tied low). CS is tied low. Backlight on GPIO6. The
+  panel's reset is pin 1 of the TCA9554 expander (EXIO1), so the driver pulses it over I2C.
+- **Touch:** FT6336 at 0x38 on I2C SDA 8, SCL 7, shared with the expander (0x20), the AXP2101 power chip, the
+  ES8311 codec, the RTC and the IMU. Its interrupt is EXIO2; no reset line.
+- **No buzzer.** EXIO7 enables the NS4150B speaker amplifier. The expander starts with every pin an input pulled high,
+  which turns the amplifier on, so the profile holds EXIO7 low.
+- **USB:** one USB-C, straight to GPIO19/20. Power comes up the same cable from the hub (VBUS into the AXP2101).
+- **V1 and V2** use the same pins for all of the above; they differ in the TF slot's wiring and IO4.
+- The camera connector takes GPIO17, 18, 21 and 38–48; Outrigger doesn't use it.
+
+## Freenove ESP32-S3 Display 2.8" (FNK0104B): should work, untested
+
+From Freenove's repo (`Freenove/Freenove_ESP32_S3_Display`): the 2.8-inch schematic, the FNK0104AB TFT_eSPI setup and
+the touch sketches. Cross-checked with fm1buddy's `cyd-s3` PlatformIO environment, whose board is an N16R8.
+
+- **Display:** ILI9341, 240×320, SPI on SCK 12, MOSI 11, MISO 13, CS 10, DC 46; no reset line. Backlight on GPIO45.
+  Colour order BGR with inversion on, 40 MHz (Freenove's setup).
+- **Touch:** FT6336U at 0x38 on SDA 16, SCL 15; reset GPIO18, interrupt GPIO17.
+- **No buzzer.** GPIO1 (AUDIO_EN) is the SC8002B speaker amplifier's SHUTDOWN pin, pulled up (off) by 10 kΩ; the
+  profile holds it high.
+- **USB:** one USB-C, straight to GPIO19/20. VBUS feeds the board through a Schottky diode, so the hub powers it.
+- **Not to confuse with** the original "Cheap Yellow Display" (ESP32-2432S028): an original ESP32 behind a CH340,
+  which can never host.
+- Untested until someone runs it, so it isn't in the installer or on the homepage yet; `make build BOARD=freenove_28`
+  and `make probe BOARD=freenove_28` work.
 
 ## ESP32-P4
 

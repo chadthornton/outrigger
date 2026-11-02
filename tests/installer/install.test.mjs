@@ -105,7 +105,7 @@ test("readBoard: Hub + Loader with a store, without reading the store itself", a
   const b = boardWithLoaderAndBackups();
   const info = await readBoard(b);
   assert.equal(info.layout, "ours");
-  assert.deepEqual(info.tag, { commit: "abc1234", dirty: false, app_set: "hub+L" });
+  assert.deepEqual(info.tag, { commit: "abc1234", dirty: false, app_set: "hub+L", board: 0 });
   assert.equal(info.store, true);
   assert.deepEqual(info.storeRange, { offset: 0x3d0000, size: 0xc20000 });
   const read = b.calls.filter((c) => c[0] === "readFlash").reduce((n, c) => n + c[2], 0);

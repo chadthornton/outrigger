@@ -17,6 +17,7 @@ CASES = json.loads((ROOT / "tests/installer/tables.json").read_text())
 TAGS = json.loads((ROOT / "tests/installer/tags.json").read_text())
 OURS = read_csv(ROOT / "firmware/waveshare_169/partitions.csv")
 BOARD = BOARDS["waveshare-esp32-s3-touch-lcd-1.69"]
+BOARD_35 = BOARDS["waveshare-esp32-s3-touch-lcd-3.5"]
 
 # build_site never sees the board, and stages from a fixed list of four files,
 # so these cases belong to the page alone.
@@ -82,13 +83,18 @@ def check_tags():
             failures.append(f"read_build_tag {case['name']}: {got} != {case['expect']}")
     loader = app_with(TAGS["cases"][0]["hex"])  # hub+L
     hub = app_with(TAGS["cases"][1]["hex"])  # hub
+    loader_35 = app_with(next(c["hex"] for c in TAGS["cases"] if c["expect"] and c["expect"]["board"] == 1))
     untagged = app_with("ff" * 20)
-    if refuses(check_build_tag, loader, "hub-loader") or refuses(check_build_tag, hub, "hub"):
+    if refuses(check_build_tag, loader, "hub-loader", BOARD) or refuses(check_build_tag, hub, "hub", BOARD):
         failures.append("check_build_tag refused a matching tag")
-    if not refuses(check_build_tag, untagged, "hub"):
+    if refuses(check_build_tag, loader_35, "hub-loader", BOARD_35):
+        failures.append("check_build_tag refused a 3.5\" build staged for the 3.5\"")
+    if not refuses(check_build_tag, untagged, "hub", BOARD):
         failures.append("check_build_tag accepted an app with no tag")
-    if not refuses(check_build_tag, hub, "hub-loader"):
+    if not refuses(check_build_tag, hub, "hub-loader", BOARD):
         failures.append("check_build_tag accepted a MIDI Hub app staged as hub-loader")
+    if not refuses(check_build_tag, loader_35, "hub-loader", BOARD) or not refuses(check_build_tag, loader, "hub-loader", BOARD_35):
+        failures.append("check_build_tag accepted a build staged for the other board")
     return failures
 
 
