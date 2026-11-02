@@ -18,9 +18,10 @@ It needs all four:
 3. **16 MB of flash and 8 MB of PSRAM.** The firmware, its recovery copy and the backup store with the three starter
    firmwares fill a 16 MB layout (`firmware/waveshare_169/partitions.csv`), and the loader works in PSRAM. Listings
    say "N16R8". Smaller boards could run the MIDI hub alone, but no build does that yet.
-4. **A screen Outrigger can drive.** Today that's an SPI ST7789 or ST7796 panel up to 480×480, with CST816 or FT6336
-   touch, optionally behind a TCA9554 I/O expander. Another chip means a few lines of driver code in
-   `firmware/waveshare_169/board.cpp` as well as a profile.
+4. **A screen Outrigger can drive.** Today that's an SPI ST7789, ST7796 or ILI9341 panel up to 480×480, with CST816
+   or FT6336 touch, optionally behind a TCA9554 I/O expander. Every build carries all of these drivers and picks them
+   from the board's profile at start-up (`board.cpp`, `board_config_types.h`). Another chip means a few lines of
+   driver code as well as a profile.
 
 A board that passes 1 to 3 but has a different screen is still a good candidate: send us its schematic.
 
@@ -32,7 +33,10 @@ A board is a profile, not new code:
    touch and backlight use, the I2C address of each chip, and anything on the board that makes noise if left floating
    (a buzzer, a speaker amplifier's enable).
 2. **Add a profile to `firmware/boards.json`,** copying the nearest one. The `_about` line explains the fields. Pins
-   are GPIO numbers, `"exioN"` for pin N of the I/O expander, or `null`. `hold_low` and `hold_high` list the noisy pins and the level that keeps
+   are GPIO numbers, `"exioN"` for pin N of the I/O expander, or `null`. If the picture comes out mirrored or in the
+   wrong colours, or taps land on the wrong side, set `display.mirror_x`/`mirror_y`/`bgr` or
+   `touch.swap_xy`/`invert_x`/`invert_y`; left out, each follows the driver and the rotation. `display.spi_mode`
+   forces the SPI mode (the 3.5" needs 0). `hold_low` and `hold_high` list the noisy pins and the level that keeps
    each quiet; say why in `hold_why`. Set `tested` to false until someone has run it. Pick the next free `tag_id` and a `site_id` (the folder on the site).
 3. **Run `python3 -I tools/boards.py check`.** It refuses pins on the USB lines (19/20), on the flash lines (26–32), on
    octal PSRAM (33–37), a pin with two jobs, and memory below 16 MB flash and 8 MB PSRAM.
