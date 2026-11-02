@@ -105,6 +105,7 @@ JobBoot active_job = {};  // the job this boot runs (kind None: a Play boot)
 
 // Devices, written on the USB client task.
 std::atomic<uint8_t> fm1_midi_address{0};
+std::atomic<bool> fm1_switchable{false};  // the key has been tried on its firmware (can_switch_firmware)
 std::atomic<uint8_t> rom_address{0};
 
 // Whole SysEx messages from the FM-1, for the identity handshake.
@@ -258,6 +259,13 @@ class Host : public LoaderHost {
       key = KeyResult::SendFailed;
       why = "broker: Loader doesn't own FM-1 MIDI";
       stop = KeyStop::NotReady;
+      return false;
+    }
+    // Checked last, just before the key, for the FM-1 that's on the hub now.
+    if (!fm1_switchable.load()) {
+      key = KeyResult::NotFm1;
+      why = "M-VAVE Open firmware: key untested";
+      stop = KeyStop::Unsupported;
       return false;
     }
     UsbMidiLink link;
@@ -570,7 +578,9 @@ void finish(Installer &inst, const Host &host, const UsbScsi &scsi, const char *
     show(done_title, kGreen, 100);
     if (host.why[0]) show_line(1, host.why);  // a re-enumeration was needed: worth seeing
   } else {
-    if (inst.failure() == Failure::KeyNotSent) snprintf(buf, sizeof buf, "No ROM boot: %s", key_result_text(host.key));
+    if (inst.failure() == Failure::KeyNotSent)
+      snprintf(buf, sizeof buf, "No ROM boot: %s",
+               host.stop == KeyStop::Unsupported ? host.why : key_result_text(host.key));
     else snprintf(buf, sizeof buf, "Stopped: %s", failure_text(inst.failure()));
     show(buf, kRed);
     // Line 2: which step and where; line 3: what USB said (or the FM-1's identity).
@@ -1004,7 +1014,10 @@ void loader_device_connected(const EspUsbHostDeviceInfo &d) {
   desc.vid = d.vid;
   desc.pid = d.pid;
   if (platform::classify(desc) == platform::Kind::Fm1RomBoot) rom_address = d.address;
-  else if (midi_core::device_role(d.vid, d.pid) == midi_core::Role::Target) fm1_midi_address = d.address;
+  else if (midi_core::device_role(d.vid, d.pid) == midi_core::Role::Target) {
+    fm1_switchable = midi_core::can_switch_firmware(d.vid, d.pid);  // before the address the key waits on
+    fm1_midi_address = d.address;
+  }
   if (task) xTaskNotify(task, kFm1Changed, eSetBits);  // the top row may change (resume_pending)
 }
 
