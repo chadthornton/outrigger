@@ -313,6 +313,9 @@ void setup()
   EspUsbHostConfig config;
   config.port = ESP_USB_HOST_PORT_HIGH_SPEED;
   config.experimentalForceFullSpeed = true;
+  // The default periodic-OUT FIFO caps an isochronous OUT endpoint at 512
+  // bytes; the iFi USB Audio SE's is 776 and failed to claim without this.
+  config.fifo = ESP_USB_HOST_FIFO_LARGE_PERIODIC_OUT;
   if (!usb.begin(config))
   {
     Serial.printf("HOST_BEGIN_FAILED error=%s\n", usb.lastErrorName());
