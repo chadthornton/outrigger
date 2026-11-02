@@ -23,8 +23,13 @@ for (( i = 0; i < timeout; i++ )); do
   for p in /dev/cu.usbmodem*; do
     (( ${before[(Ie)$p]} || ${checked[(Ie)$p]} )) && continue
     checked+=$p
-    sleep 1
-    mac=$($esptool --chip auto --port $p --after no-reset read-mac 2>&1 | grep -m1 'MAC:' | awk '{print tolower($2)}')
+    # A board just plugged in or restarting can miss the first try or two.
+    mac=""
+    for try in 1 2 3; do
+      sleep 2
+      mac=$($esptool --chip auto --port $p --after no-reset read-mac 2>&1 | grep -m1 'MAC:' | awk '{print tolower($2)}')
+      [[ -n $mac ]] && break
+    done
     if [[ $mac == $want ]]; then
       echo "board $want on $p" >&2
       echo $p
