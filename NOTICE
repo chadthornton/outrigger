@@ -22,6 +22,18 @@ EspUsbHost 2.10.1, lib/EspUsbHost/ (in the firmware)
   Copyright (c) 2026 TANAKA Masayuki. MIT License: lib/EspUsbHost/LICENSE.
   Patched: ESP_USB_HOST_MAX_SERIAL_PORTS is overridable (see README).
 
+Felucca 1.7.0, through andrerezemini/fm1-cartridge's port,
+lib/synth/third_party/fm1-cartridge/ (the synth bench; not on the installer site)
+  Felucca by hugelton (https://github.com/hugelton/Felucca), GPL-3.0-only;
+  the port by andrerezemini, GPL-3.0. Inside it: felucca-bsp (MPL-2.0), MSFA
+  (Apache-2.0), Felucca-Engines, Rings and DaisySP (MIT), and CC0 samples.
+  Texts and provenance: lib/synth/third_party/README.md and
+  lib/synth/third_party/fm1-cartridge/third_party/felucca/LICENSING.md.
+
+ES8311 codec driver, lib/synth/src/es8311/ (the synth bench; not on the installer site)
+  By Espressif Systems, as Waveshare ships it for the ESP32-S3-Touch-LCD-3.5.
+  Apache License 2.0: https://www.apache.org/licenses/LICENSE-2.0
+
 esptool-js 0.7.0, site/vendor/esptool-js-0.7.0/ (the installer page)
   By Espressif Systems (espressif/esptool-js). Apache License 2.0:
   site/vendor/esptool-js-0.7.0/LICENSE.
