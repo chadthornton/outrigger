@@ -274,6 +274,7 @@ class InstallArea {
     const storeWords = store.action !== "create" ? null
       : storeProblem ? `Firmware switching isn't set up: ${storeProblem}.`
         : `Its store is set up with ${listOf(store.starter)}. Switch between them from the loader on the board.`;
+    document.dispatchEvent(new CustomEvent("outrigger-installed"));  // unlocks "Add custom FM-1 firmwares" (site/index.html)
     this.show(h("div", { class: "install-done", role: "status" },
       h("p", {}, h("b", {}, `Installed ${name}.`), " The board restarts by itself. If its screen stays dark, tap RST once."),
       storeWords ? h("p", {}, storeWords) : null,

@@ -223,10 +223,6 @@ COMING = [
         ("More devices at once", "Several controllers together, Bluetooth MIDI, and twice the USB room on ESP32-P4 boards.", "Planned", "plan"),
         ("The whole catalog on a TF card", 'Boards with a card slot keep every firmware locally, about 60 MB in all.<span class="tip"><b>Pro tip:</b> buying an ESP32 now? Get one with a TF card slot, like the <a href="#board">1.8-inch AMOLED</a>.</span>', "Planned", "plan"),
     ]),
-    ("For builders", "Outrigger is meant to be extended.", [
-        ("Write your own apps", "Outrigger is one core with plug-in apps. The core hands out USB, Wi-Fi and storage, and every screen renders and tests on a laptop. Next: a documented way for anyone to add an app.", "In testing", "test"),
-        ("More ESP32 boards", "Support for a wide range of ESP32-S3 and ESP32-P4 boards: round and square screens from 1.69 to 4.3 inches, touch or buttons, with or without a card slot. Each gets a profile, and the screens already lay out at three sizes.", "In testing", "test"),
-    ]),
 ]
 
 COMING_HTML = "".join(
@@ -235,25 +231,6 @@ COMING_HTML = "".join(
     ) + "</div></div>"
     for g, intro, cards in COMING
 )
-
-# Two hard problems, for people who wonder why Outrigger isn't just a script on one board. Kept short on purpose
-# (docs/site-redesign/brief.md: less copy). Every claim here is true of master today; "planned" says where it isn't.
-HOW = [
-    ("Many ESP32 boards, one firmware",
-     "ESP32 boards differ in chip, screen, touch, memory and how the USB port is wired. Each board gets a profile that "
-     "lists those facts. The screens lay themselves out from the profile instead of fixed pixels, the installer reads "
-     "your chip and flash before it writes anything, and every board and edition is built and tested on each change. "
-     'Some boards are proven on real hardware; <a href="https://github.com/chadthornton/outrigger/blob/master/docs/boards.md">'
-     "the board list</a> says which."),
-    ("Only the parts you need",
-     "Outrigger is a shared core, which owns USB, the screen and storage, with apps on top: the MIDI hub, the firmware "
-     "loader, the recorder, the web page. We build them into editions, so a small board carries only what it can run. "
-     "Today that's Hub, Hub + Loader and Everything. You may not need the FM-1 part at all: the hub edition is the "
-     "start of a general-purpose MIDI hub for any USB synth, which is planned (see What's coming)."),
-]
-HOW_HTML = '<div class="coming" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr))">' + "".join(
-    f"<article><h4>{t}</h4><p>{d}</p></article>" for t, d in HOW
-) + "</div>"
 
 TROUBLE = """<div class="faq">
   <details><summary>How do I update Outrigger?</summary><div class="answer">
@@ -406,6 +383,15 @@ STYLE = """
   .install-log pre { margin: 6px 0 0; max-height: 14em; overflow: auto; white-space: pre-wrap; font: .75rem ui-monospace, "SF Mono", Menlo, monospace; }
   .install .check { display: flex; gap: 8px; align-items: baseline; }
   .install progress { width: 100%; accent-color: var(--accent); }
+  /* "For builders": its own dark band, with the page's colours redefined inside it. */
+  .nerd { --bg: #0e1622; --fg: #e4eaf3; --muted: #9aa7ba; --line: #263246; --panel: #152033; --soft: #1a2639;
+    --accent: #6fb8ff; --accent-fg: #07121f; background: var(--bg); color: var(--fg); margin-top: 64px; padding-block: 64px; }
+  .nerd h2 { margin-bottom: 24px; }
+  .nerd .eyebrow { margin-bottom: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .nerd a { color: var(--accent); }
+  .nerd-dev { margin-top: 32px; }
+  .nerd .fine { margin-top: 24px; max-width: 760px; }
+  .linkbtn { background: none; border: 0; padding: 0; font: inherit; color: var(--accent); text-decoration: underline; cursor: pointer; }
   footer .install { margin: 8px 0 12px; max-width: 320px; }
   footer .install button { padding: 8px 14px; font-size: .875rem; width: auto; }
   /* "Report this board" (site/installer/report_form.js): a dialog on the body, so it carries its own button styles. */
@@ -493,7 +479,6 @@ BODY = f"""<nav class="wrap topnav">
   <section class="section" id="coming"><h2>What's coming</h2>
     {COMING_HTML}</section>
   <section class="section" id="trouble" style="max-width:760px"><h2>Troubleshooting</h2>{TROUBLE}</section>
-  <section class="section" id="how"><h2>How it's built</h2>{HOW_HTML}</section>
 </div>
 <footer><div class="wrap fine">Firmware screenshots by their authors, via the Firmware Hub. Not affiliated with M-VAVE or Waveshare.</div></footer>
 <script src="rig.js"></script>
@@ -539,17 +524,52 @@ def install_area(label, app_set):
 
 
 REAL_STEP2 = """<li><div><b>Add firmwares</b><p>Stock V15, Felucca and Skiff come with it. Add more from the Firmware
-    Hub's list, right on this page: <a href="#add">Add a firmware</a>.</p></div></li>
+    Hub's list, right on this page: <a href="#add">Add custom firmwares</a>.</p></div></li>
   <li><div><b>Plug everything into the hub</b>"""
 
 # Adding a Firmware Hub firmware to a set-up Outrigger (site/installer/add_area.js), its own section under the hero.
-ADD_SECTION = """<section class="section" id="add" style="max-width:760px"><h2>Add a firmware</h2>
-    <p>Pick any firmware on the Firmware Hub's list, up to ten in all. Your backups and the firmwares already on
-      Outrigger stay as they are. Switching to one we haven't tested clears the old firmware's data first, and keeps
-      a copy for when you switch back.</p>
-    <div class="install add-firmware"><p class="install-note">Adding a firmware needs Chrome or Edge on a computer, with JavaScript on.</p></div>
+ADD_SECTION = """<section class="section" id="add" style="max-width:760px"><h2>Add custom FM-1 firmwares</h2>
+    <div data-add-locked>
+      <p>Once Outrigger is installed and running, you can add more of the community's custom FM-1 firmwares from the
+        Firmware Hub's list, up to ten in all.</p>
+      <p class="install-note">Unlocks when you install Outrigger above. <button type="button" class="linkbtn" data-add-unlock>I already have Outrigger</button></p>
+    </div>
+    <div data-add-body hidden>
+      <p>Pick any custom firmware on the Firmware Hub's list, up to ten in all. Your backups and the firmwares already on
+        Outrigger stay as they are. Switching to one we haven't tested clears the old firmware's data first, and keeps
+        a copy for when you switch back.</p>
+      <div class="install add-firmware"><p class="install-note">Adding a firmware needs Chrome or Edge on a computer, with JavaScript on.</p></div>
+    </div>
   </section>
+  <script>
+  (function () {
+    var s = document.getElementById("add");
+    if (!s) return;
+    function unlock() { s.querySelector("[data-add-locked]").hidden = true; s.querySelector("[data-add-body]").hidden = false; }
+    try { if (localStorage.getItem("outrigger-installed")) unlock(); } catch (e) {}
+    document.addEventListener("outrigger-installed", function () {
+      try { localStorage.setItem("outrigger-installed", "1"); } catch (e) {}
+      unlock();
+    });
+    s.querySelector("[data-add-unlock]").addEventListener("click", unlock);
+  })();
+  </script>
   <section class="section" id="need">"""
+
+BUILDERS = [
+    ("Many boards, one firmware",
+     "Each ESP32 board gets a profile, so the screens, installer checks and tests adapt to it. Round and square "
+     "screens from 1.69 to 4.3 inches, on ESP32-S3 and P4, are in testing. "
+     '<a href="https://github.com/chadthornton/outrigger/blob/master/docs/boards.md">See the board list.</a>'),
+    ("Only the parts you need",
+     "One shared base with apps on top, built into editions. Today that's Hub, Hub + Loader or Everything. "
+     "A general MIDI hub for any USB synth is planned."),
+    ("Open source",
+     "Outrigger's core and apps are open source. Build your own edition with only what you need. "
+     '<a href="https://github.com/chadthornton/outrigger">Source on GitHub.</a>'),
+]
+BUILDERS_HTML = '<div class="coming">' + "".join(f"<article><h4>{t}</h4><p>{d}</p></article>" for t, d in BUILDERS) + "</div>"
+
 
 real = MOCK
 for a, b in [
@@ -571,16 +591,21 @@ for a, b in [
     ('<a class="link" href="#trouble">Help</a>',
      '<a class="link" href="#trouble">Help</a><a class="link" href="beta/">Beta testers</a>'),
     ('<footer><div class="wrap fine">Firmware screenshots by their authors, via the Firmware Hub. Not affiliated with M-VAVE or Waveshare.</div></footer>',
-     f"""<footer><div class="wrap fine">
-  <p>For developers: Everything adds a Wi-Fi status page; its loader can't write.</p>
-  {install_area("Check my board (Everything)", "everything")}
-  <p>Installs with <a href="https://github.com/espressif/esptool-js">esptool-js</a> 0.7.0 (Apache-2.0), served from this site.
+     f"""<section class="nerd" id="builders"><div class="wrap">
+  <p class="eyebrow">For builders</p>
+  <h2>Under the hood</h2>
+  {BUILDERS_HTML}
+  <div class="nerd-dev">
+    <p>For developers: Everything adds a Wi-Fi status page. Its loader can't write.</p>
+    {install_area("Check my board (Everything)", "everything")}
+  </div>
+  <p class="fine">Installs with <a href="https://github.com/espressif/esptool-js">esptool-js</a> 0.7.0 (Apache-2.0), served from this site.
     It writes only the program and its startup parts, never your settings or the backup store. Outrigger is
     <a href="LICENSE.txt">GPL-3.0</a> (<a href="https://github.com/chadthornton/outrigger">source</a>); the firmware includes
     LVGL and EspUsbHost (MIT), Arduino_GFX (BSD) and the Arduino ESP32 core (LGPL-2.1):
-    <a href="NOTICE.txt">licenses and credits</a>. Firmware screenshots by their authors, via the Firmware Hub. Not affiliated with M-VAVE or
-    Waveshare.</p>
-</div></footer>"""),
+    <a href="NOTICE.txt">licenses and credits</a>.</p>
+</div></section>
+<footer><div class="wrap fine">Firmware screenshots by their authors, via the Firmware Hub. Not affiliated with M-VAVE or Waveshare.</div></footer>"""),
 ]:
     assert a in real, a[:70]
     real = real.replace(a, b, 1)

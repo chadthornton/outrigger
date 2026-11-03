@@ -11,7 +11,7 @@ Hub's list, up to ten in all, from the homepage. No Mac tools, and nothing on Ou
    Edge.
 3. If you haven't updated Outrigger since this feature came out, click **Check my board**, then **Install**, first.
    Outrigger restarts into MIDI after an install, so go back to **Computer mode** (step 1) before going on.
-4. Under **Add a firmware**, click **Connect to my Outrigger** and pick the port Chrome offers. The page lists the
+4. Under **Add custom FM-1 firmwares**, click **Connect to my Outrigger** and pick the port Chrome offers. The page lists the
    Firmware Hub's firmwares and marks the ones Outrigger already has.
 5. Click **Add** next to one. Your browser downloads it from thefirmwarehub.com and checks it against the Hub's list.
    Then it sends it to Outrigger, which checks it again before storing it. Outrigger's screen shows how far it's got.
