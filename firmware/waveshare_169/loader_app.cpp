@@ -417,14 +417,16 @@ struct Known {
   std::string stock_package;  // a stock package of the same build, when running matches none exactly
   char latest[12] = "", first[12] = "";
 };
-Known known_unit() {
+// what_runs false skips reading the app (two full passes on an FM-1 no package
+// matches): a job boot only needs the backup names.
+Known known_unit(bool what_runs = true) {
   Known k;
   FlashHashes flash;
   k.has_unit = library->unit(library->last_unit(), k.unit) && !k.unit.latest_backup.empty();
   if (!k.has_unit) return k;
   loader_messages::backup_name(k.unit.latest_backup.c_str(), k.latest, sizeof k.latest);
   loader_messages::backup_name(k.unit.baseline_backup.c_str(), k.first, sizeof k.first);
-  if (!library->backup(k.unit.latest_backup, flash) || flash.size() != kSectors) return k;
+  if (!what_runs || !library->backup(k.unit.latest_backup, flash) || flash.size() != kSectors) return k;
   const std::vector<Hash> app(flash.begin() + kAppStart / kSector, flash.begin() + kAppEnd / kSector);
   k.running = library->identify_app(app);
   if (k.running.known()) {
@@ -563,7 +565,7 @@ struct JobNames {
 JobNames job_names(const JobBoot &j) {
   JobNames n;
   if (!store_ok) return n;
-  const Known k = known_unit();
+  const Known k = known_unit(false);
   strlcpy(n.backup, k.latest, sizeof n.backup);
   if (j.package[0]) n.firmware = package_label(j.package);  // a switch, or its chained backup
   else if (j.kind == JobKind::Resume && k.unit.has_pending) n.firmware = package_label(k.unit.pending.package_id);
@@ -622,7 +624,7 @@ void finish(Installer &inst, const Host &host, const UsbScsi &scsi, const char *
   }
   Unit u;
   const bool pending = library->unit(library->last_unit(), u) && u.has_pending;
-  const Known k = known_unit();
+  const Known k = known_unit(false);
   loader_messages::JobOutcome o = {};
   o.kind = kind;
   o.done = inst.current() == Step::Done;

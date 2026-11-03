@@ -426,6 +426,31 @@ static std::string scan(const Image &app, size_t chunk) {
   return s.identity();
 }
 
+// A synthetic app area: a file table whose first entry ends its files at
+// table_end, then the plaintext given, then encrypted as flash holds it.
+static Image synthetic_app(uint32_t table_end, const std::vector<std::pair<uint32_t, std::string>> &text) {
+  Image app(kAppLen, 0);
+  memcpy(app.data() + 16, "app_area_head", 13);
+  const uint32_t off = 0x2000120, len = table_end - 0x120;
+  for (int i = 0; i < 4; ++i) app[8 + i] = uint8_t(off >> (8 * i)), app[12 + i] = uint8_t(len >> (8 * i));
+  for (const auto &t : text) memcpy(app.data() + t.first, t.second.data(), t.second.size());
+  decrypt_app(app.data(), app.size(), 0);
+  return app;
+}
+
+static void test_stock_scan_edges() {
+  // A FELUCCA marker that ends on a block's last byte still counts.
+  CHECK_EQ(scan(synthetic_app(0x8e000, {{0x1000, "FM-1_015"}, {0x2000 - 7, "FELUCCA"}}), kSector), std::string());
+  CHECK_EQ(scan(synthetic_app(0x8e000, {{0x1000, "FM-1_015"}, {0x2000 - 7, "FELUCCA"}}), 32), std::string());
+  CHECK_EQ(scan(synthetic_app(0x8e000, {{0x1000, "FM-1_015"}}), kSector), std::string("FM-1_015"));
+  // Past the file table's last file is build data, not the firmware's names.
+  CHECK_EQ(scan(synthetic_app(0x8e000, {{0x1000, "FM-1_015"}, {0x8e010, "FM-1_013"}, {0x8e100, "FELUCCA"}}), kSector),
+           std::string("FM-1_015"));
+  // An id that straddles the table's end belongs to neither side: ignored.
+  CHECK_EQ(scan(synthetic_app(0x8e004, {{0x1000, "FM-1_015"}, {0x8e000, "FM-1_013"}}), kSector),
+           std::string("FM-1_015"));
+}
+
 // Issue #39: a factory-stock FM-1 whose app area isn't byte-identical to the V15
 // package is still stock V15, and only stock reads as stock.
 static void test_recognise_stock() {
@@ -779,6 +804,7 @@ int main() {
   test_clean_slate();
   test_restore_old_save();
   test_family_blocks();
+  test_stock_scan_edges();
   test_recognise_stock();
   test_projects();
   test_save_restore_round_trip();
