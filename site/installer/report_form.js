@@ -42,11 +42,14 @@ export function openReportForm({ facts, picked, verdict, installer }) {
 
   const form = h("form", { method: "dialog", on: { submit: (e) => { e.preventDefault(); submit(); } } },
     ...(boardFits(facts) ? [
-      h("h2", {}, "Good news: your board has what Outrigger needs"),
-      h("p", {}, "We just haven't set Outrigger up for its screen and pins yet. Tell us which board it is, and we'll add it and send you a build to try."),
+      h("h2", {}, "Sorry, we don't know this board yet"),
+      h("p", {}, "There are hundreds of ESP32 boards, each wired its own way, so we can't cover them all from the start."),
+      h("p", {}, h("b", {}, "The good news: yours has everything Outrigger needs."), " We just need to set it up for its " +
+        "screen and pins. Tell us which board it is, and we'll add it and send you a build to try."),
     ] : [
-      h("h2", {}, "Want Outrigger on this board?"),
-      h("p", {}, "This one can't run Outrigger yet. Tell us what it is, so we know which boards to support next."),
+      h("h2", {}, "Sorry, this board can't run Outrigger yet"),
+      h("p", {}, "There are hundreds of ESP32 boards, and Outrigger runs on only a few kinds so far. Tell us what this " +
+        "one is, so we know which to support next."),
     ]),
     field("Which board is it?", board),
     field("Anything else we should know?", note),
