@@ -199,6 +199,11 @@ static void pin_write(int16_t pin, bool high) {
   digitalWrite(pin, high ? HIGH : LOW);
 }
 
+#if APP_SYNTH
+// The synth turns the speaker amplifier, a hold_low pin, on and off (lib/synth/src/audio_out.cpp).
+void board_pin_write(int16_t pin, bool high) { pin_write(pin, high); }
+#endif
+
 bool board_display_begin() {
   const bool expander = cfg.expander != ExpanderDriver::None;
   if (expander) Wire.begin(cfg.tp_sda, cfg.tp_scl, 400000);

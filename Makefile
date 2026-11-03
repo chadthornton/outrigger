@@ -99,7 +99,7 @@ VERSION_DIR := $(CACHE_ROOT)/version
 # screens ui-shots renders. Rewritten only when they change, like fw_version.h.
 BOARD_GEN := $(CACHE_ROOT)/boards
 
-.PHONY: check test ui-shots ui-mocks build build-all flash probe site serve clean fixtures golden store-image flash-store store-add check-latest deploy-site rollback-site
+.PHONY: check test ui-shots ui-mocks build build-all flash probe synth-bench flash-synth-bench site serve clean fixtures golden store-image flash-store store-add check-latest deploy-site rollback-site
 
 FM1_SRC := $(wildcard lib/fm1_loader/src/*.cpp)
 FM1_HDR := $(wildcard lib/fm1_loader/src/*.h) $(wildcard tests/support/*.h)
@@ -332,6 +332,21 @@ probe:
 		--build-property "compiler.cpp.extra_flags=-I$(BOARD_GEN)/$(BOARD) -I$(CURDIR)/firmware/waveshare_169 -I$(CURDIR)/lib/board/src -I$(CURDIR)/lib/host_ui/src" \
 		--library lib/board --build-path $(CACHE_ROOT)/$(BOARD)/probe --output-dir $(PROBE_BUILD) firmware/board_probe
 	arduino-cli upload --fqbn $(subst USBMode=default,USBMode=hwcdc,$(FQBN)),CDCOnBoot=cdc --input-dir $(PROBE_BUILD) --port $(PORT) firmware/board_probe
+
+# Outrigger Synth's bench for Big-S3 (firmware/synth_bench/bench.cpp): the board's
+# drivers and lib/synth's audio out, with the USB port left a serial device so
+# the Mac reads the numbers. Never staged into the site. `make synth-bench` builds;
+# `make flash-synth-bench` also uploads (board in download mode).
+SYNTH_BOARD := waveshare_35
+SYNTH_BENCH_BUILD := build/$(SYNTH_BOARD)/synth-bench
+SYNTH_BENCH_FQBN = $(subst USBMode=default,USBMode=hwcdc,$(shell python3 -I tools/boards.py fqbn $(SYNTH_BOARD))),CDCOnBoot=cdc
+synth-bench:
+	python3 -I tools/boards.py header $(SYNTH_BOARD) $(BOARD_GEN)/$(SYNTH_BOARD)/board_config.h
+	arduino-cli compile --fqbn $(SYNTH_BENCH_FQBN) --build-property "tools.ctags.path=$(CTAGS_DIR)" \
+		--build-property "compiler.cpp.extra_flags=-DAPP_SYNTH=1 -I$(BOARD_GEN)/$(SYNTH_BOARD) -I$(CURDIR)/firmware/waveshare_169 -I$(CURDIR)/lib/board/src -I$(CURDIR)/lib/host_ui/src" \
+		--library lib/board --library lib/synth --build-path $(CACHE_ROOT)/$(SYNTH_BOARD)/synth-bench --output-dir $(SYNTH_BENCH_BUILD) firmware/synth_bench
+flash-synth-bench: synth-bench
+	arduino-cli upload --fqbn $(SYNTH_BENCH_FQBN) --input-dir $(SYNTH_BENCH_BUILD) --port $(PORT) firmware/synth_bench
 
 # The store partition's first setup: a LittleFS image holding JieLi's loader
 # (from tests/fixtures). JieLi's code, so it stays in build/ and is never staged
