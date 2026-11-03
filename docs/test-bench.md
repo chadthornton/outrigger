@@ -23,9 +23,10 @@ ones `--board` and `--fm1` name. That checks the run has the devices it asked fo
 
 ## Using the lab board
 
-Small-V2 runs `hub-loader` with `DIAG_WEB=1 BENCH=1` and stays on Chad's home Wi-Fi at `fm1bench.local`, with FM-B
-on its own powered hub (the rig hub keeps Small-V1 and FM-A). Any session on this Mac can read it instead of asking
-Chad what the screen shows.
+Two powered hubs (Chad, 2026-11-03): hub A holds Small-V1 and FM-A, hub B holds Small-V2 and FM-B, so two sessions
+can test in parallel. Chad replugs by hand, in batched cards. When Small-V2 runs `hub-loader` with `DIAG_WEB=1
+BENCH=1` and is on Chad's Wi-Fi at `fm1bench.local`, any session on this Mac can read it instead of asking Chad what
+the screen shows.
 
 **Reads are free.** No booking; nothing changes on the board or the FM-1:
 
@@ -52,7 +53,7 @@ follow-up backup passed), and `running` (the board identifies the backed-up app 
 hash: `loader_app.cpp`, `known_unit`). The run passes when all five do. A factory-installed stock V15 may not be
 recognised as running (issue #39); a stock V15 the loader installed is.
 
-**What still needs Chad's hands** until the relay parts arrive (`asks/lab-board-parts`):
+**What still needs Chad's hands** (no relays or soldering on this bench, by Chad's choice):
 - **Reflashing the lab board.** The build has no over-the-air update and no remote Computer mode, so a new build means
   Chad taps Computer mode and moves its cable to the Mac. Its build lags `master`: check `bench.py fm1`'s `build`
   before trusting a result for a recent change. Wi-Fi survives a reflash: `make flash` writes the bootloader,
@@ -102,7 +103,5 @@ in-process mock.
 
 - The bench-only sector writer, for test marks, the Skiff fill of 0xEA000–0xFBFFF, and the USR restore from the
   pristine dump. It's guarded tier, so it waits on Chad's go-ahead (`asks/bench-writer-plan`).
-- The relay board that hands FM-B's port to the Transporter and the lab board's own port to the Mac
-  (`asks/lab-board-parts`).
 - fw-map-bench A4's tests 1 and 2 need the writer's marks: without them, a switch run checks only that each firmware
   installs, boots and backs up.
