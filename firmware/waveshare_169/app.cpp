@@ -721,8 +721,10 @@ void loop() {
 #if APP_LOADER
   // Loader builds don't poll yet: the polls ran in Play mode right up to
   // checkpoint 3's hcd_urb_dequeue crashes. That crash's cause is fixed in
-  // EspUsbHost's disconnect teardown; turning the polls back on waits for the
-  // hub-poll timeout fix (PR #2). Only the port letters on the chain screen are lost.
+  // EspUsbHost's disconnect teardown, and the hub-poll timeout fix (PR #2) has
+  // landed. Turning them back on waits for a soak on a loader build: a request
+  // the hub never answers stays queued on its EP0 (IDF can't cancel it). Only
+  // the port letters on the chain screen are lost.
   poll_ok = false;
 #endif
   if (poll_ok && now - last_poll > 1000) {
