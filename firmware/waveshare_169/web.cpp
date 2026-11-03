@@ -106,7 +106,7 @@ static uint32_t store_at = 0;
 enum class Net : uint8_t { Connecting, Online };
 static Net net = Net::Connecting;
 static bool ap_on = false;
-static char own_ip[16] = "", ap_ip[16] = "", ssid_now[33] = "", ap_pass[13] = "";
+static char own_ip[16] = "", ap_ip[16] = "", ssid_now[33] = "", ap_pass[9] = "";  // 8 characters, the WPA2 minimum: typed by hand on a phone
 static uint32_t ap_ip_u32 = 0;  // network byte order, for the via-hotspot check
 static int8_t rssi = 0;
 static char network_line[48] = "";  // empty until web_begin()
