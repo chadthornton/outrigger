@@ -8,7 +8,8 @@ Computer mode (Setup > hold Computer mode).
     build/tools-venv/bin/python tools/board_profile.py <port> restart          # leave Computer mode
 
 A stored profile applies at the next start. The port opens with DTR and RTS
-off: on the ESP32-S3's own USB port, either one held reset or download mode.
+both asserted, as Chrome does: on the ESP32-S3's own USB port, one without the
+other resets the board or sends it to download mode.
 """
 import sys
 import time
@@ -55,8 +56,14 @@ def open_port(name):
     import serial
     p = serial.Serial()
     p.port, p.baudrate, p.timeout = name, 115200, 0.2
-    p.dtr = p.rts = False  # either one held resets the S3, or keeps it in download mode
+    # Both lines stay asserted, as Chrome's Web Serial leaves them: on the S3's
+    # own USB port, RTS without DTR is a chip reset and DTR without RTS is
+    # download mode at the next reset. Setting them low after opening passed
+    # through RTS-only and restarted the board (2026-11-03).
+    p.dtr = p.rts = True
     p.open()
+    time.sleep(0.3)
+    p.reset_input_buffer()
     return p
 
 
