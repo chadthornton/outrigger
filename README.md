@@ -4,11 +4,18 @@
 you, backing it up first.** It runs on a small ESP32-S3 touchscreen board that sits on a powered USB hub next to the
 FM-1. Install it from your browser at **[outrigger.music](https://outrigger.music)**.
 
-- **Status: beta.** Tested on a Waveshare ESP32-S3-Touch-LCD-1.69 with a Novation Launchkey Mini MK4 37. Expect
-  rough edges; firmware switching writes to your FM-1, so read the beta guide first.
+- **Status: beta.** Tested on the Waveshare ESP32-S3-Touch-LCD-1.69 and the Waveshare ESP32-S3-Touch-LCD-3.5, with a
+  Novation Launchkey Mini MK4 37. The installer has a board picker. Expect rough edges; firmware switching writes to
+  your FM-1, so read the beta guide first.
 - **Beta guide:** [`docs/beta/`](docs/beta/01-what-you-need.md), from what you need to
   [what to do if your FM-1 won't boot](docs/beta/06-if-your-fm1-wont-boot.md) and the
   [known issues](docs/beta/07-known-issues.md).
+- **Built on and alongside:** The FM-1 has a lively community, and these are projects we use, learn from or sit next to.
+  - [Felucca](https://github.com/hugelton/felucca) and [felucca-bsp](https://github.com/hugelton/felucca-bsp) (Hügelton Instruments): a custom FM-1 firmware, and the board support package for JieLi-based M-VAVE synths.
+  - [fm1-base](https://github.com/charlesvestal/fm1-base), [X0X](https://github.com/charlesvestal/fm1-x0x), [AMB-1](https://github.com/charlesvestal/fm1-amb) and [more FM-1 firmwares](https://github.com/charlesvestal?tab=repositories&q=fm1) (Charles Vestal): a firmware base and template, a groovebox, a generative ambient machine, and others.
+  - [MvaveFM1Unbricker](https://github.com/Quixotic7/MvaveFM1Unbricker) and [RemoteFM1](https://github.com/Quixotic7/RemoteFM1) (Quixotic7): an FM-1 unbricker, and a player that runs FM-1 firmwares from the browser without installing them.
+  - [fm1-mirror](https://github.com/pfkellogg/fm1-mirror) (Patrick Kellogg): the FM-1's screen, big, on a computer.
+  - [fm1buddy](https://github.com/konsumer/fm1buddy) (David Konsumer), a related project: a touchscreen box that runs an FM-1 without a computer.
 - **Feedback:** feedback@outrigger.music.
 - **License:** [GPL-3.0](LICENSE). Third-party code and its licenses: [NOTICE](NOTICE). No M-VAVE firmware is in
   this repo; your browser downloads it at install time and checks each file.
@@ -17,9 +24,9 @@ The rest of this README is for working on the code.
 
 ## For developers
 
-A computer-free USB MIDI host. The first target is the Waveshare ESP32-S3-Touch-LCD-1.69: its USB-C port runs as
-a USB host through a powered hub, and incoming MIDI is shown on its screen. The goal is to play an M-VAVE FM-1
-from a Novation Launchkey Mini MK4 37 with both on the hub, power and MIDI on one cable each.
+A computer-free USB MIDI host. It runs on the Waveshare ESP32-S3-Touch-LCD-1.69 and 3.5 (`firmware/boards.json`
+lists every profile, tested or not). Its USB-C port runs as a USB host through a powered hub, and incoming MIDI is
+shown on its screen. The goal is to play an M-VAVE FM-1 from a Novation Launchkey Mini MK4 37 with both on the hub, power and MIDI on one cable each.
 
 It is one shared core with pluggable apps (Router, firmware Loader, and, in progress, Recorder and Web UI), chosen
 per build as an app set. The core owns the 8 USB host channels, the FM-1, the radio, storage, settings and the screen;
@@ -41,22 +48,21 @@ apps ask it for them. See `docs/architecture.md`, and the merge gate below befor
 | `firmware/config/lv_conf.h` | LVGL configuration (fonts, clib malloc so big buffers can use PSRAM). |
 | `site/`, `tools/build_site.py` | Browser installer (`site/installer/`, on esptool-js) and the script that stages firmware into it. |
 | `.github/workflows/ci.yml` | CI, the merge gate: the same checks as `make check`, with one job per board × app set, on pushes to master and PRs. Its `ci-ok` check is the one to read. |
-| `firmware/waveshare_169/` | Arduino sketch for the Waveshare board: `app.cpp` (USB host, routing, gathers the frame) and `board_waveshare_169.cpp` (board profile, display and touch drivers). Code stays out of the `.ino` (see below). |
+| `firmware/waveshare_169/` | The Arduino sketch every board builds (named for the first board): `app.cpp` (USB host, routing, gathers the frame) and `board.cpp` (display, touch and expander drivers, from the build's `board_config.h`). Code stays out of the `.ino` (see below). |
+| `firmware/boards.json`, `tools/boards.py` | The board profiles (pins, chips, screen, memory) and the script that checks them and generates each build's `board_config.h` and the screens `make ui-shots` renders. |
 
-To add a board: copy the sketch folder, write a new `board_*.cpp` with its `BoardProfile` (size, shape, corner
-radius, font boost) and the three driver hooks in `lib/host_ui/src/board_profile.h`. `app.cpp` and `host_ui` don't
-change. Check the board's schematic for a USB-C port wired to the ESP32-S3's native USB (GPIO19/20). Then add it to
-`BOARDS` in the `Makefile` and in `tools/build_site.py`, and a card in `site/index.html`.
+To add a board: add its profile to `firmware/boards.json` (`docs/boards.md`, "Adding a board"). `app.cpp`, `host_ui`,
+the Makefile, the site and the installer pick it up from there.
 
 ## Commands
 
 ```
 make test      # midi_core, platform and fm1_loader tests on the Mac (fetches fixtures once)
-make check     # the production deploy's check: HEAD checked out clean in the clone all worktrees share, then test, ui-shots and site (~2 min; ~12 min after a core or library update)
+make check     # the full deploy check (critical batches, FULL=1): HEAD checked out clean in the clone all worktrees share, then test, ui-shots and site (~2 min; ~12 min after a core or library update)
 make ui-shots  # render and check every page; build/ui-shots/sheet_*.png (needs LVGL 9.6.0, see Makefile)
 make fixtures  # FM-1 packages and wl82loader.bin for the tests, pinned by SHA-256 (gitignored)
 make golden    # regenerate tests/golden/ from the Unbricker and jl-uboot-tool (Python venv in build/)
-make build     # compile one board x app set: BOARD=waveshare_169 (default) APPS=hub|hub-loader|everything
+make build     # compile one board x app set: BOARD=waveshare_169 (default)|waveshare_35 APPS=hub|hub-loader|everything
 make build-all # every board x app set, into build/<board>/<app set>/
 make build APPS=hub-loader DIAG_WEB=1  # hub-loader plus the read-only web diagnostics (build/<board>/hub-loader-web/)
 python3 tools/diag.py all              # status, log, crash and store into build/diag/<time>/, plus the core dump
@@ -149,20 +155,45 @@ The site is on Cloudflare Pages (project `outrigger`, a Direct Upload project in
 ```
 make deploy-site                     # beta
 make deploy-site CHANNEL=production  # outrigger.music
+make deploy-site FULL=1              # build it with make check on the Mac instead of taking CI's
 ```
 
-- **What gets uploaded:** `make deploy-site` runs `make check`, then uploads the `site/` that the check built from that
-  commit (`build/checked/site`). Nothing uncommitted or unpushed goes live, and every upload passed `make check` on that
-  exact commit. Production also waits for Chad's "ship it" in the deploying session's chat.
+- **What gets uploaded:** usually CI's build of that exact commit, in about a minute. A push to `master` makes CI build
+  every board × app set and keep it as the `site-firmware` artifact (14 days) with a `SHA256SUMS` list.
+  `make deploy-site` takes it only from a CI run of exactly HEAD with `ci-ok` green, and checks it three ways: the
+  download against GitHub's digest, every file against `SHA256SUMS`, and every manifest against HEAD (clean build, parts
+  matching). The rest comes from git at that commit: the pages, `functions/`, `wrangler.toml`, `NOTICE` and `LICENSE`.
+  It runs `make check` on the Mac and uploads that build (`build/checked/site`) instead in three cases: `FULL=1`; a
+  batch whose changes since the commit production serves touch the critical list's code (`CRITICAL` in
+  `tools/deploy_site.py`), on beta too, so beta carries the same build production will; and a commit CI never built by
+  itself. A red or still-running CI run refuses either way, and production refuses until CI has run. That last case is any branch commit, because CI builds a PR merged into `master`. Start CI on the branch by hand
+  (`gh workflow run CI --ref <branch>`) to get a build of the commit itself. CI's and the Mac's app binaries
+  differ byte for byte (each embeds its own toolchain paths, e.g. `/home/runner/.arduino15/…`); bootloaders, partition
+  tables, pages and Functions are identical (compared at d5bc202, 2026-11-03). Nothing uncommitted or unpushed goes
+  live. When production may go up without Chad: "Shipping to production".
 - **What gets checked first:** `tools/deploy_site.py` refuses a dirty tree, an unpushed HEAD, or production from
-  anything but `origin/master`. Before uploading it scans every file again: under Pages' 25 MiB per-file and
+  anything but `origin/master` or from a commit beta doesn't serve. Before uploading it scans every file again: under Pages' 25 MiB per-file and
   20,000-file limits, and free of `wl82loader.bin` (by name, SHA-256 and 1 KiB pieces). A local copy of the blob is
   required for that scan.
 - **Which commit is live:** each upload carries its commit hash, shown in the Pages dashboard under Workers & Pages,
-  then `outrigger`, then Deployments.
-- **Rollback:** in that Deployments list, open an older production deployment and pick "Rollback to this deployment".
+  then `outrigger`, then Deployments. Every deploy and rollback is also a line in the deploy log,
+  `~/Library/Application Support/outrigger/deploys/deploys.jsonl` (commit, Pages deployment ID, time, session), which
+  every worktree on the Mac shares. `tail -1` of it, filtered by channel, is what that channel serves.
+- **Rollback:** `make rollback-site CHANNEL=production` (or `beta`) puts back the deploy before the live one, in
+  seconds and without `make check`; `COMMIT=<sha>` goes back further. Production uses Cloudflare's own rollback (about
+  a second, no upload; the old Functions come back with the old site). Cloudflare can't roll back a preview, so for
+  beta each deploy keeps what it uploaded (newest 3, beside the log, with SHA-256 sums) and a rollback uploads that copy
+  again. A second rollback goes further back, never forward to the build the first one left. It refuses when the log
+  has no earlier deploy, when the commit isn't one the log can go back to, and when the channel serves something the
+  log didn't deploy (use the dashboard's "Rollback to this deployment" then). Any agent may roll production back the
+  moment it's broken, then tell Chad.
+- **Board reports:** the installer's "Report this board" pop-up (`site/installer/report_form.js`) posts to a Pages
+  Function, `functions/api/report.js`, which writes to D1: `outrigger-reports` for production, `outrigger-reports-beta`
+  for beta and previews (`wrangler.toml`, schema in `migrations/`). The function and `wrangler.toml` go up with the
+  site, from the same checked commit (`build/checked/`). Read new reports with `python3 -I tools/reports.py new`
+  (add `beta` for beta's); `forget <id>` deletes a report's email when someone asks.
 - **Credentials:** `~/.config/cloudflare/outrigger-pages.env` holds `CLOUDFLARE_API_TOKEN` (Account, Cloudflare Pages,
-  Edit) and `CLOUDFLARE_ACCOUNT_ID`. wrangler is pinned in `tools/deploy_site.py` and runs through `npx`.
+  Edit; Account, D1, Edit) and `CLOUDFLARE_ACCOUNT_ID`. wrangler is pinned in `tools/deploy_site.py` and runs through `npx`.
 - **Domains:** `outrigger.music` is the project's production custom domain. `beta.outrigger.music` is a custom domain
   whose proxied CNAME points at the beta branch alias, `beta.outrigger.pages.dev`
   ([Cloudflare's branch-domain guide](https://developers.cloudflare.com/pages/how-to/custom-branch-aliases/)). The
@@ -188,31 +219,61 @@ the `wl82loader.bin` scan. A PR that only touches docs, site copy (`site/`), `te
 the firmware builds and gets a licensing scan of `site/` instead. Run `make test` locally while working; it is not a
 gate step, and neither is `make check` (Chad, 2026-11-01). A briefly broken `master` is tolerated: fix forward.
 
+Agents merge their own PRs on green CI, unless the PR is on the critical list below; a critical PR also waits for
+Chad's "ship it" before it reaches production (Chad, 2026-11-03).
+
 **Exception:** a PR that changes the FM-1 loader, the store or flash writes, or the USB host stack (`lib/fm1_loader/`,
 the loader and store code in `firmware/`, `partitions.csv`, `lib/EspUsbHost/`) also passes the hardware smoke check
 below with its own build before merging.
 
 ### Shipping to production
 
-Once per ship (Chad, 2026-11-01), in this order:
+Agents ship production themselves (Chad, 2026-11-03) when all of these hold:
 
-1. **Hardware smoke check** with `master`'s build, the commit about to ship:
-   1. Install it the way a user would: the web installer (`make serve`), from Computer mode, with the app set the
-      ship changes (MIDI Hub if none).
-   2. Put the board back in the rig: hub power brick → hub, hub upstream cable → Waveshare, FM-1 and Launchkey on the
-      hub's USB-C ports.
-   3. Pass when Setup shows the commit, Play's four lines are green with the hub at `USB 8/8`, and playing the
-      Launchkey sounds the FM-1.
-2. **Chad says "ship it"** in the deploying session's chat, after the smoke check passes.
-3. **`make deploy-site CHANNEL=production`** re-runs `make check` on the Mac on the exact commit it uploads
-   ("Publishing the site").
+1. The commit is `origin/master`'s head, and its CI (`ci-ok`) is green.
+2. Beta serves the same commit (`make deploy-site` from it), checked by content: the page and
+   `firmware/<board>/<app set>/manifest.json`'s `version` show the commit, and what the batch changed works there.
+3. Nothing since the commit production serves is on the critical list. Read the batch with
+   `git log --stat <live>..origin/master` (the live commit: the deploy log's last production line).
+
+Then `make deploy-site CHANNEL=production`, check outrigger.music the same way, and say what shipped in the
+session's chat. A broken production gets `make rollback-site CHANNEL=production` first and questions after.
+
+**The critical list.** A batch with any of these waits for Chad's "ship it" in the deploying session's chat:
+
+- the FM-1 loader, the store, flash-erase ranges, or the USB host stack (`lib/fm1_loader/`, the loader and store code
+  in `firmware/`, `partitions.csv`, `lib/EspUsbHost/`);
+- new data collection, privacy copy, emails, accounts or secrets;
+- deploy tooling or server code (`tools/deploy_site.py`, `tools/check.py`, the Makefile's `check`, `deploy-site` and
+  `rollback-site`, `.github/workflows/`, `functions/`, `wrangler.toml`, `migrations/`);
+- releases, tags and announcements.
+
+If a critical batch changes what the firmware does, it also passes the **hardware smoke check** with `master`'s build
+before the "ship it":
+
+1. Install it the way a user would: the web installer (`make serve`), from Computer mode, with the app set the
+   ship changes (MIDI Hub if none).
+2. Put the board back in the rig: hub power brick → hub, hub upstream cable → Waveshare, FM-1 and Launchkey on the
+   hub's USB-C ports.
+3. Pass when Setup shows the commit, Play's four lines are green with the hub at `USB 8/8`, and playing the
+   Launchkey sounds the FM-1.
+
+Non-critical batches skip the smoke check. Every production deploy and rollback lands in the deploy log
+("Publishing the site") with its commit, time and session.
 
 ### Boards
 
-There are three: Waveshare-1 (1.69", V2, MAC `D8:3B:DA:A0:67:D0`), Waveshare-2 (1.69", V1, MAC `a0:85:e3:f0:a2:3c`)
-and Board-3 (Waveshare 3.5"). A session books a board and the Mac's USB slot through the orchestrator session
-(`local_3a47bdc2-23d3-4414-b549-9e1e85c6718a`), checks the board's MAC before flashing, and reflashes the `master`
-build when done.
+Chad's names (2026-11-03): **Small-V1** (Waveshare 1.69", the older revision, usually on the rig), **Small-V2** (1.69"
+with the V2 sticker), **Big-S3** (Waveshare 3.5" S3), **Big-P4** (the Synth track's 3.5" P4), and the FM-1s **FM-A**
+and **FM-B**. Their MACs and unit IDs live in the device registry, outside this public repo
+(`~/Library/Application Support/outrigger/devices.json`; the shape is `tools/devices.example.json`).
+
+- **Tools ask for a device by name** and refuse any other: `tools/port_for.py Small-V2` finds its port,
+  `tools/wait_for_board.sh Small-V2` waits for it, and `tools/bench.py --board Small-V2 --fm1 FM-B` drives the bench.
+- **Wiping any of them is fine** (Chad, 2026-11-03). The check only makes sure a session has the device it asked for.
+- **Every esptool MAC read ends with a hard reset,** so no board, another session's included, is left in download mode.
+- A session books a board and the Mac's USB slot through the orchestrator session, and reflashes the `master` build
+  when done.
 
 An app also lands with its row in the mode table, its claims and tests in the broker, its NVS namespace with a `schema`
 key, and its build flag (`docs/architecture.md`, "How an app lands on `master`"). Guarded work (anything that writes the

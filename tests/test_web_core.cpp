@@ -169,11 +169,14 @@ static void test_bench_routes_apart() {
 }
 
 static void test_bench_mac() {
-  const uint8_t w1[6] = {0xD8, 0x3B, 0xDA, 0xA0, 0x67, 0xD0};
-  const uint8_t w2[6] = {0xA0, 0x85, 0xE3, 0xF0, 0xA2, 0x3C};
+  // Chad's names, by the MACs on his labelled boards (2026-11-03).
+  const uint8_t v1[6] = {0xA0, 0x85, 0xE3, 0xF0, 0xA2, 0x3C};
+  const uint8_t v2[6] = {0xD8, 0x3B, 0xDA, 0xA0, 0x67, 0xD0};
+  const uint8_t s3[6] = {0x44, 0xBD, 0x8D, 0x61, 0x2B, 0x28};
   const uint8_t other[6] = {0xD8, 0x3B, 0xDA, 0xA0, 0x67, 0xD1};
-  EXPECT(waveshare_name(w1) && strcmp(waveshare_name(w1), "waveshare-1") == 0, "Waveshare-1 by MAC");
-  EXPECT(waveshare_name(w2) && strcmp(waveshare_name(w2), "waveshare-2") == 0, "Waveshare-2 by MAC");
+  EXPECT(waveshare_name(v1) && strcmp(waveshare_name(v1), "small-v1") == 0, "Small-V1 by MAC");
+  EXPECT(waveshare_name(v2) && strcmp(waveshare_name(v2), "small-v2") == 0, "Small-V2 by MAC");
+  EXPECT(waveshare_name(s3) && strcmp(waveshare_name(s3), "big-s3") == 0, "Big-S3 by MAC");
   EXPECT(!waveshare_name(other), "an unlisted board gets no bench API");
 }
 

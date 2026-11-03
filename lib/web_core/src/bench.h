@@ -24,7 +24,7 @@ constexpr Route kBenchRoutes[] = {
 };
 constexpr int kBenchRouteCount = sizeof kBenchRoutes / sizeof kBenchRoutes[0];
 
-// Chad's Waveshares by MAC ("waveshare-1", "waveshare-2"); null for any other
+// Chad's boards by MAC ("small-v1", "small-v2", "big-s3"); null for any other
 // board, which gets no bench API.
 const char *waveshare_name(const uint8_t mac[6]);
 

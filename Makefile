@@ -1,16 +1,25 @@
-FQBN := esp32:esp32:esp32s3:USBMode=default,FlashSize=16M,PSRAM=opi
 PORT ?= $(firstword $(wildcard /dev/cu.usbmodem*))
 ESP32_CORE ?= $(shell arduino-cli config get directories.data)/packages/esp32/hardware/esp32/3.3.12
 # Arduino's bundled ctags is x86-only on Apple Silicon; CI sets /usr/bin.
 CTAGS_DIR ?= /opt/homebrew/bin
 
 # Board x app set (docs/architecture.md, "App sets and builds").
-# `make build BOARD=waveshare_169 APPS=hub-loader`; `make site` builds them all.
-BOARDS := waveshare_169
+# `make build BOARD=waveshare_35 APPS=hub-loader`; `make site` builds them all.
+# The boards are the profiles in firmware/boards.json (docs/boards.md, "Adding a
+# board"); every board builds the one sketch, with its board_config.h.
+# BOARDS are the tested ones: CI, make site and the installer build only those.
+# Any profile builds and probes by name (ALL_BOARDS).
+BOARDS := $(shell python3 -I tools/boards.py ids)
+ALL_BOARDS := $(shell python3 -I tools/boards.py all-ids)
+ifeq ($(BOARDS),)
+$(error firmware/boards.json has a problem: python3 -I tools/boards.py check says what)
+endif
 APP_SETS := hub hub-loader everything
 # littlefs-python for the store image and the installer's store template (rule below).
 TOOLS_PY := build/tools-venv/bin/python
 BOARD ?= waveshare_169
+# Recursive (=): only build and flash read it, so other targets don't run python for it.
+FQBN = $(shell python3 -I tools/boards.py fqbn $(BOARD))
 APPS ?= hub
 APP_FLAGS_hub :=
 APP_FLAGS_hub-loader := -DAPP_LOADER=1
@@ -29,6 +38,9 @@ WRITE_FLAGS += $(if $(filter 1,$(SOAK)),-DLOADER_SOAK=1)
 # Back to MIDI does) 100 s after each boot, so tools/boot_probe.py can time Wi-Fi
 # across many software restarts unattended. Never a release.
 WRITE_FLAGS += $(if $(filter 1,$(WIFI_BOOTLOOP)),-DWIFI_BOOTLOOP=1)
+# HEAP_ON_SCREEN=1: Setup's network line shows free internal and DMA RAM, for
+# sizing screens on a board whose USB port is busy hosting. Never a release.
+WRITE_FLAGS += $(if $(filter 1,$(HEAP_ON_SCREEN)),-DHEAP_ON_SCREEN=1)
 # BENCH=1 (with DIAG_WEB=1, APPS=hub-loader): the test bench's control API at
 # fm1bench.local (lib/web_core/src/bench.h), answered only on Chad's Waveshares.
 # tools/bench.py drives it. Never a release: make site checks no shipped build has it.
@@ -52,13 +64,18 @@ endif
 ifeq ($(SOAK),1)
 BUILD_SUFFIX := $(BUILD_SUFFIX)-soak
 endif
+ifeq ($(HEAP_ON_SCREEN),1)
+BUILD_SUFFIX := $(BUILD_SUFFIX)-heap
+endif
 ifeq ($(WIFI_BOOTLOOP),1)
 BUILD_SUFFIX := $(BUILD_SUFFIX)-bootloop
 endif
 ifeq ($(BENCH),1)
 BUILD_SUFFIX := $(BUILD_SUFFIX)-bench
 endif
-SKETCH := firmware/$(BOARD)
+# The sketch is still named for the first board; it's every board's. Renaming
+# it waits for the branches editing it to land.
+SKETCH := firmware/waveshare_169
 BUILD := build/$(BOARD)/$(APPS)$(BUILD_SUFFIX)
 # arduino-cli's build paths and ui-shots' LVGL objects. make check points it
 # outside its clone, so a check recompiles only what the commit changed.
@@ -78,8 +95,11 @@ STORE_OFFSET := 0x3D0000
 FW_VERSION := 0x$(shell git rev-parse --short=7 HEAD)
 FW_DIRTY := $(if $(shell git status --porcelain --untracked-files=no),1,0)
 VERSION_DIR := $(CACHE_ROOT)/version
+# tools/boards.py's generated headers: each board's board_config.h, and the
+# screens ui-shots renders. Rewritten only when they change, like fw_version.h.
+BOARD_GEN := $(CACHE_ROOT)/boards
 
-.PHONY: check test ui-shots ui-mocks build build-all flash site serve clean fixtures golden store-image flash-store store-add check-latest deploy-site
+.PHONY: check test ui-shots ui-mocks build build-all flash probe site serve clean fixtures golden store-image flash-store store-add check-latest deploy-site rollback-site
 
 FM1_SRC := $(wildcard lib/fm1_loader/src/*.cpp)
 FM1_HDR := $(wildcard lib/fm1_loader/src/*.h) $(wildcard tests/support/*.h)
@@ -87,7 +107,11 @@ FM1_TESTS := build/test_fm1_package build/test_fm1_library build/test_fm1_instal
 	build/test_fm1_softkey build/test_fm1_posix build/test_fm1_locked build/test_fm1_library_posix \
 	build/test_fm1_receive
 
-test: build/check_package build/test_fm1_interop build/test_midi_core build/test_status build/test_boot_mode build/test_broker build/test_describe build/test_web_core build/test_store_json build/test_loader_messages build/test_bench_writer $(FM1_TESTS) build/receive_pipe fixtures $(TOOLS_PY)
+test: build/check_package build/test_fm1_interop build/test_touch_map build/test_panel build/test_board_blob build/test_profile_link test-board-configs build/test_midi_core build/test_status build/test_boot_mode build/test_broker build/test_describe build/test_web_core build/test_store_json build/test_loader_messages build/test_bench_writer $(FM1_TESTS) build/receive_pipe fixtures $(TOOLS_PY)
+	./build/test_touch_map
+	./build/test_panel
+	./build/test_board_blob tests/boards/blobs.tsv
+	./build/test_profile_link
 	./build/test_midi_core
 	./build/test_status
 	./build/test_boot_mode
@@ -103,11 +127,15 @@ test: build/check_package build/test_fm1_interop build/test_midi_core build/test
 	python3 -I tools/fm1lib.py selftest build/interop tests/fixtures/skiff-1.4.fwsc \
 		tests/fixtures/sloop-2.8.1.fwsc tests/fixtures/FM-1_015.fwsc
 	./build/test_fm1_interop build/interop
-	python3 -I tools/check_partitions.py firmware/$(BOARD)/partitions.csv
+	python3 -I tools/check_partitions.py $(SKETCH)/partitions.csv
+	python3 -I tests/test_boards.py
+	python3 -I tests/test_devices.py
 	python3 -I tests/installer/test_tables.py
 	$(TOOLS_PY) tests/installer/test_store_template.py
 	node --test tests/installer/*.test.mjs
+	node --test tests/functions/*.test.mjs
 	python3 -I tests/test_deploy_site.py
+	python3 -I tests/test_reports.py
 	python3 -I tests/test_check.py
 	python3 -I tests/test_bench.py
 	python3 -I tests/test_bench_recover.py
@@ -164,6 +192,33 @@ $(GOLDEN_PY):
 golden: $(GOLDEN_PY) fixtures
 	$(GOLDEN_PY) tools/gen_golden.py tests/golden
 	git diff --stat --exit-code -- tests/golden
+
+# The touch chip's portrait coordinates turned to the screen's (board.cpp).
+build/test_touch_map: tests/test_touch_map.cpp firmware/waveshare_169/touch_map.h
+	mkdir -p build
+	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -Ifirmware/waveshare_169 -Ilib/board/src -o $@ $<
+
+# The panel's MADCTL byte and the touch axes from a profile (board_config_types.h, touch_map.h).
+build/test_panel: tests/test_panel.cpp lib/board/src/board_config_types.h firmware/waveshare_169/touch_map.h
+	mkdir -p build
+	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -Ifirmware/waveshare_169 -Ilib/board/src -o $@ $<
+
+# Every profile's generated board_config.h compiles and makes sense (tests/test_board_config.cpp).
+.PHONY: test-board-configs
+test-board-configs: tests/test_board_config.cpp lib/board/src/board_config_types.h firmware/boards.json tools/boards.py
+	for b in $(ALL_BOARDS); do \
+		python3 -I tools/boards.py header $$b build/board-configs/$$b/board_config.h || exit 1; \
+		$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -Ibuild/board-configs/$$b -Ifirmware/waveshare_169 -Ilib/board/src -Ilib/host_ui/src \
+			-o build/board-configs/$$b/test $< && ./build/board-configs/$$b/test || exit 1; done
+
+# The board profile on the wire (lib/board): the cases boards.py generates, and the Computer-mode commands.
+BOARD_LIB := lib/board/src/board_blob.cpp lib/board/src/board_blob.h lib/board/src/board_config_types.h lib/host_ui/src/board_profile.h
+build/test_board_blob: tests/test_board_blob.cpp $(BOARD_LIB) tests/boards/blobs.tsv
+	mkdir -p build
+	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -Ilib/board/src -Ilib/host_ui/src -o $@ $< lib/board/src/board_blob.cpp
+build/test_profile_link: tests/test_profile_link.cpp lib/board/src/profile_link.cpp lib/board/src/profile_link.h $(BOARD_LIB)
+	mkdir -p build
+	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -Ilib/board/src -Ilib/host_ui/src -o $@ $< lib/board/src/profile_link.cpp lib/board/src/board_blob.cpp
 
 build/test_midi_core: tests/test_midi_core.cpp lib/midi_core/src/midi_core.cpp lib/midi_core/src/midi_core.h
 	mkdir -p build
@@ -222,10 +277,14 @@ $(CACHE_ROOT)/lvgl-obj/%.o: $(LVGL_DIR)/src/%.c firmware/config/lv_conf.h
 # the FM-1 pages' (loader_messages.cpp, with fm1_loader).
 UI_SHOTS_SRC := tests/ui_shots/ui_shots.cpp lib/host_ui/src/host_ui.cpp lib/midi_core/src/status.cpp \
 	lib/midi_core/src/midi_core.cpp firmware/waveshare_169/loader_messages.cpp $(FM1_SRC)
+# Every board's screen comes from its profile (firmware/boards.json).
+$(BOARD_GEN)/board_shots.h: firmware/boards.json tools/boards.py
+	python3 -I tools/boards.py shots $@
+	touch $@
 build/ui_shots: $(UI_SHOTS_SRC) $(wildcard tests/ui_shots/*.h tests/ui_shots/stub/*.h lib/host_ui/src/*.h lib/midi_core/src/*.h) \
-		firmware/waveshare_169/loader_messages.h $(FM1_HDR) $(LVGL_OBJ)
+		firmware/waveshare_169/loader_messages.h $(FM1_HDR) $(LVGL_OBJ) $(BOARD_GEN)/board_shots.h
 	@echo "$(TEST_CXX) ... -o $@"
-	@$(TEST_CXX) -std=c++17 -O1 -Wall -Wextra -Werror -Wno-deprecated-declarations $(UI_FLAGS) -DAPP_LOADER=1 \
+	@$(TEST_CXX) -std=c++17 -O1 -Wall -Wextra -Werror -Wno-deprecated-declarations $(UI_FLAGS) -DAPP_LOADER=1 -I$(BOARD_GEN) \
 		-Ilib/host_ui/src -Ilib/midi_core/src -Ilib/fm1_loader/src -Ilib/platform/src -Ifirmware/waveshare_169 \
 		-o $@ $(UI_SHOTS_SRC) $(LVGL_OBJ) -lz
 ui-shots: build/ui_shots
@@ -244,15 +303,17 @@ ui-mocks: build/ui_mocks
 
 build:
 	$(if $(filter $(APPS),$(APP_SETS)),,$(error APPS=$(APPS); known: $(APP_SETS)))
+	$(if $(filter $(BOARD),$(ALL_BOARDS)),,$(error BOARD=$(BOARD); known: $(ALL_BOARDS)))
+	python3 -I tools/boards.py header $(BOARD) $(BOARD_GEN)/$(BOARD)/board_config.h
 	mkdir -p $(VERSION_DIR)
 	printf '#define FW_VERSION %s\n#define FW_DIRTY %s\n' $(FW_VERSION) $(FW_DIRTY) > $(VERSION_DIR)/fw_version.h.$$$$ \
 		&& { cmp -s $(VERSION_DIR)/fw_version.h.$$$$ $(VERSION_DIR)/fw_version.h \
 			&& rm $(VERSION_DIR)/fw_version.h.$$$$ || mv $(VERSION_DIR)/fw_version.h.$$$$ $(VERSION_DIR)/fw_version.h; }
 	arduino-cli compile --fqbn $(FQBN) --build-property "tools.ctags.path=$(CTAGS_DIR)" \
 		--build-property "upload.maximum_size=$(APP_SLOT)" \
-		--build-property "compiler.cpp.extra_flags=-I$(VERSION_DIR) -DESP_USB_HOST_MAX_SERIAL_PORTS=0 $(APP_FLAGS_$(APPS)) $(WRITE_FLAGS) -DLV_CONF_INCLUDE_SIMPLE -I$(CURDIR)/firmware/config" \
+		--build-property "compiler.cpp.extra_flags=-I$(VERSION_DIR) -I$(BOARD_GEN)/$(BOARD) -DESP_USB_HOST_MAX_SERIAL_PORTS=0 $(APP_FLAGS_$(APPS)) $(WRITE_FLAGS) -DLV_CONF_INCLUDE_SIMPLE -I$(CURDIR)/firmware/config" \
 		--build-property "compiler.c.extra_flags=-DLV_CONF_INCLUDE_SIMPLE -I$(CURDIR)/firmware/config" \
-		--library lib/midi_core --library lib/EspUsbHost --library lib/host_ui --library lib/platform $(APP_LIBS_$(APPS)) \
+		--library lib/midi_core --library lib/EspUsbHost --library lib/host_ui --library lib/board --library lib/platform $(APP_LIBS_$(APPS)) \
 		--build-path $(CACHE_ROOT)/$(BOARD)/$(APPS)$(BUILD_SUFFIX) --output-dir $(BUILD) $(SKETCH)
 
 build-all:
@@ -261,15 +322,27 @@ build-all:
 flash: build
 	arduino-cli upload --fqbn $(FQBN) --input-dir $(BUILD) --port $(PORT) $(SKETCH)
 
+# A board profile's first check, on the board (firmware/board_probe/probe.cpp):
+# the same drivers, with the USB port left a serial device so PROBE_LOG shows
+# what it finds. `make probe BOARD=waveshare_35`, board in download mode.
+PROBE_BUILD := build/$(BOARD)/probe
+probe:
+	$(if $(filter $(BOARD),$(ALL_BOARDS)),,$(error BOARD=$(BOARD); known: $(ALL_BOARDS)))
+	python3 -I tools/boards.py header $(BOARD) $(BOARD_GEN)/$(BOARD)/board_config.h
+	arduino-cli compile --fqbn $(subst USBMode=default,USBMode=hwcdc,$(FQBN)),CDCOnBoot=cdc --build-property "tools.ctags.path=$(CTAGS_DIR)" \
+		--build-property "compiler.cpp.extra_flags=-I$(BOARD_GEN)/$(BOARD) -I$(CURDIR)/firmware/waveshare_169 -I$(CURDIR)/lib/board/src -I$(CURDIR)/lib/host_ui/src" \
+		--library lib/board --build-path $(CACHE_ROOT)/$(BOARD)/probe --output-dir $(PROBE_BUILD) firmware/board_probe
+	arduino-cli upload --fqbn $(subst USBMode=default,USBMode=hwcdc,$(FQBN)),CDCOnBoot=cdc --input-dir $(PROBE_BUILD) --port $(PORT) firmware/board_probe
+
 # The store partition's first setup: a LittleFS image holding JieLi's loader
 # (from tests/fixtures). JieLi's code, so it stays in build/ and is never staged
 # into site/. Flashing it ERASES every backup and save in the store, so it asks
 # for CONFIRM=erase-store. The board must be in download mode (Computer mode).
 $(TOOLS_PY):
 	python3 -m venv build/tools-venv
-	$(TOOLS_PY) -m pip install -q littlefs-python==0.19.0
+	$(TOOLS_PY) -m pip install -q littlefs-python==0.19.0 pyserial==3.5
 store-image: $(TOOLS_PY) fixtures
-	$(TOOLS_PY) tools/store_image.py firmware/$(BOARD)/partitions.csv build/store/store.bin
+	$(TOOLS_PY) tools/store_image.py $(SKETCH)/partitions.csv build/store/store.bin
 flash-store: store-image
 	$(if $(filter erase-store,$(CONFIRM)),,$(error flash-store erases every backup in the store: add CONFIRM=erase-store))
 	$(firstword $(wildcard $(ESP32_CORE)/../../../tools/esptool_py/*/esptool)) --chip esp32s3 --port $(PORT) \
@@ -280,7 +353,7 @@ flash-store: store-image
 # writes it back. Board in Computer mode. make store-add PKGS="a.fwsc b.fwsc" [PIN=1]
 store-add: $(TOOLS_PY)
 	$(if $(PKGS)$(LIST),,$(error PKGS="file.fwsc ..." names the packages to add; LIST=1 only lists))
-	$(TOOLS_PY) tools/store_add.py firmware/$(BOARD)/partitions.csv $(PORT) $(if $(PIN),--pin) $(if $(LIST),--list) $(PKGS)
+	$(TOOLS_PY) tools/store_add.py $(SKETCH)/partitions.csv $(PORT) $(if $(PIN),--pin) $(if $(LIST),--list) $(PKGS)
 
 # The production deploy's check (README.md): the worktree's last commit, checked out
 # clean in one clone every worktree shares (~/Library/Caches/outrigger-check),
@@ -301,7 +374,7 @@ site: build-all fixtures $(TOOLS_PY)
 	cp NOTICE site/NOTICE.txt
 	cp LICENSE site/LICENSE.txt
 	for b in $(BOARDS); do \
-		$(TOOLS_PY) tools/store_template.py firmware/$$b/partitions.csv build/$$b/store-template.json || exit 1; \
+		$(TOOLS_PY) tools/store_template.py $(SKETCH)/partitions.csv build/$$b/store-template.json || exit 1; \
 		for a in $(APP_SETS); do \
 		if grep -q /bench/ build/$$b/$$a/*.ino.bin; then echo "build/$$b/$$a has the bench API"; exit 1; fi; \
 		python3 tools/build_site.py $$b $$a build/$$b/$$a $(ESP32_CORE)/tools/partitions/boot_app0.bin \
@@ -313,12 +386,19 @@ serve: site
 
 # Publish the site on Cloudflare Pages: CHANNEL=beta (beta.outrigger.music, any
 # pushed commit) or CHANNEL=production (outrigger.music, origin/master only).
-# Uploads the site make check built from this commit (build/checked/site). README, "Publishing the site".
+# Uploads CI's build of this commit (its push run's site-firmware), or, for FULL=1, a
+# batch touching the critical list since production's commit, or a commit CI never built itself,
+# the site make check builds here (build/checked/site). README, "Publishing the site".
 CHANNEL ?= beta
 deploy-site:
-	python3 -I tools/deploy_site.py guard $(CHANNEL)
-	$(MAKE) check
-	python3 -I tools/deploy_site.py deploy $(CHANNEL) build/checked/site
+	@src=$$(python3 -I tools/deploy_site.py source $(CHANNEL) $(FULL)) || exit 1; \
+	if [ "$$src" = ci ]; then python3 -I tools/deploy_site.py deploy-ci $(CHANNEL); \
+	else $(MAKE) check && python3 -I tools/deploy_site.py deploy $(CHANNEL) build/checked/site; fi
+
+# Put the deploy before the live one back on CHANNEL (or COMMIT=<sha>'s), in seconds,
+# without make check: production through Cloudflare's rollback, beta from the kept copy.
+rollback-site:
+	python3 -I tools/deploy_site.py rollback $(CHANNEL) $(COMMIT)
 
 clean:
 	rm -rf build

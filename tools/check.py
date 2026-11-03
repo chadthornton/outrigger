@@ -19,7 +19,7 @@ never changes arduino-cli's compiled files stay valid from branch to branch.
      any of them starts a fresh cache instead of a stale pass.
   4. make test, ui-shots and site run in the clone; the log is copied to the
      worktree's build/check.log.
-  5. On a pass, the site and its commit are copied to the worktree's build/checked/
+  5. On a pass, the site, functions/, wrangler.toml and the commit are copied to the worktree's build/checked/
      while the clone is still this check's, for make deploy-site to upload.
 
 A second check waits for the first (flock on <home>/lock, held by check.py and
@@ -42,6 +42,8 @@ from pathlib import Path
 
 HOME = Path.home() / "Library/Caches/outrigger-check"
 CMD = "make -C {clone} test ui-shots site CACHE_ROOT={cache}"
+# Copied to build/checked/ beside the site: the Pages Functions and their config (tools/deploy_site.py).
+DEPLOYED = ("functions", "wrangler.toml")
 SUMMARY = re.compile(r"passed|keeps the install|Sketch uses")
 
 
@@ -182,6 +184,12 @@ def main():
             return 1
         if (clone / "site").is_dir():
             shutil.copytree(clone / "site", checked / "site", symlinks=True)
+            # What Pages deploys beside the site: wrangler reads them from its working directory.
+            for name in DEPLOYED:
+                if (clone / name).is_dir():
+                    shutil.copytree(clone / name, checked / name, symlinks=True)
+                elif (clone / name).is_file():
+                    shutil.copyfile(clone / name, checked / name)
             (checked / "commit").write_text(sha + "\n")
         print("\n".join(line for line in lines if SUMMARY.search(line)))
         print(f"check passed at {short} (clean checkout; log: {log.relative_to(worktree)})")
