@@ -8,6 +8,8 @@ the build needs from them, so a new board is a new profile, not new code.
     python3 -I tools/boards.py get <id> <field>     # one value, e.g. site_id
     python3 -I tools/boards.py header <id> <out>    # board_config.h for the firmware
     python3 -I tools/boards.py shots <out>          # the real screens, for make ui-shots
+    python3 -I tools/boards.py blob <id>            # the profile as the board stores it, in hex
+    python3 -I tools/boards.py blob-cases           # tests/boards/blobs.tsv
 
 Generated files are rewritten only when their text changes, so arduino-cli and
 make don't rebuild for nothing. Tests: tests/test_boards.py.
@@ -142,6 +144,12 @@ def check_board(bid, b):
         out.append(f"{bid}: a rounded screen needs its corner_radius")
     if not (0 < s["width"] <= MAX_SIDE and 0 < s["height"] <= MAX_SIDE):
         out.append(f"{bid}: screens up to {MAX_SIDE}x{MAX_SIDE} so far (ui-shots), not {s['width']}x{s['height']}")
+    if d["rotation"] not in (0, 1, 2, 3):
+        out.append(f"{bid}: display.rotation is 0-3 (Arduino_GFX's setRotation)")
+    if not (isinstance(s["font_boost"], int) and 0 <= s["font_boost"] <= 4):
+        out.append(f"{bid}: screen.font_boost is 0-4")
+    if not (isinstance(d["spi_hz"], int) and d["spi_hz"] > 0):
+        out.append(f"{bid}: display.spi_hz is a speed in Hz")
     if not (isinstance(d["offsets"], list) and len(d["offsets"]) == 4):
         out.append(f"{bid}: display.offsets is four numbers (Arduino_GFX's col1, row1, col2, row2)")
 
@@ -273,6 +281,142 @@ def shots_table(table):
             "#define BOARD_SHOTS \\\n  " + ", \\\n  ".join(rows) + "\n")
 
 
+# ---------- The profile on the wire (lib/board/src/board_blob.h) ----------
+# The same bytes the board decodes; tests/boards/blobs.tsv holds the cases both run.
+
+BLOB_VERSION, BLOB_SIZE, BLOB_NAME_MAX = 1, 120, 40
+# board_blob.h BlobError: change them together.
+BLOB_ERRORS = {"ok": 0, "format": 1, "crc": 2, "driver": 3, "pin_missing": 4, "pin_not_on_chip": 5, "pin_usb": 6,
+               "pin_flash": 7, "pin_psram": 8, "pin_twice": 9, "exio_no_expander": 10, "screen": 11, "field": 12,
+               "i2c_address": 13, "name": 14}
+SHAPE_CODE = {"rect": 0, "rounded": 1, "circle": 2}
+PANEL_CODE = {"st7789": 0, "st7796": 1, "ili9341": 2}
+TOUCH_CODE = {"cst816": 0, "ft6336": 1}
+BLOB_FORMAT = "<3sBHBBHHHB" + "BBB" + "7h" + "I" + "bBbbb" + "4h" + "B" + "4h" + "bbb" + "B" + "4h4h" + f"{BLOB_NAME_MAX}s"
+
+
+def crc16_xmodem(data):
+    crc = 0
+    for byte in data:
+        crc ^= byte << 8
+        for _ in range(8):
+            crc = ((crc << 1) ^ 0x1021) & 0xFFFF if crc & 0x8000 else (crc << 1) & 0xFFFF
+    return crc
+
+
+def blob(b):
+    """A profile as the board stores it (board_blob.h): BLOB_SIZE bytes."""
+    import struct
+    d, t, e, s = b["display"], b["touch"], b["expander"], b["screen"]
+    tri = lambda part, k: -1 if k not in part else int(part[k])  # noqa: E731
+    held = lambda key: [pin_code(p) for p in b.get(key, [])] + [-1] * (MAX_HOLD - len(b.get(key, [])))  # noqa: E731
+    flags = (int(d["ips"]) | int(bool(b.get("restart_on_power_on"))) << 1 | int(b["psram"] == "quad") << 2
+             | SHAPE_CODE[s["shape"]] << 3)
+    body = struct.pack(
+        BLOB_FORMAT, b"OBP", BLOB_VERSION, BLOB_SIZE, b["tag_id"], flags,
+        s["width"], s["height"], s["corner_radius"], s["font_boost"],
+        PANEL_CODE[d["driver"]], TOUCH_CODE[t["driver"]], 1 if e else 0,
+        *[pin_code(d.get(k)) for k in ("dc", "cs", "sck", "mosi", "miso", "rst", "backlight")],
+        d["spi_hz"], d.get("spi_mode", -1), d["rotation"], tri(d, "bgr"), tri(d, "mirror_x"), tri(d, "mirror_y"),
+        *d["offsets"], t["address"],
+        *[pin_code(t.get(k)) for k in ("sda", "scl", "rst", "int")],
+        tri(t, "swap_xy"), tri(t, "invert_x"), tri(t, "invert_y"), e["address"] if e else 0,
+        *held("hold_low"), *held("hold_high"), b["name"].encode()[:BLOB_NAME_MAX - 1])
+    assert len(body) == BLOB_SIZE - 2, len(body)
+    return body + crc16_xmodem(body).to_bytes(2, "little")
+
+
+def unblob(data):
+    """The profile a blob holds, in boards.json's form (for check()); ValueError if it isn't one."""
+    import struct
+    if len(data) != BLOB_SIZE or data[:4] != b"OBP" + bytes([BLOB_VERSION]):
+        raise ValueError("format")
+    if crc16_xmodem(data[:-2]) != int.from_bytes(data[-2:], "little"):
+        raise ValueError("crc")
+    v = list(struct.unpack(BLOB_FORMAT, data[:-2]))
+    (_, _, _, tag_id, flags, width, height, radius, boost, panel, touch, expander) = v[:12]
+    lcd = v[12:19]
+    spi_hz, spi_mode, rotation, bgr, mx, my = v[19:25]
+    offsets = v[25:29]
+    taddr = v[29]
+    tp = v[30:34]
+    swap, ix, iy, eaddr = v[34:38]
+    hold_low, hold_high, name = v[38:42], v[42:46], v[46]
+    unpin = lambda c: None if c < 0 else (f"exio{c - 100}" if c >= 100 else c)  # noqa: E731
+    yesno = lambda part, k, x: part.update({k: bool(x)}) if x >= 0 else None  # noqa: E731
+    shapes = {c: n for n, c in SHAPE_CODE.items()}
+    panels = {c: n for n, c in PANEL_CODE.items()}
+    touches = {c: n for n, c in TOUCH_CODE.items()}
+    if (flags >> 3) & 3 not in shapes or panel not in panels or touch not in touches or expander > 1:
+        raise ValueError("driver")
+    d = dict(zip(("dc", "cs", "sck", "mosi", "miso", "rst", "backlight"), map(unpin, lcd)))
+    d.update(driver=panels[panel], spi_hz=spi_hz, ips=bool(flags & 1), rotation=rotation, offsets=list(offsets))
+    if spi_mode != -1:
+        d["spi_mode"] = spi_mode
+    t = dict(zip(("sda", "scl", "rst", "int"), map(unpin, tp)))
+    t.update(driver=touches[touch], address=taddr)
+    for part, k, x in ((d, "bgr", bgr), (d, "mirror_x", mx), (d, "mirror_y", my),
+                       (t, "swap_xy", swap), (t, "invert_x", ix), (t, "invert_y", iy)):
+        yesno(part, k, x)
+    return {
+        "name": name.split(b"\0")[0].decode(), "short_name": "-", "site_id": "-", "tag_id": tag_id,
+        "chip": "ESP32-S3", "flash_mb": 16, "psram_mb": 8, "psram": "quad" if flags & 4 else "octal", "usb_host": "-",
+        "screen": {"width": width, "height": height, "shape": shapes[(flags >> 3) & 3], "corner_radius": radius,
+                   "font_boost": boost},
+        "display": d, "touch": t, "expander": {"driver": "tca9554", "address": eaddr} if expander else None,
+        "hold_low": [unpin(p) for p in hold_low if p >= 0], "hold_high": [unpin(p) for p in hold_high if p >= 0],
+        "restart_on_power_on": bool(flags & 2),
+    }
+
+
+def _mutated(b, **changes):
+    import copy
+    b = copy.deepcopy(b)
+    for path, value in changes.items():
+        *parents, leaf = path.split(".")
+        node = b
+        for part in parents:
+            node = node[part]
+        node[leaf] = value
+    return b
+
+
+def blob_cases(table):
+    """(name, hex, error code) rows for tests/boards/blobs.tsv: every profile, then one broken rule each."""
+    rows = [(bid, blob(b).hex(), 0) for bid, b in table["boards"].items()]
+    base = table["boards"]["waveshare_35"]
+    broken = [
+        ("usb pin", {"display.dc": 19}, "pin_usb"),
+        ("flash pin", {"touch.sda": 29}, "pin_flash"),
+        ("octal psram pin", {"hold_low": [35]}, "pin_psram"),
+        ("quad psram frees 33-37", {"hold_low": [35], "psram": "quad"}, "ok"),
+        ("pin twice", {"display.backlight": 3}, "pin_twice"),
+        ("expander pin without expander", {"expander": None}, "exio_no_expander"),
+        ("pin the S3 lacks", {"display.sck": 23}, "pin_not_on_chip"),
+        ("required pin missing", {"display.dc": None}, "pin_missing"),
+        ("screen too wide", {"screen.width": 800}, "screen"),
+        ("rounded without radius", {"screen.shape": "rounded", "screen.corner_radius": 0}, "screen"),
+        ("rotation out of range", {"display.rotation": 5}, "field"),
+        ("spi mode out of range", {"display.spi_mode": 4}, "field"),
+        ("font boost out of range", {"screen.font_boost": 9}, "field"),
+        ("i2c address", {"touch.address": 5}, "i2c_address"),
+        ("bgr set", {"display.bgr": True, "touch.invert_x": False}, "ok"),
+    ]
+    rows += [(name, blob(_mutated(base, **ch)).hex(), BLOB_ERRORS[code]) for name, ch, code in broken]
+    good = bytearray(blob(base))
+    bad_crc = bytearray(good)
+    bad_crc[20] ^= 0xFF
+    rows += [("damaged", bad_crc.hex(), BLOB_ERRORS["crc"]), ("not a profile", (b"XBP" + good[3:]).hex(), BLOB_ERRORS["format"]),
+             ("short", good[:-1].hex(), BLOB_ERRORS["format"])]
+    return rows
+
+
+def blob_tsv(table):
+    return ("# name<TAB>hex<TAB>error code. Generated by tools/boards.py blob-cases; tests/test_board_blob.cpp and\n"
+            "# tests/test_boards.py both run it. Regenerate with: python3 -I tools/boards.py blob-cases\n"
+            + "".join(f"{n}\t{h}\t{c}\n" for n, h, c in blob_cases(table)))
+
+
 def write_if_changed(path, text):
     path = Path(path)
     if path.exists() and path.read_text() == text:
@@ -298,6 +442,10 @@ def main(argv):
         print(field(board(args[0]), args[1]))
     elif cmd == "header":
         write_if_changed(args[1], header(args[0], board(args[0])))
+    elif cmd == "blob":
+        print(blob(board(args[0])).hex())
+    elif cmd == "blob-cases":
+        write_if_changed(ROOT / "tests/boards/blobs.tsv", blob_tsv(table))
     elif cmd == "shots":
         write_if_changed(args[0], shots_table(table))
     else:

@@ -31,6 +31,8 @@
 #include "diag.h"
 #include "board_config.h"
 #include "board_profile.h"
+#include "board_store.h"
+#include "computer_link.h"
 #include "boot_mode.h"
 #include "broker.h"
 #include "describe.h"
@@ -45,7 +47,6 @@
 #include "web.h"
 #endif
 
-extern const BoardProfile kBoard;
 
 EspUsbHost usb;
 static Preferences prefs;
@@ -532,6 +533,8 @@ static void hand_usb_to_serial_jtag() {
 
 void setup() {
   read_crumbs();
+  // The board's profile: the one stored on it, else this build's (board_store.h).
+  const char *board_from = board_select();
   const midi_core::BootMode mode = read_boot_mode();
   prefs.begin("ui", false);
   // An old "typeface" key from builds with a Pixel font stays in NVS, unread.
@@ -544,7 +547,7 @@ void setup() {
   hooks.loader_select = loader_select;
   hooks.loader_act = loader_act;
 #endif
-  ui_begin(kBoard, settings, hooks, firmware);
+  ui_begin(board_profile(), settings, hooks, firmware);
 #if APP_LOADER
   // A job's boot, or the boot after it: the job's screen from the start, not Play.
   if (mode != midi_core::BootMode::Computer)
@@ -572,12 +575,11 @@ void setup() {
     // The USB host is never installed; the port goes to the chip's
     // USB-Serial-JTAG device so the computer can reset it into download mode.
     hand_usb_to_serial_jtag();
-    char info[40];
-    snprintf(info, sizeof info, "Firmware %s", firmware + 2);
+    char info[96];
+    snprintf(info, sizeof info, "Firmware %s\nBoard profile: %s", firmware + 2, board_from);
     ui_show_computer_mode(info);
-#if APP_LOADER
-    add_firmware_begin(firmware + 2);  // the page on outrigger.music can add firmwares
-#endif
+    // The page on outrigger.music can set the board's profile and add firmwares.
+    computer_link_begin(firmware + 2, back_to_host);
     return;
   }
 #if APP_LOADER && LOADER_DIAG
@@ -653,6 +655,8 @@ void loop() {
     if (!host_running) publish_diag(nullptr);
   }
 #endif
+  // BOOT held 3 s soon after a start: forget the stored profile, then Computer mode.
+  if (board_poll_escape(millis())) connect_computer();
   if (!host_running) {  // computer mode: only the UI runs
 #if APP_LOADER
     static uint32_t last_add = 0;
