@@ -112,6 +112,13 @@ static LastMessage fm1_own;                // latest message the FM-1 itself sen
 static LastMessage fm1_in;                 // latest message delivered to the FM-1
 static char fm1_in_tag[4] = "";
 static uint32_t sent_count = 0, blocked_count = 0, failed_count = 0;
+// When each source last sent anything, and last sent SysEx (a controller's
+// answer to the bench's Device Inquiry): millis(), 0 never. For /status.
+static uint32_t rx_at[128], sysex_at[128];
+#if APP_WEB_UI
+static uint32_t probe_at = 0;  // the bench's last Device Inquiry, 0 none
+#endif
+
 static uint32_t changes = 0;               // bumped on anything worth redrawing
 
 static midi_core::Router router;           // USB task only
@@ -189,6 +196,7 @@ static void on_disconnected(const EspUsbHostDeviceInfo &d) {
   taskENTER_CRITICAL(&shared_lock);
   if (d.address < 128) {
     last_by_address[d.address] = {};
+    rx_at[d.address] = sysex_at[d.address] = 0;
     refused_why[d.address] = {};
   }
   ++changes;
@@ -227,7 +235,11 @@ static void on_midi(const EspUsbHostMidiMessage &m) {
   if (from_target) {
     fm1_own = msg;
   } else {
-    if (m.address < 128) last_by_address[m.address] = msg;
+    if (m.address < 128) {
+      last_by_address[m.address] = msg;
+      rx_at[m.address] = msg.at_ms;
+      if (m.codeIndex >= 0x4 && m.codeIndex <= 0x7) sysex_at[m.address] = msg.at_ms;  // SysEx CINs
+    }
     if (mark == '>') {
       ++sent_count;
       fm1_in = msg;
@@ -251,20 +263,48 @@ struct HubPorts {
 };
 static HubPorts hub;
 
-// Hub port status costs a control transfer per port, so poll it slowly.
+// Hub port status costs a control transfer per port, so poll it slowly. It runs
+// on the UI loop and blocks until the hub answers, so the wait is short: a
+// GET_STATUS takes a few ms, and the USB client task (priority 5, above this
+// loop) runs the completion as soon as it lands. A hub that misses that has
+// stopped answering; stop the sweep, forget what its ports said and leave it
+// alone for a while, so it costs one short stall per back-off, not 4 s a second.
+static constexpr uint32_t kHubStatusTimeoutMs = 50;
+static constexpr uint32_t kHubBackoffMs = 10000;
+static uint32_t hub_quiet_until = 0;
+
 static void poll_hub_ports() {
   uint8_t addr = 0;
   for (int i = 0; i < kMaxHubs && !addr; ++i) addr = hub_addresses[i];
-  if (addr != hub.address) hub = HubPorts{};
+  if (addr != hub.address) {
+    hub = HubPorts{};
+    hub_quiet_until = 0;
+  }
   hub.address = addr;
   if (!addr) return;
+  if (hub_quiet_until && static_cast<int32_t>(millis() - hub_quiet_until) < 0) return;
+  hub_quiet_until = 0;
   if (hub.count == 0) {
     EspUsbHostHubInfo info;
     hub.count = usb.getHubInfo(addr, info) ? min<uint8_t>(info.portCount, 4) : 4;
   }
   for (uint8_t p = 0; p < hub.count; ++p) {
     uint16_t status = 0, change = 0;
-    if (!usb.getHubPortStatus(addr, p + 1, status, change)) continue;
+    const uint32_t asked = millis();
+    if (!usb.getHubPortStatus(addr, p + 1, status, change, kHubStatusTimeoutMs)) {
+      // Only a timeout waits the whole budget (lastError() is shared with the
+      // USB task, so it can't tell us which failure this was).
+      if (millis() - asked < kHubStatusTimeoutMs) continue;
+      // Unknown is not stuck: drop the old states so no port ages into a
+      // "stuck" diagnosis while the hub is silent.
+      for (int q = 0; q < 4; ++q) {
+        hub.state[q] = '.';
+        hub.stuck_since[q] = 0;
+      }
+      hub_quiet_until = millis() + kHubBackoffMs;
+      if (!hub_quiet_until) hub_quiet_until = 1;
+      return;
+    }
     const char s = (status & 0x0002) ? 'E' : (status & 0x0001) ? 'C' : (status & 0x0100) ? 'p' : '.';
     if (s == 'C' && hub.state[p] != 'C') hub.stuck_since[p] = millis();
     if (s != 'C') hub.stuck_since[p] = 0;
@@ -406,6 +446,7 @@ static void restart_host(platform::Mode mode) {
   for (int i = 0; i < kMaxHubs; ++i) hub_addresses[i] = 0;
   taskENTER_CRITICAL(&shared_lock);
   for (auto &m : last_by_address) m = {};
+  for (int i = 0; i < 128; ++i) rx_at[i] = sysex_at[i] = 0;
   for (auto &r : refused_why) r = {};
   fm1_own = fm1_in = {};
   ++changes;
@@ -459,8 +500,19 @@ static void publish_diag(const UiFrame *frame) {
     }
   }
   taskENTER_CRITICAL(&shared_lock);
-  for (int i = 0; i < d.device_count; ++i) d.devices[i].refusal = refused_why[d.devices[i].address & 0x7F];
+  const uint32_t now = millis();
+  auto age = [now](uint32_t at) { return at ? now - at : UINT32_MAX; };
+  for (int i = 0; i < d.device_count; ++i) {
+    DiagDevice &dev = d.devices[i];
+    const uint8_t a = dev.address & 0x7F;
+    dev.refusal = refused_why[a];
+    midi_core::Role role;
+    dev.router = !router.knows(a, role) ? 0 : role == midi_core::Role::Controller ? 1 : 2;
+    dev.rx_age_ms = age(rx_at[a]);
+    dev.sysex_age_ms = age(sysex_at[a]);
+  }
   d.failed_sends = failed_count;
+  d.probe_age_ms = age(probe_at);
   taskEXIT_CRITICAL(&shared_lock);
 #if APP_LOADER
   d.has_loader = true;
@@ -622,6 +674,26 @@ void setup() {
   host_running = true;
 }
 
+#if BENCH
+// The bench asks every controller who it is (MIDI Universal Device Inquiry), so
+// bench.py can tell after a firmware switch whether the controller still talks
+// to the board without anyone pressing keys: its answer shows as sysex_ms_ago in
+// /status. Play mode only (the loader owns USB in Load mode). Loop task.
+static void probe_controllers() {
+  static const uint8_t kInquiry[] = {0x04, 0xF0, 0x7E, 0x7F, 0x07, 0x06, 0x01, 0xF7};  // USB-MIDI, cable 0
+  EspUsbHostDeviceInfo devices[8];
+  const size_t n = usb.getDevices(devices, 8);
+  for (size_t i = 0; i < n; ++i) {
+    midi_core::Role role;
+    if (devices[i].isHub || !router.knows(devices[i].address, role) || role != midi_core::Role::Controller) continue;
+    if (!usb.midiSend(kInquiry, sizeof kInquiry, devices[i].address))
+      DLOG_USB("probe: Device Inquiry to #%u not sent", devices[i].address);
+  }
+  probe_at = millis();
+  if (!probe_at) probe_at = 1;
+}
+#endif
+
 void loop() {
   static uint32_t last_poll = 0, last_frame = 0, framed_changes = UINT32_MAX;
   static UiFrame frame;
@@ -693,9 +765,18 @@ void loop() {
 #if APP_LOADER
   // Loader builds don't poll yet: the polls ran in Play mode right up to
   // checkpoint 3's hcd_urb_dequeue crashes. That crash's cause is fixed in
-  // EspUsbHost's disconnect teardown; turning the polls back on waits for the
-  // hub-poll timeout fix (PR #2). Only the port letters on the chain screen are lost.
+  // EspUsbHost's disconnect teardown, and the hub-poll timeout fix (PR #2) has
+  // landed. Turning them back on waits for a soak on a loader build: a request
+  // the hub never answers stays queued on its EP0 (IDF can't cancel it). Only
+  // the port letters on the chain screen are lost.
   poll_ok = false;
+#endif
+#if BENCH
+  static uint32_t last_probe = 0;
+  if (broker.mode() == platform::Mode::Play && now - host_started_ms > 3000 && now - last_probe > 10000) {
+    last_probe = now;
+    probe_controllers();
+  }
 #endif
   if (poll_ok && now - last_poll > 1000) {
     last_poll = now;

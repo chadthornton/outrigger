@@ -176,7 +176,15 @@ static void test_router() {
   if (r.route(kLaunchkey, 0, 0x9, 0x90, 60, 100, p, &why) != 0 || why != 'n') {
     printf("FAIL router sends after the FM-1 left\n"); ++failures;
   }
+  // What /status reports per device: known, and in which role.
+  midi_core::Role role = midi_core::Role::Target;
+  if (!r.knows(kLaunchkey, role) || role != midi_core::Role::Controller) {
+    printf("FAIL router doesn't report the Launchkey as a known controller\n"); ++failures;
+  }
   r.device_disconnected(kLaunchkey);
+  if (r.knows(kLaunchkey, role) || r.knows(0, role) || r.knows(200, role)) {
+    printf("FAIL router reports a gone or invalid address as known\n"); ++failures;
+  }
   r.device_connected(kFm1, 0x1209, 0x0001);
   if (r.route(kLaunchkey, 0, 0x9, 0x90, 60, 100, p) != 0) {
     printf("FAIL departed controller still routed\n"); ++failures;
@@ -197,8 +205,21 @@ static void test_device_roles() {
   if (device_role(0x1209, 0x0001) != Role::Target) {
     printf("FAIL Felucca/Skiff FM-1 is the target\n"); ++failures;
   }
+  if (device_role(0x3654, 0x7756) != Role::Target) {
+    printf("FAIL M-VAVE Open firmware FM-1 is the target\n"); ++failures;
+  }
   if (device_role(0x1235, 0x0142) != Role::Controller) {
     printf("FAIL Launchkey is a controller\n"); ++failures;
+  }
+  // The Loader switches only from firmwares whose ROM-boot key has been tried.
+  if (!can_switch_firmware(0x4C4A, 0xC755) || !can_switch_firmware(0x1209, 0x0001)) {
+    printf("FAIL stock and Felucca/Skiff FM-1s can switch firmware\n"); ++failures;
+  }
+  if (can_switch_firmware(0x3654, 0x7756)) {
+    printf("FAIL M-VAVE Open firmware can't switch yet (key untested)\n"); ++failures;
+  }
+  if (can_switch_firmware(0x1235, 0x0142)) {
+    printf("FAIL a controller can't switch firmware\n"); ++failures;
   }
   if (device_role(0x05E3, 0x0610) != Role::Controller) {
     printf("FAIL unknown devices default to controller\n"); ++failures;

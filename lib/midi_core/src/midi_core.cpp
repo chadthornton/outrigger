@@ -64,7 +64,12 @@ void format_message(uint8_t status, uint8_t data1, uint8_t data2,
 Role device_role(uint16_t vid, uint16_t pid) {
   if (vid == 0x4C4A && pid == 0xC755) return Role::Target;  // FM-1, stock firmware
   if (vid == 0x1209 && pid == 0x0001) return Role::Target;  // FM-1, Felucca/Skiff
+  if (vid == 0x3654 && pid == 0x7756) return Role::Target;  // FM-1, M-VAVE Open / Big Screen
   return Role::Controller;
+}
+
+bool can_switch_firmware(uint16_t vid, uint16_t pid) {
+  return (vid == 0x4C4A && pid == 0xC755) || (vid == 0x1209 && pid == 0x0001);
 }
 
 bool route_to_target(uint8_t cable, uint8_t code_index, uint8_t status, uint8_t data1,
@@ -99,6 +104,12 @@ void Router::device_disconnected(uint8_t address) {
 
 bool Router::is_target(uint8_t address) const {
   return target_ != 0 && address == target_;
+}
+
+bool Router::knows(uint8_t address, Role &role) const {
+  if (address == 0 || address > kMaxAddress || !known_[address]) return false;
+  role = role_[address];
+  return true;
 }
 
 uint8_t Router::route(uint8_t source, uint8_t cable, uint8_t code_index, uint8_t status,
