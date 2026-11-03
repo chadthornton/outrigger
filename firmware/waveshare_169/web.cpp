@@ -859,8 +859,11 @@ static void join(const char *ssid, const char *pass) {
   DLOG_LOOP("wifi: joining %s", ssid);
 }
 
+static bool enabled = false;
+void web_set_enabled(bool on) { enabled = on; }
+
 void web_begin(bool safe_mode) {
-  if (started) return;
+  if (started || !enabled) return;  // Remote diagnostics off: no Wi-Fi at all
   safe = safe_mode;
 #if BENCH
   bench_check_board();

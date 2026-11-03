@@ -21,8 +21,11 @@ BOARD ?= waveshare_169
 # Recursive (=): only build and flash read it, so other targets don't run python for it.
 FQBN = $(shell python3 -I tools/boards.py fqbn $(BOARD))
 APPS ?= hub
-APP_FLAGS_hub :=
-APP_FLAGS_hub-loader := -DAPP_LOADER=1
+# Every app set carries the Web UI's read-only diagnostics (Wi-Fi, GET /status,
+# /log, /crash, /coredump, /store), off until Setup's Remote diagnostics turns
+# them on (web.h). `everything` starts with them on.
+APP_FLAGS_hub := -DAPP_WEB_UI=1
+APP_FLAGS_hub-loader := -DAPP_LOADER=1 -DAPP_WEB_UI=1
 APP_FLAGS_everything := -DAPP_LOADER=1 -DAPP_RECORDER=1 -DAPP_WEB_UI=1
 # WRITES=1 lets the Loader write the FM-1's flash (FM1_LOADER_WRITES, rom.h).
 # hub-loader ships with writes on (checkpoints 2 and 3 passed, and the USB host
@@ -48,18 +51,14 @@ ifeq ($(BENCH),1)
 $(if $(filter 1,$(DIAG_WEB)),,$(error BENCH=1 needs DIAG_WEB=1))
 WRITE_FLAGS += -DBENCH=1
 endif
-APP_LIBS_hub :=
-APP_LIBS_hub-loader := --library lib/fm1_loader
+APP_LIBS_hub := --library lib/web_core
+APP_LIBS_hub-loader := --library lib/fm1_loader --library lib/web_core
 APP_LIBS_everything := --library lib/fm1_loader --library lib/web_core
-# DIAG_WEB=1 adds the Web UI's read-only diagnostics (Wi-Fi, GET /status, /log,
-# /crash, /coredump, /store) to hub-loader, which the board runs for loader
-# checkpoints. `everything` always has them.
+# DIAG_WEB=1: a build that starts with Remote diagnostics on, for Chad's lab
+# boards and loader checkpoints (Setup still turns it off).
 ifeq ($(DIAG_WEB),1)
-ifneq ($(APPS),everything)
-APP_FLAGS_$(APPS) += -DAPP_WEB_UI=1
-APP_LIBS_$(APPS) += --library lib/web_core
+WRITE_FLAGS += -DDIAG_DEFAULT_ON=1
 BUILD_SUFFIX := -web
-endif
 endif
 ifeq ($(SOAK),1)
 BUILD_SUFFIX := $(BUILD_SUFFIX)-soak

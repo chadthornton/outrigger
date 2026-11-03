@@ -497,6 +497,24 @@ static void connect_computer() {
   esp_restart();
 }
 
+#if APP_WEB_UI
+// Remote diagnostics (Setup): the Web UI's Wi-Fi page, off unless turned on.
+// `everything` and DIAG_WEB=1 builds start with it on.
+#if DIAG_DEFAULT_ON || APP_RECORDER
+constexpr bool kDiagDefault = true;
+#else
+constexpr bool kDiagDefault = false;
+#endif
+
+static void set_diagnostics(bool on) {
+#if APP_LOADER
+  if (loader_busy()) return;  // a restart mid-install leaves the FM-1's app half-written
+#endif
+  prefs.putBool("diag", on);
+  esp_restart();
+}
+#endif
+
 static void back_to_host() {
   Preferences boot;
   boot.begin("boot", false);
@@ -540,11 +558,18 @@ void setup() {
   const midi_core::BootMode mode = read_boot_mode();
   prefs.begin("ui", false);
   // An old "typeface" key from builds with a Pixel font stays in NVS, unread.
-  const UiSettings settings = {prefs.getUChar("text_size", 1)};
+  UiSettings settings = {prefs.getUChar("text_size", 1)};
+#if APP_WEB_UI
+  settings.diagnostics = prefs.getBool("diag", kDiagDefault);
+  web_set_enabled(settings.diagnostics);
+#endif
   static char firmware[24];
   snprintf(firmware, sizeof firmware, "v %07lx%s %s", (unsigned long)kBuildTag.commit, kBuildTag.dirty ? "+" : "",
            kBuildTag.app_set);
   UiHooks hooks = {save_settings, connect_computer, back_to_host, nullptr, nullptr};
+#if APP_WEB_UI
+  hooks.set_diagnostics = set_diagnostics;
+#endif
 #if APP_LOADER
   hooks.loader_select = loader_select;
   hooks.loader_act = loader_act;
