@@ -24,6 +24,8 @@ BUY_HUB = "https://www.amazon.com/Aceele-Delivery-Multiport-Splitter-MacBook/dp/
 BUY_FM1 = "https://www.amazon.com/M-VAVE-Synthesizer-Operators-Algorithms-Arpeggiator/dp/B0H5VCT7XK"
 HUB_SITE = "https://thefirmwarehub.com/"
 FEEDBACK = "mailto:feedback@outrigger.music"
+# outrigger.music/chat goes here (site/_redirects, 302 so the invite can change). None leaves /chat out.
+CHAT_INVITE = None
 
 # FM-1 screenshots the Firmware Hub hosts. They belong to each firmware's author: credit them, and ask before launch.
 SCREENS = [
@@ -387,6 +389,31 @@ STYLE = """
   .install progress { width: 100%; accent-color: var(--accent); }
   footer .install { margin: 8px 0 12px; max-width: 320px; }
   footer .install button { padding: 8px 14px; font-size: .875rem; width: auto; }
+  /* "Report this board" (site/installer/report_form.js): a dialog on the body, so it carries its own button styles. */
+  .report { width: min(560px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow: auto; border: 1px solid var(--line);
+    border-radius: 14px; background: var(--panel); color: var(--fg); padding: 22px; }
+  .report::backdrop { background: rgb(0 0 0 / .45); }
+  .report form { display: grid; gap: 14px; }
+  .report h2 { margin: 0; font-size: 1.25rem; }
+  .report p { margin: 0; font-size: .9375rem; line-height: 1.5; }
+  .report-read { background: var(--soft); border-radius: 10px; padding: 12px 14px; display: grid; gap: 8px; }
+  .report-read dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 14px; margin: 0; font-size: .875rem; }
+  .report-read dt { color: var(--muted); }
+  .report-read dd { margin: 0; overflow-wrap: anywhere; }
+  .report-small, .report-field small { font-size: .8125rem; color: var(--muted); line-height: 1.45; }
+  .report-field { display: grid; gap: 4px; font-size: .875rem; font-weight: 600; }
+  .report-field small { font-weight: 400; }
+  .report input, .report textarea { font: inherit; font-weight: 400; font-size: 1rem; color: var(--fg); background: var(--bg);
+    border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; width: 100%; box-sizing: border-box; }
+  .report textarea { resize: vertical; }
+  .report-trap { position: absolute; left: -10000px; width: 1px; height: 1px; overflow: hidden; }
+  .report-status:empty { display: none; }
+  .report-status { color: var(--warn); font-weight: 600; }
+  .report .row { display: flex; flex-wrap: wrap; gap: 10px; }
+  .report button { background: var(--accent); color: var(--accent-fg); border: 0; border-radius: 10px; padding: 11px 20px;
+    font: inherit; font-weight: 600; cursor: pointer; }
+  .report button.alt { background: transparent; color: var(--fg); box-shadow: inset 0 0 0 2px var(--line); }
+  .report button:disabled { opacity: .45; cursor: default; }
   footer p + p { margin-top: 6px; }
   .overview { border-top: 1px solid var(--line); padding-top: 16px; }
   .overview summary { cursor: pointer; font-weight: 550; font-size: .9375rem; }
@@ -544,6 +571,14 @@ for sub in ["shots", "shots/fw", "fonts"]:
 for src in [*HERE.glob("shots/*.png"), *HERE.glob("shots/fw/*.png"), *HERE.glob("fonts/*.woff2")]:
     (SITE / src.relative_to(HERE)).write_bytes(src.read_bytes())
 print("wrote site/index.html and its assets")
+
+# Cloudflare Pages redirects (developers.cloudflare.com/pages/configuration/redirects/).
+redirects = SITE / "_redirects"
+if CHAT_INVITE:
+    redirects.write_text(f"/chat {CHAT_INVITE} 302\n")
+    print("wrote site/_redirects")
+else:
+    redirects.unlink(missing_ok=True)
 
 # The beta testers' guide, outrigger.music/beta/, from docs/beta.
 from guide import write_guide  # noqa: E402

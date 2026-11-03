@@ -148,6 +148,28 @@ class StageTest(unittest.TestCase):
             files = sorted(str(p.relative_to(dst)) for p in dst.rglob("*") if p.is_file())
             self.assertEqual(files, ["index.html", "vendor/lib.js"])
 
+    def test_stage_root_lays_out_site_functions_and_config_as_in_the_repo(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            checked, dst = Path(tmp, "checked"), Path(tmp, "pages")
+            (checked / "site").mkdir(parents=True)
+            (checked / "site" / "index.html").write_text("page")
+            (checked / "functions" / "api").mkdir(parents=True)
+            (checked / "functions" / "api" / "report.js").write_text("fn")
+            (checked / "wrangler.toml").write_text("toml")
+            (checked / "commit").write_text("abc")
+            self.assertEqual(deploy_site.stage_root(checked, dst), [])
+            files = sorted(str(p.relative_to(dst)) for p in dst.rglob("*") if p.is_file())
+            self.assertEqual(files, ["functions/api/report.js", "site/index.html", "wrangler.toml"])
+
+    def test_stage_root_names_missing_functions_and_config(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            checked = Path(tmp, "checked")
+            (checked / "site").mkdir(parents=True)
+            missing = deploy_site.stage_root(checked, Path(tmp, "pages"))
+            self.assertEqual(len(missing), 2)
+            self.assertIn("functions/", missing[0])
+            self.assertIn("wrangler.toml", missing[1])
+
 
 if __name__ == "__main__":
     unittest.main()

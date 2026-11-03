@@ -1,6 +1,7 @@
 // The install area under each tab on site/index.html: its buttons, and the
 // four states it moves through in place (ready, board read, installing,
-// done). No dialog: the only pop-up is the browser's own port picker.
+// done). The one dialog of its own is "Report this board" (report_form.js),
+// offered when the chip check finds no profile or refuses the chip.
 //
 //   <div class="install" data-builds='[{"label":"Install","manifest":"firmware/.../hub/manifest.json",
 //     "board":"Waveshare 1.69\"","tag_id":0}, ...]'></div>
@@ -17,12 +18,13 @@ import { ESPLoader } from "../vendor/esptool-js-0.7.0/bundle.js";
 import { ChunkedTransport, readFlashInPieces } from "./serial.js";
 import { describeBoard, buildName } from "./board.js";
 import { checkChip, USB_BRIDGES } from "./chip.js";
+import { openReportForm } from "./report_form.js";
 import { readBoard, fetchBuild, install, finish, prepareStore } from "./install.js";
 import { PORT_FILTER, SERIAL_OPTIONS, port as lock, h } from "./ui.js";
 
 // Shown under each install area and in Details, so a bug report says which
 // installer ran. Bump it with every change to site/installer/.
-export const INSTALLER_VERSION = "2026-11-01.4";
+export const INSTALLER_VERSION = "2026-11-03.1";
 
 // Installing lists converter chips beside the ESP32-S3's own port (ui.js), so
 // a board that can't host (a Cheap Yellow Display, say) shows up and hears why
@@ -77,6 +79,7 @@ class InstallArea {
     this.id = ++areas;
     this.helpHref = el.dataset.help || "#no-port";
     this.trace = "";
+    this.refused = null; // what the chip check read when it refused, for "Report this board"
     this.ready();
   }
 
@@ -92,6 +95,8 @@ class InstallArea {
     }
     this.show(
       note ? h("p", { class: "install-error", role: "alert" }, note) : null,
+      note && this.refused ? h("div", { class: "row" }, h("button", { class: "alt",
+        on: { click: () => openReportForm({ ...this.refused, installer: INSTALLER_VERSION }) } }, "Report this board")) : null,
       note && LOG.length ? h("details", { class: "install-log" }, h("summary", {}, "Details"),
         h("pre", {}, [`Installer ${INSTALLER_VERSION}`, ...LOG.slice(-25), "", ...this.trace.split("\n").slice(-40).map((l) => l.slice(0, 160))].join("\n"))) : null,
       this.boards.length > 1 ? this.boardPicker() : null,
@@ -116,6 +121,7 @@ class InstallArea {
 
   async connect(choice) {
     if (lock.busy || !choice) return;
+    this.refused = null;
     let port;
     try {
       port = await navigator.serial.requestPort({ filters: INSTALL_PORT_FILTER });
@@ -185,7 +191,11 @@ class InstallArea {
       usbVendorId: port.getInfo().usbVendorId,
     };
     const verdict = checkChip(facts, picked, this.profiles, this.suggest);
-    if (!verdict.ok) throw Object.assign(new Error(verdict.words), { plain: true });
+    if (!verdict.ok) {
+      // For "Report this board": report_form.js sends only report.js's fields from these, never the MAC.
+      this.refused = { facts, picked: this.board || "Not asked", verdict: verdict.words };
+      throw Object.assign(new Error(verdict.words), { plain: true });
+    }
     this.chipWords = verdict.words;
     return loader;
   }
