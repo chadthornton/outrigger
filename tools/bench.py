@@ -6,7 +6,7 @@ usage:
   bench.py state                      what the board and its Firmware page say
   bench.py switch "Skiff 2.1.1"       switch firmware, watch the FM-1 come back, back it up
   bench.py backup                     back up the FM-1
-  [--board waveshare-1] [--host fm1bench.local] [--runs build/bench/runs.jsonl] [--dry-run]
+  [--board Small-V2] [--fm1 FM-B] [--host fm1bench.local] [--runs build/bench/runs.jsonl] [--dry-run]
 
 A switch presses what the screen would: it opens the row's plan, checks the
 plan is for that firmware, then holds. The Loader decides keep or fresh start
@@ -14,9 +14,10 @@ itself, as it does for a person; the plan's lines go into the run's record.
 Each job runs in boots of its own, so the board drops off Wi-Fi in between;
 the runner waits it out and reads the result from /status.
 
-Safety: the board answers /bench/ only on Chad's Waveshares (lib/web_core/src/bench.cpp),
-and this script refuses any board but the one --board names, by its MAC. It
-refuses FM-1-1 (Chad's main FM-1) by unit ID: the bench switches FM-1-2 only.
+Safety: the board answers /bench/ only on Chad's boards (lib/web_core/src/bench.cpp).
+This script refuses any board but the one --board names, by its MAC, and any
+FM-1 but the one --fm1 names, by its unit ID, both from the device registry
+(tools/devices.py): a check that the run has the devices it asked for.
 --dry-run talks to an in-process fake board and never opens a socket.
 Standard library only. One JSON line per run goes to --runs.
 """
@@ -29,9 +30,8 @@ import urllib.error
 import urllib.request
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-# Chad's labels on the boards (checked 2026-11-03).
-WAVESHARES = {"waveshare-1": "a0:85:e3:f0:a2:3c", "waveshare-2": "d8:3b:da:a0:67:d0"}
-FM1_1_UNIT = "69bb070aaa87bd10"  # FM-1-1, Chad's main FM-1: the bench never switches it
+sys.path.insert(0, str(ROOT / "tools"))
+import devices  # noqa: E402
 JOB_TIMEOUT_S = 20 * 60          # a switch chain is a backup, then an install: minutes each
 REFUSED_S = 15                   # a hold the Loader accepts restarts the board within a second or two
 COME_BACK_S = 60                 # the FM-1 must re-enumerate as MIDI within this
@@ -74,13 +74,16 @@ class Board:
         return time.monotonic()
 
 
-def check_board(board, want):
+def check_board(board, want, reg):
     st = board.get("/bench/state")
     if st is None:
         raise BenchError(f"{board.host} doesn't answer /bench/state: not a bench build, or off Wi-Fi")
-    mac = st.get("mac", "").lower()
-    if want not in WAVESHARES or mac != WAVESHARES[want] or st.get("board") != want:
-        raise BenchError(f"board {mac} says it is '{st.get('board')}', not {want}: refusing")
+    try:
+        d = reg.expect_esp32(want, st.get("mac", ""))
+    except devices.DeviceError as e:
+        raise BenchError(str(e)) from None
+    if str(st.get("board", "")).lower() != d["label"].lower():
+        raise BenchError(f"board {d['mac']} calls itself '{st.get('board')}', not {d['label']}: refusing")
     return st
 
 
@@ -156,30 +159,32 @@ def watch_fm1(board):
     return first, changes
 
 
-def refuse_fm1_1(board):
-    """The FM-1 the Loader last saw (the one attached) must not be FM-1-1. A
-    board may still hold FM-1-1's old backups; only the attached one counts."""
+def check_fm1(board, want, reg):
+    """The FM-1 the Loader last saw (the one attached) must be the one the run
+    asked for. A board may hold other FM-1s' old backups; only the attached one counts."""
     store = board.get("/store")
     if store is None:
         raise BenchError("no /store answer: can't tell which FM-1 is attached")
-    if str(store.get("last_unit", "")).startswith(FM1_1_UNIT):
-        raise BenchError(f"the attached FM-1 is unit {FM1_1_UNIT}, FM-1-1: refusing")
+    try:
+        reg.expect_fm1(want, store.get("last_unit", ""))
+    except devices.DeviceError as e:
+        raise BenchError(str(e)) from None
 
 
-def do_backup(board, want):
-    check_board(board, want)
+def do_backup(board, want, fm1, reg):
+    check_board(board, want, reg)
     s = wait_status(board, idle_play, "an idle Play boot", 60)
     if not fw(s).get("can_back_up"):
         raise BenchError("the Firmware page can't back up now: " + json.dumps(fw(s).get("blocked")))
     s, secs = run_job(board, "/bench/act?kind=backup", s.get("uptime_ms"), (fw(s).get("result") or {}).get("seq"))
-    refuse_fm1_1(board)
+    check_fm1(board, fm1, reg)
     return {"kind": "backup", "seconds": secs, "result": fw(s).get("result"), "lines": fw(s).get("lines"),
             "ok": bool((fw(s).get("result") or {}).get("ok")) and not fw(s).get("unfinished")}
 
 
-def do_switch(board, label, want):
-    check_board(board, want)
-    refuse_fm1_1(board)
+def do_switch(board, label, want, fm1, reg):
+    check_board(board, want, reg)
+    check_fm1(board, fm1, reg)
     s = wait_status(board, idle_play, "an idle Play boot", 60)
     labels = [i["label"] for i in fw(s).get("items", [])]
     if label not in labels:
@@ -202,7 +207,7 @@ def do_switch(board, label, want):
         rec["ok"] = False
         return rec
     rec["devices"], rec["usb_changes"] = watch_fm1(board)
-    rec["after_backup"] = do_backup(board, want)
+    rec["after_backup"] = do_backup(board, want, fm1, reg)
     running = next((i["label"] for i in fw(board.get("/status") or {}).get("items", []) if i.get("note") == "running"), "")
     rec["running"] = running
     rec["ok"] = (bool((rec["result"] or {}).get("ok")) and running == label and rec["usb_changes"] == 0
@@ -210,16 +215,26 @@ def do_switch(board, label, want):
     return rec
 
 
-def main(argv=None, board=None):
+def main(argv=None, board=None, reg=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("command", choices=["state", "switch", "backup"])
     ap.add_argument("firmware", nargs="?", help="the library row to switch to, as the screen labels it")
-    ap.add_argument("--board", default="waveshare-1", choices=sorted(WAVESHARES),
-                    help="the Waveshare the run expects; any other board is refused")
+    ap.add_argument("--board", default="Small-V2", help="the board the run expects, by its registry label")
+    ap.add_argument("--fm1", default="FM-B", help="the FM-1 the run expects, by its registry label")
+    ap.add_argument("--devices", help="the device registry (default: tools/devices.py's)")
     ap.add_argument("--host", default="fm1bench.local")
     ap.add_argument("--runs", default=str(ROOT / "build" / "bench" / "runs.jsonl"))
     ap.add_argument("--dry-run", action="store_true", help="a fake board in-process; no network")
     a = ap.parse_args(argv)
+    try:
+        if reg is None and a.dry_run and not a.devices:
+            # The fake board is the example registry's Small-V2 with FM-B attached.
+            reg = devices.load(devices.EXAMPLE)
+            next(d for d in reg.entries if d["label"] == "FM-B")["unit"] = "0123456789abcdef"
+        reg = reg or devices.load(a.devices)
+    except devices.DeviceError as e:
+        print(e, file=sys.stderr)
+        return 2
     if board is None:
         if a.dry_run:
             sys.path.insert(0, str(ROOT / "tests"))
@@ -229,15 +244,15 @@ def main(argv=None, board=None):
             board = Board(a.host)
     try:
         if a.command == "state":
-            rec = {"bench": check_board(board, a.board), "status": board.get("/status")}
+            rec = {"bench": check_board(board, a.board, reg), "status": board.get("/status")}
             print(json.dumps(rec, indent=1))
             return 0
         if a.command == "switch":
             if not a.firmware:
                 ap.error("switch needs a firmware label")
-            rec = do_switch(board, a.firmware, a.board)
+            rec = do_switch(board, a.firmware, a.board, a.fm1, reg)
         else:
-            rec = do_backup(board, a.board)
+            rec = do_backup(board, a.board, a.fm1, reg)
     except BenchError as e:
         rec = {"kind": a.command, "to": a.firmware, "ok": False, "error": str(e)}
     rec["at"] = time.strftime("%Y-%m-%dT%H:%M:%S%z")
