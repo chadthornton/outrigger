@@ -99,7 +99,7 @@ VERSION_DIR := $(CACHE_ROOT)/version
 # screens ui-shots renders. Rewritten only when they change, like fw_version.h.
 BOARD_GEN := $(CACHE_ROOT)/boards
 
-.PHONY: check test ui-shots ui-mocks build build-all flash probe site serve clean fixtures golden store-image flash-store store-add check-latest deploy-site
+.PHONY: check test ui-shots ui-mocks build build-all flash probe site serve clean fixtures golden store-image flash-store store-add check-latest deploy-site rollback-site
 
 FM1_SRC := $(wildcard lib/fm1_loader/src/*.cpp)
 FM1_HDR := $(wildcard lib/fm1_loader/src/*.h) $(wildcard tests/support/*.h)
@@ -391,6 +391,11 @@ deploy-site:
 	python3 -I tools/deploy_site.py guard $(CHANNEL)
 	$(MAKE) check
 	python3 -I tools/deploy_site.py deploy $(CHANNEL) build/checked/site
+
+# Put the deploy before the live one back on CHANNEL (or COMMIT=<sha>'s), in seconds,
+# without make check: production through Cloudflare's rollback, beta from the kept copy.
+rollback-site:
+	python3 -I tools/deploy_site.py rollback $(CHANNEL) $(COMMIT)
 
 clean:
 	rm -rf build

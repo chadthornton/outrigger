@@ -397,7 +397,8 @@ STYLE = """
   .report h2 { margin: 0; font-size: 1.25rem; }
   .report p { margin: 0; font-size: .9375rem; line-height: 1.5; }
   .report-read { background: var(--soft); border-radius: 10px; padding: 12px 14px; display: grid; gap: 8px; }
-  .report-read dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 14px; margin: 0; font-size: .875rem; }
+  .report-read summary { cursor: pointer; font-size: .875rem; color: var(--muted); }
+  .report-read dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 14px; margin: 8px 0 0; font-size: .875rem; }
   .report-read dt { color: var(--muted); }
   .report-read dd { margin: 0; overflow-wrap: anywhere; }
   .report-small, .report-field small { font-size: .8125rem; color: var(--muted); line-height: 1.45; }

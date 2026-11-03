@@ -6,7 +6,7 @@
 // The report is built from a fixed list of fields, never by copying esptool's
 // facts: the chip's MAC is in those facts and in the log, and must not leave
 // the page. The server refuses any field not listed here.
-import { flashBytesFromId, psramMbFromFeatures } from "./chip.js";
+import { chipFamily, flashBytesFromId, psramMbFromFeatures, USB_BRIDGES } from "./chip.js";
 
 // Longest text each field may hold, in characters.
 export const LIMITS = { chip: 200, picked: 100, verdict: 1500, installer: 40, board: 300, note: 4000, email: 254 };
@@ -18,6 +18,14 @@ const FIELDS = new Set([...Object.keys(LIMITS), ...Object.keys(NUMBERS), HONEYPO
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const text = (v) => String(v ?? "").trim();
+
+// The chip has everything Outrigger needs (chip.js checkChip's bar), so the
+// only thing missing is this board's profile. The pop-up says so.
+export function boardFits(facts) {
+  const flash = flashBytesFromId(facts.flashId);
+  return chipFamily(facts.chip) === "ESP32-S3" && !USB_BRIDGES[facts.usbVendorId]
+    && flash !== null && flash >= 16 * 1048576 && psramMbFromFeatures(facts.features) >= 8;
+}
 
 // facts: what area.js read ({chip, features, flashId, usbVendorId}); picked:
 // the board chosen on the page; verdict: the chip check's words; the rest is
