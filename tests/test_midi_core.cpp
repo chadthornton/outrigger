@@ -190,6 +190,35 @@ static void test_router() {
   }
 }
 
+// The synth (Outrigger Synth builds) hears what a controller would send the
+// FM-1, by the same rules, with or without an FM-1 connected.
+static void test_router_to_synth() {
+  constexpr uint8_t kFm1 = 2, kLaunchkey = 3;
+  Router r;
+  r.device_connected(kLaunchkey, 0x1235, 0x0142);
+  if (!r.to_synth(kLaunchkey, 0, 0x9, 0x90, 60, 100)) {
+    printf("FAIL synth gets a controller's note with no FM-1\n"); ++failures;
+  }
+  r.device_connected(kFm1, 0x1209, 0x0001);
+  if (!r.to_synth(kLaunchkey, 0, 0xB, 0xB3, 74, 10)) {
+    printf("FAIL synth gets a controller's CC beside the FM-1\n"); ++failures;
+  }
+  struct { uint8_t src, cable, cin, status; } refused[] = {
+      {9, 0, 0x9, 0x90}, {kFm1, 0, 0x9, 0x90}, {kLaunchkey, 1, 0x9, 0x90},
+      {kLaunchkey, 0, 0x8, 0x90}, {kLaunchkey, 0, 0xF, 0xF8}, {kLaunchkey, 0, 0x4, 0xF0},
+  };
+  for (auto &k : refused) {
+    if (r.to_synth(k.src, k.cable, k.cin, k.status, 60, 100)) {
+      printf("FAIL synth got src %u cable %u cin %x status %02x\n", k.src, k.cable, k.cin, k.status);
+      ++failures;
+    }
+  }
+  r.device_disconnected(kLaunchkey);
+  if (r.to_synth(kLaunchkey, 0, 0x9, 0x90, 60, 100)) {
+    printf("FAIL departed controller still reaches the synth\n"); ++failures;
+  }
+}
+
 static void test_device_roles() {
   if (device_role(0x4C4A, 0xC755) != Role::Target) {
     printf("FAIL stock FM-1 is the target\n"); ++failures;
@@ -209,6 +238,7 @@ int main() {
   test_route_channel_voice();
   test_route_blocks_system_messages();
   test_route_drops_other_input();
+  test_router_to_synth();
   test_device_roles();
   test_router();
   test_note_names();

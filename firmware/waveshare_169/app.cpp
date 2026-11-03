@@ -26,6 +26,9 @@
 #include <soc/usb_serial_jtag_reg.h>
 
 #include "apps.h"
+#if APP_SYNTH
+#include "synth_engine.h"
+#endif
 #include "build_tag.h"
 #include "crumbs.h"
 #include "diag.h"
@@ -205,6 +208,10 @@ static void on_midi(const EspUsbHostMidiMessage &m) {
   if (from_target) loader_midi(m);  // the identity answer, in Load mode
 #endif
   char mark = ' ';
+#if APP_SYNTH
+  if (!from_target && router.to_synth(m.address, m.cable, m.codeIndex, m.status, m.data1, m.data2))
+    synth::synth_midi(m.status, m.data1, m.data2);
+#endif
   if (!from_target) {
     uint8_t packet[4];
     char why = 'x';
@@ -596,6 +603,10 @@ void setup() {
   printf("diag: loader_begin returned\n");
   return;
 #endif
+#if APP_SYNTH
+  // Before the USB host: the codec shares the touch bus, and setup is the task that polls touch.
+  if (!synth::synth_begin()) DLOG_USB("synth didn't start");
+#endif
   usb.setClaimPlanner(plan_claims);
   usb.setClaimFilter(claim_filter);
   usb.onDeviceConnected(on_connected);
@@ -731,6 +742,16 @@ void loop() {
     publish_diag(&frame);
 #endif
   }
+#if APP_SYNTH && !HEAP_ON_SCREEN
+  // The synth's render time and underruns on Setup, in place of the network line.
+  static uint32_t last_synth = 0;
+  if (host_running && now - last_synth > 1000) {
+    last_synth = now;
+    char line[64];
+    synth::synth_status_line(line, sizeof line);
+    ui_set_network(line);
+  }
+#endif
 #if HEAP_ON_SCREEN
   // Diagnostic builds only (Makefile HEAP_ON_SCREEN=1): free RAM on Setup.
   static uint32_t last_heap = 0;

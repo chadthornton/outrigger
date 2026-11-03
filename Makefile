@@ -15,6 +15,9 @@ ifeq ($(BOARDS),)
 $(error firmware/boards.json has a problem: python3 -I tools/boards.py check says what)
 endif
 APP_SETS := hub hub-loader everything
+# Development app sets: CI builds them (its synth job), make site never stages
+# them, so testers never get them. synth is Big-S3 only (the ES8311 speaker).
+DEV_APP_SETS := synth
 # littlefs-python for the store image and the installer's store template (rule below).
 TOOLS_PY := build/tools-venv/bin/python
 BOARD ?= waveshare_169
@@ -24,6 +27,7 @@ APPS ?= hub
 APP_FLAGS_hub :=
 APP_FLAGS_hub-loader := -DAPP_LOADER=1
 APP_FLAGS_everything := -DAPP_LOADER=1 -DAPP_RECORDER=1 -DAPP_WEB_UI=1
+APP_FLAGS_synth = -DAPP_SYNTH=1 $(SYNTH_C_FLAGS)
 # WRITES=1 lets the Loader write the FM-1's flash (FM1_LOADER_WRITES, rom.h).
 # hub-loader ships with writes on (checkpoints 2 and 3 passed, and the USB host
 # crash at the FM-1's disconnect is fixed); WRITES=0 builds it read-only.
@@ -51,6 +55,7 @@ endif
 APP_LIBS_hub :=
 APP_LIBS_hub-loader := --library lib/fm1_loader
 APP_LIBS_everything := --library lib/fm1_loader --library lib/web_core
+APP_LIBS_synth := --library lib/synth
 # DIAG_WEB=1 adds the Web UI's read-only diagnostics (Wi-Fi, GET /status, /log,
 # /crash, /coredump, /store) to hub-loader, which the board runs for loader
 # checkpoints. `everything` always has them.
@@ -301,8 +306,9 @@ ui-mocks: build/ui_mocks
 	./build/ui_mocks build/ui-mocks
 
 build:
-	$(if $(filter $(APPS),$(APP_SETS)),,$(error APPS=$(APPS); known: $(APP_SETS)))
+	$(if $(filter $(APPS),$(APP_SETS) $(DEV_APP_SETS)),,$(error APPS=$(APPS); known: $(APP_SETS) $(DEV_APP_SETS)))
 	$(if $(filter $(BOARD),$(ALL_BOARDS)),,$(error BOARD=$(BOARD); known: $(ALL_BOARDS)))
+	$(if $(filter synth,$(APPS)),$(if $(filter $(SYNTH_BOARD),$(BOARD)),,$(error APPS=synth builds for BOARD=$(SYNTH_BOARD) only)))
 	python3 -I tools/boards.py header $(BOARD) $(BOARD_GEN)/$(BOARD)/board_config.h
 	mkdir -p $(VERSION_DIR)
 	printf '#define FW_VERSION %s\n#define FW_DIRTY %s\n' $(FW_VERSION) $(FW_DIRTY) > $(VERSION_DIR)/fw_version.h.$$$$ \
@@ -311,7 +317,7 @@ build:
 	arduino-cli compile --fqbn $(FQBN) --build-property "tools.ctags.path=$(CTAGS_DIR)" \
 		--build-property "upload.maximum_size=$(APP_SLOT)" \
 		--build-property "compiler.cpp.extra_flags=-I$(VERSION_DIR) -I$(BOARD_GEN)/$(BOARD) -DESP_USB_HOST_MAX_SERIAL_PORTS=0 $(APP_FLAGS_$(APPS)) $(WRITE_FLAGS) -DLV_CONF_INCLUDE_SIMPLE -I$(CURDIR)/firmware/config" \
-		--build-property "compiler.c.extra_flags=-DLV_CONF_INCLUDE_SIMPLE -I$(CURDIR)/firmware/config" \
+		--build-property "compiler.c.extra_flags=-DLV_CONF_INCLUDE_SIMPLE -I$(CURDIR)/firmware/config $(if $(filter synth,$(APPS)),$(SYNTH_C_FLAGS))" \
 		--library lib/midi_core --library lib/EspUsbHost --library lib/host_ui --library lib/board --library lib/platform $(APP_LIBS_$(APPS)) \
 		--build-path $(CACHE_ROOT)/$(BOARD)/$(APPS)$(BUILD_SUFFIX) --output-dir $(BUILD) $(SKETCH)
 

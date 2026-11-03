@@ -167,6 +167,7 @@ jobs:
           arduino-cli core install esp32:esp32@3.3.12 --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
           arduino-cli lib install "GFX Library for Arduino@1.6.9" "lvgl@9.6.0"
       - run: make synth-bench
+      - run: make build BOARD=waveshare_35 APPS=synth
 
   # Every build staged into site/ the way make site does it, with the licensing scan.
   site:
