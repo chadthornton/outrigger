@@ -551,7 +551,8 @@ class CriticalPathsTest(unittest.TestCase):
         """Store code hides under many names (board_store.h, board_blob.cpp, add_firmware.cpp's LittleFS):
         every firmware change ships the build the hardware smoke check installs."""
         for path in ("firmware/waveshare_169/ui_play.cpp", "firmware/waveshare_169/board_store.h",
-                     "lib/board/src/board_blob.cpp", "lib/web_core/src/bench.cpp", "firmware/boards.json"):
+                     "lib/board/src/board_blob.cpp", "lib/web_core/src/bench.cpp", "firmware/boards.json",
+                     "tools/store_template.py", "tools/boards.py"):
             self.assertEqual(deploy_site.critical_paths([path]), [path], path)
 
     def test_critical_code_needs_the_check(self):

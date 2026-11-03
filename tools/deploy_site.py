@@ -81,7 +81,7 @@ CI_CHECKED = ROOT / "build/ci-checked"
 # add_firmware.cpp's LittleFS). fnmatch patterns; * crosses /.
 CRITICAL = ["firmware/*", "lib/*", "*partitions.csv",
             "functions/*", "wrangler.toml", "migrations/*", "tools/deploy_site.py", "tools/check.py",
-            "tools/build_site.py", "Makefile", ".github/workflows/*"]
+            "tools/build_site.py", "tools/store_template.py", "tools/boards.py", "Makefile", ".github/workflows/*"]
 # The deploy log and beta's kept copies, outside build/ so every worktree sees the same ones.
 DEPLOYS = Path.home() / "Library/Application Support/outrigger/deploys"
 KEEP = 3  # kept copies per channel
