@@ -5,6 +5,7 @@
 import hashlib
 import json
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -354,6 +355,187 @@ class KeptCopyTest(unittest.TestCase):
         kept = self.keep("a")
         self.assertEqual((kept / "site" / "index.html").read_text(), "page 2")
         self.assertEqual(deploy_site.kept_problems(kept), [])
+
+
+def run(head=HEAD, event="push", status="completed", conclusion="success", name="CI", id=7, attempt=1):
+    return dict(head_sha=head, event=event, status=status, conclusion=conclusion, name=name, id=id,
+                run_attempt=attempt)
+
+
+def check(conclusion="success", run_id=7):
+    return dict(name="ci-ok", status="completed", conclusion=conclusion,
+                details_url=f"https://github.com/o/r/actions/runs/{run_id}/job/1")
+
+
+class CiRunTest(unittest.TestCase):
+    """Which CI run's build may go up: a green push run of exactly HEAD, with ci-ok green."""
+    def pick(self, runs, checks=None):
+        return deploy_site.ci_run(runs, [check()] if checks is None else checks, HEAD)
+
+    def test_green_push_run_of_head(self):
+        self.assertEqual(self.pick([run()]), (run(), None))
+
+    def test_run_of_another_commit_is_no_build(self):
+        self.assertEqual(self.pick([run(head=OTHER)]), (None, None))
+
+    def test_hand_started_run_of_head_counts(self):
+        """gh workflow run CI --ref <branch> builds exactly the branch's commit."""
+        self.assertEqual(self.pick([run(event="workflow_dispatch")])[0]["id"], 7)
+
+    def test_pr_run_is_no_build_of_head(self):
+        """A pull_request run builds HEAD merged into master, not HEAD."""
+        self.assertEqual(self.pick([run(event="pull_request")]), (None, None))
+
+    def test_no_run_is_no_build(self):
+        self.assertEqual(self.pick([]), (None, None))
+
+    def test_red_run_refused(self):
+        self.assertIn("failure", self.pick([run(conclusion="failure")])[1])
+
+    def test_running_ci_refused(self):
+        self.assertIn("still running", self.pick([run(status="in_progress", conclusion=None)])[1])
+
+    def test_red_ci_ok_refused(self):
+        self.assertIn("ci-ok", self.pick([run()], [check("failure")])[1])
+
+    def test_missing_ci_ok_refused(self):
+        self.assertIn("ci-ok", self.pick([run()], [])[1])
+
+    def test_ci_ok_of_another_run_refused(self):
+        self.assertIn("ci-ok", self.pick([run()], [check(run_id=8)])[1])
+
+    def test_newest_run_decides(self):
+        """A re-run that went green after a red one; the API lists newest first."""
+        self.assertEqual(self.pick([run(id=9), run(id=7, conclusion="failure")], [check(run_id=9)])[0]["id"], 9)
+
+    def test_other_workflows_ignored(self):
+        self.assertEqual(self.pick([run(name="Pages", id=3), run()])[0]["id"], 7)
+
+
+class ArtifactTest(unittest.TestCase):
+    def test_the_site_firmware_artifact(self):
+        art = dict(name="site-firmware", id=5, expired=False, digest="sha256:" + "0" * 64)
+        self.assertEqual(deploy_site.site_artifact([dict(name="ui-shots", id=4, expired=False), art]), (art, None))
+
+    def test_missing_artifact_refused(self):
+        self.assertIn("site-firmware", deploy_site.site_artifact([])[1])
+
+    def test_expired_artifact_refused(self):
+        self.assertIn("expired", deploy_site.site_artifact([dict(name="site-firmware", id=5, expired=True)])[1])
+
+    def test_artifact_without_digest_refused(self):
+        self.assertIn("digest", deploy_site.site_artifact([dict(name="site-firmware", id=5, expired=False)])[1])
+
+    def test_download_must_match_githubs_digest(self):
+        data = b"zip bytes"
+        good = "sha256:" + hashlib.sha256(data).hexdigest()
+        self.assertIsNone(deploy_site.digest_problem(data, good))
+        self.assertIn("digest", deploy_site.digest_problem(data + b"x", good))
+
+
+class CiFirmwareTest(unittest.TestCase):
+    """CI's site/firmware: SHA256SUMS from CI, and manifests that name HEAD."""
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.fw = Path(self.tmp.name) / "firmware"
+        for board in ("b1", "b2"):
+            out = self.fw / board / "hub"
+            out.mkdir(parents=True)
+            (out / "app.bin").write_bytes(board.encode() * 100)
+            self.manifest(out, HEAD[:7])
+        self.sums()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def manifest(self, out, commit, dirty=False, sha=None):
+        sha = sha or hashlib.sha256((out / "app.bin").read_bytes()).hexdigest()
+        (out / "manifest.json").write_text(json.dumps({"version": commit, "build": {"commit": commit, "dirty": dirty},
+                                                       "builds": [{"parts": [{"path": "app.bin", "sha256": sha}]}]}))
+
+    def sums(self):
+        lines = [f"{hashlib.sha256(p.read_bytes()).hexdigest()}  ./{p.relative_to(self.fw)}"
+                 for p in sorted(self.fw.rglob("*")) if p.is_file() and p.name != "SHA256SUMS"]
+        (self.fw / "SHA256SUMS").write_text("\n".join(lines) + "\n")
+
+    def problems(self):
+        return deploy_site.ci_firmware_problems(self.fw, HEAD)
+
+    def test_ci_build_of_head_passes(self):
+        self.assertEqual(self.problems(), [])
+
+    def test_changed_file_refused(self):
+        (self.fw / "b1" / "hub" / "app.bin").write_bytes(b"changed")
+        self.assertTrue(any("b1/hub/app.bin" in p for p in self.problems()))
+
+    def test_missing_file_refused(self):
+        (self.fw / "b2" / "hub" / "app.bin").unlink()
+        self.assertTrue(any("b2/hub/app.bin" in p for p in self.problems()))
+
+    def test_extra_file_refused(self):
+        (self.fw / "b1" / "hub" / "extra.bin").write_bytes(b"x")
+        self.assertTrue(any("extra.bin" in p for p in self.problems()))
+
+    def test_no_sums_refused(self):
+        (self.fw / "SHA256SUMS").unlink()
+        self.assertTrue(any("SHA256SUMS" in p for p in self.problems()))
+
+    def test_manifest_of_another_commit_refused(self):
+        self.manifest(self.fw / "b2" / "hub", OTHER[:7])
+        self.sums()
+        self.assertTrue(any("b2/hub/manifest.json" in p and OTHER[:7] in p for p in self.problems()))
+
+    def test_dirty_build_refused(self):
+        self.manifest(self.fw / "b1" / "hub", HEAD[:7], dirty=True)
+        self.sums()
+        self.assertTrue(any("dirty" in p for p in self.problems()))
+
+    def test_part_not_matching_its_manifest_refused(self):
+        self.manifest(self.fw / "b1" / "hub", HEAD[:7], sha="0" * 64)
+        self.sums()
+        self.assertTrue(any("app.bin" in p for p in self.problems()))
+
+    def test_no_manifests_refused(self):
+        shutil.rmtree(self.fw)
+        self.fw.mkdir()
+        self.sums()
+        self.assertTrue(any("manifest" in p for p in self.problems()))
+
+
+class CriticalPathsTest(unittest.TestCase):
+    """Which changed files make a production deploy run the full make check."""
+    def test_site_copy_needs_no_check(self):
+        self.assertEqual(deploy_site.critical_paths(["site/index.html", "docs/beta/x.md", "README.md",
+                                                     "firmware/waveshare_169/ui_play.cpp"]), [])
+
+    def test_critical_code_needs_the_check(self):
+        for path in ("lib/fm1_loader/src/installer.cpp", "lib/EspUsbHost/src/EspUsbHost.cpp",
+                     "firmware/waveshare_169/loader_app.cpp", "firmware/waveshare_169/store_json.h",
+                     "firmware/waveshare_169/partitions.csv", "firmware/waveshare_169/switch_chain.h",
+                     "functions/api/report.js", "wrangler.toml", "migrations/0002_x.sql",
+                     "tools/deploy_site.py", "tools/check.py", "tools/build_site.py", "Makefile",
+                     ".github/workflows/ci.yml"):
+            self.assertEqual(deploy_site.critical_paths([path]), [path], path)
+
+
+class AssembleTest(unittest.TestCase):
+    """CI's firmware plus the commit's own files, laid out as make check leaves build/checked."""
+    def test_layout_matches_make_checks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fw, dst = Path(tmp, "fw"), Path(tmp, "pages")
+            (fw / "b1" / "hub").mkdir(parents=True)
+            (fw / "b1" / "hub" / "app.bin").write_bytes(b"app")
+            (fw / "SHA256SUMS").write_text("sums")
+            head = deploy_site.git("rev-parse", "HEAD")
+            deploy_site.assemble(head, fw, dst)
+            self.assertEqual((dst / "site" / "firmware" / "b1" / "hub" / "app.bin").read_bytes(), b"app")
+            self.assertFalse((dst / "site" / "firmware" / "SHA256SUMS").exists())
+            notice = subprocess.run(["git", "show", f"{head}:NOTICE"], capture_output=True, check=True).stdout
+            self.assertEqual((dst / "site" / "NOTICE.txt").read_bytes(), notice)
+            self.assertTrue((dst / "site" / "LICENSE.txt").is_file())
+            self.assertTrue((dst / "site" / "index.html").is_file())
+            self.assertTrue((dst / "functions" / "api" / "report.js").is_file())
+            self.assertTrue((dst / "wrangler.toml").is_file())
 
 
 if __name__ == "__main__":

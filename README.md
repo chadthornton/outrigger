@@ -51,7 +51,7 @@ the Makefile, the site and the installer pick it up from there.
 
 ```
 make test      # midi_core, platform and fm1_loader tests on the Mac (fetches fixtures once)
-make check     # the production deploy's check: HEAD checked out clean in the clone all worktrees share, then test, ui-shots and site (~2 min; ~12 min after a core or library update)
+make check     # the full deploy check (critical batches, FULL=1): HEAD checked out clean in the clone all worktrees share, then test, ui-shots and site (~2 min; ~12 min after a core or library update)
 make ui-shots  # render and check every page; build/ui-shots/sheet_*.png (needs LVGL 9.6.0, see Makefile)
 make fixtures  # FM-1 packages and wl82loader.bin for the tests, pinned by SHA-256 (gitignored)
 make golden    # regenerate tests/golden/ from the Unbricker and jl-uboot-tool (Python venv in build/)
@@ -148,11 +148,21 @@ The site is on Cloudflare Pages (project `outrigger`, a Direct Upload project in
 ```
 make deploy-site                     # beta
 make deploy-site CHANNEL=production  # outrigger.music
+make deploy-site FULL=1              # build it with make check on the Mac instead of taking CI's
 ```
 
-- **What gets uploaded:** `make deploy-site` runs `make check`, then uploads the `site/` that the check built from that
-  commit (`build/checked/site`). Nothing uncommitted or unpushed goes live, and every upload passed `make check` on that
-  exact commit. When production may go up without Chad: "Shipping to production".
+- **What gets uploaded:** usually CI's build of that exact commit, in about a minute. A push to `master` makes CI build
+  every board × app set and keep it as the `site-firmware` artifact (14 days) with a `SHA256SUMS` list.
+  `make deploy-site` takes it only from a CI run of exactly HEAD with `ci-ok` green, and checks it three ways: the
+  download against GitHub's digest, every file against `SHA256SUMS`, and every manifest against HEAD (clean build, parts
+  matching). The rest comes from git at that commit: the pages, `functions/`, `wrangler.toml`, `NOTICE` and `LICENSE`.
+  It runs `make check` on the Mac and uploads that build (`build/checked/site`) instead in three cases: `FULL=1`, a
+  production batch that touches the critical list's code (`CRITICAL` in `tools/deploy_site.py`), and a commit CI never
+  built by itself. That last case is any branch commit, because CI builds a PR merged into `master`. Start CI on the branch by hand
+  (`gh workflow run CI --ref <branch>`) to get a build of the commit itself. CI's and the Mac's app binaries
+  differ byte for byte (each embeds its own toolchain paths, e.g. `/home/runner/.arduino15/…`); bootloaders, partition
+  tables, pages and Functions are identical (compared at d5bc202, 2026-11-03). Nothing uncommitted or unpushed goes
+  live. When production may go up without Chad: "Shipping to production".
 - **What gets checked first:** `tools/deploy_site.py` refuses a dirty tree, an unpushed HEAD, or production from
   anything but `origin/master` or from a commit beta doesn't serve. Before uploading it scans every file again: under Pages' 25 MiB per-file and
   20,000-file limits, and free of `wl82loader.bin` (by name, SHA-256 and 1 KiB pieces). A local copy of the blob is

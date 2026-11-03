@@ -374,12 +374,14 @@ serve: site
 
 # Publish the site on Cloudflare Pages: CHANNEL=beta (beta.outrigger.music, any
 # pushed commit) or CHANNEL=production (outrigger.music, origin/master only).
-# Uploads the site make check built from this commit (build/checked/site). README, "Publishing the site".
+# Uploads CI's build of this commit (its push run's site-firmware), or, for FULL=1, a
+# production batch touching the critical list, or a commit CI never built itself,
+# the site make check builds here (build/checked/site). README, "Publishing the site".
 CHANNEL ?= beta
 deploy-site:
-	python3 -I tools/deploy_site.py guard $(CHANNEL)
-	$(MAKE) check
-	python3 -I tools/deploy_site.py deploy $(CHANNEL) build/checked/site
+	@src=$$(python3 -I tools/deploy_site.py source $(CHANNEL) $(FULL)) || exit 1; \
+	if [ "$$src" = ci ]; then python3 -I tools/deploy_site.py deploy-ci $(CHANNEL); \
+	else $(MAKE) check && python3 -I tools/deploy_site.py deploy $(CHANNEL) build/checked/site; fi
 
 # Put the deploy before the live one back on CHANNEL (or COMMIT=<sha>'s), in seconds,
 # without make check: production through Cloudflare's rollback, beta from the kept copy.
