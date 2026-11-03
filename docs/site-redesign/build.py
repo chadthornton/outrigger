@@ -236,6 +236,25 @@ COMING_HTML = "".join(
     for g, intro, cards in COMING
 )
 
+# Two hard problems, for people who wonder why Outrigger isn't just a script on one board. Kept short on purpose
+# (docs/site-redesign/brief.md: less copy). Every claim here is true of master today; "planned" says where it isn't.
+HOW = [
+    ("Many ESP32 boards, one firmware",
+     "ESP32 boards differ in chip, screen, touch, memory and how the USB port is wired. Each board gets a profile that "
+     "lists those facts. The screens lay themselves out from the profile instead of fixed pixels, the installer reads "
+     "your chip and flash before it writes anything, and every board and edition is built and tested on each change. "
+     'Some boards are proven on real hardware; <a href="https://github.com/chadthornton/outrigger/blob/master/docs/boards.md">'
+     "the board list</a> says which."),
+    ("Only the parts you need",
+     "Outrigger is a shared core, which owns USB, the screen and storage, with apps on top: the MIDI hub, the firmware "
+     "loader, the recorder, the web page. We build them into editions, so a small board carries only what it can run. "
+     "Today that's Hub, Hub + Loader and Everything. You may not need the FM-1 part at all: the hub edition is the "
+     "start of a general-purpose MIDI hub for any USB synth, which is planned (see What's coming)."),
+]
+HOW_HTML = '<div class="coming" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr))">' + "".join(
+    f"<article><h4>{t}</h4><p>{d}</p></article>" for t, d in HOW
+) + "</div>"
+
 TROUBLE = """<div class="faq">
   <details><summary>How do I update Outrigger?</summary><div class="answer">
     <p>Outrigger's USB port is busy running your MIDI gear, so first hand it to your computer: in Settings, open
@@ -474,6 +493,7 @@ BODY = f"""<nav class="wrap topnav">
   <section class="section" id="coming"><h2>What's coming</h2>
     {COMING_HTML}</section>
   <section class="section" id="trouble" style="max-width:760px"><h2>Troubleshooting</h2>{TROUBLE}</section>
+  <section class="section" id="how"><h2>How it's built</h2>{HOW_HTML}</section>
 </div>
 <footer><div class="wrap fine">Firmware screenshots by their authors, via the Firmware Hub. Not affiliated with M-VAVE or Waveshare.</div></footer>
 <script src="rig.js"></script>
