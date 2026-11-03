@@ -1,6 +1,6 @@
 # The merge gate (README, "Merge gate"): a PR merges when `ci-ok` is green on its
-# head commit. Production deploys still re-run `make check` on the Mac, on the
-# exact commit they upload (make deploy-site).
+# head commit. A push to master's site-firmware artifact is what make deploy-site
+# uploads for that commit (tools/deploy_site.py), unless the batch needs make check.
 # The Mac-style tests and the UI shots, then every board x app set built in its
 # own job and staged into the installer site by one more. A PR that only touches
 # docs or site copy skips the firmware builds and gets a licensing scan of site/
@@ -172,6 +172,8 @@ jobs:
           test -f tests/fixtures/wl82loader.bin
           if grep -q "no local wl82loader.bin" site.log; then echo "build_site.py skipped the chunk scan"; exit 1; fi
           if find site/firmware -iname '*wl82*' | grep .; then exit 1; fi
+      - name: SHA-256 of every file, for make deploy-site to check the download against
+        run: (cd site/firmware && find . -type f | sort | xargs sha256sum) > /tmp/SHA256SUMS && mv /tmp/SHA256SUMS site/firmware/
       - uses: actions/upload-artifact@v4
         with:
           name: site-firmware
