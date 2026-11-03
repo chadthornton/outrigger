@@ -21,21 +21,29 @@ Test sessions may erase any of these (Chad, 2026-11-03). The build answers `/ben
 (`lib/web_core/src/bench.cpp`), and `tools/bench.py` checks the board's MAC and the attached FM-1's unit ID are the
 ones `--board` and `--fm1` name. That checks the run has the devices it asked for; none is off limits.
 
-## Using the lab board
+## Using the lab boards
 
-Two powered hubs (Chad, 2026-11-03): hub A holds Small-V1 and FM-A, hub B holds Small-V2 and FM-B, so two sessions
-can test in parallel. Chad replugs by hand, in batched cards. When Small-V2 runs `hub-loader` with `DIAG_WEB=1
-BENCH=1` and is on Chad's Wi-Fi at `fm1bench.local`, any session on this Mac can read it instead of asking Chad what
-the screen shows.
+Chad's boards run `hub-loader` with `DIAG_WEB=1 BENCH=1` and stay on his home Wi-Fi (Chad, 2026-11-03), each at its
+own address. The firmware picks the name from the board's MAC (`web_core::web_host_name`); a board that isn't Chad's
+answers at `fm1hub.local` (`fm1bench.local` in a bench build).
+
+| Board | Address | Hub | FM-1 |
+|---|---|---|---|
+| Small-V1 | `small-v1.local` | hub A | FM-A |
+| Small-V2 | `small-v2.local` | hub B | FM-B |
+| Big-S3 | `big-s3.local` | as a card says (shared with the Synth track) | — |
+
+Two sessions can test in parallel, one per hub. Chad replugs by hand, in batched cards. Big-P4 doesn't run Outrigger;
+its session reads it over serial. The addresses are also in the device registry (`host`), so the tools take a name:
 
 **Reads are free.** No booking; nothing changes on the board or the FM-1:
 
 ```bash
-python3 tools/bench.py fm1                          # FM-1 on USB?, which FM-1, running firmware, last result, latest backup, build
-python3 tools/diag.py --host fm1bench.local status  # build, heap, tasks, USB devices, the Firmware page as the screen says it
-python3 tools/diag.py --host fm1bench.local log --follow
-python3 tools/diag.py --host fm1bench.local crash   # the last abnormal reset, and whether a core dump is stored
-python3 tools/diag.py --host fm1bench.local all     # everything into build/diag/<time>/
+python3 tools/bench.py fm1 --board Small-V2 --fm1 FM-B   # FM-1 on USB?, which one, running firmware, last result, backup, build
+python3 tools/diag.py --device Small-V1 status   # build, heap, tasks, USB devices, the Firmware page as the screen says it
+python3 tools/diag.py --device Small-V1 log --follow
+python3 tools/diag.py --device Small-V1 crash    # the last abnormal reset, and whether a core dump is stored
+python3 tools/diag.py --device Big-S3 all        # everything into build/diag/<time>/
 ```
 
 **Switches and backups book the board first**, through the orchestrator, like the Mac's USB slot. `bench.py` also
@@ -43,8 +51,8 @@ takes a lock shared by every worktree (`~/Library/Application Support/outrigger/
 Mac fails at once instead of interleaving:
 
 ```bash
-python3 tools/bench.py backup                  # reads FM-B; writes only the board's own store
-python3 tools/bench.py switch "Skiff 2.1.1"    # backup (identifies the FM-1), plan check, hold, back on USB for 60 s, backup
+python3 tools/bench.py backup --board Small-V2 --fm1 FM-B
+python3 tools/bench.py switch "Skiff 2.1.1" --board Small-V1 --fm1 FM-A   # backup (identifies the FM-1), plan, hold, watch, backup
 ```
 
 A switch's JSON line carries `checks`, each read from the board: `result_ok` (the result page says it worked),
@@ -53,30 +61,31 @@ follow-up backup passed), and `running` (the board identifies the backed-up app 
 hash: `loader_app.cpp`, `known_unit`). The run passes when all five do. A factory-installed stock V15 may not be
 recognised as running (issue #39); a stock V15 the loader installed is.
 
-**What still needs Chad's hands** (no relays or soldering on this bench, by Chad's choice):
-- **Reflashing the lab board.** The build has no over-the-air update and no remote Computer mode, so a new build means
-  Chad taps Computer mode and moves its cable to the Mac. Its build lags `master`: check `bench.py fm1`'s `build`
-  before trusting a result for a recent change. Wi-Fi survives a reflash: `make flash` writes the bootloader,
-  partition table and app but leaves NVS (0x9000) alone; erasing the whole flash or NVS loses it.
-- **A dark FM-B.** If a switch leaves it in ROM boot (`unfinished` in the record), recovery is the Transporter, and the
+**What still needs Chad's hands** (no relays or soldering on these benches, by Chad's choice):
+- **Reflashing.** The build has no over-the-air update and no remote Computer mode, so a new build means Chad taps
+  Computer mode and moves the board's cable to the Mac. A board's build lags `master`: check `/status`'s commit
+  (`bench.py fm1`'s `build`) before trusting a result for a recent change. Wi-Fi survives a reflash: `make flash`
+  writes the bootloader, partition table and app but leaves NVS (0x9000) alone; erasing the whole flash or NVS loses
+  it, and Chad joins that board again.
+- **A dark FM-1.** If a switch leaves it in ROM boot (`unfinished` in the record), recovery is the Transporter, and the
   cable move is a person's.
-- **Switching FM-B off and on.** It runs from its own battery (2000 mAh), so cutting USB power doesn't restart it.
+- **Switching an FM-1 off and on.** It runs from its own battery (2000 mAh), so cutting USB power doesn't restart it.
 
-If `fm1bench.local` doesn't resolve, the board's IP is on its Setup screen; `--host <ip>` works for both tools. After
-a power cut the board rejoins Wi-Fi by itself; if the network never answers, it opens the `fm1bench-setup` hotspot
-after 60 s.
+If a `.local` name doesn't resolve, the board's IP is on its Setup screen; `--host <ip>` works for both tools. After a
+power cut a board rejoins Wi-Fi by itself; if the network never answers, it opens its `<name>-setup` hotspot (for
+example `small-v1-setup`) after 60 s, with the password on its Setup screen.
 
 ## Build and flash
 
 ```bash
-make build APPS=hub-loader DIAG_WEB=1 BENCH=1     # build/waveshare_169/hub-loader-web-bench
-tools/wait_for_board.sh Small-V2                  # the port, once Small-V2 is on the Mac in Computer mode (MAC checked)
+make build APPS=hub-loader DIAG_WEB=1 BENCH=1                      # Small-V1, Small-V2: build/waveshare_169/hub-loader-web-bench
+make build BOARD=waveshare_35 APPS=hub-loader DIAG_WEB=1 BENCH=1   # Big-S3
+tools/wait_for_board.sh Small-V2                                   # its port, once it's on the Mac in Computer mode (MAC checked)
 make flash APPS=hub-loader DIAG_WEB=1 BENCH=1 PORT=/dev/cu.usbmodemXXXX
 ```
 
-Always pass `PORT=` from `wait_for_board.sh`: the Transporter's XIAO is also a `/dev/cu.usbmodem*`. The bench answers
-at `fm1bench.local`, never `fm1hub.local`, and its setup hotspot is `fm1bench-setup`. `make site` refuses any shipped
-build that contains `/bench/`.
+Always pass `PORT=` from `wait_for_board.sh`: the Transporter's XIAO is also a `/dev/cu.usbmodem*`. `make site`
+refuses any shipped build that contains `/bench/`.
 
 ## Run
 

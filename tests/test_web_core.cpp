@@ -178,6 +178,15 @@ static void test_bench_mac() {
   EXPECT(waveshare_name(v2) && strcmp(waveshare_name(v2), "small-v2") == 0, "Small-V2 by MAC");
   EXPECT(waveshare_name(s3) && strcmp(waveshare_name(s3), "big-s3") == 0, "Big-S3 by MAC");
   EXPECT(!waveshare_name(other), "an unlisted board gets no bench API");
+  char name[16];
+  web_host_name(v1, false, name, sizeof name);
+  EXPECT(strcmp(name, "small-v1") == 0, "Small-V1 answers at small-v1.local");
+  web_host_name(s3, true, name, sizeof name);
+  EXPECT(strcmp(name, "big-s3") == 0, "a listed board keeps its own name in a bench build");
+  web_host_name(other, false, name, sizeof name);
+  EXPECT(strcmp(name, "fm1hub") == 0, "anyone else's board is fm1hub");
+  web_host_name(other, true, name, sizeof name);
+  EXPECT(strcmp(name, "fm1bench") == 0, "an unlisted bench build is fm1bench, never fm1hub");
 }
 
 static void test_bench_commands() {

@@ -1,5 +1,6 @@
 #include "bench.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -53,6 +54,11 @@ const char *waveshare_name(const uint8_t mac[6]) {
   for (const Waveshare &w : kWaveshares)
     if (memcmp(mac, w.mac, 6) == 0) return w.name;
   return nullptr;
+}
+
+void web_host_name(const uint8_t mac[6], bool bench_build, char *out, size_t len) {
+  const char *name = waveshare_name(mac);
+  snprintf(out, len, "%s", name ? name : bench_build ? "fm1bench" : "fm1hub");
 }
 
 const char *bench_kind_name(BenchKind k) {

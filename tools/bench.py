@@ -7,7 +7,7 @@ usage:
   bench.py state                      what the board and its Firmware page say
   bench.py switch "Skiff 2.1.1"       switch firmware, watch the FM-1 come back, back it up
   bench.py backup                     back up the FM-1
-  [--board Small-V2] [--fm1 FM-B] [--host fm1bench.local] [--runs build/bench/runs.jsonl] [--dry-run]
+  [--board Small-V2] [--fm1 FM-B] [--host small-v2.local] [--runs build/bench/runs.jsonl] [--dry-run]
 
 A switch presses what the screen would: it opens the row's plan, checks the
 plan is for that firmware, then holds. The Loader decides keep or fresh start
@@ -282,7 +282,7 @@ def main(argv=None, board=None, reg=None):
     ap.add_argument("--board", default="Small-V2", help="the board the run expects, by its registry label")
     ap.add_argument("--fm1", default="FM-B", help="the FM-1 the run expects, by its registry label")
     ap.add_argument("--devices", help="the device registry (default: tools/devices.py's)")
-    ap.add_argument("--host", default="fm1bench.local")
+    ap.add_argument("--host", help="the board's address (default: --board's host in the registry)")
     ap.add_argument("--runs", default=str(ROOT / "build" / "bench" / "runs.jsonl"))
     ap.add_argument("--lock", default=str(LOCK), help="one driver at a time; the default is shared by every worktree")
     ap.add_argument("--dry-run", action="store_true", help="a fake board in-process; no network")
@@ -302,7 +302,15 @@ def main(argv=None, board=None, reg=None):
             from bench_fake import FakeBoard
             board = FakeBoard()
         else:
-            board = Board(a.host)
+            try:
+                host = a.host or reg.find(a.board).get("host")
+            except devices.DeviceError as e:
+                print(e, file=sys.stderr)
+                return 2
+            if not host:
+                print(f"{a.board} has no host in {reg.path}: pass --host", file=sys.stderr)
+                return 2
+            board = Board(host)
     if a.command == "switch" and not a.firmware:
         ap.error("switch needs a firmware label")
     lock = None
