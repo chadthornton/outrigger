@@ -24,6 +24,7 @@
 #include "diag.h"
 #include "hotspot_channel.h"
 #include "wifi_fallback.h"
+#include "wifi_qr.h"
 #include "json_field.h"
 #include "log_ring.h"
 #include "request_guard.h"
@@ -110,6 +111,7 @@ static char own_ip[16] = "", ap_ip[16] = "", ssid_now[33] = "", ap_pass[13] = ""
 static uint32_t ap_ip_u32 = 0;  // network byte order, for the via-hotspot check
 static int8_t rssi = 0;
 static char network_line[48] = "";  // empty until web_begin()
+static char join_qr[64] = "";       // the hotspot as a Wi-Fi QR code, while the network line says to join it
 static char scan_json[1200] = "{\"nets\":[]}";
 static char creds_ssid[33], creds_pass[65];
 static bool creds_pending = false;
@@ -786,6 +788,8 @@ static void set_ips() {
   if (own_ip[0]) snprintf(network_line, sizeof network_line, "%s  %s", mdns_name, own_ip);
   else if (ap_on) snprintf(network_line, sizeof network_line, "Wi-Fi: join %s pw %s", setup_ssid, ap_pass);
   else snprintf(network_line, sizeof network_line, "Wi-Fi: joining %s", saved_ssid);
+  if (!own_ip[0] && ap_on) web_core::wifi_qr_payload(setup_ssid, ap_pass, join_qr, sizeof join_qr);
+  else join_qr[0] = 0;
 }
 
 static void remember_scan(int found) {
@@ -1095,5 +1099,6 @@ void diag_publish_store(std::string &&json) {
 }  // the old body, now in json, is freed by the caller, after the lock
 
 const char *web_network_line() { return network_line; }
+const char *web_join_qr() { return join_qr; }
 
 #endif  // APP_WEB_UI
