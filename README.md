@@ -4,11 +4,18 @@
 you, backing it up first.** It runs on a small ESP32-S3 touchscreen board that sits on a powered USB hub next to the
 FM-1. Install it from your browser at **[outrigger.music](https://outrigger.music)**.
 
-- **Status: beta.** Tested on a Waveshare ESP32-S3-Touch-LCD-1.69 with a Novation Launchkey Mini MK4 37. Expect
-  rough edges; firmware switching writes to your FM-1, so read the beta guide first.
+- **Status: beta.** Tested on the Waveshare ESP32-S3-Touch-LCD-1.69 and the Waveshare ESP32-S3-Touch-LCD-3.5, with a
+  Novation Launchkey Mini MK4 37. The installer has a board picker. Expect rough edges; firmware switching writes to
+  your FM-1, so read the beta guide first.
 - **Beta guide:** [`docs/beta/`](docs/beta/01-what-you-need.md), from what you need to
   [what to do if your FM-1 won't boot](docs/beta/06-if-your-fm1-wont-boot.md) and the
   [known issues](docs/beta/07-known-issues.md).
+- **Built on and alongside:** The FM-1 has a lively community, and these are projects we use, learn from or sit next to.
+  - [Felucca](https://github.com/hugelton/felucca) and [felucca-bsp](https://github.com/hugelton/felucca-bsp) (Hügelton Instruments): a custom FM-1 firmware, and the board support package for JieLi-based M-VAVE synths.
+  - [fm1-base](https://github.com/charlesvestal/fm1-base), [X0X](https://github.com/charlesvestal/fm1-x0x), [AMB-1](https://github.com/charlesvestal/fm1-amb) and [more FM-1 firmwares](https://github.com/charlesvestal?tab=repositories&q=fm1) (Charles Vestal): a firmware base and template, a groovebox, a generative ambient machine, and others.
+  - [MvaveFM1Unbricker](https://github.com/Quixotic7/MvaveFM1Unbricker) and [RemoteFM1](https://github.com/Quixotic7/RemoteFM1) (Quixotic7): an FM-1 unbricker, and a player that runs FM-1 firmwares from the browser without installing them.
+  - [fm1-mirror](https://github.com/pfkellogg/fm1-mirror) (Patrick Kellogg): the FM-1's screen, big, on a computer.
+  - [fm1buddy](https://github.com/konsumer/fm1buddy) (David Konsumer), a related project: a touchscreen box that runs an FM-1 without a computer.
 - **Feedback:** feedback@outrigger.music.
 - **License:** [GPL-3.0](LICENSE). Third-party code and its licenses: [NOTICE](NOTICE). No M-VAVE firmware is in
   this repo; your browser downloads it at install time and checks each file.
@@ -17,9 +24,9 @@ The rest of this README is for working on the code.
 
 ## For developers
 
-A computer-free USB MIDI host. The first target is the Waveshare ESP32-S3-Touch-LCD-1.69: its USB-C port runs as
-a USB host through a powered hub, and incoming MIDI is shown on its screen. The goal is to play an M-VAVE FM-1
-from a Novation Launchkey Mini MK4 37 with both on the hub, power and MIDI on one cable each.
+A computer-free USB MIDI host. It runs on the Waveshare ESP32-S3-Touch-LCD-1.69 and 3.5 (`firmware/boards.json`
+lists every profile, tested or not). Its USB-C port runs as a USB host through a powered hub, and incoming MIDI is
+shown on its screen. The goal is to play an M-VAVE FM-1 from a Novation Launchkey Mini MK4 37 with both on the hub, power and MIDI on one cable each.
 
 It is one shared core with pluggable apps (Router, firmware Loader, and, in progress, Recorder and Web UI), chosen
 per build as an app set. The core owns the 8 USB host channels, the FM-1, the radio, storage, settings and the screen;
@@ -51,7 +58,7 @@ the Makefile, the site and the installer pick it up from there.
 
 ```
 make test      # midi_core, platform and fm1_loader tests on the Mac (fetches fixtures once)
-make check     # the production deploy's check: HEAD checked out clean in the clone all worktrees share, then test, ui-shots and site (~2 min; ~12 min after a core or library update)
+make check     # the full deploy check (critical batches, FULL=1): HEAD checked out clean in the clone all worktrees share, then test, ui-shots and site (~2 min; ~12 min after a core or library update)
 make ui-shots  # render and check every page; build/ui-shots/sheet_*.png (needs LVGL 9.6.0, see Makefile)
 make fixtures  # FM-1 packages and wl82loader.bin for the tests, pinned by SHA-256 (gitignored)
 make golden    # regenerate tests/golden/ from the Unbricker and jl-uboot-tool (Python venv in build/)
@@ -148,11 +155,22 @@ The site is on Cloudflare Pages (project `outrigger`, a Direct Upload project in
 ```
 make deploy-site                     # beta
 make deploy-site CHANNEL=production  # outrigger.music
+make deploy-site FULL=1              # build it with make check on the Mac instead of taking CI's
 ```
 
-- **What gets uploaded:** `make deploy-site` runs `make check`, then uploads the `site/` that the check built from that
-  commit (`build/checked/site`). Nothing uncommitted or unpushed goes live, and every upload passed `make check` on that
-  exact commit. When production may go up without Chad: "Shipping to production".
+- **What gets uploaded:** usually CI's build of that exact commit, in about a minute. A push to `master` makes CI build
+  every board × app set and keep it as the `site-firmware` artifact (14 days) with a `SHA256SUMS` list.
+  `make deploy-site` takes it only from a CI run of exactly HEAD with `ci-ok` green, and checks it three ways: the
+  download against GitHub's digest, every file against `SHA256SUMS`, and every manifest against HEAD (clean build, parts
+  matching). The rest comes from git at that commit: the pages, `functions/`, `wrangler.toml`, `NOTICE` and `LICENSE`.
+  It runs `make check` on the Mac and uploads that build (`build/checked/site`) instead in three cases: `FULL=1`; a
+  batch whose changes since the commit production serves touch the critical list's code (`CRITICAL` in
+  `tools/deploy_site.py`), on beta too, so beta carries the same build production will; and a commit CI never built by
+  itself. A red or still-running CI run refuses either way, and production refuses until CI has run. That last case is any branch commit, because CI builds a PR merged into `master`. Start CI on the branch by hand
+  (`gh workflow run CI --ref <branch>`) to get a build of the commit itself. CI's and the Mac's app binaries
+  differ byte for byte (each embeds its own toolchain paths, e.g. `/home/runner/.arduino15/…`); bootloaders, partition
+  tables, pages and Functions are identical (compared at d5bc202, 2026-11-03). Nothing uncommitted or unpushed goes
+  live. When production may go up without Chad: "Shipping to production".
 - **What gets checked first:** `tools/deploy_site.py` refuses a dirty tree, an unpushed HEAD, or production from
   anything but `origin/master` or from a commit beta doesn't serve. Before uploading it scans every file again: under Pages' 25 MiB per-file and
   20,000-file limits, and free of `wl82loader.bin` (by name, SHA-256 and 1 KiB pieces). A local copy of the blob is
@@ -245,11 +263,17 @@ Non-critical batches skip the smoke check. Every production deploy and rollback 
 
 ### Boards
 
-There are three: Waveshare-1 (1.69", MAC `a0:85:e3:f0:a2:3c`), Waveshare-2 (1.69", MAC `d8:3b:da:a0:67:d0`)
-and Board-3 (Waveshare 3.5", MAC `44:bd:8d:61:2b:28`). The names follow Chad's labels on the boards (checked
-2026-11-03; they had been recorded the other way round). A session books a board and the Mac's USB slot through the orchestrator session
-(`local_3a47bdc2-23d3-4414-b549-9e1e85c6718a`), checks the board's MAC before flashing, and reflashes the `master`
-build when done.
+Chad's names (2026-11-03): **Small-V1** (Waveshare 1.69", the older revision, usually on the rig), **Small-V2** (1.69"
+with the V2 sticker), **Big-S3** (Waveshare 3.5" S3), **Big-P4** (the Synth track's 3.5" P4), and the FM-1s **FM-A**
+and **FM-B**. Their MACs and unit IDs live in the device registry, outside this public repo
+(`~/Library/Application Support/outrigger/devices.json`; the shape is `tools/devices.example.json`).
+
+- **Tools ask for a device by name** and refuse any other: `tools/port_for.py Small-V2` finds its port,
+  `tools/wait_for_board.sh Small-V2` waits for it, and `tools/bench.py --board Small-V2 --fm1 FM-B` drives the bench.
+- **Wiping any of them is fine** (Chad, 2026-11-03). The check only makes sure a session has the device it asked for.
+- **Every esptool MAC read ends with a hard reset,** so no board, another session's included, is left in download mode.
+- A session books a board and the Mac's USB slot through the orchestrator session, and reflashes the `master` build
+  when done.
 
 An app also lands with its row in the mode table, its claims and tests in the broker, its NVS namespace with a `schema`
 key, and its build flag (`docs/architecture.md`, "How an app lands on `master`"). Guarded work (anything that writes the

@@ -1,15 +1,29 @@
 #!/usr/bin/env python3
 """Publish the installer site on Cloudflare Pages (outrigger.music).
 
-    tools/deploy_site.py guard <channel>             refuse early, before make check spends minutes
+    tools/deploy_site.py source <channel> [FULL]     refuse early; print "ci" or "check": where the site comes from
+    tools/deploy_site.py deploy-ci <channel>          stage, check and upload CI's build of HEAD
     tools/deploy_site.py deploy <channel> <site dir>  stage, check and upload a site make check built
                                                      (build/checked/site; its commit in build/checked/commit)
     tools/deploy_site.py rollback <channel> [commit]  put the deploy before the live one back (or that commit's)
 
 Channels: production (outrigger.music, from origin/master only) and beta
-(beta.outrigger.music, any pushed commit). `make deploy-site` runs both steps
-around `make check`, so only a site built from a clean checkout of a committed,
-pushed HEAD goes live. Each upload carries its commit, so the Pages dashboard
+(beta.outrigger.music, any pushed commit). Only a site built from a clean
+checkout of a committed, pushed HEAD goes live, built one of two ways:
+
+- CI's build (the usual way): GitHub CI's push run of exactly HEAD (or a run
+  started by hand on its branch, gh workflow run CI --ref <branch>) built every
+  board x app set and kept it as the site-firmware artifact. If that run and its
+  ci-ok are green, the artifact is downloaded, checked against GitHub's digest,
+  CI's SHA256SUMS and the manifests (every one names HEAD, none dirty), and put
+  with the commit's own site/, functions/, wrangler.toml, NOTICE and LICENSE.
+  The wl82loader.bin scan and the Pages limits run here, as for make check.
+  Either way, a red or running CI run of HEAD refuses, and production needs one.
+- make check on the Mac: for FULL=1, for a batch (since the commit production
+  serves, on either channel, so beta carries the build production will) that
+  touches the critical list's code (CRITICAL; README, "Shipping to production"), and for a
+  commit CI has no build of (a branch commit: CI builds a PR merged into master;
+  start CI on the branch by hand to get one). Each upload carries its commit, so the Pages dashboard
 answers "which commit is live?". The Pages Functions (functions/) and their
 config (wrangler.toml, with the D1 bindings) go up with the site, from the same
 checked commit: wrangler reads them from its working directory, so it runs in
@@ -27,15 +41,19 @@ Credentials: ~/.config/cloudflare/outrigger-pages.env (CLOUDFLARE_API_TOKEN with
 Account > Cloudflare Pages > Edit and Account > D1 > Edit, and
 CLOUDFLARE_ACCOUNT_ID). Never printed.
 """
+import fnmatch
 import hashlib
+import io
 import json
 import os
 import shutil
 import subprocess
 import sys
+import tarfile
 import time
 import urllib.error
 import urllib.request
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -52,6 +70,16 @@ WRANGLER = "wrangler@4.151.1"
 ENV_FILE = Path.home() / ".config/cloudflare/outrigger-pages.env"
 # The upload's working directory: site/, functions/ and wrangler.toml, as in the repo.
 STAGE = ROOT / "build/pages"
+REPO = "chadthornton/outrigger"
+# CI's build of HEAD, downloaded and laid out the way make check leaves build/checked.
+CI_FIRMWARE = ROOT / "build/ci-firmware"
+CI_CHECKED = ROOT / "build/ci-checked"
+# The critical list's code (README, "Shipping to production"): a production batch touching any of it
+# gets the full make check on the Mac. fnmatch patterns; * crosses /.
+CRITICAL = ["lib/fm1_loader/*", "lib/EspUsbHost/*", "firmware/*loader_*", "firmware/*store_*",
+            "firmware/*bench_writer*", "firmware/*switch_chain*", "*partitions.csv",
+            "functions/*", "wrangler.toml", "migrations/*", "tools/deploy_site.py", "tools/check.py",
+            "tools/build_site.py", "Makefile", ".github/workflows/*"]
 # The deploy log and beta's kept copies, outside build/ so every worktree sees the same ones.
 DEPLOYS = Path.home() / "Library/Application Support/outrigger/deploys"
 KEEP = 3  # kept copies per channel
@@ -248,6 +276,119 @@ def kept_problems(kept):
     return problems
 
 
+def ci_run(runs, checks, head):
+    """(run, None) for CI's green push run of exactly head; (None, None) if CI never built head
+    itself; (None, why not) if it did but the build may not go up. runs: newest first."""
+    runs = [r for r in runs if r["name"] == "CI" and r["event"] in ("push", "workflow_dispatch") and r["head_sha"] == head]
+    if not runs:
+        return None, None
+    run = runs[0]
+    if run["status"] != "completed":
+        return None, f"CI's run for {head[:7]} is still running; wait for it to finish"
+    if run["conclusion"] != "success":
+        return None, f"CI's run for {head[:7]} ended in {run['conclusion']}; fix it before deploying"
+    if not any(c["conclusion"] == "success" and f"/runs/{run['id']}/" in c.get("details_url", "") for c in checks):
+        return None, f"ci-ok is not green in CI's run for {head[:7]}"
+    return run, None
+
+
+def site_artifact(artifacts):
+    """(the run's site-firmware artifact, None) or (None, why not)."""
+    art = next((a for a in artifacts if a["name"] == "site-firmware"), None)
+    if art is None:
+        return None, "CI's run has no site-firmware artifact; FULL=1 builds the site on the Mac"
+    if art["expired"]:
+        return None, "CI's site-firmware artifact has expired (it keeps 14 days); FULL=1 builds the site on the Mac"
+    if not (art.get("digest") or "").startswith("sha256:"):
+        return None, "CI's site-firmware artifact has no SHA-256 digest to check the download against"
+    return art, None
+
+
+def digest_problem(data, digest):
+    if "sha256:" + hashlib.sha256(data).hexdigest() != digest:
+        return "the download doesn't match the artifact's SHA-256 digest on GitHub"
+    return None
+
+
+def ci_firmware_problems(fw, head):
+    """Everything wrong with CI's site/firmware for head: SHA256SUMS (from CI) against the files,
+    and every manifest naming head, clean, with parts that match it."""
+    sums = fw / "SHA256SUMS"
+    if not sums.is_file():
+        return ["no SHA256SUMS in CI's firmware"]
+    want = {}
+    for line in sums.read_text().splitlines():
+        sha, _, name = line.partition("  ")
+        if name:
+            want[name.removeprefix("./")] = sha
+    have = {str(p.relative_to(fw)): hashlib.sha256(p.read_bytes()).hexdigest()
+            for p in sorted(fw.rglob("*")) if p.is_file() and p != sums}
+    problems = [f"{n} is missing" for n in sorted(want.keys() - have.keys())]
+    problems += [f"{n} is not in SHA256SUMS" for n in sorted(have.keys() - want.keys())]
+    problems += [f"{n} doesn't match SHA256SUMS" for n in sorted(want.keys() & have.keys()) if want[n] != have[n]]
+    manifests = sorted(fw.glob("*/*/manifest.json"))
+    if not manifests:
+        problems.append("no manifest.json in CI's firmware")
+    for m in manifests:
+        name = m.relative_to(fw)
+        manifest = json.loads(m.read_text())
+        build = manifest.get("build") or {}
+        commit = build.get("commit") or ""
+        if len(commit) < 7 or not head.startswith(commit):
+            problems.append(f"{name} was built from {commit or 'no commit'}, not {head[:7]}")
+        if build.get("dirty") is not False:
+            problems.append(f"{name} is a dirty build")
+        for b in manifest.get("builds", []):
+            for part in b.get("parts", []):
+                path = m.parent / part["path"]
+                if not path.is_file():
+                    problems.append(f"{name} names {part['path']}, which is missing")
+                elif part.get("sha256") != hashlib.sha256(path.read_bytes()).hexdigest():
+                    problems.append(f"{name}: {part['path']} doesn't match its sha256")
+    return problems
+
+
+def choose_source(channel, full, run, crit):
+    """("ci" or "check", why), or (None, why not). run: CI's green run of exactly HEAD, or None if CI
+    never built HEAD itself; crit: the critical-list files changed since the commit production serves."""
+    if full not in ("", "1"):
+        return None, f"FULL={full}: use FULL=1, or leave it out"
+    if run is None and channel == "production":
+        return None, "CI hasn't built origin/master's head yet; wait for its run"
+    if full == "1":
+        return "check", "FULL=1: make check builds the site on the Mac"
+    if crit:
+        more = ", ..." if len(crit) > 5 else ""
+        return "check", f"the batch since production touches the critical list ({', '.join(crit[:5])}{more}): make check on the Mac"
+    if run is None:
+        return "check", "CI has no build of this commit itself (it builds a branch merged into master): make check on the Mac"
+    return "ci", f"CI's build (run {run['id']})"
+
+
+def critical_paths(files):
+    """The changed files on the critical list's code."""
+    return [f for f in files if any(fnmatch.fnmatch(f, pattern) for pattern in CRITICAL)]
+
+
+def assemble(commit, fw, dst):
+    """CI's firmware plus the commit's own site/, functions/, wrangler.toml, NOTICE and LICENSE,
+    laid out as make check leaves build/checked (make site copies NOTICE and LICENSE into site/)."""
+    shutil.rmtree(dst, ignore_errors=True)
+    dst.mkdir(parents=True)
+    archive = subprocess.run(["git", "archive", "--format=tar", commit, "site", "functions", "wrangler.toml",
+                              "NOTICE", "LICENSE"], cwd=ROOT, capture_output=True)
+    if archive.returncode:
+        fail(f"git archive of {commit[:7]} failed: {archive.stderr.decode().strip()}")
+    archive = archive.stdout
+    with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
+        tar.extractall(dst, filter="data")
+    (dst / "NOTICE").rename(dst / "site" / "NOTICE.txt")
+    (dst / "LICENSE").rename(dst / "site" / "LICENSE.txt")
+    shutil.rmtree(dst / "site" / "firmware", ignore_errors=True)
+    shutil.copytree(fw, dst / "site" / "firmware", ignore=lambda _, names: [n for n in names if n == "SHA256SUMS"])
+    (dst / "commit").write_text(commit + "\n")
+
+
 def git(*args, cwd=ROOT):
     run = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True)
     if run.returncode:
@@ -350,12 +491,70 @@ def upload(env, staged, channel, commit, message):
     return live
 
 
+def gh(path):
+    run = subprocess.run(["gh", "api", path], cwd=ROOT, capture_output=True)
+    if run.returncode:
+        fail(f"gh api {path} failed: {run.stderr.decode().strip()}")
+    return run.stdout
+
+
+def ci_build(head):
+    """CI's green run of exactly head, None if CI never built head itself, or fail."""
+    runs = json.loads(gh(f"repos/{REPO}/actions/runs?head_sha={head}&per_page=30"))["workflow_runs"]
+    checks = json.loads(gh(f"repos/{REPO}/commits/{head}/check-runs?check_name=ci-ok&per_page=50"))["check_runs"]
+    run, problem = ci_run(runs, checks, head)
+    if problem:
+        fail(problem)
+    return run
+
+
+def plan(channel, full=""):
+    """(where the site comes from, HEAD, CI's run of it). Refuses what guard refuses and a red or
+    running CI. Says why on stderr."""
+    head = guard(channel)
+    run = ci_build(head)
+    live = commit_of(live_deployment(load_credentials(), "production"))
+    crit = critical_paths(git("diff", "--name-only", live, head).splitlines())
+    kind, why = choose_source(channel, full, run, crit)
+    if kind is None:
+        fail(why)
+    print(why, file=sys.stderr)
+    return kind, head, run
+
+
+def deploy_ci(channel):
+    kind, head, run = plan(channel)
+    if kind != "ci":  # the same choice make deploy-site made, so this can't skip make check
+        fail("this deploy needs make check; make deploy-site runs it")
+    art, problem = site_artifact(json.loads(gh(f"repos/{REPO}/actions/runs/{run['id']}/artifacts"))["artifacts"])
+    if problem:
+        fail(problem)
+    data = gh(f"repos/{REPO}/actions/artifacts/{art['id']}/zip")
+    problem = digest_problem(data, art["digest"])
+    if problem:
+        fail(problem)
+    shutil.rmtree(CI_FIRMWARE, ignore_errors=True)
+    with zipfile.ZipFile(io.BytesIO(data)) as z:
+        z.extractall(CI_FIRMWARE)
+    problems = ci_firmware_problems(CI_FIRMWARE, head)
+    if problems:
+        fail("refusing CI's build:\n  " + "\n  ".join(problems))
+    assemble(head, CI_FIRMWARE, CI_CHECKED)
+    print(f"CI's build of {head[:7]} (run {run['id']}) checks out", file=sys.stderr)
+    publish(channel, head, CI_CHECKED, "ci")
+
+
 def deploy(channel, site):
     head = guard(channel)
     problem = built_from_problem(site, head)
     if problem:
         fail(problem)
-    problems = stage_root(site.parent, STAGE) + site_problems(STAGE / "site", load_wl82_blob())
+    publish(channel, head, site.parent, "check")
+
+
+def publish(channel, head, checked, built):
+    """Stage checked (site/, functions/, wrangler.toml), scan it, upload it and log it. built: "ci" or "check"."""
+    problems = stage_root(checked, STAGE) + site_problems(STAGE / "site", load_wl82_blob())
     if problems:
         fail("refusing to upload:\n  " + "\n  ".join(problems))
     env = load_credentials()
@@ -365,7 +564,7 @@ def deploy(channel, site):
         # Note what this deploy replaces, so a rollback can go back to it.
         append_log(log, log_entry("baseline", channel, before))
     live = upload(env, STAGE, channel, head, git("log", "-1", "--format=%s", head))
-    append_log(log, log_entry("deploy", channel, live))
+    append_log(log, log_entry("deploy", channel, live, built=built))
     if channel != "production":  # production rolls back through Cloudflare, with no copy
         keep(STAGE, DEPLOYS / channel, head)
     print(f"deployed {head[:7]} to {channel}: {URLS[channel]} (deployment {live['id']}; logged in {log})")
@@ -402,12 +601,16 @@ def main():
     args = sys.argv[1:]
     if len(args) == 2 and args[0] == "guard":
         guard(args[1])
+    elif len(args) in (2, 3) and args[0] == "source":
+        print(plan(*args[1:])[0])
+    elif len(args) == 2 and args[0] == "deploy-ci":
+        deploy_ci(args[1])
     elif len(args) == 3 and args[0] == "deploy":
         deploy(args[1], Path(args[2]).resolve())
     elif len(args) in (2, 3) and args[0] == "rollback":
         rollback(*args[1:])
     else:
-        fail("usage:\n" + "\n".join(__doc__.strip().splitlines()[2:6]))
+        fail("usage:\n" + "\n".join(__doc__.strip().splitlines()[2:8]))
 
 
 if __name__ == "__main__":

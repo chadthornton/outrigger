@@ -1,23 +1,25 @@
 # FM-1 test bench
 
-Firmware switches run from the Mac against FM-1-2 (Chad's second FM-1), with nobody at the desk. Design and reasons:
+Firmware switches run from the Mac against an FM-1 (FM-B by default), with nobody at the desk. Design and reasons:
 `fw-map-bench.md` section B (side-session notes). Approved by Chad 2026-11-01 (tracker `asks/fw-map-bench`).
 
 ## Hardware
 
 | Part | Role |
 |---|---|
-| Waveshare-1 (MAC `a0:85:e3:f0:a2:3c`) or Waveshare-2 (`d8:3b:da:a0:67:d0`) | runs the BENCH build; host to FM-1-2 through the hub |
-| FM-1-2 (Chad's second FM-1) | the only FM-1 the bench switches or writes. Never FM-1-1, Chad's main FM-1 (unit `69bb070aaa87bd10`) |
-| FM-1 Transporter (XIAO RP2040, Quixotic7/MvaveFM1Unbricker @ `707470a`) | FM-1-2's pristine dump; recovery when the FM-1 can't take the SysEx key |
+| Small-V1, Small-V2 or Big-S3 (`--board`, default Small-V2) | runs the BENCH build; host to the FM-1 through the hub |
+| FM-B, or FM-A when a run asks for it (`--fm1`, default FM-B) | the FM-1 the bench switches |
+| FM-1 Transporter (XIAO RP2040, Quixotic7/MvaveFM1Unbricker @ `707470a`) | an FM-1's pristine dump; recovery when the FM-1 can't take the SysEx key |
+
+The names, MACs and unit IDs come from the device registry (README, "Boards").
 
 Buzzer (2026-11-01): both Waveshares ticked or chattered while GPIO42, the buzzer pin in Waveshare's pin map, was left
-floating. Master since PR #30 holds it low, and Waveshare-2 (no "V2" sticker on its USB port) went silent on it. So
-the sticker doesn't predict the buzzer pin, at least on this unit.
+floating. Master since PR #30 holds it low, and Small-V1 (no "V2" sticker) went silent on it. So the sticker doesn't
+predict the buzzer pin, at least on this unit.
 
-Test sessions may erase either Waveshare. The build answers `/bench/` only on one of them, and `tools/bench.py`
-checks the board's MAC matches the Waveshare it was asked for (`--board`, default `waveshare-1`). Every script
-refuses FM-1-1 by unit ID.
+Test sessions may erase any of these (Chad, 2026-11-03). The build answers `/bench/` only on Chad's boards
+(`lib/web_core/src/bench.cpp`), and `tools/bench.py` checks the board's MAC and the attached FM-1's unit ID are the
+ones `--board` and `--fm1` name. That checks the run has the devices it asked for; none is off limits.
 
 ## Build and flash
 
@@ -49,7 +51,8 @@ python3 tools/bench_recover.py dump --port /dev/cu.usbmodemXXXX          # into 
 python3 tools/bench_recover.py recover PKG.fwsc --port ... [--write]      # dry run without --write
 ```
 
-Both dump first and refuse FM-1-1. `--mock DUMP` uses the Unbricker's in-process mock.
+Both dump first and refuse any FM-1 but the one `--fm1` names (default FM-B). `--mock DUMP` uses the Unbricker's
+in-process mock.
 
 ## Not built yet
 

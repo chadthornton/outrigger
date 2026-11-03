@@ -7,14 +7,16 @@ namespace web_core {
 
 namespace {
 
-// Chad's names for his boards (read by esptool, 2026-11-01).
+// Chad's names for his boards, by the MACs on his labelled boards (2026-11-03;
+// the Mac's registry is tools/devices.py).
 struct Waveshare {
   const char *name;
   uint8_t mac[6];
 };
 constexpr Waveshare kWaveshares[] = {
-    {"waveshare-1", {0xD8, 0x3B, 0xDA, 0xA0, 0x67, 0xD0}},
-    {"waveshare-2", {0xA0, 0x85, 0xE3, 0xF0, 0xA2, 0x3C}},
+    {"small-v1", {0xA0, 0x85, 0xE3, 0xF0, 0xA2, 0x3C}},
+    {"small-v2", {0xD8, 0x3B, 0xDA, 0xA0, 0x67, 0xD0}},
+    {"big-s3", {0x44, 0xBD, 0x8D, 0x61, 0x2B, 0x28}},
 };
 
 // The value of key in a query string ("a=1&b=2"), copied into out.

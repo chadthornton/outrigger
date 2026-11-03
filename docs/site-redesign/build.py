@@ -602,7 +602,15 @@ for a, b in [
     LVGL and EspUsbHost (MIT), Arduino_GFX (BSD) and the Arduino ESP32 core (LGPL-2.1):
     <a href="NOTICE.txt">licenses and credits</a>.</p>
 </div></section>
-<footer class="nerd"><div class="wrap fine">Firmware screenshots by their authors, via the Firmware Hub. Not affiliated with M-VAVE or Waveshare.</div></footer>"""),
+<footer class="nerd"><div class="wrap fine">
+  <p>Built on and alongside the FM-1 community's work:
+    <a href="https://github.com/hugelton/felucca">Felucca</a> and <a href="https://github.com/hugelton/felucca-bsp">felucca-bsp</a> (H\u00fcgelton Instruments),
+    <a href="https://github.com/charlesvestal/fm1-base">fm1-base</a>, <a href="https://github.com/charlesvestal/fm1-x0x">X0X</a>, <a href="https://github.com/charlesvestal/fm1-amb">AMB-1</a> and more FM-1 firmwares by <a href="https://github.com/charlesvestal">Charles Vestal</a>,
+    <a href="https://github.com/Quixotic7/MvaveFM1Unbricker">MvaveFM1Unbricker</a> and <a href="https://github.com/Quixotic7/RemoteFM1">RemoteFM1</a> by Quixotic7,
+    <a href="https://github.com/pfkellogg/fm1-mirror">fm1-mirror</a> by Patrick Kellogg, and, a related project,
+    <a href="https://github.com/konsumer/fm1buddy">fm1buddy</a> by David Konsumer.</p>
+  <p>Firmware screenshots by their authors, via the Firmware Hub. Not affiliated with M-VAVE or Waveshare.</p>
+</div></footer>"""),
 ]:
     assert a in real, a[:70]
     real = real.replace(a, b, 1)

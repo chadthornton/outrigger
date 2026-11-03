@@ -8,13 +8,14 @@ Knobs on the instance make it fail the ways the real board can.
 
 
 class FakeBoard:
-    # Labels as the real store names them (Waveshare-2's /status, 2026-11-01).
+    # Labels as the real store names them (Small-V2's /status, 2026-11-01). The
+    # board and FM-1 are tools/devices.example.json's Small-V2 and FM-B.
     def __init__(self, labels=("M-VAVE stock V15", "Felucca 1.8.0", "Skiff 2.1.1"), running="M-VAVE stock V15"):
         self.host = "fake"
         self.t = 0.0
         self.labels = list(labels)
         self.running = running
-        self.mac, self.board = "a0:85:e3:f0:a2:3c", "waveshare-1"
+        self.mac, self.board = "02:00:00:00:00:02", "small-v2"
         self.units = [{"id": "0123456789abcdef"}]
         self.last_unit = "0123456789abcdef"  # the FM-1 attached
         self.refuse_holds = False   # the Loader refuses the hold: no restart, a result on the same boot
