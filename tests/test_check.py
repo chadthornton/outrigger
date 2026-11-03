@@ -93,6 +93,18 @@ class CheckTest(unittest.TestCase):
         self.assertEqual((checked / "site" / "index.html").read_text(), "one")
         self.assertIn("all fake tests passed", (self.repo / "build" / "check.log").read_text())
 
+    def test_pass_hands_over_the_commits_functions_and_wrangler_config(self):
+        (self.repo / "functions" / "api").mkdir(parents=True)
+        (self.repo / "functions" / "api" / "report.js").write_text("committed")
+        (self.repo / "wrangler.toml").write_text("name = 'x'")
+        self.commit(self.repo, "VERSION", "one")
+        (self.repo / "functions" / "api" / "report.js").write_text("edited, not committed")
+        rc, out = self.run_check(self.repo)
+        self.assertEqual(rc, 0, out)
+        checked = self.repo / "build" / "checked"
+        self.assertEqual((checked / "functions" / "api" / "report.js").read_text(), "committed")
+        self.assertEqual((checked / "wrangler.toml").read_text(), "name = 'x'")
+
     def test_failure_names_the_commit_and_leaves_no_site_to_deploy(self):
         self.assertEqual(self.run_check(self.repo)[0], 0)
         sha = self.commit(self.repo, "FAIL", "x")

@@ -1,0 +1,19 @@
+# Cloudflare Pages config for outrigger.music (tools/deploy_site.py uploads it
+# with the site and functions/, from the checked commit). With this file, these
+# settings are no longer editable in the Pages dashboard.
+name = "outrigger"
+pages_build_output_dir = "site"
+compatibility_date = "2026-10-01"
+
+# "Report this board" (functions/api/report.js; tools/reports.py reads them).
+# Production: outrigger.music.
+[[d1_databases]]
+binding = "DB"
+database_name = "outrigger-reports"
+database_id = "ceb31299-d7f7-49b6-8960-4891fc331ab5"
+
+# Beta (beta.outrigger.music) and every other preview, so test reports never mix with real ones.
+[[env.preview.d1_databases]]
+binding = "DB"
+database_name = "outrigger-reports-beta"
+database_id = "93e9d893-e01a-488f-a594-cd5de5ff204a"
