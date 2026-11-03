@@ -507,7 +507,7 @@ def source(channel, full=""):
 def deploy_ci(channel):
     if source(channel) != "ci":  # the same choice make deploy-site made, so this can't skip make check
         fail("this deploy needs make check; make deploy-site runs it")
-    head = git("rev-parse", "HEAD")
+    head = guard(channel)
     run = ci_build(head)
     art, problem = site_artifact(json.loads(gh(f"repos/{REPO}/actions/runs/{run['id']}/artifacts"))["artifacts"])
     if problem:
