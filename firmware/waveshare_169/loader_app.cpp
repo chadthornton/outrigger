@@ -402,6 +402,11 @@ std::string label_of(const PackageInfo &p) {
   return p.version.empty() ? name : name + " " + p.version;
 }
 
+std::string package_label(const std::string &id) {
+  PackageInfo p;
+  return library->package(id, p) ? label_of(p) : id;
+}
+
 // The FM-1 the screen talks about (the unit backed up last): its record, and
 // what its latest backup runs.
 struct Known {
@@ -409,6 +414,7 @@ struct Known {
   Unit unit;
   Firmware running;
   std::string running_label;  // the package it matches, or ""
+  std::string stock_package;  // a stock package of the same build, when running matches none exactly
   char latest[12] = "", first[12] = "";
 };
 Known known_unit() {
@@ -418,21 +424,24 @@ Known known_unit() {
   if (!k.has_unit) return k;
   loader_messages::backup_name(k.unit.latest_backup.c_str(), k.latest, sizeof k.latest);
   loader_messages::backup_name(k.unit.baseline_backup.c_str(), k.first, sizeof k.first);
-  if (library->backup(k.unit.latest_backup, flash) && flash.size() == kSectors)
-    k.running = library->identify_app(std::vector<Hash>(flash.begin() + kAppStart / kSector,
-                                                        flash.begin() + kAppEnd / kSector));
-  if (k.running.known())
+  if (!library->backup(k.unit.latest_backup, flash) || flash.size() != kSectors) return k;
+  const std::vector<Hash> app(flash.begin() + kAppStart / kSector, flash.begin() + kAppEnd / kSector);
+  k.running = library->identify_app(app);
+  if (k.running.known()) {
     for (const std::string &id : library->package_ids()) {
       PackageInfo p;
       if (library->package(id, p) && p.app_sha256 == k.running.app_sha256) k.running_label = label_of(p);
     }
+    return k;
+  }
+  // A factory-programmed FM-1 runs stock without matching M-VAVE's package byte
+  // for byte (issue #39): name it from the build it reads as.
+  std::string identity;
+  if (library->recognise_stock(app, identity, k.stock_package))
+    k.running_label = k.stock_package.empty() ? "M-VAVE stock " + identity.substr(5) : package_label(k.stock_package);
   return k;
 }
 
-std::string package_label(const std::string &id) {
-  PackageInfo p;
-  return library->package(id, p) ? label_of(p) : id;
-}
 
 void refresh_items() {
   const Known k = known_unit();
@@ -443,7 +452,9 @@ void refresh_items() {
     if (library->package(id, p)) pkgs.push_back(p);
   }
   // The running one first, then by name.
-  auto running = [&](const PackageInfo &p) { return k.running.known() && k.running.app_sha256 == p.app_sha256; };
+  auto running = [&](const PackageInfo &p) {
+    return k.running.known() ? k.running.app_sha256 == p.app_sha256 : !k.stock_package.empty() && p.id == k.stock_package;
+  };
   std::sort(pkgs.begin(), pkgs.end(), [&](const PackageInfo &a, const PackageInfo &b) {
     return running(a) != running(b) ? running(a) : label_of(a) < label_of(b);
   });
