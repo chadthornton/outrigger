@@ -389,9 +389,15 @@ STYLE = """
   .nerd h2 { margin-bottom: 24px; }
   .nerd .eyebrow { margin-bottom: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
   .nerd a { color: var(--accent); }
-  .nerd-dev { margin-top: 32px; }
+  .nerd:not(footer) { padding-bottom: 24px; }
+  footer.nerd { margin-top: 0; padding-block: 0 48px; }
   .nerd .fine { margin-top: 24px; max-width: 760px; }
-  .linkbtn { background: none; border: 0; padding: 0; font: inherit; color: var(--accent); text-decoration: underline; cursor: pointer; }
+  .addfw { margin-top: 24px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+  .addfw summary { cursor: pointer; padding: 14px 18px; display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; font-size: .9375rem; }
+  .addfw summary span { color: var(--muted); }
+  .addfw summary b { color: var(--accent); font-weight: 650; }
+  .addfw-body { padding: 0 18px 18px; }
+  .addfw-body p { margin-top: 0; max-width: none; }
   footer .install { margin: 8px 0 12px; max-width: 320px; }
   footer .install button { padding: 8px 14px; font-size: .875rem; width: auto; }
   /* "Report this board" (site/installer/report_form.js): a dialog on the body, so it carries its own button styles. */
@@ -528,33 +534,30 @@ REAL_STEP2 = """<li><div><b>Add firmwares</b><p>Stock V15, Felucca and Skiff com
   <li><div><b>Plug everything into the hub</b>"""
 
 # Adding a Firmware Hub firmware to a set-up Outrigger (site/installer/add_area.js), its own section under the hero.
-ADD_SECTION = """<section class="section" id="add" style="max-width:760px"><h2>Add custom FM-1 firmwares</h2>
-    <div data-add-locked>
-      <p>Once Outrigger is installed and running, you can add more of the community's custom FM-1 firmwares from the
-        Firmware Hub's list, up to ten in all.</p>
-      <p class="install-note">Unlocks when you install Outrigger above. <button type="button" class="linkbtn" data-add-unlock>I already have Outrigger</button></p>
-    </div>
-    <div data-add-body hidden>
+# Under "Pop in a new instrument": closed until clicked, and opened by a finished install (site/installer/area.js).
+ADD_BLOCK = """<details class="addfw" id="add">
+    <summary><span>Got Outrigger installed?</span> <b>Add custom FM-1 firmwares</b></summary>
+    <div class="addfw-body">
       <p>Pick any custom firmware on the Firmware Hub's list, up to ten in all. Your backups and the firmwares already on
         Outrigger stay as they are. Switching to one we haven't tested clears the old firmware's data first, and keeps
         a copy for when you switch back.</p>
       <div class="install add-firmware"><p class="install-note">Adding a firmware needs Chrome or Edge on a computer, with JavaScript on.</p></div>
     </div>
-  </section>
+  </details>
   <script>
   (function () {
-    var s = document.getElementById("add");
-    if (!s) return;
-    function unlock() { s.querySelector("[data-add-locked]").hidden = true; s.querySelector("[data-add-body]").hidden = false; }
-    try { if (localStorage.getItem("outrigger-installed")) unlock(); } catch (e) {}
-    document.addEventListener("outrigger-installed", function () {
-      try { localStorage.setItem("outrigger-installed", "1"); } catch (e) {}
-      unlock();
+    var d = document.getElementById("add");
+    if (!d) return;
+    function open() { d.open = true; }
+    document.addEventListener("outrigger-installed", open);
+    document.addEventListener("click", function (e) {
+      var a = e.target.closest && e.target.closest('a[href="#add"]');
+      if (a) { open(); d.scrollIntoView(); }
     });
-    s.querySelector("[data-add-unlock]").addEventListener("click", unlock);
+    if (location.hash === "#add") open();
   })();
-  </script>
-  <section class="section" id="need">"""
+  </script>"""
+
 
 BUILDERS = [
     ("Many boards, one firmware",
@@ -562,7 +565,7 @@ BUILDERS = [
      "screens from 1.69 to 4.3 inches, on ESP32-S3 and P4, are in testing. "
      '<a href="https://github.com/chadthornton/outrigger/blob/master/docs/boards.md">See the board list.</a>'),
     ("Only the parts you need",
-     "One shared base with apps on top, built into editions. Today that's Hub, Hub + Loader or Everything. "
+     "One shared base with apps on top, built into editions. Today that's Hub or Hub + Loader."
      "A general MIDI hub for any USB synth is planned."),
     ("Open source",
      "Outrigger's core and apps are open source. Build your own edition with only what you need. "
@@ -583,7 +586,7 @@ for a, b in [
      """<dd>Switching needs a 24 KB file from the FM-1's chip maker that we can't host ourselves. On a new ESP32 the
       installer downloads it straight from GitHub into your browser, and the three starter firmwares from the Firmware
       Hub, checks every one, and puts them on Outrigger. If a download fails, nothing is written.</dd>"""),
-    ('<section class="section" id="need">', ADD_SECTION),
+    ('more at the Firmware Hub ↗</a></div>', 'more at the Firmware Hub ↗</a></div>\n  ' + ADD_BLOCK),
     ('<title>Outrigger: B3</title>', '<title>Outrigger: FM-1\u2019s new best friend</title>\n'
      '<meta name="description" content="Play the M-VAVE FM-1 from any MIDI controller with a USB connection, and switch between 100+ firmwares without a laptop.">\n'
      '<script type="module" src="installer/area.js"></script>\n<script type="module" src="installer/add_area.js"></script>'),
@@ -595,17 +598,13 @@ for a, b in [
   <p class="eyebrow">For builders</p>
   <h2>Under the hood</h2>
   {BUILDERS_HTML}
-  <div class="nerd-dev">
-    <p>For developers: Everything adds a Wi-Fi status page. Its loader can't write.</p>
-    {install_area("Check my board (Everything)", "everything")}
-  </div>
   <p class="fine">Installs with <a href="https://github.com/espressif/esptool-js">esptool-js</a> 0.7.0 (Apache-2.0), served from this site.
     It writes only the program and its startup parts, never your settings or the backup store. Outrigger is
     <a href="LICENSE.txt">GPL-3.0</a> (<a href="https://github.com/chadthornton/outrigger">source</a>); the firmware includes
     LVGL and EspUsbHost (MIT), Arduino_GFX (BSD) and the Arduino ESP32 core (LGPL-2.1):
     <a href="NOTICE.txt">licenses and credits</a>.</p>
 </div></section>
-<footer><div class="wrap fine">Firmware screenshots by their authors, via the Firmware Hub. Not affiliated with M-VAVE or Waveshare.</div></footer>"""),
+<footer class="nerd"><div class="wrap fine">Firmware screenshots by their authors, via the Firmware Hub. Not affiliated with M-VAVE or Waveshare.</div></footer>"""),
 ]:
     assert a in real, a[:70]
     real = real.replace(a, b, 1)

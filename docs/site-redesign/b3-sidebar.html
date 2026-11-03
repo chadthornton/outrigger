@@ -141,9 +141,15 @@
   .nerd h2 { margin-bottom: 24px; }
   .nerd .eyebrow { margin-bottom: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
   .nerd a { color: var(--accent); }
-  .nerd-dev { margin-top: 32px; }
+  .nerd:not(footer) { padding-bottom: 24px; }
+  footer.nerd { margin-top: 0; padding-block: 0 48px; }
   .nerd .fine { margin-top: 24px; max-width: 760px; }
-  .linkbtn { background: none; border: 0; padding: 0; font: inherit; color: var(--accent); text-decoration: underline; cursor: pointer; }
+  .addfw { margin-top: 24px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+  .addfw summary { cursor: pointer; padding: 14px 18px; display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; font-size: .9375rem; }
+  .addfw summary span { color: var(--muted); }
+  .addfw summary b { color: var(--accent); font-weight: 650; }
+  .addfw-body { padding: 0 18px 18px; }
+  .addfw-body p { margin-top: 0; max-width: none; }
   footer .install { margin: 8px 0 12px; max-width: 320px; }
   footer .install button { padding: 8px 14px; font-size: .875rem; width: auto; }
   /* "Report this board" (site/installer/report_form.js): a dialog on the body, so it carries its own button styles. */
