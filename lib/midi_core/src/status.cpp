@@ -1,6 +1,7 @@
 #include "status.h"
 
 #include <ctype.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -12,14 +13,16 @@ constexpr uint32_t kStuckPortMs = 3000;
 // A port that was already stuck this early has been stuck since power-up.
 constexpr uint32_t kSinceBootMs = 5000;
 
-static void set_problem(ChainView &v, const char *a, const char *b) {
+static void set_problem(ChainView &v, Stage stage, const char *a, const char *b) {
   v.has_problem = true;
+  v.problem_stage = stage;
   snprintf(v.problem.line1, kProblemLen, "%s", a);
   snprintf(v.problem.line2, kProblemLen, "%s", b);
 }
 
 ChainView evaluate(const HostSnapshot &s) {
   ChainView v{};
+  v.problem_stage = kStages;
   v.power = Level::Ok;  // if we're drawing, we have power
 
   const DeviceView *target = nullptr;
@@ -55,23 +58,25 @@ ChainView evaluate(const HostSnapshot &s) {
   // The one problem worth explaining, most fundamental first.
   char buf[kProblemLen];
   if (v.hub == Level::Bad) {
-    set_problem(v, "Nothing on my USB-C.", "Plug in the hub's HOST cable.");
+    set_problem(v, kStageHub, "Nothing on my USB-C.", "Plug in the hub's HOST cable.");
   } else if (stuck_port >= 0) {
     v.hub = Level::Warn;
+    v.stuck_port = uint8_t(stuck_port + 1);
     snprintf(buf, sizeof buf, "Port %d: device won't start.", stuck_port + 1);
-    set_problem(v, buf, "Move it to a USB-C port.");
+    set_problem(v, kStageHub, buf, "Move it to a USB-C port.");
   } else if (unopened) {
+    const Stage stage = unopened->role == Role::Target ? kStageFm1 : kStageControllers;
     if (unopened->why1[0]) {
-      set_problem(v, unopened->why1, unopened->why2);
+      set_problem(v, stage, unopened->why1, unopened->why2);
     } else {
       snprintf(buf, sizeof buf, "%s: MIDI not opened.", unopened->name);
-      set_problem(v, buf, s.channels_used >= 8 ? "USB full: FM-1 + 1 controller." : "Unplug it and plug it back in.");
+      set_problem(v, stage, buf, s.channels_used >= 8 ? "USB full: FM-1 + 1 controller." : "Unplug it and plug it back in.");
     }
     if (unopened->role == Role::Target) v.target = Level::Bad;
   } else if (anything && s.device_count == 0) {
-    set_problem(v, "No devices on the hub.", "Use the hub's USB-C ports.");
+    set_problem(v, kStageHub, "No devices on the hub.", "Use the hub's USB-C ports.");
   } else if (anything && !target) {
-    set_problem(v, "No FM-1 found.", controllers ? "Controller notes go nowhere." : "Plug the FM-1 into USB-C.");
+    set_problem(v, kStageFm1, "No FM-1 found.", controllers ? "Controller notes go nowhere." : "Plug the FM-1 into USB-C.");
   }
 
   const Level chain[5] = {v.power, v.hub, v.controllers, v.router, v.target};
@@ -79,6 +84,63 @@ ChainView evaluate(const HostSnapshot &s) {
   for (uint8_t i = 0; i < 5; ++i)
     if (chain[i] != Level::Ok) { v.first_broken = i; break; }
   return v;
+}
+
+void short_count(uint32_t n, char *out, size_t len) {
+  if (n < 1000) snprintf(out, len, "%u", unsigned(n));
+  else if (n < 1000000) snprintf(out, len, "%uk", unsigned(n / 1000));
+  else if (n < 10000000) snprintf(out, len, "%u.%uM", unsigned(n / 1000000), unsigned(n / 100000 % 10));
+  else snprintf(out, len, "%uM", unsigned(n / 1000000));
+}
+
+__attribute__((format(printf, 3, 4))) static void set_status(StageStatus &st, Tone tone, const char *fmt, ...) {
+  st.tone = tone;
+  va_list ap;
+  va_start(ap, fmt);
+  vsnprintf(st.text, kStatusLen, fmt, ap);
+  va_end(ap);
+}
+
+void stage_status(const HostSnapshot &s, const ChainView &v, const Activity &a, StageStatus out[kStages]) {
+#define put(stage, ...) set_status(out[stage], __VA_ARGS__)
+
+  if (v.hub == Level::Bad) {
+    put(kStageHub, Tone::Bad, "no USB");
+  } else if (v.stuck_port) {
+    put(kStageHub, Tone::Warn, "port %u stuck", unsigned(v.stuck_port));
+  } else if (v.hub == Level::Off) {
+    put(kStageHub, Tone::Plain, "starting");
+  } else {
+    put(kStageHub, s.channels_used >= 8 ? Tone::Full : Tone::Plain, "USB %u/8", unsigned(s.channels_used));
+  }
+
+  int controllers = 0, issues = 0;
+  char tag[4] = "", issue_tag[4] = "";
+  for (uint8_t i = 0; i < s.device_count && i < kMaxDevices; ++i) {
+    const DeviceView &d = s.devices[i];
+    if (!d.is_midi || d.role == Role::Target) continue;
+    if (++controllers == 1) make_tag(d.name, tag);
+    if (!d.midi_open && ++issues == 1) make_tag(d.name, issue_tag);
+  }
+  if (controllers == 0) put(kStageControllers, Tone::Plain, "none");
+  else if (issues && controllers == 1) put(kStageControllers, Tone::Warn, "%s not open", issue_tag);
+  else if (issues) put(kStageControllers, Tone::Warn, "%d, %d issue%s", controllers, issues, issues > 1 ? "s" : "");
+  else if (a.playing && a.playing[0]) put(kStageControllers, Tone::Live, "%s playing", a.playing);
+  else if (controllers == 1) put(kStageControllers, Tone::Plain, "%s ready", tag);
+  else put(kStageControllers, Tone::Plain, "%d ready", controllers);
+
+  char count[12];
+  short_count(a.sent, count, sizeof count);
+  if (v.router == Level::Ok) put(kStageRouter, Tone::Plain, "%s sent", count);
+  else put(kStageRouter, Tone::Plain, "idle");
+
+  if (a.fm1_unfinished) put(kStageFm1, Tone::Bad, "unfinished");
+  else if (v.target == Level::Bad) put(kStageFm1, Tone::Warn, "no answer");
+  else if (v.target == Level::Warn) put(kStageFm1, Tone::Warn, "not found");
+  else if (v.target == Level::Off) put(kStageFm1, Tone::Plain, "not found");
+  else if (a.fm1_firmware && a.fm1_firmware[0]) put(kStageFm1, Tone::Plain, "%s", a.fm1_firmware);
+  else put(kStageFm1, Tone::Plain, "ready");
+#undef put
 }
 
 void make_tag(const char *name, char tag[4]) {

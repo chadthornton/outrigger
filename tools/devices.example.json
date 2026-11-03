@@ -1,0 +1,10 @@
+{
+  "_about": "The test hardware, by name. The real file lives outside the repo, at ~/Library/Application Support/outrigger/devices.json (or $OUTRIGGER_DEVICES); this example has made-up MACs and units. Tools ask for a device by label and refuse anything else (tools/devices.py). kind: esp32 (identified by MAC) or fm1 (by unit ID: the loader's, first 8 bytes of sector 0xE9000's sha256). A null unit means not read yet.",
+  "devices": [
+    {"label": "Small-V1", "kind": "esp32", "mac": "02:00:00:00:00:01", "role": "rig", "about": "Waveshare 1.69, older revision"},
+    {"label": "Small-V2", "kind": "esp32", "mac": "02:00:00:00:00:02", "role": "bench", "about": "Waveshare 1.69, V2 sticker"},
+    {"label": "Big-S3", "kind": "esp32", "mac": "02:00:00:00:00:03", "role": "test", "about": "Waveshare 3.5 S3"},
+    {"label": "FM-A", "kind": "fm1", "unit": "00000000000000aa", "role": "main"},
+    {"label": "FM-B", "kind": "fm1", "unit": null, "role": "bench"}
+  ]
+}

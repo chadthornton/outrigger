@@ -68,14 +68,25 @@ def print_status(s):
     f = s.get("firmware")
     if f:
         busy = f"  [busy {f['percent']}%]" if f["busy"] else ""
-        print(f"Firmware page: {f['title']}{busy}")
+        danger = "  DANGER: don't unplug or switch off the FM-1" if f.get("danger") else ""
+        print(f"FM-1 pages: {f['title']}{busy}{danger}")
         for line in f["lines"]:
             if line:
                 print(f"  {line}")
+        plan = f.get("plan", {})
         for i, it in enumerate(f["items"]):
-            print(f"  {'>' if i == f['selected'] else ' '}{'*' if it['pinned'] else ' '} {it['label']}  {it['note']}")
-        print(f"  top row: {f.get('top') or 'Back up this FM-1'}")
-        print(f"  preview: {' / '.join(f['preview'])}; action: {f['action']}{'' if f['can_act'] else ' (off)'}")
+            print(f"  {'>' if i == plan.get('item') else ' '} {it['label']}  {it['note']}")
+        if plan.get("item", -1) >= 0:
+            print(f"  plan: {' / '.join(plan['lines'])}")
+            print(f"  hold: {plan['hold']}{'' if plan['can_act'] else ' (off)'}")
+        # The result page, and what stands in the list's way, as the screen says them.
+        for key in ("blocked", "result"):
+            r = f.get(key) or {}
+            if r.get("headline"):
+                hold = f" hold: {r['fix']}" if r.get("fix") else ""
+                detail = f" [{r['detail']}]" if r.get("detail") else ""
+                print(f"  {key}: {r['headline']}. {r['safety']} {r['why']} {r['todo']}{detail}{hold}")
+        print(f"  can back up: {f.get('can_back_up')}, can retry: {f.get('can_retry')}, unfinished: {f.get('unfinished')}")
 
 
 def log_lines(host, since):
@@ -102,7 +113,7 @@ def print_log(host, follow):
         time.sleep(1)
 
 
-def save_coredump(host, out_dir, status):
+def save_coredump(host, out_dir, status, board="waveshare_169"):
     data = get(host, "/coredump", timeout=30)
     commit = status["build"]["commit"] + ("+" if status["build"]["dirty"] else "")
     out = out_dir / f"coredump-{commit}.bin"
@@ -110,7 +121,7 @@ def save_coredump(host, out_dir, status):
     if data[:4] == b"\xff\xff\xff\xff":
         print(f"coredump: partition is blank (no dump stored); saved anyway to {out}")
         return
-    elf = ROOT / "build" / "waveshare_169" / BUILD_DIRS.get(status["build"]["apps"], "?") / "waveshare_169.ino.elf"
+    elf = ROOT / "build" / board / BUILD_DIRS.get(status["build"]["apps"], "?") / "waveshare_169.ino.elf"
     print(f"coredump: {len(data)} bytes saved to {out}")
     print(f"  It decodes only against the ELF of commit {commit} (build dir {elf.parent.name}).")
     print(f"  esp-coredump info_corefile --core-format raw --core {out} {elf}")
@@ -122,6 +133,7 @@ def main():
     ap.add_argument("--host", default="fm1hub.local")
     ap.add_argument("--follow", action="store_true", help="log: keep polling")
     ap.add_argument("--json", action="store_true", help="print the raw JSON")
+    ap.add_argument("--board", default="waveshare_169", help="coredump: the Makefile BOARD= the board runs (its ELF)")
     a = ap.parse_args()
 
     if a.what == "log":
@@ -159,7 +171,7 @@ def main():
             (out_dir / "log.txt").write_text("".join(line + "\n" for line in lines))
             print_status(status)
             print(f"saved status, crash, store and log to {out_dir}")
-        save_coredump(a.host, out_dir, status)
+        save_coredump(a.host, out_dir, status, a.board)
 
 
 if __name__ == "__main__":

@@ -7,7 +7,8 @@
 // FM-1 into its ROM bootloader or a firmware installer.
 //
 // This file gathers what the host knows into a UiFrame; host_ui (LVGL) draws
-// it and runs the settings page. Board specifics live in board_*.cpp.
+// it and runs the settings page. Board specifics live in board.cpp, from the
+// build's profile in firmware/boards.json.
 //
 // Because the USB port is the host, the Mac loses this board's serial port
 // once the host starts. Settings > Computer restarts with the host off and
@@ -25,9 +26,13 @@
 #include <soc/usb_serial_jtag_reg.h>
 
 #include "apps.h"
+#include "build_tag.h"
 #include "crumbs.h"
 #include "diag.h"
+#include "board_config.h"
 #include "board_profile.h"
+#include "board_store.h"
+#include "computer_link.h"
 #include "boot_mode.h"
 #include "broker.h"
 #include "describe.h"
@@ -35,22 +40,32 @@
 #include "midi_core.h"
 #include "status.h"
 #if APP_LOADER
+#include "add_firmware.h"
 #include "loader_app.h"
 #endif
 #if APP_WEB_UI
 #include "web.h"
 #endif
 
-extern const BoardProfile kBoard;
 
 EspUsbHost usb;
 static Preferences prefs;
+// fw_version.h: written by make build (FW_VERSION, the commit; FW_DIRTY, 1 with
+// uncommitted changes). A header, not a -D flag, so a new commit recompiles
+// only the files that include it.
+#if __has_include("fw_version.h")
+#include "fw_version.h"
+#endif
 #ifndef FW_VERSION
-#define FW_VERSION 0  // set by the Makefile to the commit
+#define FW_VERSION 0
 #endif
 #ifndef FW_DIRTY
-#define FW_DIRTY 0    // 1 when built with uncommitted changes
+#define FW_DIRTY 0
 #endif
+// Read off the board by the web installer (build_tag.h). Settings prints it, so
+// the linker keeps it.
+extern "C" const platform::BuildTag kBuildTag __attribute__((section(".rodata_custom_desc"))) = {
+    platform::kBuildTagMagic, platform::kBuildTagLayout, FW_DIRTY, BOARD_TAG_ID, FW_VERSION, APP_SET_LABEL};
 static bool host_running = false;
 #if APP_LOADER && LOADER_SOAK
 static uint32_t soak_restart_at = 0;  // safe mode in a soak build: carry on after this
@@ -346,7 +361,9 @@ static void hub_detail(const midi_core::HostSnapshot &s, const midi_core::ChainV
   }
 }
 
-static void build_frame(UiFrame &f) {
+// fm1_firmware: what the FM-1 runs, as the Loader knows it (null without one);
+// fm1_unfinished: an install stopped part-way.
+static void build_frame(UiFrame &f, const char *fm1_firmware, bool fm1_unfinished) {
   f = UiFrame{};
   f.snapshot = take_snapshot();
   f.view = midi_core::evaluate(f.snapshot);
@@ -387,6 +404,12 @@ static void build_frame(UiFrame &f) {
   else strlcpy(f.fm1_in, "in: -", sizeof f.fm1_in);
   f.fm1_in_fresh = fresh(in);
   if (have_target) snprintf(f.fm1_own, sizeof f.fm1_own, "itself sent: %s", own.at_ms ? own.text : "-");
+
+  // Play's one status per stage: a controller playing now, the count sent.
+  const char *playing = nullptr;
+  for (int i = 0; i < f.controller_count && !playing; ++i)
+    if (f.controllers[i].open && f.controllers[i].fresh) playing = f.controllers[i].tag;
+  midi_core::stage_status(f.snapshot, f.view, {playing, f.sent, fm1_firmware, fm1_unfinished}, f.stages);
 }
 
 // ---------- Modes ----------
@@ -538,20 +561,28 @@ static void hand_usb_to_serial_jtag() {
 
 void setup() {
   read_crumbs();
+  // The board's profile: the one stored on it, else this build's (board_store.h).
+  const char *board_from = board_select();
+  // BOOT held 3 s soon after a start: forget it, then Computer mode.
+  board_watch_escape(connect_computer);
   const midi_core::BootMode mode = read_boot_mode();
   prefs.begin("ui", false);
   // An old "typeface" key from builds with a Pixel font stays in NVS, unread.
   const UiSettings settings = {prefs.getUChar("text_size", 1)};
   static char firmware[24];
-  snprintf(firmware, sizeof firmware, "v %07lx%s %s", (unsigned long)FW_VERSION, FW_DIRTY ? "+" : "",
-           platform::kAppSetLabel);
-  UiHooks hooks = {save_settings, connect_computer, back_to_host, nullptr, nullptr, nullptr};
+  snprintf(firmware, sizeof firmware, "v %07lx%s %s", (unsigned long)kBuildTag.commit, kBuildTag.dirty ? "+" : "",
+           kBuildTag.app_set);
+  UiHooks hooks = {save_settings, connect_computer, back_to_host, nullptr, nullptr};
 #if APP_LOADER
   hooks.loader_select = loader_select;
-  hooks.loader_pin = loader_pin;
   hooks.loader_act = loader_act;
 #endif
-  ui_begin(kBoard, settings, hooks, firmware);
+  ui_begin(board_profile(), settings, hooks, firmware);
+#if APP_LOADER
+  // A job's boot, or the boot after it: the job's screen from the start, not Play.
+  if (mode != midi_core::BootMode::Computer)
+    if (const char *title = loader_boot_title()) ui_show_switching(title);
+#endif
 
   if (last_crash[0][0] && mode != midi_core::BootMode::Computer) {
     // Safe mode after a crash or watchdog reset: no USB host (a crash loop would
@@ -574,8 +605,11 @@ void setup() {
     // The USB host is never installed; the port goes to the chip's
     // USB-Serial-JTAG device so the computer can reset it into download mode.
     hand_usb_to_serial_jtag();
-    char info[40];
-    snprintf(info, sizeof info, "Firmware %s", firmware + 2);
+    // The page on outrigger.music can set the board's profile and add firmwares.
+    const bool linked = computer_link_begin(firmware + 2, back_to_host);
+    char info[160];
+    snprintf(info, sizeof info, "Firmware %s\nBoard profile: %s%s", firmware + 2, board_from,
+             linked ? "" : "\nUSB serial didn't start: the installer can't reach this board");
     ui_show_computer_mode(info);
     return;
   }
@@ -603,7 +637,7 @@ void setup() {
   loader_begin(usb, {loader_owns_fm1_midi, device_refusal});
   broker.set_mode(loader_boot_mode());  // a job's boot runs in Load mode from the start
   if (loader_boot_mode() == platform::Mode::Load) {
-    ui_show_firmware();
+    // The job's page opens with the first ui_update_loader (the job is active).
     // EspUsbHost's hub tracking opens and closes every unknown device every
     // 500 ms on the client task. A job doesn't need it, and it races the FM-1
     // leaving for ROM boot and the ROM device arriving. (It raised the rate of
@@ -622,14 +656,46 @@ void loop() {
 #if APP_WEB_UI
   CRUMB_LOOP("web_loop");
   web_loop(millis());
+#if WIFI_BOOTLOOP
+  // Test build only: restart 100 s after boot, as Back to MIDI does (Makefile).
+#if APP_LOADER
+  if (millis() > 100000 && !loader_busy()) esp_restart();
+#else
+  if (millis() > 100000) esp_restart();
+#endif
+#endif
+#if BENCH && APP_LOADER
+  // The bench's commands press what the screen would (web.cpp, Bench API).
+  web_core::BenchCommand bench;
+  if (web_take_bench_command(bench)) {
+    switch (bench.kind) {
+      case web_core::BenchKind::Select: loader_select(bench.index); break;
+      case web_core::BenchKind::Switch: loader_act(UiAct::Switch, bench.index); break;
+      case web_core::BenchKind::Backup: loader_act(UiAct::Backup, -1); break;
+      case web_core::BenchKind::Retry: loader_act(UiAct::Retry, -1); break;
+      default: break;
+    }
+  }
+#endif
   static uint32_t last_net = 0;
   if (millis() - last_net > 1000) {
     last_net = millis();
+#if !HEAP_ON_SCREEN  // the heap line has the spot (below)
     ui_set_network(web_network_line());
+#endif
     if (!host_running) publish_diag(nullptr);
   }
 #endif
   if (!host_running) {  // computer mode: only the UI runs
+#if APP_LOADER
+    static uint32_t last_add = 0;
+    if (millis() - last_add > 250) {
+      last_add = millis();
+      char add_line[64];
+      add_firmware_line(add_line, sizeof add_line);
+      ui_set_computer_status(add_line);
+    }
+#endif
 #if APP_LOADER && LOADER_SOAK
     if (soak_restart_at && int32_t(millis() - soak_restart_at) > 0) esp_restart();
 #endif
@@ -673,13 +739,18 @@ void loop() {
   if ((c != framed_changes && now - last_frame > 50) || now - last_frame > 500) {
     framed_changes = c;
     last_frame = now;
+#if APP_LOADER
+    static UiLoader loader;  // ~2 KB: kept off the loop task's stack
+    loader_ui(loader);
     CRUMB_LOOP("build_frame");
-    build_frame(frame);
+    build_frame(frame, loader.running, loader.unfinished);
+#else
+    CRUMB_LOOP("build_frame");
+    build_frame(frame, nullptr, false);
+#endif
     CRUMB_LOOP("ui_update");
     ui_update(frame);
 #if APP_LOADER
-    static UiLoader loader;  // ~900 bytes: kept off the loop task's stack
-    loader_ui(loader);
     CRUMB_LOOP("ui_update_loader");
     ui_update_loader(loader);
 #endif
@@ -688,6 +759,19 @@ void loop() {
     publish_diag(&frame);
 #endif
   }
+#if HEAP_ON_SCREEN
+  // Diagnostic builds only (Makefile HEAP_ON_SCREEN=1): free RAM on Setup.
+  static uint32_t last_heap = 0;
+  if (now - last_heap > 1000) {
+    last_heap = now;
+    char heap[48];
+    snprintf(heap, sizeof heap, "RAM free: int %u KB (min %u), DMA %u KB",
+             unsigned(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024),
+             unsigned(heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL) / 1024),
+             unsigned(heap_caps_get_free_size(MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL) / 1024));
+    ui_set_network(heap);
+  }
+#endif
   CRUMB_LOOP("ui_tick");
   ui_tick();
   delay(5);

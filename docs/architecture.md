@@ -300,14 +300,16 @@ App sets are chosen at build time. The Router is always built; the others are sw
   sets differ only in the app-set name the settings page shows, and `hub-loader` also compiles `lib/fm1_loader` for
   the ESP32-S3. Each set fills in as its app lands. "Everything" will not fit the current 1,310,720 B app slot once the
   Web UI lands; it needs decision 5's partition table first.
-- **CI** (`.github/workflows/ci.yml`) runs `make test` and builds every board × app set on each push, then stages the
-  installer site with the fixtures present so `build_site.py`'s `wl82loader.bin` scan really runs. Only
-  `site/firmware/` is uploaded. Nothing is published.
+- **CI** (`.github/workflows/ci.yml`, the merge gate) runs `make test` and `make ui-shots`, builds each board × app
+  set in its own job and stages the installer site with the fixtures present, so `build_site.py`'s `wl82loader.bin`
+  scan really runs. Nothing is published. **`make check`** does the same on the Mac in a fresh clone of one commit;
+  `make deploy-site` runs it on the commit it uploads.
 
 ## How an app lands on `master`
 
-The merge gate in `README.md`: Mac tests, CI green, and a hardware smoke check on the Waveshare (install, then the
-Launchkey plays the FM-1 through the hub) before anything lands. An app also lands with:
+The merge gate in `README.md`: green GitHub CI before anything lands, plus a hardware smoke check on the Waveshare
+(install, then the Launchkey plays the FM-1 through the hub) for PRs that touch the loader, the store, flash writes
+or the USB host stack. Every production ship gets the smoke check too. An app also lands with:
 
 1. Its row in the mode table and its claims in the broker, with tests.
 2. Its NVS namespace with a `schema` key.

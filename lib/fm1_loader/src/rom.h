@@ -2,6 +2,7 @@
 // SCSI commands over USB mass storage. Command layouts are jl-uboot-tool's
 // (jltech/uboot.py, JL_UBOOT and JL_LoaderV2). Only the commands the FM-1 loader
 // needs exist here: there is deliberately no chip erase and no block erase.
+// Ported from jl-uboot-tool (MIT, Andrey Grigoryev): see NOTICE.
 #pragma once
 
 #include <stddef.h>

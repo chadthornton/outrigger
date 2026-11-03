@@ -3,3 +3,6 @@ build/
 site/firmware/
 tests/fixtures/
 __pycache__/
+site/NOTICE.txt
+site/LICENSE.txt
+.wrangler/

@@ -3,6 +3,8 @@
 // one exception is the setup hotspot's join, which saves a Wi-Fi network and
 // is answered only on the hotspot's own interface (its password is on the
 // device's screen), never from the LAN. tests/test_web_core.cpp holds this.
+// The test bench's POST routes are a separate table (bench.h), compiled only
+// into BENCH=1 builds and answered only on a listed spare.
 #pragma once
 
 namespace web_core {

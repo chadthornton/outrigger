@@ -16,20 +16,29 @@
 #include <lwip/sockets.h>
 #include <stdarg.h>
 
+#include <atomic>
 #include <new>
 #include <utility>
 
 #include "crumbs.h"
 #include "diag.h"
 #include "hotspot_channel.h"
+#include "wifi_fallback.h"
 #include "json_field.h"
 #include "log_ring.h"
 #include "request_guard.h"
 #include "routes.h"
+#if BENCH
+#include <esp_mac.h>
+#include "bench.h"
+#endif
 
 using web_core::json_escape;
 
 extern char last_crash[3][40];  // app.cpp: the last abnormal reset, if any
+#if __has_include("fw_version.h")
+#include "fw_version.h"  // app.cpp says why
+#endif
 #ifndef FW_VERSION
 #define FW_VERSION 0
 #endif
@@ -37,9 +46,17 @@ extern char last_crash[3][40];  // app.cpp: the last abnormal reset, if any
 #define FW_DIRTY 0
 #endif
 
+#if BENCH
+// A bench build answers under its own name: tools/soak_watch.py and the rig's
+// bookmarks reach fm1hub.local, never the bench (Makefile, BENCH=1).
+static const char kHostname[] = "fm1bench";
+static const char kMdnsName[] = "fm1bench.local";
+static const char kSetupSsid[] = "fm1bench-setup";
+#else
 static const char kHostname[] = "fm1hub";
 static const char kMdnsName[] = "fm1hub.local";
 static const char kSetupSsid[] = "fm1hub-setup";
+#endif
 
 // ---------- The log: one ring per producing task, drained by the server task ----------
 static web_core::LineRing<32> *usb_ring;
@@ -106,8 +123,14 @@ static bool started = false, safe = false;
 static Preferences wifi_prefs;
 static httpd_handle_t server = nullptr;
 static DNSServer dns;
-static bool mdns_on = false, joining_from_setup = false, ever_online = false;
-static uint32_t join_at = 0, retry_saved_at = 0, connect_started = 0, online_since = 0, last_drain = 0;
+static bool mdns_on = false, joining_from_setup = false;
+static web_core::WifiFallback fallback;  // nudges, the hotspot and retries of the saved network
+static uint32_t join_at = 0, connect_started = 0, online_since = 0, last_drain = 0;
+// The station's last disconnect reason, from Wi-Fi's event task; the loop logs
+// it. The first join after a boot sometimes stalls with no reason at all
+// (2026-10-30), and these lines say which kind of failure a slow boot was.
+static std::atomic<uint8_t> disconnect_reason{0};
+static std::atomic<uint32_t> disconnects{0};
 static volatile bool drain_queued = false;
 struct Seen {
   char ssid[33];
@@ -272,8 +295,12 @@ function usb(s){const u=s.usb;let t=`${u.running?'host on':'host OFF'}  mode ${u
  t+=`FM-1 ${u.fm1_in}  ${u.fm1_own}`;$('usb').textContent=t}
 function fw(s){const f=s.firmware;if(!f){$('fw').textContent='(no Loader in this build)';return}
  let t=`${f.title}${f.busy?'  [busy '+f.percent+'%]':''}\n`+f.lines.filter(x=>x).join('\n')+'\n';
- f.items.forEach((it,i)=>t+=`${i==f.selected?'>':' '} ${it.pinned?'*':' '} ${it.label}  ${it.note}\n`);
- t+=`preview: ${f.preview.join(' / ')}\naction: ${f.action}${f.can_act?'':' (off)'}`;$('fw').textContent=t}
+ if(f.danger)t+='DANGER: don\'t unplug or switch off the FM-1\n';
+ f.items.forEach((it,i)=>t+=`${i==f.plan.item?'>':' '} ${it.label}  ${it.note}\n`);
+ if(f.plan.item>=0)t+=`plan: ${f.plan.lines.join(' / ')}\nhold: ${f.plan.hold}${f.plan.can_act?'':' (off)'}\n`;
+ for(const [k,r] of [['blocked',f.blocked],['result',f.result]])if(r.headline)
+  t+=`${k}: ${r.headline}. ${r.safety} ${r.why} ${r.todo}${r.detail?' ['+r.detail+']':''}${r.fix?' hold: '+r.fix:''}\n`;
+ $('fw').textContent=t}
 function store(s){if(!s.packages){$('store').textContent=s.error||'-';return}
  let t=`${kb(s.fs_used)} of ${kb(s.fs_total)} used, built ${(s.age_ms/1000).toFixed(0)} s ago\n`;
  for(const u of s.units){t+=`unit ${u.id}${u.id==s.last_unit?' (last)':''} installed ${u.installed||'?'}`+
@@ -425,21 +452,39 @@ static esp_err_t on_status(httpd_req_t *req) {
       o.str(L.lines[i]);
     }
     o.raw("],\"items\":[");
+    static const char *const kNotes[] = {"", "running", "your songs", "not yet"};
     for (int i = 0; i < L.item_count; ++i) {
       o.raw("%s{", i ? "," : "");
       o.key_str("label", L.items[i].label, false);
-      o.key_str("note", L.items[i].note);
-      o.raw(",\"pinned\":%s}", L.items[i].pinned ? "true" : "false");
+      o.key_str("note", kNotes[uint8_t(L.items[i].note) & 3]);
+      o.raw("}");
     }
-    o.raw("],\"selected\":%d,\"preview\":[", L.selected);
-    o.str(L.preview[0]);
-    o.raw(",");
-    o.str(L.preview[1]);
+    o.raw("],\"plan\":{\"item\":%d,\"lines\":[", L.plan.item);
+    for (int i = 0; i < L.plan.line_count; ++i) {
+      if (i) o.raw(",");
+      o.str(L.plan.lines[i]);
+    }
     o.raw("]");
-    o.key_str("action", L.action);
-    o.key_str("top", L.top_label);
-    o.raw(",\"percent\":%u,\"busy\":%s,\"can_act\":%s}", L.percent, L.busy ? "true" : "false",
-          L.can_act ? "true" : "false");
+    o.key_str("hold", L.plan.hold);
+    o.raw(",\"can_act\":%s}", L.plan.can_act ? "true" : "false");
+    // The result page and what stands in the list's way, as the screen says them.
+    const UiResult *const pages[] = {&L.result, &L.blocked};
+    static const char *const kPageKeys[] = {"result", "blocked"};
+    for (int i = 0; i < 2; ++i) {
+      const UiResult &r = *pages[i];
+      o.raw(",\"%s\":{", kPageKeys[i]);
+      o.key_str("headline", r.headline, false);
+      o.key_str("safety", r.safety_text);
+      o.key_str("why", r.why);
+      o.key_str("todo", r.todo);
+      o.key_str("detail", r.detail);
+      o.key_str("fix", r.fix_label);
+      o.raw(",\"ok\":%s,\"seq\":%lu}", r.ok ? "true" : "false", (unsigned long)r.seq);
+    }
+    o.raw(",\"unfinished\":%s,\"can_back_up\":%s,\"can_retry\":%s", L.unfinished ? "true" : "false",
+          L.can_back_up ? "true" : "false", L.can_retry ? "true" : "false");
+    o.raw(",\"percent\":%u,\"busy\":%s,\"danger\":%s}", L.percent, L.job.active ? "true" : "false",
+          L.job.danger ? "true" : "false");
   }
   o.raw("}");
   return send_json(req, buf, o.k);
@@ -586,6 +631,76 @@ static esp_err_t on_setup_join(httpd_req_t *req) {
   return send_json(req, kOk, sizeof kOk - 1);
 }
 
+#if BENCH
+// ---------- Bench API (BENCH=1 builds on a listed spare only) ----------
+// One command waits at a time; the loop takes it (web_take_bench_command) and
+// presses what the screen would. The Mac reads the outcome from /status.
+static const char *bench_board = nullptr;  // "waveshare-1", or null: no bench API
+static char bench_mac[18] = "";
+static web_core::BenchCommand bench_pending;
+static bool bench_has_pending = false;
+static uint32_t bench_seq = 0, bench_taken_seq = 0;
+static char bench_last[64] = "";
+
+static esp_err_t on_bench_state(httpd_req_t *req) {
+  if (!guard(req)) return ESP_OK;
+  char buf[256];
+  {
+    Lock l;
+    snprintf(buf, sizeof buf,
+             "{\"board\":\"%s\",\"mac\":\"%s\",\"seq\":%lu,\"taken\":%lu,\"pending\":%s,\"last\":\"%s\"}",
+             bench_board ? bench_board : "unknown", bench_mac, (unsigned long)bench_seq,
+             (unsigned long)bench_taken_seq, bench_has_pending ? "true" : "false", bench_last);
+  }
+  return send_json(req, buf, strlen(buf));
+}
+
+static esp_err_t on_bench_command(httpd_req_t *req) {
+  if (!guard(req)) return ESP_OK;
+  char path[32] = "", query[48] = "";
+  const char *q = strchr(req->uri, '?');
+  const size_t plen = q ? size_t(q - req->uri) : strlen(req->uri);
+  if (plen >= sizeof path) return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "not found");
+  memcpy(path, req->uri, plen);
+  httpd_req_get_url_query_str(req, query, sizeof query);
+  web_core::BenchCommand c;
+  const char *why = "";
+  if (!web_core::parse_bench_command(path, query, c, &why)) return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, why);
+  uint32_t seq;
+  {
+    Lock l;
+    if (bench_has_pending) return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "a command is still waiting");
+    bench_pending = c;
+    bench_has_pending = true;
+    seq = ++bench_seq;
+    snprintf(bench_last, sizeof bench_last, "%s %d queued", web_core::bench_kind_name(c.kind), c.index);
+  }
+  DLOG_LOOP("bench: %s %d queued as %lu", web_core::bench_kind_name(c.kind), c.index, (unsigned long)seq);
+  char buf[48];
+  snprintf(buf, sizeof buf, "{\"seq\":%lu}", (unsigned long)seq);
+  return send_json(req, buf, strlen(buf));
+}
+
+bool web_take_bench_command(web_core::BenchCommand &out) {
+  Lock l;
+  if (!bench_has_pending) return false;
+  out = bench_pending;
+  bench_has_pending = false;
+  bench_taken_seq = bench_seq;
+  snprintf(bench_last, sizeof bench_last, "%s %d taken", web_core::bench_kind_name(out.kind), out.index);
+  return true;
+}
+
+static void bench_check_board() {
+  uint8_t mac[6] = {};
+  esp_efuse_mac_get_default(mac);
+  bench_board = web_core::waveshare_name(mac);
+  snprintf(bench_mac, sizeof bench_mac, "%02x:%02x:%02x:%02x:%02x:%02x", mac[0], mac[1], mac[2], mac[3], mac[4],
+           mac[5]);
+  DLOG_LOOP("bench: board %s is %s", bench_mac, bench_board ? bench_board : "not a listed Waveshare: no bench API");
+}
+#endif  // BENCH
+
 static esp_err_t on_not_found(httpd_req_t *req, httpd_err_code_t) {
   if (via_hotspot(req)) return redirect_to_setup(req);  // captive-portal probes
   httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "not found");
@@ -606,6 +721,9 @@ static void start_server() {
   cfg.stack_size = 8192;
   cfg.max_open_sockets = 7;
   cfg.max_uri_handlers = web_core::kRouteCount;
+#if BENCH
+  cfg.max_uri_handlers += web_core::kBenchRouteCount;
+#endif
   cfg.lru_purge_enable = true;
   cfg.send_wait_timeout = 2;
   cfg.recv_wait_timeout = 2;
@@ -625,6 +743,18 @@ static void start_server() {
     u.handler = handlers[i];
     httpd_register_uri_handler(server, &u);
   }
+#if BENCH
+  // Only on one of Chad's Waveshares; tools/bench.py checks it's the one it asked for.
+  if (bench_board) {
+    for (const web_core::Route &r : web_core::kBenchRoutes) {
+      httpd_uri_t u{};
+      u.uri = r.uri;
+      u.method = r.method == web_core::Method::Get ? HTTP_GET : HTTP_POST;
+      u.handler = r.method == web_core::Method::Get ? on_bench_state : on_bench_command;
+      httpd_register_uri_handler(server, &u);
+    }
+  }
+#endif
   httpd_register_err_handler(server, HTTPD_404_NOT_FOUND, on_not_found);
 }
 
@@ -701,7 +831,6 @@ static void start_hotspot(uint32_t now) {
     Lock l;
     ap_on = true;
   }
-  retry_saved_at = saved_ssid[0] ? now + 120000 : 0;
   set_ips();
   DLOG_LOOP("wifi: hotspot %s on channel %u", kSetupSsid, hotspot_channel);
 }
@@ -733,6 +862,9 @@ static void join(const char *ssid, const char *pass) {
 void web_begin(bool safe_mode) {
   if (started) return;
   safe = safe_mode;
+#if BENCH
+  bench_check_board();
+#endif
   const esp_reset_reason_t r = esp_reset_reason();
   const bool abnormal = r == ESP_RST_PANIC || r == ESP_RST_INT_WDT || r == ESP_RST_TASK_WDT ||
                         r == ESP_RST_WDT || r == ESP_RST_BROWNOUT;
@@ -764,9 +896,16 @@ void web_begin(bool safe_mode) {
   strlcpy(saved_pass, wifi_prefs.getString("pass", "").c_str(), sizeof saved_pass);
   WiFi.persistent(false);  // credentials live in our own NVS namespace
   WiFi.setHostname(kHostname);
+  WiFi.onEvent(
+      [](arduino_event_id_t, arduino_event_info_t info) {
+        disconnect_reason = info.wifi_sta_disconnected.reason;
+        ++disconnects;
+      },
+      ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
   if (saved_ssid[0]) {
     WiFi.mode(WIFI_STA);
     join(saved_ssid, saved_pass);
+    fallback.boot_join(millis());
   } else {
     start_hotspot(millis());
   }
@@ -826,11 +965,23 @@ void web_loop(uint32_t now) {
   }
   if (ap_on) dns.processNextRequest();
 
-  const bool connected = WiFi.status() == WL_CONNECTED;
+  const wl_status_t status = WiFi.status();
+  static wl_status_t logged_status = WL_NO_SHIELD;
+  if (status != logged_status) {
+    DLOG_LOOP("wifi: status %d -> %d", int(logged_status), int(status));
+    logged_status = status;
+  }
+  static uint32_t logged_disconnects = 0;
+  if (disconnects.load() != logged_disconnects) {
+    logged_disconnects = disconnects.load();
+    const uint8_t r = disconnect_reason.load();
+    DLOG_LOOP("wifi: station disconnected, reason %u %s (%lu so far)", r,
+              WiFi.disconnectReasonName(wifi_err_reason_t(r)), (unsigned long)logged_disconnects);
+  }
+  const bool connected = status == WL_CONNECTED;
   if (connected && net != Net::Online) {
     net = Net::Online;
     online_since = now;
-    ever_online = true;
     if (trial_ssid[0] && WiFi.SSID() == trial_ssid) {  // they work: keep them
       memcpy(saved_ssid, trial_ssid, sizeof saved_ssid);
       memcpy(saved_pass, trial_pass, sizeof saved_pass);
@@ -861,28 +1012,39 @@ void web_loop(uint32_t now) {
         joining_from_setup = false;
         stop_hotspot();
       }
-    } else if (connect_started && now - connect_started > 15000 && (joining_from_setup || retry_saved_at == 0)) {
-      // A join that didn't work. Stop the station retrying: its channel hops
-      // would drag the hotspot (and the phone) around.
+    } else if (joining_from_setup && connect_started && now - connect_started > 15000) {
+      // A join from the setup page that didn't work. Stop the station retrying:
+      // its channel hops would drag the hotspot (and the phone) around.
       WiFi.disconnect();
       connect_started = 0;
       joining_from_setup = false;
-      if (saved_ssid[0]) retry_saved_at = now + 120000;
       DLOG_LOOP("wifi: join failed");
-    } else if (retry_saved_at && int32_t(now - retry_saved_at) >= 0 && saved_ssid[0] && !joining_from_setup) {
-      // The saved network may be back (a router reboot). Retry it, but not
-      // while a phone is on the hotspot.
-      retry_saved_at = now + 120000;
-      if (WiFi.softAPgetStationNum() == 0) {
-        join(saved_ssid, saved_pass);
-        retry_saved_at = 0;  // the failure branch above re-arms it
-      }
     }
-  } else if (!connected && saved_ssid[0] && !ever_online && connect_started && now - connect_started > 20000) {
-    // A saved network that never answered since boot: open the hotspot. Once it
-    // has worked, a drop only retries the station: the hotspot's scan blocks
-    // the loop ~2 s, which mustn't happen in the middle of a loader job.
-    start_hotspot(now);
+  }
+  // Not associated. Status 6 also covers a join still under way, but by the
+  // first nudge (20 s) a working join has long finished (~1-5 s).
+  const bool stalled = status == WL_DISCONNECTED || status == WL_CONNECT_FAILED || status == WL_NO_SSID_AVAIL;
+  const int phones = ap_on ? WiFi.softAPgetStationNum() : 0;
+  switch (fallback.tick(now, {saved_ssid[0] != 0, connected, stalled, ap_on, phones, joining_from_setup})) {
+    case web_core::WifiFallback::Do::Nothing:
+      break;
+    case web_core::WifiFallback::Do::Nudge: {
+      const bool ok = WiFi.reconnect();  // esp_wifi_connect() only: never a disconnect over a join
+      fallback.nudge_result(now, ok);
+      DLOG_LOOP("wifi: nudge at status %d, reconnect %s", int(status), ok ? "ok" : "failed");
+      break;
+    }
+    case web_core::WifiFallback::Do::OpenHotspot:
+      start_hotspot(now);
+      break;
+    case web_core::WifiFallback::Do::Join:
+      join(saved_ssid, saved_pass);
+      break;
+    case web_core::WifiFallback::Do::StopJoin:
+      WiFi.disconnect();  // as above: a retry still hopping would drag the hotspot along
+      connect_started = 0;
+      DLOG_LOOP("wifi: join failed");
+      break;
   }
   static uint32_t last_ips = 0;
   if (connected && now - last_ips > 5000) {  // refresh RSSI

@@ -45,17 +45,47 @@ struct Problem {
   char line2[kProblemLen];
 };
 
+// Play's four lines, one per stage of the chain (Power isn't drawn).
+enum Stage : uint8_t { kStageHub, kStageControllers, kStageRouter, kStageFm1, kStages };
+
 struct ChainView {
   Level power, hub, controllers, router, target;
   uint8_t first_broken;  // index of the first node not Ok (0-4), 5 when all are Ok
   // Ports stuck since boot, e.g. a hub's own inner hub chip that never starts.
   // Shown quietly in the hub row instead of as a problem.
   bool port_off_since_boot[4];
+  uint8_t stuck_port;  // 1-4: a port whose device won't start (the problem says so); 0 none
   bool has_problem;
   Problem problem;
+  Stage problem_stage;  // the stage the problem is about; kStages when there is none
 };
 
 ChainView evaluate(const HostSnapshot &snapshot);
+
+// The colour of a stage's status: grey, green while messages arrive, yellow
+// when USB is full, orange for a problem to fix, red for one that's unsafe.
+enum class Tone : uint8_t { Plain, Live, Full, Warn, Bad };
+
+constexpr size_t kStatusLen = 20;
+struct StageStatus {
+  Tone tone;
+  char text[kStatusLen];  // "USB 8/8", "LAU playing", "123k sent", "Skiff 1.4"
+};
+
+// What the snapshot doesn't hold: recent activity, and what the FM-1 runs.
+struct Activity {
+  const char *playing;       // tag of a controller whose messages are arriving now, or null
+  uint32_t sent;             // messages the router passed since boot
+  const char *fm1_firmware;  // what the FM-1 runs, as the Loader knows it, or null
+  bool fm1_unfinished;       // an install stopped part-way: the FM-1 is in ROM boot
+};
+
+// One terse status per stage, worst condition first, else the latest activity.
+void stage_status(const HostSnapshot &snapshot, const ChainView &view, const Activity &activity,
+                  StageStatus out[kStages]);
+
+// A count for a status: "999", "123k", "1.2M", "45M".
+void short_count(uint32_t n, char *out, size_t len);
 
 // Short label for a device: the first three letters or digits of its name,
 // upper-cased ("Launchkey Mini" -> "LAU"). "?" when the name is empty.

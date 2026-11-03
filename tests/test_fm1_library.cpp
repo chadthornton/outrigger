@@ -47,9 +47,9 @@ static Image unit_image(uint8_t seed) {
   return img;
 }
 
-static PackageInfo load(Library &lib, const char *id, const char *file) {
+static PackageInfo load(Library &lib, const char *id, const char *file, const char *project = "") {
   std::vector<uint8_t> data = read_file(std::string("tests/fixtures/") + file);
-  CHECK(lib.add_package(id, data.data(), data.size()) == PackageError::None);
+  CHECK(lib.add_package(id, data.data(), data.size(), nullptr, "", "", project) == PackageError::None);
   PackageInfo p;
   CHECK(lib.package(id, p));
   return p;
@@ -243,16 +243,20 @@ static void test_capture_save() {
   CHECK(capture_save("u", fw, h).sectors.empty());  // stock saves are disabled
 }
 
-static PackageInfo info(const char *identity, uint8_t app_tag) {
+// A package of a catalog project (docs/package-sources.md): the family follows the
+// project, never the identity's digits.
+static PackageInfo info(const char *project, const char *identity, uint8_t app_tag) {
   PackageInfo p;
+  p.project = project;
   p.identity = identity;
-  p.family = family_of(identity);
+  p.family = family_of_project(project, identity);
   p.app_sha256.fill(app_tag);
   return p;
 }
 
 static Firmware running(const PackageInfo &p) {
   Firmware f;
+  f.project = p.project;
   f.identity = p.identity;
   f.app_sha256 = p.app_sha256;
   f.family = p.family;
@@ -263,6 +267,7 @@ static SaveState save_of(const char *unit, const PackageInfo &p, uint32_t seq) {
   SaveState s;
   s.id = std::string(unit) + "-s" + std::to_string(seq);
   s.unit = unit;
+  s.project = p.project;
   s.identity = p.identity;
   s.app_sha256 = p.app_sha256;
   s.family = p.family;
@@ -270,43 +275,170 @@ static SaveState save_of(const char *unit, const PackageInfo &p, uint32_t seq) {
   return s;
 }
 
+// The trust table: data is kept only within a project, and each project has its
+// own shelf of saves. Only pairs a hardware test proved switch the family map;
+// every other switch is a clean slate (docs/package-sources.md).
 static void test_decide_data() {
-  PackageInfo skiff = info("FM-1_714", 1), skiff2 = info("FM-1_714", 2);
-  PackageInfo sloop = info("FM-1_900", 3), stock = info("FM-1_015", 4);
+  PackageInfo skiff = info("skiff", "FM-1_714", 1), skiff13 = info("skiff", "FM-1_713", 2);
+  PackageInfo skiff2 = info("skiff", "FM-1_720", 3);
+  PackageInfo felucca = info("felucca", "FM-1_916", 4), felucca17 = info("felucca", "FM-1_917", 5);
+  PackageInfo sloop = info("sloop", "FM-1_900", 6), stock = info("stock", "FM-1_015", 7);
   std::vector<SaveState> none;
   // No-op install.
   DataDecision d = decide_data("A", running(skiff), skiff, none);
+  CHECK(d.action == DataAction::Keep && !d.layout_warning && !d.clean_slate);
+  // Another version of the same project keeps the data, both ways.
+  d = decide_data("A", running(felucca), felucca17, none);
+  CHECK(d.action == DataAction::Keep && !d.layout_warning && !d.clean_slate);
+  d = decide_data("A", running(felucca17), felucca, none);
   CHECK(d.action == DataAction::Keep && !d.layout_warning);
-  // Switching back to a saved firmware restores the newest matching save.
-  std::vector<SaveState> saves = {save_of("A", skiff, 3), save_of("A", skiff, 7),
-                                  save_of("B", skiff, 9), save_of("A", skiff2, 8)};
-  d = decide_data("A", running(sloop), skiff, saves);
-  CHECK(d.action == DataAction::Restore && d.save_id == "A-s7");
-  // Another unit's save is never picked.
-  d = decide_data("C", running(sloop), skiff, saves);
-  CHECK(d.action == DataAction::FreshStart && d.layout_warning);
-  // An update keeps the data in place.
+  d = decide_data("A", running(skiff13), skiff, none);
+  CHECK(d.action == DataAction::Keep);
+  // Skiff 2.0 saves in new formats: crossing it is untested, so a clean slate...
   d = decide_data("A", running(skiff), skiff2, none);
-  CHECK(d.action == DataAction::Keep && !d.layout_warning);
-  // Rollback: the save made on the older version comes back.
-  d = decide_data("A", running(skiff2), skiff, {save_of("A", skiff, 2)});
-  CHECK(d.action == DataAction::Restore && d.save_id == "A-s2");
-  // A family switch with only another version's save starts fresh.
-  d = decide_data("A", running(sloop), skiff2, {save_of("A", skiff, 2)});
-  CHECK(d.action == DataAction::FreshStart);
-  // Unknown current firmware: fresh start too.
+  CHECK(d.action == DataAction::FreshStart && d.layout_warning && d.clean_slate);
+  // ...or the shelf's newest save from the other side of the break, on a clean slate.
+  d = decide_data("A", running(skiff), skiff2, {save_of("A", skiff2, 4), save_of("A", skiff, 5)});
+  CHECK(d.action == DataAction::Restore && d.save_id == "A-s4" && d.clean_slate);
+  d = decide_data("A", running(skiff2), skiff, {save_of("A", skiff13, 2), save_of("A", skiff2, 6)});
+  CHECK(d.action == DataAction::Restore && d.save_id == "A-s2" && d.clean_slate);
+  // Another project: its shelf's newest save of this unit comes back, whichever
+  // version wrote it. SLOOP -> Skiff is untested: on a clean slate.
+  std::vector<SaveState> saves = {save_of("A", skiff, 3), save_of("A", skiff13, 7), save_of("B", skiff, 9),
+                                  save_of("A", felucca, 8), save_of("A", skiff2, 10)};
+  d = decide_data("A", running(sloop), skiff, saves);
+  CHECK(d.action == DataAction::Restore && d.save_id == "A-s7" && d.clean_slate && !d.layout_warning);
+  CHECK(needs_erase_ok(d));  // the hold's consent covers a clean-slate restore too
+  // Felucca 1.6.1 <-> Skiff 1.4 is the tested pair (checkpoint 3): the family
+  // map, both ways, no clean slate.
+  d = decide_data("A", running(felucca), skiff, none);
+  CHECK(d.action == DataAction::FreshStart && d.layout_warning && !d.clean_slate);
+  d = decide_data("A", running(skiff), felucca, saves);
+  CHECK(d.action == DataAction::Restore && d.save_id == "A-s8" && !d.clean_slate);
+  CHECK(!needs_erase_ok(d));
+  // Another version on either side isn't the tested pair (Skiff 1.3, Felucca 1.7).
+  d = decide_data("A", running(felucca), skiff13, none);
+  CHECK(d.action == DataAction::FreshStart && d.clean_slate);
+  d = decide_data("A", running(felucca17), skiff, none);
+  CHECK(d.action == DataAction::FreshStart && d.clean_slate);
+  // The starter set's own pairs wait for bench tests 1-2: clean slate until then.
+  PackageInfo felucca18 = info("felucca", "FM-1_918", 11), skiff211 = info("skiff", "FM-1_721", 12);
+  d = decide_data("A", running(felucca18), skiff211, none);
+  CHECK(d.action == DataAction::FreshStart && d.clean_slate);
+  d = decide_data("A", running(skiff211), felucca18, none);
+  CHECK(d.clean_slate);
+  // A sideloaded copy of a tested firmware isn't the tested pair.
+  PackageInfo skiff_side = info("sha:0101010101010101", "FM-1_714", 13);
+  d = decide_data("A", running(felucca), skiff_side, none);
+  CHECK(d.clean_slate);
+  // Another unit's save is never picked: an empty shelf starts fresh.
+  d = decide_data("C", running(sloop), skiff, saves);
+  CHECK(d.action == DataAction::FreshStart && d.layout_warning && d.clean_slate);
+  // Unknown current firmware: clean slate.
   d = decide_data("A", Firmware(), skiff, none);
-  CHECK(d.action == DataAction::FreshStart && d.layout_warning);
-  // Stock: data kept in place, flagged, never erased or restored.
+  CHECK(d.action == DataAction::FreshStart && d.layout_warning && d.clean_slate);
+  // bubba reports FM-1_003 but is a community firmware, not stock.
+  PackageInfo bubba = info("bubba", "FM-1_003", 8);
+  CHECK(bubba.family == Family::Felucca);
+  d = decide_data("A", running(stock), bubba, none);
+  CHECK(d.action == DataAction::FreshStart && !d.stock_unmapped && d.clean_slate);
+  // Sideloaded: its own shelf (its app hash), so only itself keeps its data.
+  PackageInfo side = info("sha:0909090909090909", "FM-1_916", 9);
+  d = decide_data("A", running(felucca), side, none);
+  CHECK(d.action == DataAction::FreshStart && d.layout_warning && d.clean_slate);
+  d = decide_data("A", running(side), side, none);
+  CHECK(d.action == DataAction::Keep && !d.clean_slate);
+  // Back to stock: no tested pair yet, so a clean slate (0x93000 stays).
   d = decide_data("A", running(skiff), stock, {save_of("A", stock, 1)});
-  CHECK(d.action == DataAction::Keep && d.stock_unmapped && d.layout_warning);
+  CHECK(d.action == DataAction::FreshStart && d.clean_slate && !d.stock_unmapped && d.layout_warning);
+  CHECK(!d.stock_resources_warning);  // Skiff 1.x never wrote USR
+  // Skiff 2.x writes stock's resources (0xEA000-0xFBFFF): returning to stock warns,
+  // whether it runs now or ran earlier (its save is on the shelf).
+  d = decide_data("A", running(skiff211), stock, none);
+  CHECK(d.stock_resources_warning);
+  d = decide_data("A", running(felucca), stock, {save_of("A", skiff211, 3)});
+  CHECK(d.stock_resources_warning);
+  d = decide_data("A", running(felucca), stock, {save_of("B", skiff211, 3)});
+  CHECK(!d.stock_resources_warning);  // another unit's history
+  d = decide_data("A", running(skiff211), felucca, none);
+  CHECK(!d.stock_resources_warning);  // only a return to stock
+  CHECK(!d.blocked);
+  // Melodee and Tessera write the unit-ID sector 0xE9000: blocked, with the reason.
+  for (const char *proj : {"melodee", "tessera"}) {
+    d = decide_data("A", running(felucca), info(proj, "FM-1_91060", 14), none);
+    CHECK(d.blocked && strstr(d.blocked, "Bluetooth"));
+  }
+  // Switching away from Melodee is how a unit gets back: never blocked.
+  d = decide_data("A", running(info("melodee", "FM-1_91060", 14)), felucca, none);
+  CHECK(!d.blocked && d.clean_slate);
+}
+
+// Projects of packages and saves recorded before projects existed.
+static void test_projects() {
+  CHECK(family_of_project("stock", "FM-1_015") == Family::Stock);
+  CHECK(family_of_project("felucca", "FM-1_916") == Family::Felucca);
+  CHECK(family_of_project("bubba", "FM-1_003") == Family::Felucca);
+  // A sideloaded M-VAVE build keeps stock's rules; a sideloaded community one doesn't.
+  CHECK(family_of_project("sha:0123456789abcdef", "FM-1_014") == Family::Stock);
+  CHECK(family_of_project("sha:0123456789abcdef", "FM-1_916") == Family::Felucca);
+  CHECK(family_of_project("sha:0123456789abcdef", "FM-1_0140") == Family::Felucca);
+  // The format-break table: Skiff 2.0 starts a new era, other projects have one.
+  CHECK(data_era("skiff", "FM-1_714") != data_era("skiff", "FM-1_720"));
+  CHECK(data_era("skiff", "FM-1_710") == data_era("skiff", "FM-1_714"));
+  CHECK(data_era("felucca", "FM-1_916") == data_era("felucca", "FM-1_917"));
+  TestStorage st;
+  Library lib(st);
+  PackageInfo skiff = load(lib, "skiff-1.4", "skiff-1.4.fwsc", "skiff");
+  CHECK_EQ(skiff.project, std::string("skiff"));
+  // No project given: sideloaded, its shelf keyed by its app hash.
+  PackageInfo sloop = load(lib, "sloop-2.8.1", "sloop-2.8.1.fwsc");
+  CHECK_EQ(sloop.project, "sha:" + hex(sloop.app_sha256).substr(0, 16));
+  // A save written without a project gets it from the package with its app.
+  Unit u;
+  u.id = "u1";
+  CHECK(lib.put_unit(u));
+  SaveState s;
+  s.unit = "u1";
+  s.identity = skiff.identity;
+  s.app_sha256 = skiff.app_sha256;
+  s.family = skiff.family;
+  CHECK(lib.add_save(u, s));
+  std::vector<SaveState> saves = lib.saves_of("u1");
+  CHECK(saves.size() == 1 && saves[0].project == "skiff");
+  // ...and from its app hash when no stored package has that app.
+  SaveState t = s;
+  t.app_sha256.fill(0x42);
+  CHECK(lib.add_save(u, t));
+  saves = lib.saves_of("u1");
+  CHECK(saves.size() == 2 && saves[1].project == "sha:" + hex(t.app_sha256).substr(0, 16));
+  // Packages stored before projects (the board's store): stock stays stock, the
+  // rest are sideloaded until store-add records their project.
+  for (const char *id : {"old-stock", "old-skiff"}) {
+    const bool is_stock = std::string(id) == "old-stock";
+    std::vector<uint8_t> data = read_file(is_stock ? "tests/fixtures/FM-1_015.fwsc" : "tests/fixtures/skiff-1.4.fwsc");
+    CHECK(lib.add_package(id, data.data(), data.size(), nullptr, "", "", is_stock ? "stock" : "skiff") ==
+          PackageError::None);
+    std::vector<uint8_t> raw;
+    CHECK(st.read(std::string("m/pkg/") + id, raw));
+    std::string text(raw.begin(), raw.end()), old;
+    for (const std::string &line : lines_of(text))
+      if (line.compare(0, 8, "project ") != 0) old += line + "\n";
+    CHECK(st.write(std::string("m/pkg/") + id, reinterpret_cast<const uint8_t *>(old.data()), old.size()));
+    PackageInfo p;
+    CHECK(lib.package(id, p));
+    if (is_stock) CHECK(p.project == "stock" && p.family == Family::Stock);
+    else CHECK(p.project == sideload_project(p.app_sha256) && p.family == Family::Felucca);
+  }
+  // The running firmware's project comes from the stored package it matches.
+  CHECK_EQ(lib.identify_app(skiff.app).project, std::string("skiff"));
+  CHECK(lib.identify_app(std::vector<Hash>(kAppSectors, Hash{})).project.empty());
 }
 
 static void test_save_restore_round_trip() {
   TestStorage st;
   Library lib(st);
-  PackageInfo skiff = load(lib, "skiff-1.4", "skiff-1.4.fwsc");
-  PackageInfo sloop = load(lib, "sloop-2.8.1", "sloop-2.8.1.fwsc");
+  PackageInfo skiff = load(lib, "skiff-1.4", "skiff-1.4.fwsc", "skiff");
+  PackageInfo sloop = load(lib, "sloop-2.8.1", "sloop-2.8.1.fwsc", "sloop");
   Image img = unit_image(9);
   put_app(lib, img, skiff);
   fill(img, 0x97000, 0x3000, 11);  // songs
@@ -342,12 +474,17 @@ static void test_save_restore_round_trip() {
   CHECK(img[0x93000] == uint8_t(25));
   for (const SectorOp &op : ops) CHECK(!(op.addr >= kStagingStart && op.addr < kStagingEnd));
 
-  // Refused: another unit, another identity, another version.
-  CHECK(!plan_restore(back, "0000000000000000", skiff, store_image(lib, img), ops));
-  CHECK(!plan_restore(back, u.id, sloop, store_image(lib, img), ops));
+  // Another version of the same project, same era: its shelf's save restores.
   PackageInfo skiff_other = skiff;
   skiff_other.app_sha256[0] ^= 1;
-  CHECK(!plan_restore(back, u.id, skiff_other, store_image(lib, img), ops));
+  skiff_other.identity = "FM-1_713";
+  CHECK(plan_restore(back, u.id, skiff_other, store_image(lib, img), ops));
+  // Refused: another unit, another project, another era of the project.
+  CHECK(!plan_restore(back, "0000000000000000", skiff, store_image(lib, img), ops));
+  CHECK(!plan_restore(back, u.id, sloop, store_image(lib, img), ops));
+  PackageInfo skiff2 = skiff;
+  skiff2.identity = "FM-1_720";
+  CHECK(!plan_restore(back, u.id, skiff2, store_image(lib, img), ops));
   // A save naming a sector outside the family's ranges is refused outright.
   SaveState evil = back;
   evil.sectors.emplace_back(kStagingStart, evil.sectors[0].second);
@@ -368,6 +505,82 @@ static void test_fresh_start() {
   CHECK(img[0x97000] == 0xFF && img[0xFC000] == 0xFF);
   CHECK(img[kStagingStart] == 3 && img[0x93000] == 4);
   CHECK(plan_fresh(Family::Stock, store_image(lib, img)).empty());  // never erases 0x93000
+}
+
+// A clean slate: everything a switch might trip over goes, after the autosave
+// holds it; stock's factory data, the unit sector and stock's resources stay.
+static void test_clean_slate() {
+  TestStorage st;
+  Library lib(st);
+  PackageInfo skiff = load(lib, "skiff-1.4", "skiff-1.4.fwsc", "skiff");
+  PackageInfo sloop = load(lib, "sloop-2.8.1", "sloop-2.8.1.fwsc", "sloop");
+  Image img = unit_image(9);
+  put_app(lib, img, sloop);
+  const uint32_t data[] = {0x94000, 0x97000, 0x9F000, 0xA0000, 0xE5000, 0xE8000, 0xFC000, 0xFE000};
+  for (uint32_t a : data) fill(img, a, kSector, uint8_t(a >> 12));
+  fill(img, kStagingStart, kSector, 2);  // a stale update record
+  fill(img, 0x93000, kSector, 3);        // stock's factory data
+  fill(img, 0xEA000, kSector, 4);        // stock's resources (USR)
+  const Image before = img;
+  Unit u;
+  u.id = unit_id_of(img.data() + kUnitSector);
+  const FlashHashes flash = store_image(lib, img);
+
+  // Nothing erased that the outgoing autosave doesn't hold, except staging.
+  SaveState sloop_save = capture_save(u.id, lib.identify_app(sloop.app), flash);
+  std::vector<SectorOp> ops;
+  CHECK(plan_clean(nullptr, u.id, skiff, flash, ops));
+  for (const SectorOp &op : ops) {
+    CHECK(op.right == Right::CleanSlate);
+    bool saved = false;
+    for (const auto &sec : sloop_save.sectors) saved |= sec.first == op.addr && sec.second == flash[op.addr / kSector];
+    CHECK(saved || (op.addr >= kStagingStart && op.addr < kStagingEnd));
+  }
+  CHECK_EQ(ops.size(), size_t(9));
+  apply(lib, img, ops);
+  for (uint32_t a : data) CHECK(img[a] == 0xFF);
+  CHECK(img[kStagingStart] == 0xFF);
+  CHECK(img[0x93000] == 3 && img[0xEA000] == 4);
+  CHECK(memcmp(img.data() + kUnitSector, before.data() + kUnitSector, kSector) == 0);
+  CHECK(memcmp(img.data(), before.data(), kVmStart) == 0);  // head and app
+
+  // With a save: exactly the save in its ranges, blank elsewhere in the slate.
+  img = before;
+  Image skiff_img = unit_image(9);
+  fill(skiff_img, 0x9F000, kSector, 41);  // FM6 user presets, copy A
+  fill(skiff_img, 0xE8000, kSector, 42);
+  SaveState skiff_save = capture_save(u.id, lib.identify_app(skiff.app), store_image(lib, skiff_img));
+  CHECK_EQ(skiff_save.sectors.size(), size_t(2));
+  CHECK(plan_clean(&skiff_save, u.id, skiff, store_image(lib, img), ops));
+  apply(lib, img, ops);
+  CHECK(img[0x9F000] == uint8_t(41) && img[0xE8000] == uint8_t(42));
+  CHECK(img[0x94000] == 0xFF && img[0x97000] == 0xFF && img[kStagingStart] == 0xFF);
+  CHECK(img[0x93000] == 3 && img[0xEA000] == 4);
+  // Refused as plan_restore refuses: another unit, another project.
+  CHECK(!plan_clean(&skiff_save, "0000000000000000", skiff, flash, ops));
+  CHECK(!plan_clean(&skiff_save, u.id, sloop, flash, ops));
+  // Stock: no save ranges, but the slate is the same and 0x93000 stays.
+  PackageInfo stock = load(lib, "stock", "FM-1_015.fwsc", "stock");
+  CHECK(plan_clean(nullptr, u.id, stock, flash, ops) && ops.size() == 9);
+}
+
+// A save from before the map covered 0x9F000 and 0xE8000 restores them blank.
+static void test_restore_old_save() {
+  TestStorage st;
+  Library lib(st);
+  PackageInfo skiff = load(lib, "skiff-1.4", "skiff-1.4.fwsc", "skiff");
+  Image img = unit_image(9);
+  fill(img, 0x9F000, kSector, 5);  // what the other firmware left
+  fill(img, 0xE8000, kSector, 6);
+  SaveState old;
+  old.unit = unit_id_of(img.data() + kUnitSector);
+  old.project = "skiff";
+  old.identity = skiff.identity;
+  old.family = Family::Felucca;
+  std::vector<SectorOp> ops;
+  CHECK(plan_restore(old, old.unit, skiff, store_image(lib, img), ops));
+  apply(lib, img, ops);
+  CHECK(img[0x9F000] == 0xFF && img[0xE8000] == 0xFF);
 }
 
 static void test_two_units() {
@@ -419,7 +632,12 @@ static void test_install_preview() {
   p = preview_install(lib, u.id, "sloop-2.8.1");  // another firmware: fresh start
   CHECK(p.ok && p.app_sectors > 100 && p.decision.action == DataAction::FreshStart);
   CHECK_EQ(p.data_sectors, uint32_t(1));  // the project sector gets erased
-  CHECK(p.decision.layout_warning);
+  CHECK(p.decision.layout_warning && p.decision.clean_slate);
+  fill(img, kStagingStart, kSector, 2);  // the clean slate counts staging too
+  CHECK(lib.add_backup(u, store_image(lib, img), b));
+  CHECK_EQ(preview_install(lib, u.id, "sloop-2.8.1").data_sectors, uint32_t(2));
+  memset(img.data() + kStagingStart, 0xFF, kSector);
+  CHECK(lib.add_backup(u, store_image(lib, img), b));
 
   // With a Skiff save on record, coming back from SLOOP restores it.
   SaveState s = capture_save(u.id, lib.identify_app(skiff.app), store_image(lib, img));
@@ -432,6 +650,12 @@ static void test_install_preview() {
   CHECK(lib.add_backup(u, store_image(lib, on_sloop), b));
   p = preview_install(lib, u.id, "skiff-1.4");
   CHECK(p.ok && p.decision.action == DataAction::Restore && p.data_sectors == 1);
+
+  // Melodee: not offered, and the screen says why.
+  std::vector<uint8_t> raw = read_file("tests/fixtures/skiff-1.4.fwsc");
+  CHECK(lib.add_package("melodee-1.6", raw.data(), raw.size(), nullptr, "", "", "melodee") == PackageError::None);
+  p = preview_install(lib, u.id, "melodee-1.6");
+  CHECK(!p.ok && strstr(p.problem, "Bluetooth"));
 
   CHECK(!preview_install(lib, u.id, "nope").ok);
   CHECK(!preview_install(lib, "0000000000000000", "skiff-1.4").ok);
@@ -454,6 +678,9 @@ int main() {
   test_diff_planner();
   test_capture_save();
   test_decide_data();
+  test_clean_slate();
+  test_restore_old_save();
+  test_projects();
   test_save_restore_round_trip();
   test_fresh_start();
   test_two_units();

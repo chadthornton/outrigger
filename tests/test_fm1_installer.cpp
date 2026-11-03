@@ -3,6 +3,7 @@
 // against tests/golden/*.txt from the Unbricker and jl-uboot-tool (make golden).
 #include <string.h>
 
+#include "switch_chain.h"
 #include "installer.h"
 #include "support/check.h"
 #include "support/mock_rom.h"
@@ -53,9 +54,9 @@ static Image base_flash(const Image &app, const char *unit = "unit-A") {
   return f;
 }
 
-static void add(Library &lib, const char *id, const char *file) {
+static void add(Library &lib, const char *id, const char *file, const char *project = "") {
   Image data = read_file(std::string("tests/fixtures/") + file);
-  CHECK(lib.add_package(id, data.data(), data.size()) == PackageError::None);
+  CHECK(lib.add_package(id, data.data(), data.size(), nullptr, "", "", project) == PackageError::None);
 }
 
 struct Rig {
@@ -65,8 +66,8 @@ struct Rig {
   MockRom rom;
   Installer inst{rom, host, lib, blob()};
   explicit Rig(const Image &flash) : rom(flash, blob()) {
-    add(lib, "skiff-1.4", "skiff-1.4.fwsc");
-    add(lib, "sloop-2.8.1", "sloop-2.8.1.fwsc");
+    add(lib, "skiff-1.4", "skiff-1.4.fwsc", "skiff");
+    add(lib, "sloop-2.8.1", "sloop-2.8.1.fwsc", "sloop");
   }
   // "Back up this FM-1", as the board does before an install (the install plans
   // from this backup). Then the mock is an FM-1 back in its firmware, about to
@@ -471,7 +472,7 @@ static void test_refusals_before_the_device() {
 static void test_loader_blob_checked_first() {
   MemoryStorage st;
   Library lib(st);
-  add(lib, "skiff-1.4", "skiff-1.4.fwsc");
+  add(lib, "skiff-1.4", "skiff-1.4.fwsc", "skiff");
   FakeHost host;
   Image bad = blob();
   bad[100] ^= 1;
@@ -703,13 +704,13 @@ static void test_save_states_end_to_end() {
   const Image skiff_state = f;
   Rig r(f);
 
-  // Skiff -> SLOOP: autosave Skiff, start fresh.
+  // Skiff -> SLOOP, untested: autosave Skiff, then a clean slate.
   r.back_up();
   r.install("sloop-2.8.1");
   CHECK(r.inst.current() == Step::Done);
-  CHECK(r.inst.decision().action == DataAction::FreshStart);
+  CHECK(r.inst.decision().action == DataAction::FreshStart && r.inst.decision().clean_slate);
   CHECK(r.rom.flash[0x97000] == 0xFF && r.rom.flash[0xFC000] == 0xFF);
-  CHECK(r.rom.flash[kStagingStart] == 0x23);  // staging is never touched
+  CHECK(r.rom.flash[kStagingStart] == 0xFF);  // the stale update record goes too, never to return
   CHECK_EQ(r.lib.saves_of(r.inst.unit().id).size(), size_t(1));
 
   // Make a SLOOP song, then go back to Skiff: the Skiff save comes back.
@@ -726,6 +727,7 @@ static void test_save_states_end_to_end() {
   CHECK(memcmp(r.rom.flash.data() + kAppStart, skiff().data(), kAppLen) == 0);
   CHECK_EQ(r.lib.saves_of(r.inst.unit().id).size(), size_t(2));  // and SLOOP's was saved
 
+  CHECK(r.rom.flash[kStagingStart] == 0xFF);  // staging is never restored
   // Protected areas never changed through all of it.
   CHECK(memcmp(r.rom.flash.data(), skiff_state.data(), kHeadEnd) == 0);
   CHECK(memcmp(r.rom.flash.data() + kUnitSector, skiff_state.data() + kUnitSector,
@@ -773,20 +775,85 @@ static void test_blank_unit_sector() {
   CHECK(r.rom.was_reset && r.rom.lowest_touched < 0);
 }
 
-static void test_stock_needs_layout_ok() {
+// Back to stock is untested: a clean slate, after the user's OK. Stock's factory
+// data (0x93000) and resources (0xEA000-0xFBFFF) stay.
+static void test_stock_clean_slate() {
   Image f = base_flash(skiff());
   memset(f.data() + 0x97000, 0x41, kSector);  // Skiff data, which stock would read as its own
+  memset(f.data() + 0x93000, 0x42, kSector);
+  memset(f.data() + 0xEA000, 0x43, kSector);
   Rig r(f);
-  add(r.lib, "stock-v15", "FM-1_015.fwsc");
+  add(r.lib, "stock-v15", "FM-1_015.fwsc", "stock");
   r.back_up();
-  r.install("stock-v15");
-  CHECK(r.inst.failure() == Failure::NeedsLayoutChangeOk);
-  CHECK(r.inst.decision().stock_unmapped);
+  r.install("stock-v15", false);
+  CHECK(r.inst.failure() == Failure::NeedsFreshStartOk);
+  CHECK(r.inst.decision().clean_slate && !r.inst.decision().stock_unmapped);
   CHECK(r.host.keys == 0 && r.rom.lowest_touched < 0);
-  r.install("stock-v15", true, true);
+  r.install("stock-v15");
   CHECK(r.inst.current() == Step::Done);
-  CHECK(r.rom.flash[0x97000] == 0x41 && r.rom.flash[0x93000] == 0xFF);  // data kept as it was
+  CHECK(r.rom.flash[0x97000] == 0xFF && r.rom.flash[0x93000] == 0x42 && r.rom.flash[0xEA000] == 0x43);
   CHECK(memcmp(r.rom.flash.data() + kAppStart, pkg("FM-1_015.fwsc").app.data(), kAppLen) == 0);
+  CHECK(r.rom.violations.empty());
+}
+
+// An untested switch with a save on the target's shelf: a clean slate that
+// brings the save back, and it asks first (it erases more than the shelf holds).
+static void test_clean_slate_restore() {
+  Image f = base_flash(skiff());
+  memset(f.data() + 0x9F000, 0x51, kSector);  // Skiff's FM6 user presets, copy A
+  memset(f.data() + 0xE8000, 0x52, kSector);  // its second bank sector
+  const Image skiff_state = f;
+  Rig r(f);
+  r.back_up();
+  r.install("sloop-2.8.1");
+  CHECK(r.inst.current() == Step::Done);
+  CHECK(r.rom.flash[0x9F000] == 0xFF && r.rom.flash[0xE8000] == 0xFF);
+  memset(r.rom.flash.data() + 0x94000, 0x61, kSector);  // SLOOP-era data where Skiff keeps none
+  memset(r.rom.flash.data() + kStagingStart, 0x62, kSector);
+  r.back_up();
+  r.install("skiff-1.4", false);
+  CHECK(r.inst.failure() == Failure::NeedsFreshStartOk);
+  CHECK(r.inst.decision().action == DataAction::Restore && r.inst.decision().clean_slate);
+  r.install("skiff-1.4");
+  CHECK(r.inst.current() == Step::Done);
+  CHECK(r.rom.flash[0x9F000] == 0x51 && r.rom.flash[0xE8000] == 0x52);
+  CHECK(r.rom.flash[0x94000] == 0xFF && r.rom.flash[kStagingStart] == 0xFF);
+  CHECK(r.rom.violations.empty());
+}
+
+// A crash mid clean slate: the resume finishes the same clean slate.
+static void test_resume_clean_slate() {
+  Image f = base_flash(sloop());
+  memset(f.data() + 0x94000, 0x71, kSector);
+  memset(f.data() + kStagingStart, 0x72, kSector);
+  memset(f.data() + 0xFC000, 0x73, kSector);
+  Rig r(f);
+  r.back_up();
+  InstallOptions o;
+  o.confirmed = true;
+  o.fresh_start_ok = true;
+  r.inst.start_install("skiff-1.4", o);
+  while (!(r.inst.current() == Step::WriteData && r.rom.flash[0x94000] == 0xFF) && r.inst.step()) {
+  }
+  CHECK(r.inst.current() == Step::WriteData && r.rom.flash[kStagingStart] == 0x72);  // stopped part way
+  Installer again(r.rom, r.host, r.lib, blob());
+  o.loader_running = true;
+  again.start_resume(o);
+  again.run();
+  CHECK(again.current() == Step::Done);
+  CHECK(r.rom.flash[kStagingStart] == 0xFF && r.rom.flash[0xFC000] == 0xFF);
+  CHECK(memcmp(r.rom.flash.data() + kAppStart, skiff().data(), kAppLen) == 0);
+}
+
+// Melodee and Tessera write the unit-ID sector: refused before the key.
+static void test_blocked_firmware() {
+  Rig r(base_flash(sloop()));
+  add(r.lib, "melodee-1.6", "skiff-1.4.fwsc", "melodee");  // any package, on Melodee's project
+  r.back_up();
+  r.install("melodee-1.6");
+  CHECK(r.inst.failure() == Failure::Blocked);
+  CHECK(r.host.keys == 0 && r.rom.lowest_touched < 0);
+  CHECK(strstr(failure_text(Failure::Blocked), "Bluetooth"));
 }
 
 static void test_resume_with_nothing_left() {
@@ -822,6 +889,130 @@ static void test_midi_not_back() {
   CHECK(memcmp(r.rom.flash.data() + kAppStart, skiff().data(), kAppLen) == 0);
 }
 
+// ---------- A switch's chain (switch_chain.h) ----------
+// The board runs each stage in its own boot; here each stage runs on the same
+// mock FM-1, which goes home between them as the real one does.
+struct ChainRun {
+  std::vector<loader_messages::Chain> stages;  // the stages that ran, in order
+  loader_messages::JobKind last_kind = loader_messages::JobKind::None;
+  loader_messages::Chain last_chain = loader_messages::Chain::First;
+  bool done = false;
+  Failure failure = Failure::None;
+};
+// between(stage): runs before each stage after the first (the FM-1 changing, a flaky read).
+// fresh_ok: the consent the plan's hold carried (the preview's), for every stage.
+template <class Between>
+static ChainRun switch_to(Rig &r, const char *id, Between between, bool fresh_ok = true) {
+  using namespace loader_messages;
+  ChainRun c;
+  JobKind kind = JobKind::Install;
+  Chain chain = Chain::First;
+  for (int stage = 0; stage < 4; ++stage) {
+    if (stage) between(chain);
+    c.stages.push_back(chain);
+    if (kind == JobKind::Backup) {
+      InstallOptions o;
+      o.confirmed = true;
+      r.inst.start_backup(o);
+      r.inst.run();
+    } else {
+      r.install(id, fresh_ok);
+    }
+    c.last_kind = kind;
+    c.last_chain = chain;
+    c.done = r.inst.current() == Step::Done;
+    c.failure = r.inst.failure();
+    const NextJob n = next_after(kind, chain, c.done, c.failure, r.inst.danger());
+    if (!n.restart) break;
+    kind = n.kind;
+    chain = n.chain;
+    r.fresh_rom();
+  }
+  return c;
+}
+static ChainRun switch_to(Rig &r, const char *id) {
+  return switch_to(r, id, [](loader_messages::Chain) {});
+}
+
+// Nothing changed since the backup: the switch writes straight away.
+static void test_switch_unchanged_backs_up_nothing() {
+  Rig r(base_flash(skiff()));
+  r.back_up();
+  const ChainRun c = switch_to(r, "sloop-2.8.1");
+  CHECK(c.done && c.stages.size() == 1);
+  // One read of the flash (the check) before the first erase: no backup's two.
+  CHECK_EQ(r.rom.reads_before_first_erase, int(kSectors * kSector / 512));
+}
+
+// The FM-1 changed (a new song): a stopped visit, a backup, then the install,
+// with Skiff's songs saved from the new backup.
+static void test_switch_changed_backs_up_first() {
+  Image f = base_flash(skiff());
+  memset(f.data() + 0x97000, 0x21, kSector);  // a Skiff project
+  Rig r(f);
+  r.back_up();
+  const std::string before = r.unit().latest_backup;
+  memset(r.rom.flash.data() + 0x97000, 0x22, kSector);  // edited since
+  const ChainRun c = switch_to(r, "sloop-2.8.1");
+  CHECK(c.done);
+  CHECK(c.stages.size() == 3 && c.stages[1] == loader_messages::Chain::Backup &&
+        c.stages[2] == loader_messages::Chain::Install);
+  CHECK(r.unit().latest_backup != before);
+  CHECK(memcmp(r.rom.flash.data() + kAppStart, sloop().data(), kAppLen) == 0);
+  // The save is the edited project, not the one in the old backup.
+  const std::vector<SaveState> saves = r.lib.saves_of(r.unit().id);
+  CHECK(!saves.empty());
+  Image edited(kSector, 0x22);
+  bool found = false;
+  for (const auto &s : saves.back().sectors) found |= s.first == 0x97000 && s.second == sha256(edited.data(), kSector);
+  CHECK(found);
+}
+
+// No backup at all: the switch backs up first instead of stopping.
+static void test_switch_without_backup_backs_up_first() {
+  Rig r(base_flash(skiff()));
+  const ChainRun c = switch_to(r, "sloop-2.8.1");
+  CHECK(c.done && c.stages.size() == 3);
+  CHECK(!r.unit().latest_backup.empty());
+}
+
+// No backup yet, so no plan to agree to: a switch that turns out to need a
+// fresh start backs up, then stops for the user's OK with nothing written.
+static void test_switch_without_backup_asks_before_a_fresh_start() {
+  Rig r(base_flash(skiff()));
+  const ChainRun c = switch_to(r, "sloop-2.8.1", [](loader_messages::Chain) {}, false);
+  CHECK(!c.done && c.failure == Failure::NeedsFreshStartOk && c.last_chain == loader_messages::Chain::Install);
+  CHECK(!r.unit().latest_backup.empty());
+  CHECK(r.rom.lowest_touched < 0 && !r.unit().has_pending);
+}
+
+// It changes again right after its backup: the switch stops, nothing written, no loop.
+static void test_switch_changed_twice_stops() {
+  Rig r(base_flash(skiff()));
+  r.back_up();
+  r.rom.flash[0x97000] ^= 1;
+  const ChainRun c = switch_to(r, "sloop-2.8.1", [&](loader_messages::Chain next) {
+    if (next == loader_messages::Chain::Install) r.rom.flash[0x98000] ^= 1;
+  });
+  CHECK(!c.done && c.failure == Failure::BackupStale && c.last_chain == loader_messages::Chain::Install);
+  CHECK(c.stages.size() == 3);
+  CHECK(r.rom.lowest_touched < 0 && !r.inst.danger() && !r.unit().has_pending);
+}
+
+// The backup in the middle fails: the switch stops with nothing written, and
+// no pending record is left to look like "Install unfinished".
+static void test_switch_failed_backup_stops() {
+  Rig r(base_flash(skiff()));
+  r.back_up();
+  r.rom.flash[0x97000] ^= 1;
+  const ChainRun c = switch_to(r, "sloop-2.8.1", [&](loader_messages::Chain next) {
+    if (next == loader_messages::Chain::Backup) r.rom.flaky_read = 300;  // in the second read
+  });
+  CHECK(!c.done && c.failure == Failure::BackupMismatch && c.last_kind == loader_messages::JobKind::Backup);
+  CHECK(c.stages.size() == 2);
+  CHECK(r.rom.lowest_touched < 0 && !r.unit().has_pending);
+}
+
 int main() {
   test_golden_install();
   test_golden_noop();
@@ -830,6 +1021,12 @@ int main() {
   test_golden_identity();
   test_golden_backup_mismatch();
   test_golden_stale_backup();
+  test_switch_unchanged_backs_up_nothing();
+  test_switch_changed_backs_up_first();
+  test_switch_without_backup_backs_up_first();
+  test_switch_without_backup_asks_before_a_fresh_start();
+  test_switch_changed_twice_stops();
+  test_switch_failed_backup_stops();
   test_first_erase_soon_after_the_loader();
   test_stop_before_any_erase_leaves_nothing();
   test_install_needs_a_backup();
@@ -851,7 +1048,10 @@ int main() {
   test_two_units();
   test_blank_unit_sector();
   test_midi_not_back();
-  test_stock_needs_layout_ok();
+  test_stock_clean_slate();
+  test_clean_slate_restore();
+  test_resume_clean_slate();
+  test_blocked_firmware();
   test_resume_with_nothing_left();
   test_autosave_not_repeated();
   if (failures) {

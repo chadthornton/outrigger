@@ -1,21 +1,70 @@
-# Every push: the Mac-style tests and the UI shots, then every board x app set built and staged
-# into the installer site. Nothing is published: the staged firmware is a
-# private workflow artifact. JieLi's wl82loader.bin is fetched for the tests
-# and for build_site.py's licensing scan, and never uploaded.
+# The merge gate (README, "Merge gate"): a PR merges when `ci-ok` is green on its
+# head commit. A push to master's site-firmware artifact is what make deploy-site
+# uploads for that commit (tools/deploy_site.py), unless the batch needs make check.
+# The Mac-style tests and the UI shots, then every board x app set built in its
+# own job and staged into the installer site by one more. A PR that only touches
+# docs or site copy skips the firmware builds and gets a licensing scan of site/
+# instead. Nothing is published: the staged firmware is a private workflow
+# artifact. JieLi's wl82loader.bin is fetched for the tests and for
+# build_site.py's licensing scan, and never uploaded.
 name: CI
 
 on:
   push:
+    branches: [master]
   pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
+  # What to build: the Makefile's board and app-set lists (tools/boards.py's,
+  # once boards come from firmware/boards.json), and whether the PR changes
+  # anything but docs and site copy. Pushes to master and hand runs build it all.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      firmware: ${{ steps.diff.outputs.firmware }}
+      boards: ${{ steps.lists.outputs.boards }}
+      apps: ${{ steps.lists.outputs.apps }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: lists
+        run: |
+          json() { python3 -c 'import json, sys; print(json.dumps(sys.argv[1:]))' "$@"; }
+          echo "boards=$(json $(make -s --eval='print-%:;@echo $($*)' print-BOARDS))" >> "$GITHUB_OUTPUT"
+          echo "apps=$(json $(make -s --eval='print-%:;@echo $($*)' print-APP_SETS))" >> "$GITHUB_OUTPUT"
+          cat "$GITHUB_OUTPUT"
+      - id: diff
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          if [ -z "$PR" ]; then echo "firmware=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files" -q '.[].filename' > changed.txt
+          cat changed.txt
+          # Docs and site copy: none of it goes into a firmware build.
+          if grep -Ev '\.md$|^docs/|^site/|^tests/installer/|^tests/functions/|^functions/|^migrations/|^wrangler\.toml$|^\.github/ISSUE_TEMPLATE/' changed.txt; then
+            echo "firmware=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Only docs and site copy changed: no firmware builds."
+            echo "firmware=false" >> "$GITHUB_OUTPUT"
+          fi
+
   test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # tests/functions run D1's stand-in on node:sqlite (Node 22.13 and later).
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
       - uses: actions/cache@v4
         with:
           path: tests/fixtures
@@ -42,8 +91,17 @@ jobs:
           retention-days: 14
           if-no-files-found: ignore
 
+  # One board x app set per job, all at once.
   firmware:
+    needs: changes
+    if: needs.changes.outputs.firmware == 'true'
+    name: firmware (${{ matrix.board }}, ${{ matrix.apps }})
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        board: ${{ fromJSON(needs.changes.outputs.boards) }}
+        apps: ${{ fromJSON(needs.changes.outputs.apps) }}
     env:
       CTAGS_DIR: /usr/bin
     steps:
@@ -57,27 +115,102 @@ jobs:
             ~/.arduino15
             ~/Arduino/libraries
           key: arduino-esp32-3.3.12-gfx-1.6.9-lvgl-9.6.0
-      - uses: actions/cache@v4
-        with:
-          path: tests/fixtures
-          key: fixtures-${{ hashFiles('tools/fetch_fixtures.py') }}
       - name: Toolchain (pinned to what the Waveshare builds were verified with)
         run: |
           sudo apt-get install -y universal-ctags
           arduino-cli core update-index --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
           arduino-cli core install esp32:esp32@3.3.12 --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
           arduino-cli lib install "GFX Library for Arduino@1.6.9" "lvgl@9.6.0"
-      - name: Build every board x app set and stage the installer site
+      - run: make build BOARD="$BOARD" APPS="$APPS"
+        env:
+          BOARD: ${{ matrix.board }}
+          APPS: ${{ matrix.apps }}
+      # The site job has no toolchain, so boot_app0.bin travels with the build.
+      - name: Keep the parts the site stages
+        env:
+          BOARD: ${{ matrix.board }}
+          APPS: ${{ matrix.apps }}
+        run: |
+          out=build/$BOARD/$APPS
+          cp "$(arduino-cli config get directories.data)/packages/esp32/hardware/esp32/3.3.12/tools/partitions/boot_app0.bin" "$out/"
+          mkdir -p parts && cp "$out"/*.bin parts/ && ls -l parts
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fw-${{ matrix.board }}--${{ matrix.apps }}
+          path: parts/
+          retention-days: 1
+          if-no-files-found: error
+
+  # Every build staged into site/ the way make site does it, with the licensing scan.
+  site:
+    needs: firmware
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: tests/fixtures
+          key: fixtures-${{ hashFiles('tools/fetch_fixtures.py') }}
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: fw-*
+          path: parts
+      - name: Put each build where make build leaves it
+        run: |
+          for d in parts/fw-*; do
+            name=${d#parts/fw-}; board=${name%%--*}; apps=${name#*--}
+            mkdir -p "build/$board/$apps" && mv "$d"/* "build/$board/$apps/"
+          done
+          mkdir -p build/esp32-core/tools/partitions
+          cp "$(ls build/*/*/boot_app0.bin | head -1)" build/esp32-core/tools/partitions/
+          ls -R build
+      - name: Stage the installer site (make site, builds already done)
         shell: bash  # adds -o pipefail, so tee doesn't hide a failed make
-        run: make site 2>&1 | tee site.log
+        run: make -o build-all site ESP32_CORE=build/esp32-core 2>&1 | tee site.log
       - name: The licensing scan really ran
         run: |
           test -f tests/fixtures/wl82loader.bin
           if grep -q "no local wl82loader.bin" site.log; then echo "build_site.py skipped the chunk scan"; exit 1; fi
           if find site/firmware -iname '*wl82*' | grep .; then exit 1; fi
+      - name: SHA-256 of every file, for make deploy-site to check the download against
+        run: (cd site/firmware && find . -type f | sort | xargs sha256sum) > /tmp/SHA256SUMS && mv /tmp/SHA256SUMS site/firmware/
       - uses: actions/upload-artifact@v4
         with:
           name: site-firmware
           path: site/firmware/
           retention-days: 14
           if-no-files-found: error
+
+  # Docs and site copy only: no firmware, but site/ still gets the licensing scan.
+  site-quick:
+    needs: changes
+    if: needs.changes.outputs.firmware != 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: tests/fixtures
+          key: fixtures-${{ hashFiles('tools/fetch_fixtures.py') }}
+      - run: make fixtures
+      - name: Licensing scan of site/
+        run: |
+          test -f tests/fixtures/wl82loader.bin
+          python3 -I -c "
+          import sys; sys.path.insert(0, 'tools'); import build_site as b
+          files = sorted(p for p in b.SITE.rglob('*') if p.is_file())
+          if not b.check_licensing(files): sys.exit('build_site.py skipped the chunk scan')
+          print(len(files), 'files scanned')"
+
+  # The one check the merge gate reads. Skipped jobs pass; failed or cancelled ones don't.
+  ci-ok:
+    needs: [changes, test, firmware, site, site-quick]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every job passed or was skipped
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "$RESULTS"
+          case " $RESULTS " in *" failure "*|*" cancelled "*) exit 1;; esac

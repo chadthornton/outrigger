@@ -34,7 +34,15 @@
  *  - LV_STDLIB_RTTHREAD
  *  - LV_STDLIB_CUSTOM: Custom (implemented externally)
  */
+/* On the board, LVGL's objects live in PSRAM (lib/host_ui/src/lv_mem_psram.c):
+ * with the C library's malloc, every small allocation took internal RAM, and
+ * the redesigned UI's pages left Wi-Fi without enough to start (ESP_ERR_NO_MEM
+ * in phy_track_pll_init, 2026-10-31). The Mac's ui-shots keep the C library. */
+#ifdef ESP_PLATFORM
+#define LV_USE_STDLIB_MALLOC LV_STDLIB_CUSTOM
+#else
 #define LV_USE_STDLIB_MALLOC LV_STDLIB_CLIB
+#endif
 
 /** String functions source
  *  Possible values:
@@ -956,8 +964,9 @@
  */
 #define LV_TXT_ENC LV_TXT_ENC_UTF8
 
-/** Characters to break (wrap) text on */
-#define LV_TXT_BREAK_CHARS " ,.;:-_)]}"
+/** Characters to break (wrap) text on. Not ".": a version ("Felucca 1.6.1")
+ *  wraps whole, never as "1.6." over "1". */
+#define LV_TXT_BREAK_CHARS " ,;:-_)]}"
 
 /** If a word is at least this long, will break wherever 'prettiest'.
  *  To disable, set to a value <= 0.
