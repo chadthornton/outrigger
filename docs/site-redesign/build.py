@@ -352,6 +352,7 @@ STYLE = """
   .shots-sm figure { margin: 0; display: grid; gap: 6px; justify-items: center; }
   .shots-sm img { width: 120px; border-radius: 18px; border: 3px solid var(--fg); background: #000; }
   .shots-sm figcaption { font-size: .8125rem; color: var(--muted); }
+  .add-steps { margin: 0; padding-left: 20px; display: grid; gap: 6px; font-size: .9375rem; line-height: 1.45; }
   .cgroup-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
   .cgroup-head h3 { font-size: 1.125rem; line-height: 1.3; }
   .cgroup-head p { color: var(--muted); font-size: .9375rem; }
@@ -538,8 +539,6 @@ REAL_STEP2 = """<li><div><b>Add firmwares</b><p>Stock V15, Felucca and Skiff com
 ADD_BLOCK = """<details class="addfw" id="add">
     <summary><span>Got Outrigger installed?</span> <b>Add custom FM-1 firmwares</b></summary>
     <div class="addfw-body">
-      <p>Add any firmware from the Firmware Hub's list, up to ten in all. Your backups and current firmwares stay as they are.</p>
-      <p class="fine">Switching to an untested firmware clears the old one's data first, and keeps a copy for switching back.</p>
       <div class="install add-firmware"><p class="install-note">Adding a firmware needs Chrome or Edge on a computer, with JavaScript on.</p></div>
     </div>
   </details>

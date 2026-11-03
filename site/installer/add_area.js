@@ -48,8 +48,21 @@ class AddArea {
     }
     this.show(
       note ? h("p", { class: "install-error", role: "alert" }, note) : null,
-      h("div", { class: "row" }, h("button", { on: { click: () => this.connect() } }, "Connect to my Outrigger")),
-      h("p", { class: "install-note" }, HOW),
+      h("div", { class: "row" }, h("button", { on: { click: () => this.steps() } }, "Connect to my Outrigger")),
+    );
+  }
+
+  // What to do on the board first, with the two screens to look for; the port picker comes after.
+  steps() {
+    const shot = (src, alt, cap) => h("figure", {}, h("img", { src, alt }), h("figcaption", {}, cap));
+    this.show(
+      h("ol", { class: "add-steps" },
+        h("li", {}, "On Outrigger, open Settings, then Computer mode, and hold the button."),
+        h("li", {}, "Plug it into this computer with a data cable.")),
+      h("div", { class: "shots-sm" },
+        shot("shots/M_setup.png", "Outrigger's Settings, with Computer mode", "Settings"),
+        shot("shots/M_computer_confirm.png", "Computer mode screen: hold to restart in Computer mode", "Hold to restart")),
+      h("div", { class: "row" }, h("button", { on: { click: () => this.connect() } }, "Choose my Outrigger")),
       h("p", { class: "install-version" }, `Installer ${INSTALLER_VERSION}`),
     );
   }
