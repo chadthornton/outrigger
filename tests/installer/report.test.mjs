@@ -2,7 +2,7 @@
 // takes from the chip check, and what the page and the server both refuse.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildReport, validateReport, LIMITS } from "../../site/installer/report.js";
+import { buildReport, validateReport, boardFits, LIMITS } from "../../site/installer/report.js";
 
 const MAC = "f4:12:fa:43:5b:c8";
 // What area.js has after a refused chip check: esptool-js's facts, plus things
@@ -96,4 +96,19 @@ test("validateReport takes a flash chip under 1 MB", () => {
 
 test("validateReport refuses what isn't an object", () => {
   for (const bad of [null, [], "x", 3]) assert.equal(validateReport(bad).ok, false);
+});
+
+test("boardFits: an ESP32-S3 on its own USB with 16 MB flash and 8 MB PSRAM has what Outrigger needs", () => {
+  assert.equal(boardFits(facts), true);
+});
+
+test("boardFits: anything short of that doesn't", () => {
+  for (const [why, f] of [
+    ["original ESP32", { ...facts, chip: "ESP32-D0WD-V3 (revision v3.1)" }],
+    ["converter chip", { ...facts, usbVendorId: 0x1a86 }],
+    ["8 MB flash", { ...facts, flashId: 0x174020 }],
+    ["flash didn't answer", { ...facts, flashId: 0 }],
+    ["2 MB PSRAM", { ...facts, features: ["Embedded PSRAM 2MB (AP_3v3)"] }],
+    ["no PSRAM", { ...facts, features: ["Wi-Fi"] }],
+  ]) assert.equal(boardFits(f), false, why);
 });

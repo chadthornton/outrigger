@@ -24,7 +24,7 @@ import { PORT_FILTER, SERIAL_OPTIONS, port as lock, h } from "./ui.js";
 
 // Shown under each install area and in Details, so a bug report says which
 // installer ran. Bump it with every change to site/installer/.
-export const INSTALLER_VERSION = "2026-11-03.1";
+export const INSTALLER_VERSION = "2026-11-03.2";
 
 // Installing lists converter chips beside the ESP32-S3's own port (ui.js), so
 // a board that can't host (a Cheap Yellow Display, say) shows up and hears why
@@ -96,7 +96,7 @@ class InstallArea {
     this.show(
       note ? h("p", { class: "install-error", role: "alert" }, note) : null,
       note && this.refused ? h("div", { class: "row" }, h("button", { class: "alt",
-        on: { click: () => openReportForm({ ...this.refused, installer: INSTALLER_VERSION }) } }, "Report this board")) : null,
+        on: { click: () => openReportForm({ ...this.refused, installer: INSTALLER_VERSION }) } }, "Ask us to add this board")) : null,
       note && LOG.length ? h("details", { class: "install-log" }, h("summary", {}, "Details"),
         h("pre", {}, [`Installer ${INSTALLER_VERSION}`, ...LOG.slice(-25), "", ...this.trace.split("\n").slice(-40).map((l) => l.slice(0, 160))].join("\n"))) : null,
       this.boards.length > 1 ? this.boardPicker() : null,
