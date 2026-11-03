@@ -538,9 +538,8 @@ REAL_STEP2 = """<li><div><b>Add firmwares</b><p>Stock V15, Felucca and Skiff com
 ADD_BLOCK = """<details class="addfw" id="add">
     <summary><span>Got Outrigger installed?</span> <b>Add custom FM-1 firmwares</b></summary>
     <div class="addfw-body">
-      <p>Pick any custom firmware on the Firmware Hub's list, up to ten in all. Your backups and the firmwares already on
-        Outrigger stay as they are. Switching to one we haven't tested clears the old firmware's data first, and keeps
-        a copy for when you switch back.</p>
+      <p>Add any firmware from the Firmware Hub's list, up to ten in all. Your backups and current firmwares stay as they are.</p>
+      <p class="fine">Switching to an untested firmware clears the old one's data first, and keeps a copy for switching back.</p>
       <div class="install add-firmware"><p class="install-note">Adding a firmware needs Chrome or Edge on a computer, with JavaScript on.</p></div>
     </div>
   </details>

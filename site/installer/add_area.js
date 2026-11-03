@@ -9,7 +9,7 @@ import { PORT_FILTER, SERIAL_OPTIONS, port as lock, h } from "./ui.js";
 import { INSTALLER_VERSION } from "./area.js";
 
 const BAUD = 115200;  // ignored by USB-Serial-JTAG, but Web Serial needs one
-const HOW = "On Outrigger, open Settings (the gear), then Computer mode, and hold the button. Then plug it into this computer with a data cable.";
+const HOW = "On Outrigger, open Settings, then Computer mode, and hold the button. Then plug it into this computer with a data cable.";
 
 // The {write, read} BoardLink talks over, on an open Web Serial port.
 function serialIo(port) {
@@ -49,7 +49,7 @@ class AddArea {
     this.show(
       note ? h("p", { class: "install-error", role: "alert" }, note) : null,
       h("div", { class: "row" }, h("button", { on: { click: () => this.connect() } }, "Connect to my Outrigger")),
-      h("p", { class: "install-note" }, HOW, " Your backups and the firmwares already on it stay as they are."),
+      h("p", { class: "install-note" }, HOW),
       h("p", { class: "install-version" }, `Installer ${INSTALLER_VERSION}`),
     );
   }
