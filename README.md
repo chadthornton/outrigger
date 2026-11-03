@@ -156,9 +156,10 @@ make deploy-site FULL=1              # build it with make check on the Mac inste
   `make deploy-site` takes it only from a CI run of exactly HEAD with `ci-ok` green, and checks it three ways: the
   download against GitHub's digest, every file against `SHA256SUMS`, and every manifest against HEAD (clean build, parts
   matching). The rest comes from git at that commit: the pages, `functions/`, `wrangler.toml`, `NOTICE` and `LICENSE`.
-  It runs `make check` on the Mac and uploads that build (`build/checked/site`) instead in three cases: `FULL=1`, a
-  production batch that touches the critical list's code (`CRITICAL` in `tools/deploy_site.py`), and a commit CI never
-  built by itself. That last case is any branch commit, because CI builds a PR merged into `master`. Start CI on the branch by hand
+  It runs `make check` on the Mac and uploads that build (`build/checked/site`) instead in three cases: `FULL=1`; a
+  batch whose changes since the commit production serves touch the critical list's code (`CRITICAL` in
+  `tools/deploy_site.py`), on beta too, so beta carries the same build production will; and a commit CI never built by
+  itself. A red or still-running CI run refuses either way, and production refuses until CI has run. That last case is any branch commit, because CI builds a PR merged into `master`. Start CI on the branch by hand
   (`gh workflow run CI --ref <branch>`) to get a build of the commit itself. CI's and the Mac's app binaries
   differ byte for byte (each embeds its own toolchain paths, e.g. `/home/runner/.arduino15/…`); bootloaders, partition
   tables, pages and Functions are identical (compared at d5bc202, 2026-11-03). Nothing uncommitted or unpushed goes

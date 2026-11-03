@@ -375,7 +375,7 @@ serve: site
 # Publish the site on Cloudflare Pages: CHANNEL=beta (beta.outrigger.music, any
 # pushed commit) or CHANNEL=production (outrigger.music, origin/master only).
 # Uploads CI's build of this commit (its push run's site-firmware), or, for FULL=1, a
-# production batch touching the critical list, or a commit CI never built itself,
+# batch touching the critical list since production's commit, or a commit CI never built itself,
 # the site make check builds here (build/checked/site). README, "Publishing the site".
 CHANNEL ?= beta
 deploy-site:

@@ -412,6 +412,40 @@ class CiRunTest(unittest.TestCase):
         self.assertEqual(self.pick([run(name="Pages", id=3), run()])[0]["id"], 7)
 
 
+class ChooseSourceTest(unittest.TestCase):
+    """Where the site comes from, once CI's run of HEAD is known green (or absent)."""
+    def choose(self, channel="production", full="", ran=True, crit=()):
+        return deploy_site.choose_source(channel, full, run() if ran else None, list(crit))
+
+    def test_green_ci_build_of_a_plain_batch_goes_up(self):
+        self.assertEqual(self.choose()[0], "ci")
+        self.assertEqual(self.choose("beta")[0], "ci")
+
+    def test_critical_batch_gets_make_check_on_both_channels(self):
+        """Beta then carries the same Mac build production will ship."""
+        for channel in ("production", "beta"):
+            kind, why = self.choose(channel, crit=["functions/api/report.js"])
+            self.assertEqual(kind, "check")
+            self.assertIn("functions/api/report.js", why)
+
+    def test_full_1_gets_make_check(self):
+        self.assertEqual(self.choose(full="1")[0], "check")
+
+    def test_other_full_values_refused(self):
+        self.assertEqual(self.choose(full="no")[0], None)
+
+    def test_production_without_a_ci_run_refused(self):
+        kind, why = self.choose(ran=False)
+        self.assertIsNone(kind)
+        self.assertIn("CI", why)
+
+    def test_production_without_a_ci_run_refused_even_with_full(self):
+        self.assertIsNone(self.choose(ran=False, full="1")[0])
+
+    def test_beta_branch_commit_without_a_ci_build_gets_make_check(self):
+        self.assertEqual(self.choose("beta", ran=False)[0], "check")
+
+
 class ArtifactTest(unittest.TestCase):
     def test_the_site_firmware_artifact(self):
         art = dict(name="site-firmware", id=5, expired=False, digest="sha256:" + "0" * 64)
@@ -494,6 +528,11 @@ class CiFirmwareTest(unittest.TestCase):
         self.manifest(self.fw / "b1" / "hub", HEAD[:7], sha="0" * 64)
         self.sums()
         self.assertTrue(any("app.bin" in p for p in self.problems()))
+
+    def test_part_missing_from_the_build_refused(self):
+        (self.fw / "b1" / "hub" / "app.bin").unlink()
+        self.sums()
+        self.assertTrue(any("b1/hub/manifest.json" in p and "app.bin" in p for p in self.problems()))
 
     def test_no_manifests_refused(self):
         shutil.rmtree(self.fw)

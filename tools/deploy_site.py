@@ -18,8 +18,10 @@ checkout of a committed, pushed HEAD goes live, built one of two ways:
   CI's SHA256SUMS and the manifests (every one names HEAD, none dirty), and put
   with the commit's own site/, functions/, wrangler.toml, NOTICE and LICENSE.
   The wl82loader.bin scan and the Pages limits run here, as for make check.
-- make check on the Mac: for FULL=1, for a production batch that touches the
-  critical list's code (CRITICAL; README, "Shipping to production"), and for a
+  Either way, a red or running CI run of HEAD refuses, and production needs one.
+- make check on the Mac: for FULL=1, for a batch (since the commit production
+  serves, on either channel, so beta carries the build production will) that
+  touches the critical list's code (CRITICAL; README, "Shipping to production"), and for a
   commit CI has no build of (a branch commit: CI builds a PR merged into master;
   start CI on the branch by hand to get one). Each upload carries its commit, so the Pages dashboard
 answers "which commit is live?". The Pages Functions (functions/) and their
@@ -339,9 +341,28 @@ def ci_firmware_problems(fw, head):
         for b in manifest.get("builds", []):
             for part in b.get("parts", []):
                 path = m.parent / part["path"]
-                if path.is_file() and part.get("sha256") != hashlib.sha256(path.read_bytes()).hexdigest():
+                if not path.is_file():
+                    problems.append(f"{name} names {part['path']}, which is missing")
+                elif part.get("sha256") != hashlib.sha256(path.read_bytes()).hexdigest():
                     problems.append(f"{name}: {part['path']} doesn't match its sha256")
     return problems
+
+
+def choose_source(channel, full, run, crit):
+    """("ci" or "check", why), or (None, why not). run: CI's green run of exactly HEAD, or None if CI
+    never built HEAD itself; crit: the critical-list files changed since the commit production serves."""
+    if full not in ("", "1"):
+        return None, f"FULL={full}: use FULL=1, or leave it out"
+    if run is None and channel == "production":
+        return None, "CI hasn't built origin/master's head yet; wait for its run"
+    if full == "1":
+        return "check", "FULL=1: make check builds the site on the Mac"
+    if crit:
+        more = ", ..." if len(crit) > 5 else ""
+        return "check", f"the batch since production touches the critical list ({', '.join(crit[:5])}{more}): make check on the Mac"
+    if run is None:
+        return "check", "CI has no build of this commit itself (it builds a branch merged into master): make check on the Mac"
+    return "ci", f"CI's build (run {run['id']})"
 
 
 def critical_paths(files):
@@ -355,7 +376,10 @@ def assemble(commit, fw, dst):
     shutil.rmtree(dst, ignore_errors=True)
     dst.mkdir(parents=True)
     archive = subprocess.run(["git", "archive", "--format=tar", commit, "site", "functions", "wrangler.toml",
-                              "NOTICE", "LICENSE"], cwd=ROOT, capture_output=True, check=True).stdout
+                              "NOTICE", "LICENSE"], cwd=ROOT, capture_output=True)
+    if archive.returncode:
+        fail(f"git archive of {commit[:7]} failed: {archive.stderr.decode().strip()}")
+    archive = archive.stdout
     with tarfile.open(fileobj=io.BytesIO(archive)) as tar:
         tar.extractall(dst, filter="data")
     (dst / "NOTICE").rename(dst / "site" / "NOTICE.txt")
@@ -484,31 +508,24 @@ def ci_build(head):
     return run
 
 
-def source(channel, full=""):
-    """Print where channel's site comes from: "ci" (CI's build) or "check" (make check). Reasons go to stderr."""
+def plan(channel, full=""):
+    """(where the site comes from, HEAD, CI's run of it). Refuses what guard refuses and a red or
+    running CI. Says why on stderr."""
     head = guard(channel)
-    if full not in ("", "0"):
-        print("FULL: make check builds the site on the Mac", file=sys.stderr)
-        return "check"
-    if channel == "production":
-        live = commit_of(live_deployment(load_credentials(), channel))
-        crit = critical_paths(git("diff", "--name-only", live, head).splitlines())
-        if crit:
-            print(f"the batch since {live[:7]} touches the critical list ({', '.join(crit[:5])}"
-                  f"{', ...' if len(crit) > 5 else ''}): make check on the Mac", file=sys.stderr)
-            return "check"
-    if ci_build(head) is None:
-        print(f"CI has no build of {head[:7]} itself (it builds a branch merged into master): make check on the Mac",
-              file=sys.stderr)
-        return "check"
-    return "ci"
+    run = ci_build(head)
+    live = commit_of(live_deployment(load_credentials(), "production"))
+    crit = critical_paths(git("diff", "--name-only", live, head).splitlines())
+    kind, why = choose_source(channel, full, run, crit)
+    if kind is None:
+        fail(why)
+    print(why, file=sys.stderr)
+    return kind, head, run
 
 
 def deploy_ci(channel):
-    if source(channel) != "ci":  # the same choice make deploy-site made, so this can't skip make check
+    kind, head, run = plan(channel)
+    if kind != "ci":  # the same choice make deploy-site made, so this can't skip make check
         fail("this deploy needs make check; make deploy-site runs it")
-    head = guard(channel)
-    run = ci_build(head)
     art, problem = site_artifact(json.loads(gh(f"repos/{REPO}/actions/runs/{run['id']}/artifacts"))["artifacts"])
     if problem:
         fail(problem)
@@ -585,7 +602,7 @@ def main():
     if len(args) == 2 and args[0] == "guard":
         guard(args[1])
     elif len(args) in (2, 3) and args[0] == "source":
-        print(source(*args[1:]))
+        print(plan(*args[1:])[0])
     elif len(args) == 2 and args[0] == "deploy-ci":
         deploy_ci(args[1])
     elif len(args) == 3 and args[0] == "deploy":
