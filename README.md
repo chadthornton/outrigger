@@ -213,8 +213,9 @@ Once per ship (Chad, 2026-11-01), in this order:
 
 ### Boards
 
-There are three: Waveshare-1 (1.69", V2, MAC `D8:3B:DA:A0:67:D0`), Waveshare-2 (1.69", V1, MAC `a0:85:e3:f0:a2:3c`)
-and Board-3 (Waveshare 3.5"). A session books a board and the Mac's USB slot through the orchestrator session
+There are three: Waveshare-1 (1.69", MAC `a0:85:e3:f0:a2:3c`), Waveshare-2 (1.69", MAC `d8:3b:da:a0:67:d0`)
+and Board-3 (Waveshare 3.5", MAC `44:bd:8d:61:2b:28`). The names follow Chad's labels on the boards (checked
+2026-11-03; they had been recorded the other way round). A session books a board and the Mac's USB slot through the orchestrator session
 (`local_3a47bdc2-23d3-4414-b549-9e1e85c6718a`), checks the board's MAC before flashing, and reflashes the `master`
 build when done.
 
