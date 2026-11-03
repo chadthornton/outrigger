@@ -223,10 +223,6 @@ COMING = [
         ("More devices at once", "Several controllers together, Bluetooth MIDI, and twice the USB room on ESP32-P4 boards.", "Planned", "plan"),
         ("The whole catalog on a TF card", 'Boards with a card slot keep every firmware locally, about 60 MB in all.<span class="tip"><b>Pro tip:</b> buying an ESP32 now? Get one with a TF card slot, like the <a href="#board">1.8-inch AMOLED</a>.</span>', "Planned", "plan"),
     ]),
-    ("For builders", "Outrigger is meant to be extended.", [
-        ("Write your own apps", "Outrigger is one core with plug-in apps. The core hands out USB, Wi-Fi and storage, and every screen renders and tests on a laptop. Next: a documented way for anyone to add an app.", "In testing", "test"),
-        ("More ESP32 boards", "Support for a wide range of ESP32-S3 and ESP32-P4 boards: round and square screens from 1.69 to 4.3 inches, touch or buttons, with or without a card slot. Each gets a profile, and the screens already lay out at three sizes.", "In testing", "test"),
-    ]),
 ]
 
 COMING_HTML = "".join(
@@ -356,6 +352,7 @@ STYLE = """
   .shots-sm figure { margin: 0; display: grid; gap: 6px; justify-items: center; }
   .shots-sm img { width: 120px; border-radius: 18px; border: 3px solid var(--fg); background: #000; }
   .shots-sm figcaption { font-size: .8125rem; color: var(--muted); }
+  .add-steps { margin: 0; padding-left: 20px; display: grid; gap: 6px; font-size: .9375rem; line-height: 1.45; }
   .cgroup-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
   .cgroup-head h3 { font-size: 1.125rem; line-height: 1.3; }
   .cgroup-head p { color: var(--muted); font-size: .9375rem; }
@@ -387,6 +384,21 @@ STYLE = """
   .install-log pre { margin: 6px 0 0; max-height: 14em; overflow: auto; white-space: pre-wrap; font: .75rem ui-monospace, "SF Mono", Menlo, monospace; }
   .install .check { display: flex; gap: 8px; align-items: baseline; }
   .install progress { width: 100%; accent-color: var(--accent); }
+  /* "For builders": its own dark band, with the page's colours redefined inside it. */
+  .nerd { --bg: #0e1622; --fg: #e4eaf3; --muted: #9aa7ba; --line: #263246; --panel: #152033; --soft: #1a2639;
+    --accent: #6fb8ff; --accent-fg: #07121f; background: var(--bg); color: var(--fg); margin-top: 64px; padding-block: 64px; }
+  .nerd h2 { margin-bottom: 24px; }
+  .nerd .eyebrow { margin-bottom: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .nerd a { color: var(--accent); }
+  .nerd:not(footer) { padding-bottom: 24px; }
+  footer.nerd { margin-top: 0; padding-block: 0 48px; }
+  .nerd .fine { margin-top: 24px; max-width: 760px; }
+  .addfw { margin-top: 24px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
+  .addfw summary { cursor: pointer; padding: 14px 18px; display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; font-size: .9375rem; }
+  .addfw summary span { color: var(--muted); }
+  .addfw summary b { color: var(--accent); font-weight: 650; }
+  .addfw-body { padding: 0 18px 18px; }
+  .addfw-body p { margin-top: 0; max-width: none; }
   footer .install { margin: 8px 0 12px; max-width: 320px; }
   footer .install button { padding: 8px 14px; font-size: .875rem; width: auto; }
   /* "Report this board" (site/installer/report_form.js): a dialog on the body, so it carries its own button styles. */
@@ -519,17 +531,46 @@ def install_area(label, app_set):
 
 
 REAL_STEP2 = """<li><div><b>Add firmwares</b><p>Stock V15, Felucca and Skiff come with it. Add more from the Firmware
-    Hub's list, right on this page: <a href="#add">Add a firmware</a>.</p></div></li>
+    Hub's list, right on this page: <a href="#add">Add custom firmwares</a>.</p></div></li>
   <li><div><b>Plug everything into the hub</b>"""
 
 # Adding a Firmware Hub firmware to a set-up Outrigger (site/installer/add_area.js), its own section under the hero.
-ADD_SECTION = """<section class="section" id="add" style="max-width:760px"><h2>Add a firmware</h2>
-    <p>Pick any firmware on the Firmware Hub's list, up to ten in all. Your backups and the firmwares already on
-      Outrigger stay as they are. Switching to one we haven't tested clears the old firmware's data first, and keeps
-      a copy for when you switch back.</p>
-    <div class="install add-firmware"><p class="install-note">Adding a firmware needs Chrome or Edge on a computer, with JavaScript on.</p></div>
-  </section>
-  <section class="section" id="need">"""
+# Under "Pop in a new instrument": closed until clicked, and opened by a finished install (site/installer/area.js).
+ADD_BLOCK = """<details class="addfw" id="add">
+    <summary><span>Got Outrigger installed?</span> <b>Add custom FM-1 firmwares</b></summary>
+    <div class="addfw-body">
+      <div class="install add-firmware"><p class="install-note">Adding a firmware needs Chrome or Edge on a computer, with JavaScript on.</p></div>
+    </div>
+  </details>
+  <script>
+  (function () {
+    var d = document.getElementById("add");
+    if (!d) return;
+    function open() { d.open = true; }
+    document.addEventListener("outrigger-installed", open);
+    document.addEventListener("click", function (e) {
+      var a = e.target.closest && e.target.closest('a[href="#add"]');
+      if (a) { open(); d.scrollIntoView(); }
+    });
+    if (location.hash === "#add") open();
+  })();
+  </script>"""
+
+
+BUILDERS = [
+    ("Many boards, one firmware",
+     "Each ESP32 board gets a profile, so the screens, installer checks and tests adapt to it. Round and square "
+     "screens from 1.69 to 4.3 inches, on ESP32-S3 and P4, are in testing. "
+     '<a href="https://github.com/chadthornton/outrigger/blob/master/docs/boards.md">See the board list.</a>'),
+    ("Only the parts you need",
+     "One shared base with apps on top, built into editions. Today that's Hub or Hub + Loader."
+     "A general MIDI hub for any USB synth is planned."),
+    ("Open source",
+     "Outrigger's core and apps are open source. Build your own edition with only what you need. "
+     '<a href="https://github.com/chadthornton/outrigger">Source on GitHub.</a>'),
+]
+BUILDERS_HTML = '<div class="coming">' + "".join(f"<article><h4>{t}</h4><p>{d}</p></article>" for t, d in BUILDERS) + "</div>"
+
 
 real = MOCK
 for a, b in [
@@ -543,7 +584,7 @@ for a, b in [
      """<dd>Switching needs a 24 KB file from the FM-1's chip maker that we can't host ourselves. On a new ESP32 the
       installer downloads it straight from GitHub into your browser, and the three starter firmwares from the Firmware
       Hub, checks every one, and puts them on Outrigger. If a download fails, nothing is written.</dd>"""),
-    ('<section class="section" id="need">', ADD_SECTION),
+    ('more at the Firmware Hub ↗</a></div>', 'more at the Firmware Hub ↗</a></div>\n  ' + ADD_BLOCK),
     ('<title>Outrigger: B3</title>', '<title>Outrigger: FM-1\u2019s new best friend</title>\n'
      '<meta name="description" content="Play the M-VAVE FM-1 from any MIDI controller with a USB connection, and switch between 100+ firmwares without a laptop.">\n'
      '<script type="module" src="installer/area.js"></script>\n<script type="module" src="installer/add_area.js"></script>'),
@@ -551,16 +592,17 @@ for a, b in [
     ('<a class="link" href="#trouble">Help</a>',
      '<a class="link" href="#trouble">Help</a><a class="link" href="beta/">Beta testers</a>'),
     ('<footer><div class="wrap fine">Firmware screenshots by their authors, via the Firmware Hub. Not affiliated with M-VAVE or Waveshare.</div></footer>',
-     f"""<footer><div class="wrap fine">
-  <p>For developers: Everything adds a Wi-Fi status page; its loader can't write.</p>
-  {install_area("Check my board (Everything)", "everything")}
-  <p>Installs with <a href="https://github.com/espressif/esptool-js">esptool-js</a> 0.7.0 (Apache-2.0), served from this site.
+     f"""<section class="nerd" id="builders"><div class="wrap">
+  <p class="eyebrow">For builders</p>
+  <h2>Under the hood</h2>
+  {BUILDERS_HTML}
+  <p class="fine">Installs with <a href="https://github.com/espressif/esptool-js">esptool-js</a> 0.7.0 (Apache-2.0), served from this site.
     It writes only the program and its startup parts, never your settings or the backup store. Outrigger is
     <a href="LICENSE.txt">GPL-3.0</a> (<a href="https://github.com/chadthornton/outrigger">source</a>); the firmware includes
     LVGL and EspUsbHost (MIT), Arduino_GFX (BSD) and the Arduino ESP32 core (LGPL-2.1):
-    <a href="NOTICE.txt">licenses and credits</a>. Firmware screenshots by their authors, via the Firmware Hub. Not affiliated with M-VAVE or
-    Waveshare.</p>
-</div></footer>"""),
+    <a href="NOTICE.txt">licenses and credits</a>.</p>
+</div></section>
+<footer class="nerd"><div class="wrap fine">Firmware screenshots by their authors, via the Firmware Hub. Not affiliated with M-VAVE or Waveshare.</div></footer>"""),
 ]:
     assert a in real, a[:70]
     real = real.replace(a, b, 1)
