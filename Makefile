@@ -15,6 +15,9 @@ ifeq ($(BOARDS),)
 $(error firmware/boards.json has a problem: python3 -I tools/boards.py check says what)
 endif
 APP_SETS := hub hub-loader everything
+# Development app sets: CI builds them (its synth job), make site never stages
+# them, so testers never get them. synth is Big-S3 only (the ES8311 speaker).
+DEV_APP_SETS := synth
 # littlefs-python for the store image and the installer's store template (rule below).
 TOOLS_PY := build/tools-venv/bin/python
 BOARD ?= waveshare_169
@@ -27,6 +30,7 @@ APPS ?= hub
 APP_FLAGS_hub := -DAPP_WEB_UI=1
 APP_FLAGS_hub-loader := -DAPP_LOADER=1 -DAPP_WEB_UI=1
 APP_FLAGS_everything := -DAPP_LOADER=1 -DAPP_RECORDER=1 -DAPP_WEB_UI=1
+APP_FLAGS_synth = -DAPP_SYNTH=1 $(SYNTH_C_FLAGS)
 # WRITES=1 lets the Loader write the FM-1's flash (FM1_LOADER_WRITES, rom.h).
 # hub-loader ships with writes on (checkpoints 2 and 3 passed, and the USB host
 # crash at the FM-1's disconnect is fixed); WRITES=0 builds it read-only.
@@ -54,6 +58,7 @@ endif
 APP_LIBS_hub := --library lib/web_core
 APP_LIBS_hub-loader := --library lib/fm1_loader --library lib/web_core
 APP_LIBS_everything := --library lib/fm1_loader --library lib/web_core
+APP_LIBS_synth := --library lib/synth
 # DIAG_WEB=1: a build that starts with Remote diagnostics on, for Chad's lab
 # boards and loader checkpoints (Setup still turns it off).
 ifeq ($(DIAG_WEB),1)
@@ -98,7 +103,7 @@ VERSION_DIR := $(CACHE_ROOT)/version
 # screens ui-shots renders. Rewritten only when they change, like fw_version.h.
 BOARD_GEN := $(CACHE_ROOT)/boards
 
-.PHONY: check test ui-shots ui-mocks build build-all flash probe site serve clean fixtures golden store-image flash-store store-add check-latest deploy-site rollback-site
+.PHONY: check test ui-shots ui-mocks build build-all flash probe synth-bench flash-synth-bench site serve clean fixtures golden store-image flash-store store-add check-latest deploy-site rollback-site
 
 FM1_SRC := $(wildcard lib/fm1_loader/src/*.cpp)
 FM1_HDR := $(wildcard lib/fm1_loader/src/*.h) $(wildcard tests/support/*.h)
@@ -301,8 +306,9 @@ ui-mocks: build/ui_mocks
 	./build/ui_mocks build/ui-mocks
 
 build:
-	$(if $(filter $(APPS),$(APP_SETS)),,$(error APPS=$(APPS); known: $(APP_SETS)))
+	$(if $(filter $(APPS),$(APP_SETS) $(DEV_APP_SETS)),,$(error APPS=$(APPS); known: $(APP_SETS) $(DEV_APP_SETS)))
 	$(if $(filter $(BOARD),$(ALL_BOARDS)),,$(error BOARD=$(BOARD); known: $(ALL_BOARDS)))
+	$(if $(filter synth,$(APPS)),$(if $(filter $(SYNTH_BOARD),$(BOARD)),,$(error APPS=synth builds for BOARD=$(SYNTH_BOARD) only)))
 	python3 -I tools/boards.py header $(BOARD) $(BOARD_GEN)/$(BOARD)/board_config.h
 	mkdir -p $(VERSION_DIR)
 	printf '#define FW_VERSION %s\n#define FW_DIRTY %s\n' $(FW_VERSION) $(FW_DIRTY) > $(VERSION_DIR)/fw_version.h.$$$$ \
@@ -311,7 +317,7 @@ build:
 	arduino-cli compile --fqbn $(FQBN) --build-property "tools.ctags.path=$(CTAGS_DIR)" \
 		--build-property "upload.maximum_size=$(APP_SLOT)" \
 		--build-property "compiler.cpp.extra_flags=-I$(VERSION_DIR) -I$(BOARD_GEN)/$(BOARD) -DESP_USB_HOST_MAX_SERIAL_PORTS=0 $(APP_FLAGS_$(APPS)) $(WRITE_FLAGS) -DLV_CONF_INCLUDE_SIMPLE -I$(CURDIR)/firmware/config" \
-		--build-property "compiler.c.extra_flags=-DLV_CONF_INCLUDE_SIMPLE -I$(CURDIR)/firmware/config" \
+		--build-property "compiler.c.extra_flags=-DLV_CONF_INCLUDE_SIMPLE -I$(CURDIR)/firmware/config $(if $(filter synth,$(APPS)),$(SYNTH_C_FLAGS))" \
 		--library lib/midi_core --library lib/EspUsbHost --library lib/host_ui --library lib/board --library lib/platform $(APP_LIBS_$(APPS)) \
 		--build-path $(CACHE_ROOT)/$(BOARD)/$(APPS)$(BUILD_SUFFIX) --output-dir $(BUILD) $(SKETCH)
 
@@ -332,6 +338,24 @@ probe:
 		--build-property "compiler.cpp.extra_flags=-I$(BOARD_GEN)/$(BOARD) -I$(CURDIR)/firmware/waveshare_169 -I$(CURDIR)/lib/board/src -I$(CURDIR)/lib/host_ui/src" \
 		--library lib/board --build-path $(CACHE_ROOT)/$(BOARD)/probe --output-dir $(PROBE_BUILD) firmware/board_probe
 	arduino-cli upload --fqbn $(subst USBMode=default,USBMode=hwcdc,$(FQBN)),CDCOnBoot=cdc --input-dir $(PROBE_BUILD) --port $(PORT) firmware/board_probe
+
+# Outrigger Synth's bench for Big-S3 (firmware/synth_bench/bench.cpp): the board's
+# drivers and lib/synth's audio out, with the USB port left a serial device so
+# the Mac reads the numbers. Never staged into the site. `make synth-bench` builds;
+# `make flash-synth-bench` also uploads (board in download mode).
+SYNTH_BOARD := waveshare_35
+# Felucca's generated tables, which its sources include by bare name.
+SYNTH_C_FLAGS := -I$(CURDIR)/lib/synth/third_party/fm1-cartridge/third_party/felucca/generated
+SYNTH_BENCH_BUILD := build/$(SYNTH_BOARD)/synth-bench
+SYNTH_BENCH_FQBN = $(subst USBMode=default,USBMode=hwcdc,$(shell python3 -I tools/boards.py fqbn $(SYNTH_BOARD))),CDCOnBoot=cdc
+synth-bench:
+	python3 -I tools/boards.py header $(SYNTH_BOARD) $(BOARD_GEN)/$(SYNTH_BOARD)/board_config.h
+	arduino-cli compile --fqbn $(SYNTH_BENCH_FQBN) --build-property "tools.ctags.path=$(CTAGS_DIR)" \
+		--build-property "compiler.cpp.extra_flags=-DAPP_SYNTH=1 $(SYNTH_C_FLAGS) -I$(BOARD_GEN)/$(SYNTH_BOARD) -I$(CURDIR)/firmware/waveshare_169 -I$(CURDIR)/lib/board/src -I$(CURDIR)/lib/host_ui/src" \
+		--build-property "compiler.c.extra_flags=$(SYNTH_C_FLAGS)" \
+		--library lib/board --library lib/synth --build-path $(CACHE_ROOT)/$(SYNTH_BOARD)/synth-bench --output-dir $(SYNTH_BENCH_BUILD) firmware/synth_bench
+flash-synth-bench: synth-bench
+	arduino-cli upload --fqbn $(SYNTH_BENCH_FQBN) --input-dir $(SYNTH_BENCH_BUILD) --port $(PORT) firmware/synth_bench
 
 # The store partition's first setup: a LittleFS image holding JieLi's loader
 # (from tests/fixtures). JieLi's code, so it stays in build/ and is never staged

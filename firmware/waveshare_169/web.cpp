@@ -172,6 +172,12 @@ struct Out {
   }
 };
 
+// An age in ms as a number, or null for never (UINT32_MAX).
+static void age_field(Out &o, const char *key, uint32_t ms) {
+  if (ms == UINT32_MAX) o.raw(",\"%s\":null", key);
+  else o.raw(",\"%s\":%lu", key, (unsigned long)ms);
+}
+
 // ---------- Request helpers (server task) ----------
 static bool header(httpd_req_t *req, const char *name, char *out, size_t len) {
   const size_t n = httpd_req_get_hdr_value_len(req, name);
@@ -410,6 +416,7 @@ static esp_err_t on_status(httpd_req_t *req) {
   o.raw(",\"usb\":{\"running\":%s,\"mode\":\"%s\",\"channels\":%u,\"sent\":%lu,\"blocked\":%lu,\"failed_sends\":%lu",
         s.host_running ? "true" : "false", mode_name(s.mode), f.snapshot.channels_used, (unsigned long)f.sent,
         (unsigned long)f.blocked, (unsigned long)s.failed_sends);
+  age_field(o, "probe_ms_ago", s.probe_age_ms);
   o.key_str("hub", f.hub_detail);
   o.key_str("fm1_in", f.fm1_in);
   o.key_str("fm1_own", f.fm1_own);
@@ -439,7 +446,10 @@ static esp_err_t on_status(httpd_req_t *req) {
     o.str(d.refusal.line1);
     o.raw(",");
     o.str(d.refusal.line2);
-    o.raw("]}");
+    o.raw("],\"router\":\"%s\"", d.router == 1 ? "controller" : d.router == 2 ? "fm1" : "unknown");
+    age_field(o, "rx_ms_ago", d.rx_age_ms);
+    age_field(o, "sysex_ms_ago", d.sysex_age_ms);
+    o.raw("}");
   }
   o.raw("]");
   if (s.has_loader) {

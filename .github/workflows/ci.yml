@@ -141,6 +141,34 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
+  # Outrigger Synth's builds (Big-S3 only): they must compile, and they are
+  # never staged into the site, so nothing here uploads a fw-* artifact.
+  synth:
+    needs: changes
+    if: needs.changes.outputs.firmware == 'true'
+    runs-on: ubuntu-latest
+    env:
+      CTAGS_DIR: /usr/bin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: arduino/setup-arduino-cli@v2
+        with:
+          version: 1.5.1
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.arduino15
+            ~/Arduino/libraries
+          key: arduino-esp32-3.3.12-gfx-1.6.9-lvgl-9.6.0
+      - name: Toolchain (as the firmware job)
+        run: |
+          sudo apt-get install -y universal-ctags
+          arduino-cli core update-index --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+          arduino-cli core install esp32:esp32@3.3.12 --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+          arduino-cli lib install "GFX Library for Arduino@1.6.9" "lvgl@9.6.0"
+      - run: make synth-bench
+      - run: make build BOARD=waveshare_35 APPS=synth
+
   # Every build staged into site/ the way make site does it, with the licensing scan.
   site:
     needs: firmware
@@ -204,7 +232,7 @@ jobs:
 
   # The one check the merge gate reads. Skipped jobs pass; failed or cancelled ones don't.
   ci-ok:
-    needs: [changes, test, firmware, site, site-quick]
+    needs: [changes, test, firmware, synth, site, site-quick]
     if: always()
     runs-on: ubuntu-latest
     steps:
