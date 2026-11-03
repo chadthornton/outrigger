@@ -4,15 +4,6 @@
 
 namespace {
 
-uint16_t crc16_xmodem(const uint8_t *p, size_t n) {
-  uint16_t crc = 0;
-  while (n--) {
-    crc ^= uint16_t(*p++) << 8;
-    for (int i = 0; i < 8; ++i) crc = crc & 0x8000 ? uint16_t((crc << 1) ^ 0x1021) : uint16_t(crc << 1);
-  }
-  return crc;
-}
-
 void refuse(std::vector<uint8_t> &out, uint8_t code, const char *why) {
   std::vector<uint8_t> p{code};
   p.insert(p.end(), why, why + strlen(why));
@@ -30,7 +21,7 @@ void reply(std::vector<uint8_t> &out, uint8_t type, const uint8_t *payload = nul
 std::vector<uint8_t> profile_frame(uint8_t type, const uint8_t *payload, size_t len) {
   std::vector<uint8_t> f{'O', 'P', type, uint8_t(len), uint8_t(len >> 8)};
   if (len) f.insert(f.end(), payload, payload + len);
-  const uint16_t crc = crc16_xmodem(f.data() + 2, f.size() - 2);
+  const uint16_t crc = board_crc16(f.data() + 2, f.size() - 2);
   f.push_back(uint8_t(crc));
   f.push_back(uint8_t(crc >> 8));
   return f;
@@ -56,7 +47,7 @@ bool ProfileFrameReader::feed(uint8_t b) {
     }
     if (buf_.size() < 5 + len + 2) return false;
     const uint16_t want = uint16_t(buf_[5 + len] | buf_[6 + len] << 8);
-    if (crc16_xmodem(buf_.data() + 2, 3 + len) != want) {
+    if (board_crc16(buf_.data() + 2, 3 + len) != want) {
       buf_.erase(buf_.begin());
       continue;
     }

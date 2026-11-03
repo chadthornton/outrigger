@@ -57,6 +57,9 @@ enum class BlobError : uint8_t {
   Name = 14,       // empty, or not NUL-terminated
 };
 
+// CRC-16/XMODEM: the blob's own check, and the profile link's frames'.
+uint16_t board_crc16(const uint8_t *data, size_t len);
+
 BlobError board_blob_decode(const uint8_t *data, size_t len, BoardBlob &out);
 // The rules tools/boards.py check() applies; why gets a sentence for the page.
 BlobError board_blob_check(const BoardBlob &b, char *why, size_t why_len);

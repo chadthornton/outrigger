@@ -535,6 +535,8 @@ void setup() {
   read_crumbs();
   // The board's profile: the one stored on it, else this build's (board_store.h).
   const char *board_from = board_select();
+  // BOOT held 3 s soon after a start: forget it, then Computer mode.
+  board_watch_escape(connect_computer);
   const midi_core::BootMode mode = read_boot_mode();
   prefs.begin("ui", false);
   // An old "typeface" key from builds with a Pixel font stays in NVS, unread.
@@ -575,11 +577,12 @@ void setup() {
     // The USB host is never installed; the port goes to the chip's
     // USB-Serial-JTAG device so the computer can reset it into download mode.
     hand_usb_to_serial_jtag();
-    char info[96];
-    snprintf(info, sizeof info, "Firmware %s\nBoard profile: %s", firmware + 2, board_from);
-    ui_show_computer_mode(info);
     // The page on outrigger.music can set the board's profile and add firmwares.
-    computer_link_begin(firmware + 2, back_to_host);
+    const bool linked = computer_link_begin(firmware + 2, back_to_host);
+    char info[160];
+    snprintf(info, sizeof info, "Firmware %s\nBoard profile: %s%s", firmware + 2, board_from,
+             linked ? "" : "\nUSB serial didn't start: the installer can't reach this board");
+    ui_show_computer_mode(info);
     return;
   }
 #if APP_LOADER && LOADER_DIAG
@@ -655,8 +658,6 @@ void loop() {
     if (!host_running) publish_diag(nullptr);
   }
 #endif
-  // BOOT held 3 s soon after a start: forget the stored profile, then Computer mode.
-  if (board_poll_escape(millis())) connect_computer();
   if (!host_running) {  // computer mode: only the UI runs
 #if APP_LOADER
     static uint32_t last_add = 0;

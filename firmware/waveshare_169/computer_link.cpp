@@ -44,7 +44,7 @@ void link_task(void *arg) {
 
 }  // namespace
 
-void computer_link_begin(const char *build, void (*back_to_host)()) {
+bool computer_link_begin(const char *build, void (*back_to_host)()) {
   restart_for_host = back_to_host;
 #if APP_LOADER
   add_firmware_begin(build);
@@ -54,7 +54,8 @@ void computer_link_begin(const char *build, void (*back_to_host)()) {
   usb_serial_jtag_driver_config_t cfg = USB_SERIAL_JTAG_DRIVER_CONFIG_DEFAULT();
   cfg.rx_buffer_size = kRxBuffer;
   cfg.tx_buffer_size = kTxBuffer;
-  if (usb_serial_jtag_driver_install(&cfg) != ESP_OK) return;
+  if (usb_serial_jtag_driver_install(&cfg) != ESP_OK) return false;
   auto *profile = new ProfileLink({board_store_load, board_store_save, board_store_forget, board_build_quad_psram()});
   xTaskCreatePinnedToCore(link_task, "computer_link", 8192, profile, 2, nullptr, 1);
+  return true;
 }

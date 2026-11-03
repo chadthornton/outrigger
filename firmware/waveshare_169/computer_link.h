@@ -5,4 +5,5 @@
 #pragma once
 
 // Starts the link; back_to_host restarts for normal use (the profile link's 'B').
-void computer_link_begin(const char *build, void (*back_to_host)());
+// False when the USB serial driver didn't start: nothing can reach the board.
+bool computer_link_begin(const char *build, void (*back_to_host)());

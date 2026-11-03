@@ -81,7 +81,14 @@ def main(argv):
     with open_port(port_name) as port:
         if action == "get":
             _, payload = ask(port, "G")
-            print(describe(payload) if payload else "no profile stored: the board runs its build's own")
+            if not payload:
+                print("no profile stored: the board runs its build's own")
+            else:
+                try:
+                    print(describe(payload))
+                except ValueError as e:
+                    print(f"a profile is stored, but this tool can't read it ({e}: a newer format, or damaged); "
+                          "the board runs its build's own")
         elif action == "set":
             if len(argv) < 3 or argv[2] not in table["boards"]:
                 sys.exit(f"set needs a board id: {' '.join(boards.all_ids(table))}")

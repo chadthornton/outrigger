@@ -103,29 +103,36 @@ const char *board_select() {
 const BoardProfile &board_profile() { return active_profile; }
 const char *board_source() { return source; }
 
-// BOOT held for 3 s during the first kSettledMs: forget the stored profile.
-// (Held at power-on it means ROM download mode instead, so it's watched after
-// the start.) Also marks the start settled, ending the early-boot count.
-bool board_poll_escape(uint32_t now_ms) {
-  static uint32_t down_since = 0;
-  static bool settled = false, pin_set = false;
-  if (now_ms > kSettledMs) {
-    if (!settled) early_boots = 0;
-    settled = true;
-    return false;
+// BOOT held for 3 s during the first kSettledMs forgets the stored profile,
+// then on_escape runs (the app's Computer mode). Its own task, started before
+// the screen: a profile that hangs board_display_begin or ui_begin can still be
+// escaped. Held at power-on BOOT means ROM download mode instead, so it's
+// watched after the start. At kSettledMs the start counts as settled, ending
+// the early-boot count, and the task ends.
+static void (*escape_to)() = nullptr;
+
+static void escape_task(void *) {
+  pinMode(0, INPUT_PULLUP);
+  uint32_t down_since = 0;
+  while (millis() < kSettledMs) {
+    if (digitalRead(0) != LOW) {
+      down_since = 0;
+    } else if (!down_since) {
+      down_since = millis() ? millis() : 1;
+    } else if (millis() - down_since >= 3000) {
+      board_store_forget();
+      if (escape_to) escape_to();  // restarts, unless a job is running
+      vTaskDelete(nullptr);
+    }
+    vTaskDelay(pdMS_TO_TICKS(50));
   }
-  if (!pin_set) {
-    pinMode(0, INPUT_PULLUP);
-    pin_set = true;
-  }
-  if (digitalRead(0) != LOW) {
-    down_since = 0;
-    return false;
-  }
-  if (!down_since) down_since = now_ms ? now_ms : 1;
-  if (now_ms - down_since < 3000) return false;
-  board_store_forget();
-  return true;
+  early_boots = 0;
+  vTaskDelete(nullptr);
+}
+
+void board_watch_escape(void (*on_escape)()) {
+  escape_to = on_escape;
+  xTaskCreatePinnedToCore(escape_task, "board_escape", 3072, nullptr, 1, nullptr, 0);
 }
 
 // A profile's pin: GPIO n is n, expander pin n is 100 + n, none is -1.

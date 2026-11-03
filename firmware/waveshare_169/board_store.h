@@ -17,8 +17,9 @@ const char *board_select();
 const BoardProfile &board_profile();
 const char *board_source();
 bool board_build_quad_psram();
-// From the loop: true once BOOT was held long enough and the stored profile is gone.
-bool board_poll_escape(uint32_t now_ms);
+// Watches BOOT for the first 15 s on its own task; held 3 s, it forgets the
+// stored profile and calls on_escape. Call right after board_select().
+void board_watch_escape(void (*on_escape)());
 
 size_t board_store_load(uint8_t *out, size_t max);
 bool board_store_save(const uint8_t *data, size_t len);

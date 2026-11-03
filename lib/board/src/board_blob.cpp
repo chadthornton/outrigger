@@ -7,15 +7,6 @@
 
 namespace {
 
-uint16_t crc16_xmodem(const uint8_t *p, size_t n) {
-  uint16_t crc = 0;
-  while (n--) {
-    crc ^= uint16_t(*p++) << 8;
-    for (int i = 0; i < 8; ++i) crc = crc & 0x8000 ? uint16_t((crc << 1) ^ 0x1021) : uint16_t(crc << 1);
-  }
-  return crc;
-}
-
 // Little-endian cursor over a fixed buffer.
 struct Writer {
   uint8_t *p;
@@ -35,6 +26,15 @@ struct Reader {
 };
 
 }  // namespace
+
+uint16_t board_crc16(const uint8_t *p, size_t n) {
+  uint16_t crc = 0;
+  while (n--) {
+    crc ^= uint16_t(*p++) << 8;
+    for (int i = 0; i < 8; ++i) crc = crc & 0x8000 ? uint16_t((crc << 1) ^ 0x1021) : uint16_t(crc << 1);
+  }
+  return crc;
+}
 
 BoardProfile BoardBlob::profile() const {
   BoardProfile p{name, width, height, shape, corner_radius, font_boost};
@@ -64,7 +64,7 @@ size_t board_blob_encode(const BoardBlob &b, uint8_t *out, size_t out_len) {
   memcpy(w.p, b.name, kBlobNameMax);
   w.p += kBlobNameMax;
   if (size_t(w.p - out) != kBlobSize - 2) return 0;  // the layout and kBlobSize disagree
-  w.u16(crc16_xmodem(out, kBlobSize - 2));
+  w.u16(board_crc16(out, kBlobSize - 2));
   return kBlobSize;
 }
 
@@ -74,7 +74,7 @@ BlobError board_blob_decode(const uint8_t *data, size_t len, BoardBlob &b) {
   Reader r{data + 4};
   if (r.u16() != kBlobSize) return BlobError::Format;
   const uint16_t want = uint16_t(data[kBlobSize - 2] | data[kBlobSize - 1] << 8);
-  if (crc16_xmodem(data, kBlobSize - 2) != want) return BlobError::Crc;
+  if (board_crc16(data, kBlobSize - 2) != want) return BlobError::Crc;
   b = BoardBlob{};
   BoardConfig &c = b.config;
   b.tag_id = r.u8();
