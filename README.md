@@ -154,7 +154,7 @@ make deploy-site CHANNEL=production  # outrigger.music
   commit (`build/checked/site`). Nothing uncommitted or unpushed goes live, and every upload passed `make check` on that
   exact commit. When production may go up without Chad: "Shipping to production".
 - **What gets checked first:** `tools/deploy_site.py` refuses a dirty tree, an unpushed HEAD, or production from
-  anything but `origin/master`. Before uploading it scans every file again: under Pages' 25 MiB per-file and
+  anything but `origin/master` or from a commit beta doesn't serve. Before uploading it scans every file again: under Pages' 25 MiB per-file and
   20,000-file limits, and free of `wl82loader.bin` (by name, SHA-256 and 1 KiB pieces). A local copy of the blob is
   required for that scan.
 - **Which commit is live:** each upload carries its commit hash, shown in the Pages dashboard under Workers & Pages,

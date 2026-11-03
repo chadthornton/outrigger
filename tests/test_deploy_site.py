@@ -245,6 +245,31 @@ class RollbackTargetTest(unittest.TestCase):
         self.assertIn("unknown commit", self.target(log, "b", commit="a")[1])
 
 
+class BaselineTest(unittest.TestCase):
+    """Before each deploy, the log notes what is live if it doesn't already know it."""
+    def test_empty_log_needs_a_baseline(self):
+        self.assertTrue(deploy_site.needs_baseline([], "production", "a" * 40))
+
+    def test_log_that_knows_the_live_commit_needs_none(self):
+        self.assertFalse(deploy_site.needs_baseline([entry("deploy", "a")], "production", "a" * 40))
+
+    def test_deploy_around_the_log_gets_a_baseline(self):
+        """A dashboard rollback to z: a rollback after the next deploy must come back to z, not a."""
+        log = [entry("deploy", "a")]
+        self.assertTrue(deploy_site.needs_baseline(log, "production", "z" * 40))
+        log += [entry("baseline", "z"), entry("deploy", "c")]
+        self.assertEqual(deploy_site.rollback_target(log, "production", "c" * 40)[0]["commit"], "z" * 40)
+
+
+class BetaFirstTest(unittest.TestCase):
+    def test_production_needs_beta_on_the_same_commit(self):
+        self.assertIsNone(deploy_site.beta_first_problem("production", HEAD, HEAD))
+        self.assertIn("beta", deploy_site.beta_first_problem("production", HEAD, OTHER))
+
+    def test_beta_itself_needs_nothing(self):
+        self.assertIsNone(deploy_site.beta_first_problem("beta", HEAD, OTHER))
+
+
 class DeployLogTest(unittest.TestCase):
     def test_appends_and_reads_back_in_order(self):
         with tempfile.TemporaryDirectory() as tmp:

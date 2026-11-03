@@ -189,6 +189,19 @@ def rollback_target(entries, channel, live, commit=None):
     return next(e for e in reversed(stack[:-1]) if e["commit"].startswith(commit)), None
 
 
+def needs_baseline(entries, channel, live):
+    """Whether the log doesn't know the live commit (a first deploy, or one made around the log)."""
+    stack = live_history(entries, channel)
+    return not stack or stack[-1]["commit"] != live
+
+
+def beta_first_problem(channel, head, beta):
+    """Production only takes the commit beta serves (README, "Shipping to production")."""
+    if channel == "production" and head != beta:
+        return f"beta serves {beta[:7]}, not {head[:7]}; deploy it to beta and check it there first"
+    return None
+
+
 def read_log(path):
     if not path.is_file():
         return []
@@ -248,6 +261,8 @@ def guard(channel):
     problem = refusal(channel, head, git("rev-parse", "origin/master"),
                       bool(git("branch", "-r", "--contains", head)),
                       bool(git("status", "--porcelain", "--untracked-files=no")))
+    if not problem and channel == "production":
+        problem = beta_first_problem(channel, head, commit_of(live_deployment(load_credentials(), "beta")))
     if problem:
         fail(problem)
     return head
@@ -280,7 +295,12 @@ def api(env, path="", method="GET"):
         with urllib.request.urlopen(req, timeout=60) as resp:
             body = json.load(resp)
     except urllib.error.HTTPError as e:
-        body = json.loads(e.read() or b"{}")
+        try:
+            body = json.loads(e.read() or b"{}")
+        except ValueError:
+            body = {"errors": f"HTTP {e.code}"}
+    except (urllib.error.URLError, TimeoutError, ValueError) as e:
+        body = {"errors": str(e)}
     if not body.get("success"):
         fail(f"Pages API {method} {path or '/'} failed: {body.get('errors')}")
     return body["result"]
@@ -307,6 +327,16 @@ def log_entry(action, channel, deployment, **extra):
                 session=os.environ.get("CLAUDE_CODE_SESSION_ID", "unknown"), **extra)
 
 
+def wait_live(env, channel, ok, tries=10):
+    """The channel's live deployment once ok(it) holds, or the last one seen (the API can lag)."""
+    for _ in range(tries):
+        live = live_deployment(env, channel)
+        if ok(live):
+            break
+        time.sleep(3)
+    return live
+
+
 def upload(env, staged, channel, commit, message):
     run = subprocess.run(["npx", "--yes", WRANGLER, "pages", "deploy", "site",
                           "--project-name", PROJECT, "--branch", BRANCHES[channel],
@@ -314,7 +344,7 @@ def upload(env, staged, channel, commit, message):
                           "--commit-dirty=false"], env=env, cwd=staged)
     if run.returncode:
         fail(f"wrangler failed (exit {run.returncode}); its output is above")
-    live = live_deployment(env, channel)
+    live = wait_live(env, channel, lambda d: commit_of(d) == commit)
     if commit_of(live) != commit:
         fail(f"uploaded {commit[:7]}, but {channel} serves {commit_of(live)[:7]}; check the Pages dashboard")
     return live
@@ -330,12 +360,14 @@ def deploy(channel, site):
         fail("refusing to upload:\n  " + "\n  ".join(problems))
     env = load_credentials()
     log = DEPLOYS / "deploys.jsonl"
-    if not live_history(read_log(log), channel):
-        # The first deploy the log sees: note what it replaces, so it can be rolled back to.
-        append_log(log, log_entry("baseline", channel, live_deployment(env, channel)))
+    before = live_deployment(env, channel)
+    if needs_baseline(read_log(log), channel, commit_of(before)):
+        # Note what this deploy replaces, so a rollback can go back to it.
+        append_log(log, log_entry("baseline", channel, before))
     live = upload(env, STAGE, channel, head, git("log", "-1", "--format=%s", head))
-    keep(STAGE, DEPLOYS / channel, head)
     append_log(log, log_entry("deploy", channel, live))
+    if channel != "production":  # production rolls back through Cloudflare, with no copy
+        keep(STAGE, DEPLOYS / channel, head)
     print(f"deployed {head[:7]} to {channel}: {URLS[channel]} (deployment {live['id']}; logged in {log})")
 
 
@@ -352,7 +384,7 @@ def rollback(channel, commit=None):
     if channel == "production":
         # Cloudflare points production back at that deployment: no upload, its Functions with it.
         api(env, f"/deployments/{target['deployment']}/rollback", method="POST")
-        now = live_deployment(env, channel)
+        now = wait_live(env, channel, lambda d: d["id"] == target["deployment"])
         if now["id"] != target["deployment"]:
             fail(f"rolled back, but production serves deployment {now['id']}; check the Pages dashboard")
     else:
