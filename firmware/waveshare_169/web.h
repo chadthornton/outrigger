@@ -52,5 +52,7 @@ bool web_take_bench_command(web_core::BenchCommand &out);
 
 // The settings page's network line: address, or the hotspot and its password.
 const char *web_network_line();
+// The setup hotspot as a Wi-Fi QR code's text while that line says to join it; else empty.
+const char *web_join_qr();
 
 #endif  // APP_WEB_UI
