@@ -352,6 +352,11 @@ static void describe_stage(const JobOutcome &in, UiResult &out) {
           PUT(out.todo, "Plug it into hub port 2.");
           out.fix = UiAct::None;
           break;
+        case KeyStop::Unsupported:
+          PUT(out.why, "The FM-1 runs M-VAVE Open firmware: no switching or backups yet.");
+          PUT(out.todo, "Put back V15 on M-VAVE's FM1 Workbench, then try again.");
+          out.fix = UiAct::None;
+          break;
         case KeyStop::Answer:
           if (in.key == KeyResult::UpdateMode) {
             PUT(out.why, "The FM-1 is in the middle of an update.");

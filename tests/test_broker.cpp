@@ -70,6 +70,16 @@ static DeviceDesc stock_fm1(uint8_t address) {
   return d;
 }
 
+// M-VAVE's Open firmware (and Big Screen, built on it): measured by Patrick
+// Kellogg as 3654:7756 "FM1 Community". Interfaces assumed like stock.
+static DeviceDesc open_fm1(uint8_t address) {
+  DeviceDesc d = device(address, 0x3654, 0x7756, "FM1");
+  add(d, 1, 1, 0, 0);
+  add(d, 1, 3, 0, 2);
+  add(d, 1, 2, 0, 1);
+  return d;
+}
+
 static DeviceDesc rom_boot(uint8_t address) {
   DeviceDesc d = device(address, 0x4C4A, 0x8057, "UBO");
   add(d, 8, 6, 0x50, 2);
@@ -104,6 +114,7 @@ static void test_classify() {
   EXPECT(classify(hub(1)) == Kind::Hub, "hub");
   EXPECT(classify(skiff(2)) == Kind::Fm1, "Skiff is an FM-1");
   EXPECT(classify(stock_fm1(2)) == Kind::Fm1, "stock firmware is an FM-1");
+  EXPECT(classify(open_fm1(2)) == Kind::Fm1, "M-VAVE Open firmware is an FM-1");
   EXPECT(classify(rom_boot(2)) == Kind::Fm1RomBoot, "4C4A:8057 is an FM-1 in ROM boot");
   EXPECT(classify(controller(3, "LAU")) == Kind::Controller, "MIDI device is a controller");
   EXPECT(classify(stick(4)) == Kind::Storage, "mass storage is a stick");
