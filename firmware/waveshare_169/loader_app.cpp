@@ -402,6 +402,11 @@ std::string label_of(const PackageInfo &p) {
   return p.version.empty() ? name : name + " " + p.version;
 }
 
+std::string package_label(const std::string &id) {
+  PackageInfo p;
+  return library->package(id, p) ? label_of(p) : id;
+}
+
 // The FM-1 the screen talks about (the unit backed up last): its record, and
 // what its latest backup runs.
 struct Known {
@@ -409,30 +414,36 @@ struct Known {
   Unit unit;
   Firmware running;
   std::string running_label;  // the package it matches, or ""
+  std::string stock_package;  // a stock package of the same build, when running matches none exactly
   char latest[12] = "", first[12] = "";
 };
-Known known_unit() {
+// what_runs false skips reading the app (two full passes on an FM-1 no package
+// matches): a job boot only needs the backup names.
+Known known_unit(bool what_runs = true) {
   Known k;
   FlashHashes flash;
   k.has_unit = library->unit(library->last_unit(), k.unit) && !k.unit.latest_backup.empty();
   if (!k.has_unit) return k;
   loader_messages::backup_name(k.unit.latest_backup.c_str(), k.latest, sizeof k.latest);
   loader_messages::backup_name(k.unit.baseline_backup.c_str(), k.first, sizeof k.first);
-  if (library->backup(k.unit.latest_backup, flash) && flash.size() == kSectors)
-    k.running = library->identify_app(std::vector<Hash>(flash.begin() + kAppStart / kSector,
-                                                        flash.begin() + kAppEnd / kSector));
-  if (k.running.known())
+  if (!what_runs || !library->backup(k.unit.latest_backup, flash) || flash.size() != kSectors) return k;
+  const std::vector<Hash> app(flash.begin() + kAppStart / kSector, flash.begin() + kAppEnd / kSector);
+  k.running = library->identify_app(app);
+  if (k.running.known()) {
     for (const std::string &id : library->package_ids()) {
       PackageInfo p;
       if (library->package(id, p) && p.app_sha256 == k.running.app_sha256) k.running_label = label_of(p);
     }
+    return k;
+  }
+  // A factory-programmed FM-1 runs stock without matching M-VAVE's package byte
+  // for byte (issue #39): name it from the build it reads as.
+  std::string identity;
+  if (library->recognise_stock(app, identity, k.stock_package))
+    k.running_label = k.stock_package.empty() ? "M-VAVE stock " + identity.substr(5) : package_label(k.stock_package);
   return k;
 }
 
-std::string package_label(const std::string &id) {
-  PackageInfo p;
-  return library->package(id, p) ? label_of(p) : id;
-}
 
 void refresh_items() {
   const Known k = known_unit();
@@ -443,7 +454,9 @@ void refresh_items() {
     if (library->package(id, p)) pkgs.push_back(p);
   }
   // The running one first, then by name.
-  auto running = [&](const PackageInfo &p) { return k.running.known() && k.running.app_sha256 == p.app_sha256; };
+  auto running = [&](const PackageInfo &p) {
+    return k.running.known() ? k.running.app_sha256 == p.app_sha256 : !k.stock_package.empty() && p.id == k.stock_package;
+  };
   std::sort(pkgs.begin(), pkgs.end(), [&](const PackageInfo &a, const PackageInfo &b) {
     return running(a) != running(b) ? running(a) : label_of(a) < label_of(b);
   });
@@ -552,7 +565,7 @@ struct JobNames {
 JobNames job_names(const JobBoot &j) {
   JobNames n;
   if (!store_ok) return n;
-  const Known k = known_unit();
+  const Known k = known_unit(false);
   strlcpy(n.backup, k.latest, sizeof n.backup);
   if (j.package[0]) n.firmware = package_label(j.package);  // a switch, or its chained backup
   else if (j.kind == JobKind::Resume && k.unit.has_pending) n.firmware = package_label(k.unit.pending.package_id);
@@ -611,7 +624,7 @@ void finish(Installer &inst, const Host &host, const UsbScsi &scsi, const char *
   }
   Unit u;
   const bool pending = library->unit(library->last_unit(), u) && u.has_pending;
-  const Known k = known_unit();
+  const Known k = known_unit(false);
   loader_messages::JobOutcome o = {};
   o.kind = kind;
   o.done = inst.current() == Step::Done;
