@@ -338,12 +338,15 @@ probe:
 # the Mac reads the numbers. Never staged into the site. `make synth-bench` builds;
 # `make flash-synth-bench` also uploads (board in download mode).
 SYNTH_BOARD := waveshare_35
+# Felucca's generated tables, which its sources include by bare name.
+SYNTH_C_FLAGS := -I$(CURDIR)/lib/synth/third_party/fm1-cartridge/third_party/felucca/generated
 SYNTH_BENCH_BUILD := build/$(SYNTH_BOARD)/synth-bench
 SYNTH_BENCH_FQBN = $(subst USBMode=default,USBMode=hwcdc,$(shell python3 -I tools/boards.py fqbn $(SYNTH_BOARD))),CDCOnBoot=cdc
 synth-bench:
 	python3 -I tools/boards.py header $(SYNTH_BOARD) $(BOARD_GEN)/$(SYNTH_BOARD)/board_config.h
 	arduino-cli compile --fqbn $(SYNTH_BENCH_FQBN) --build-property "tools.ctags.path=$(CTAGS_DIR)" \
-		--build-property "compiler.cpp.extra_flags=-DAPP_SYNTH=1 -I$(BOARD_GEN)/$(SYNTH_BOARD) -I$(CURDIR)/firmware/waveshare_169 -I$(CURDIR)/lib/board/src -I$(CURDIR)/lib/host_ui/src" \
+		--build-property "compiler.cpp.extra_flags=-DAPP_SYNTH=1 $(SYNTH_C_FLAGS) -I$(BOARD_GEN)/$(SYNTH_BOARD) -I$(CURDIR)/firmware/waveshare_169 -I$(CURDIR)/lib/board/src -I$(CURDIR)/lib/host_ui/src" \
+		--build-property "compiler.c.extra_flags=$(SYNTH_C_FLAGS)" \
 		--library lib/board --library lib/synth --build-path $(CACHE_ROOT)/$(SYNTH_BOARD)/synth-bench --output-dir $(SYNTH_BENCH_BUILD) firmware/synth_bench
 flash-synth-bench: synth-bench
 	arduino-cli upload --fqbn $(SYNTH_BENCH_FQBN) --input-dir $(SYNTH_BENCH_BUILD) --port $(PORT) firmware/synth_bench
