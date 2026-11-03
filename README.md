@@ -152,14 +152,23 @@ make deploy-site CHANNEL=production  # outrigger.music
 
 - **What gets uploaded:** `make deploy-site` runs `make check`, then uploads the `site/` that the check built from that
   commit (`build/checked/site`). Nothing uncommitted or unpushed goes live, and every upload passed `make check` on that
-  exact commit. Production also waits for Chad's "ship it" in the deploying session's chat.
+  exact commit. When production may go up without Chad: "Shipping to production".
 - **What gets checked first:** `tools/deploy_site.py` refuses a dirty tree, an unpushed HEAD, or production from
   anything but `origin/master`. Before uploading it scans every file again: under Pages' 25 MiB per-file and
   20,000-file limits, and free of `wl82loader.bin` (by name, SHA-256 and 1 KiB pieces). A local copy of the blob is
   required for that scan.
 - **Which commit is live:** each upload carries its commit hash, shown in the Pages dashboard under Workers & Pages,
-  then `outrigger`, then Deployments.
-- **Rollback:** in that Deployments list, open an older production deployment and pick "Rollback to this deployment".
+  then `outrigger`, then Deployments. Every deploy and rollback is also a line in the deploy log,
+  `~/Library/Application Support/outrigger/deploys/deploys.jsonl` (commit, Pages deployment ID, time, session), which
+  every worktree on the Mac shares. `tail -1` of it, filtered by channel, is what that channel serves.
+- **Rollback:** `make rollback-site CHANNEL=production` (or `beta`) puts back the deploy before the live one, in
+  seconds and without `make check`; `COMMIT=<sha>` goes back further. Production uses Cloudflare's own rollback (about
+  a second, no upload; the old Functions come back with the old site). Cloudflare can't roll back a preview, so for
+  beta each deploy keeps what it uploaded (newest 3, beside the log, with SHA-256 sums) and a rollback uploads that copy
+  again. A second rollback goes further back, never forward to the build the first one left. It refuses when the log
+  has no earlier deploy, when the commit isn't one the log can go back to, and when the channel serves something the
+  log didn't deploy (use the dashboard's "Rollback to this deployment" then). Any agent may roll production back the
+  moment it's broken, then tell Chad.
 - **Board reports:** the installer's "Report this board" pop-up (`site/installer/report_form.js`) posts to a Pages
   Function, `functions/api/report.js`, which writes to D1: `outrigger-reports` for production, `outrigger-reports-beta`
   for beta and previews (`wrangler.toml`, schema in `migrations/`). The function and `wrangler.toml` go up with the
@@ -192,24 +201,47 @@ the `wl82loader.bin` scan. A PR that only touches docs, site copy (`site/`), `te
 the firmware builds and gets a licensing scan of `site/` instead. Run `make test` locally while working; it is not a
 gate step, and neither is `make check` (Chad, 2026-11-01). A briefly broken `master` is tolerated: fix forward.
 
+Agents merge their own PRs on green CI, unless the PR is on the critical list below; a critical PR also waits for
+Chad's "ship it" before it reaches production (Chad, 2026-11-03).
+
 **Exception:** a PR that changes the FM-1 loader, the store or flash writes, or the USB host stack (`lib/fm1_loader/`,
 the loader and store code in `firmware/`, `partitions.csv`, `lib/EspUsbHost/`) also passes the hardware smoke check
 below with its own build before merging.
 
 ### Shipping to production
 
-Once per ship (Chad, 2026-11-01), in this order:
+Agents ship production themselves (Chad, 2026-11-03) when all of these hold:
 
-1. **Hardware smoke check** with `master`'s build, the commit about to ship:
-   1. Install it the way a user would: the web installer (`make serve`), from Computer mode, with the app set the
-      ship changes (MIDI Hub if none).
-   2. Put the board back in the rig: hub power brick → hub, hub upstream cable → Waveshare, FM-1 and Launchkey on the
-      hub's USB-C ports.
-   3. Pass when Setup shows the commit, Play's four lines are green with the hub at `USB 8/8`, and playing the
-      Launchkey sounds the FM-1.
-2. **Chad says "ship it"** in the deploying session's chat, after the smoke check passes.
-3. **`make deploy-site CHANNEL=production`** re-runs `make check` on the Mac on the exact commit it uploads
-   ("Publishing the site").
+1. The commit is `origin/master`'s head, and its CI (`ci-ok`) is green.
+2. Beta serves the same commit (`make deploy-site` from it), checked by content: the page and
+   `firmware/<board>/<app set>/manifest.json`'s `version` show the commit, and what the batch changed works there.
+3. Nothing since the commit production serves is on the critical list. Read the batch with
+   `git log --stat <live>..origin/master` (the live commit: the deploy log's last production line).
+
+Then `make deploy-site CHANNEL=production`, check outrigger.music the same way, and say what shipped in the
+session's chat. A broken production gets `make rollback-site CHANNEL=production` first and questions after.
+
+**The critical list.** A batch with any of these waits for Chad's "ship it" in the deploying session's chat:
+
+- the FM-1 loader, the store, flash-erase ranges, or the USB host stack (`lib/fm1_loader/`, the loader and store code
+  in `firmware/`, `partitions.csv`, `lib/EspUsbHost/`);
+- new data collection, privacy copy, emails, accounts or secrets;
+- deploy tooling or server code (`tools/deploy_site.py`, `tools/check.py`, the Makefile's `check`, `deploy-site` and
+  `rollback-site`, `.github/workflows/`, `functions/`, `wrangler.toml`, `migrations/`);
+- releases, tags and announcements.
+
+If a critical batch changes what the firmware does, it also passes the **hardware smoke check** with `master`'s build
+before the "ship it":
+
+1. Install it the way a user would: the web installer (`make serve`), from Computer mode, with the app set the
+   ship changes (MIDI Hub if none).
+2. Put the board back in the rig: hub power brick → hub, hub upstream cable → Waveshare, FM-1 and Launchkey on the
+   hub's USB-C ports.
+3. Pass when Setup shows the commit, Play's four lines are green with the hub at `USB 8/8`, and playing the
+   Launchkey sounds the FM-1.
+
+Non-critical batches skip the smoke check. Every production deploy and rollback lands in the deploy log
+("Publishing the site") with its commit, time and session.
 
 ### Boards
 
