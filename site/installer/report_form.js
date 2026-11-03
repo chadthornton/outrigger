@@ -60,17 +60,19 @@ export function openReportForm({ facts, picked, verdict, installer }) {
   const dialog = h("dialog", { class: "report", "aria-label": "Report this board", on: { close: () => dialog.remove() } }, form);
   document.body.append(dialog);
   dialog.showModal();
-  board.focus();
+  board.focus({ preventScroll: true }); // keep the heading and what-happens-next in view
 
   async function submit() {
     const report = buildReport({ facts, picked, verdict, installer, board: board.value, note: note.value,
       email: email.value, website: website.value });
     const check = validateReport(report);
+    status.classList.remove("report-sending");
     if (!check.ok) {
       status.textContent = check.problems.join(" ");
       return;
     }
     send.disabled = true;
+    status.classList.add("report-sending");
     status.textContent = "Sending…";
     let res;
     let body = {};
@@ -90,6 +92,7 @@ export function openReportForm({ facts, picked, verdict, installer }) {
         h("div", { class: "row" }, h("button", { type: "button", on: { click: () => dialog.close() } }, "Close")));
     }
     send.disabled = false;
+    status.classList.remove("report-sending");
     const why = res?.status === 429 ? "That's a lot of reports from here in one hour. Try again later"
       : body.problems?.length ? body.problems.join(" ") : `It didn't send (${res ? `error ${res.status}` : "no connection"}). Try again`;
     status.textContent = `${why.replace(/\.$/, "")}, or email ${FEEDBACK}.`;

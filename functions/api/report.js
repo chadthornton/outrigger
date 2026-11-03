@@ -36,7 +36,10 @@ async function visitor(db, ip, now) {
 // Testable without Cloudflare: request, a D1 database, and the time in ms.
 export async function handleReport(request, db, now) {
   if (!ORIGIN.test(request.headers.get("origin") || "")) return reply(403, { ok: false, problems: ["Reports come from outrigger.music."] });
-  if (Number(request.headers.get("content-length") || 0) > MAX_BODY) return reply(413, { ok: false, problems: ["The report is too big."] });
+  // The page's fetch always sends a length; without one the body could be any size before it's read.
+  const length = request.headers.get("content-length");
+  if (length === null) return reply(411, { ok: false, problems: ["The report has no length."] });
+  if (Number(length) > MAX_BODY) return reply(413, { ok: false, problems: ["The report is too big."] });
   const raw = await request.text();
   if (raw.length > MAX_BODY) return reply(413, { ok: false, problems: ["The report is too big."] });
   let r;

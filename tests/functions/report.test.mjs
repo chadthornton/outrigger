@@ -17,9 +17,12 @@ const body = (extra = {}) => ({
 });
 
 function post(data, { origin = "https://outrigger.music", ip = IP, raw } = {}) {
-  const headers = { "content-type": "application/json", "cf-connecting-ip": ip };
+  const text = raw ?? JSON.stringify(data);
+  // Cloudflare hands the Function the browser's Content-Length; Node's Request doesn't add one.
+  const headers = { "content-type": "application/json", "cf-connecting-ip": ip,
+    "content-length": String(new TextEncoder().encode(text).length) };
   if (origin) headers.origin = origin;
-  return new Request("https://outrigger.music/api/report", { method: "POST", headers, body: raw ?? JSON.stringify(data) });
+  return new Request("https://outrigger.music/api/report", { method: "POST", headers, body: text });
 }
 
 const send = (db, data, opts = {}) => handleReport(post(data, opts), db, opts.now ?? NOW);
@@ -70,6 +73,14 @@ test("a body over the cap is refused before it's read as JSON", async () => {
   const res = await send(db, null, { raw: `{"board":"${"x".repeat(MAX_BODY)}"}` });
   assert.equal(res.status, 413);
   assert.equal(db.sqlite.prepare("SELECT count(*) AS n FROM reports").get().n, 0);
+});
+
+test("a body with no length is refused unread", async () => {
+  const stream = new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode(JSON.stringify(body()))); c.close(); } });
+  const req = new Request("https://outrigger.music/api/report", { method: "POST", body: stream, duplex: "half",
+    headers: { origin: "https://outrigger.music", "cf-connecting-ip": IP } });
+  assert.equal(req.headers.get("content-length"), null);
+  assert.equal((await handleReport(req, fakeD1(), NOW)).status, 411);
 });
 
 test("not JSON, or a report that doesn't validate, is a 400 that says why", async () => {
