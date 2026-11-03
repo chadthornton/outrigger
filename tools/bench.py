@@ -29,7 +29,8 @@ import urllib.error
 import urllib.request
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-WAVESHARES = {"waveshare-1": "d8:3b:da:a0:67:d0", "waveshare-2": "a0:85:e3:f0:a2:3c"}
+# Chad's labels on the boards (checked 2026-11-03).
+WAVESHARES = {"waveshare-1": "a0:85:e3:f0:a2:3c", "waveshare-2": "d8:3b:da:a0:67:d0"}
 FM1_1_UNIT = "69bb070aaa87bd10"  # FM-1-1, Chad's main FM-1: the bench never switches it
 JOB_TIMEOUT_S = 20 * 60          # a switch chain is a backup, then an install: minutes each
 REFUSED_S = 15                   # a hold the Loader accepts restarts the board within a second or two
