@@ -37,6 +37,7 @@ class StockScan {
   bool several_ = false;   // two different bare identities
   bool felucca_ = false;   // a "FELUCCA" or "ota-FM-1_" marker
   bool table_ = false;     // the area starts with a JieLi file table
+  uint32_t end_ = 0;       // where its files end, in the area
 };
 
 }  // namespace fm1_loader

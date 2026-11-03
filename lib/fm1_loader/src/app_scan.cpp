@@ -16,6 +16,8 @@ constexpr size_t kIdLen = 8;                 // "FM-1_" and three digits
 
 bool at(const uint8_t *p, const char *s) { return memcmp(p, s, strlen(s)) == 0; }
 
+uint32_t u32(const uint8_t *p) { return p[0] | p[1] << 8 | p[2] << 16 | uint32_t(p[3]) << 24; }
+
 bool identity_at(const uint8_t *p) {
   if (!at(p, "FM-1_")) return false;
   for (size_t i = 5; i < kIdLen; ++i)
@@ -37,7 +39,13 @@ void StockScan::feed(const uint8_t *data, size_t len) {
     memcpy(w, tail_, tail_len_);
     memcpy(w + tail_len_, data + i, kBlock);
     decrypt_app(w + tail_len_, kBlock, offset_);
-    if (offset_ == 0 && at(w + 16, kTable)) table_ = true;
+    if (offset_ == 0 && at(w + 16, kTable)) {
+      // The first entry spans every file: offset (in the area, high byte a flag)
+      // and length. What lies past it is build data that names nothing.
+      const uint32_t off = u32(w + 8) & 0x00FFFFFF, flen = u32(w + 12);
+      table_ = true;
+      end_ = off + flen < kAppLen ? off + flen : kAppLen;
+    }
     const size_t n = tail_len_ + kBlock;
     scan(w, n);
     offset_ += kBlock;
@@ -47,11 +55,13 @@ void StockScan::feed(const uint8_t *data, size_t len) {
 }
 
 // Looks at every match that ends in this block (the tail's bytes were scanned
-// with the block before, but stay as context for "ota-").
+// with the block before, but stay as context for "ota-") and inside the files.
 void StockScan::scan(const uint8_t *p, size_t len) {
-  for (size_t i = 0; i + kIdLen <= len; ++i) {
-    if (i + sizeof kFelucca - 1 > tail_len_ && i + sizeof kFelucca - 1 <= len && at(p + i, kFelucca)) felucca_ = true;
-    if (i + kIdLen <= tail_len_ || !identity_at(p + i)) continue;
+  const uint32_t start = offset_ - uint32_t(tail_len_);  // where p is in the area
+  auto counts = [&](size_t i, size_t n) { return i + n <= len && i + n > tail_len_ && start + i + n <= end_; };
+  for (size_t i = 0; i < len; ++i) {
+    if (counts(i, sizeof kFelucca - 1) && at(p + i, kFelucca)) felucca_ = true;
+    if (!counts(i, kIdLen) || !identity_at(p + i)) continue;
     if (i >= 4 && at(p + i - 4, kOta)) {
       felucca_ = true;  // Felucca's update record names the stock build it replaced
     } else if (!id_[0]) {
