@@ -245,11 +245,17 @@ Non-critical batches skip the smoke check. Every production deploy and rollback 
 
 ### Boards
 
-There are three: Waveshare-1 (1.69", MAC `a0:85:e3:f0:a2:3c`), Waveshare-2 (1.69", MAC `d8:3b:da:a0:67:d0`)
-and Board-3 (Waveshare 3.5", MAC `44:bd:8d:61:2b:28`). The names follow Chad's labels on the boards (checked
-2026-11-03; they had been recorded the other way round). A session books a board and the Mac's USB slot through the orchestrator session
-(`local_3a47bdc2-23d3-4414-b549-9e1e85c6718a`), checks the board's MAC before flashing, and reflashes the `master`
-build when done.
+Chad's names (2026-11-03): **Small-V1** (Waveshare 1.69", the older revision, usually on the rig), **Small-V2** (1.69"
+with the V2 sticker), **Big-S3** (Waveshare 3.5" S3), **Big-P4** (the Synth track's 3.5" P4), and the FM-1s **FM-A**
+and **FM-B**. Their MACs and unit IDs live in the device registry, outside this public repo
+(`~/Library/Application Support/outrigger/devices.json`; the shape is `tools/devices.example.json`).
+
+- **Tools ask for a device by name** and refuse any other: `tools/port_for.py Small-V2` finds its port,
+  `tools/wait_for_board.sh Small-V2` waits for it, and `tools/bench.py --board Small-V2 --fm1 FM-B` drives the bench.
+- **Wiping any of them is fine** (Chad, 2026-11-03). The check only makes sure a session has the device it asked for.
+- **Every esptool MAC read ends with a hard reset,** so no board, another session's included, is left in download mode.
+- A session books a board and the Mac's USB slot through the orchestrator session, and reflashes the `master` build
+  when done.
 
 An app also lands with its row in the mode table, its claims and tests in the broker, its NVS namespace with a `schema`
 key, and its build flag (`docs/architecture.md`, "How an app lands on `master`"). Guarded work (anything that writes the

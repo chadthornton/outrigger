@@ -129,6 +129,7 @@ test: build/check_package build/test_fm1_interop build/test_touch_map build/test
 	./build/test_fm1_interop build/interop
 	python3 -I tools/check_partitions.py $(SKETCH)/partitions.csv
 	python3 -I tests/test_boards.py
+	python3 -I tests/test_devices.py
 	python3 -I tests/installer/test_tables.py
 	$(TOOLS_PY) tests/installer/test_store_template.py
 	node --test tests/installer/*.test.mjs
