@@ -82,7 +82,7 @@ class FakeBoard:
             l = self.labels[self.selected]
             plan = {"item": self.selected, "lines": [f"Switches from {self.running}.", "Keeps your data."],
                     "hold": f"switch to {l}", "can_act": not self.plan_blocked and l != self.running}
-        return {"uptime_ms": int((self.t - self.boot_at) * 1000),
+        return {"uptime_ms": int((self.t - self.boot_at) * 1000), "build": {"commit": "abc1234"},
                 "usb": {"running": True, "mode": "load" if self.job else "play"},
                 "devices": self._devices(),
                 "firmware": {"title": self.title, "lines": [""] * 6, "items": items, "plan": plan,

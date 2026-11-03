@@ -49,14 +49,14 @@ extern char last_crash[3][40];  // app.cpp: the last abnormal reset, if any
 #if BENCH
 // A bench build answers under its own name: tools/soak_watch.py and the rig's
 // bookmarks reach fm1hub.local, never the bench (Makefile, BENCH=1).
-static const char kHostname[] = "fm1bench";
-static const char kMdnsName[] = "fm1bench.local";
-static const char kSetupSsid[] = "fm1bench-setup";
+#define WEB_HOST "fm1bench"
 #else
-static const char kHostname[] = "fm1hub";
-static const char kMdnsName[] = "fm1hub.local";
-static const char kSetupSsid[] = "fm1hub-setup";
+#define WEB_HOST "fm1hub"
 #endif
+// A macro too, so the setup page's text names the board's own address.
+static const char kHostname[] = WEB_HOST;
+static const char kMdnsName[] = WEB_HOST ".local";
+static const char kSetupSsid[] = WEB_HOST "-setup";
 
 // ---------- The log: one ring per producing task, drained by the server task ----------
 static web_core::LineRing<32> *usb_ring;
@@ -324,19 +324,19 @@ tick();setInterval(tick,1000);
 
 static const char kSetupHtml[] = R"HTML(<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>fm1hub setup</title>
+<title>)HTML" WEB_HOST R"HTML( setup</title>
 <style>body{font:16px system-ui;margin:16px;max-width:28em}input,select,button{font:inherit;width:100%;margin:6px 0;padding:6px}</style>
-</head><body><h3>Put fm1hub on your Wi-Fi</h3>
+</head><body><h3>Put )HTML" WEB_HOST R"HTML( on your Wi-Fi</h3>
 <select id="ssid"></select><input id="pass" type="password" placeholder="Password">
 <button id="go">Join</button><p id="msg">The hub saves this network and joins it. Your phone may drop off this
-hotspot; then open <b>http://fm1hub.local</b> on the same Wi-Fi as the hub.</p>
+hotspot; then open <b>http://)HTML" WEB_HOST R"HTML(.local</b> on the same Wi-Fi as the hub.</p>
 <script>
 const $=id=>document.getElementById(id);
 fetch('/setup/scan').then(r=>r.json()).then(j=>{for(const n of j.nets){const o=document.createElement('option');
  o.value=n.ssid;o.textContent=`${n.ssid} (${n.rssi} dBm)`;$('ssid').appendChild(o)}});
 $('go').onclick=async()=>{$('msg').textContent='Joining...';try{const r=await fetch('/setup/join',{method:'POST',
  body:JSON.stringify({ssid:$('ssid').value,pass:$('pass').value})});$('msg').textContent=(await r.json()).msg}
- catch(e){$('msg').textContent='The hotspot dropped, as expected. Open http://fm1hub.local on your Wi-Fi.'}};
+ catch(e){$('msg').textContent='The hotspot dropped, as expected. Open http://)HTML" WEB_HOST R"HTML(.local on your Wi-Fi.'}};
 </script></body></html>
 )HTML";
 
@@ -627,7 +627,7 @@ static esp_err_t on_setup_join(httpd_req_t *req) {
     creds_pending = true;
   }
   static const char kOk[] =
-      "{\"msg\":\"Joining. If it works, the hub's settings page shows its address; open http://fm1hub.local.\"}";
+      "{\"msg\":\"Joining. If it works, the hub's settings page shows its address; open http://" WEB_HOST ".local.\"}";
   return send_json(req, kOk, sizeof kOk - 1);
 }
 
