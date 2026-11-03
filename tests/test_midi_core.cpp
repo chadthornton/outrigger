@@ -176,7 +176,15 @@ static void test_router() {
   if (r.route(kLaunchkey, 0, 0x9, 0x90, 60, 100, p, &why) != 0 || why != 'n') {
     printf("FAIL router sends after the FM-1 left\n"); ++failures;
   }
+  // What /status reports per device: known, and in which role.
+  midi_core::Role role = midi_core::Role::Target;
+  if (!r.knows(kLaunchkey, role) || role != midi_core::Role::Controller) {
+    printf("FAIL router doesn't report the Launchkey as a known controller\n"); ++failures;
+  }
   r.device_disconnected(kLaunchkey);
+  if (r.knows(kLaunchkey, role) || r.knows(0, role) || r.knows(200, role)) {
+    printf("FAIL router reports a gone or invalid address as known\n"); ++failures;
+  }
   r.device_connected(kFm1, 0x1209, 0x0001);
   if (r.route(kLaunchkey, 0, 0x9, 0x90, 60, 100, p) != 0) {
     printf("FAIL departed controller still routed\n"); ++failures;

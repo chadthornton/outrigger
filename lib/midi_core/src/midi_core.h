@@ -44,6 +44,8 @@ class Router {
   void device_connected(uint8_t address, uint16_t vid, uint16_t pid);
   void device_disconnected(uint8_t address);
   bool is_target(uint8_t address) const;
+  // True when address is connected, with its role (what /status shows).
+  bool knows(uint8_t address, Role &role) const;
   // Returns the address to send packet to, or 0 to send nothing. Never returns
   // an address that isn't a connected FM-1, so a caller can't fall through to
   // a library's "any device" default.
