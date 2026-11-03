@@ -4,6 +4,7 @@
     tools/deploy_site.py guard <channel>             refuse early, before make check spends minutes
     tools/deploy_site.py deploy <channel> <site dir>  stage, check and upload a site make check built
                                                      (build/checked/site; its commit in build/checked/commit)
+    tools/deploy_site.py rollback <channel> [commit]  put the deploy before the live one back (or that commit's)
 
 Channels: production (outrigger.music, from origin/master only) and beta
 (beta.outrigger.music, any pushed commit). `make deploy-site` runs both steps
@@ -14,15 +15,28 @@ config (wrangler.toml, with the D1 bindings) go up with the site, from the same
 checked commit: wrangler reads them from its working directory, so it runs in
 the staging folder, never in the worktree.
 
+Rollback: every deploy and rollback is a line in the deploy log (DEPLOYS, shared
+by every worktree), with its commit, Pages deployment ID, time and session.
+Production rolls back through Cloudflare's own rollback, which only takes
+production deployments: seconds, no upload, and the old Functions come back with
+the old site. Beta can't, so each deploy keeps what it uploaded (site, functions/,
+wrangler.toml, with SHA-256 sums) and a beta rollback uploads that copy again.
+Neither re-runs make check: what goes back up already passed it.
+
 Credentials: ~/.config/cloudflare/outrigger-pages.env (CLOUDFLARE_API_TOKEN with
 Account > Cloudflare Pages > Edit and Account > D1 > Edit, and
 CLOUDFLARE_ACCOUNT_ID). Never printed.
 """
+import hashlib
 import json
 import os
 import shutil
 import subprocess
 import sys
+import time
+import urllib.error
+import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -38,6 +52,12 @@ WRANGLER = "wrangler@4.151.1"
 ENV_FILE = Path.home() / ".config/cloudflare/outrigger-pages.env"
 # The upload's working directory: site/, functions/ and wrangler.toml, as in the repo.
 STAGE = ROOT / "build/pages"
+# The deploy log and beta's kept copies, outside build/ so every worktree sees the same ones.
+DEPLOYS = Path.home() / "Library/Application Support/outrigger/deploys"
+KEEP = 3  # kept copies per channel
+SUMS = "SHA256SUMS"
+API = "https://api.cloudflare.com/client/v4/accounts/{account}/pages/projects/" + PROJECT
+URLS = {"production": "https://outrigger.music", "beta": "https://beta.outrigger.music"}
 # Cloudflare Pages limits (developers.cloudflare.com/pages/platform/limits/).
 MAX_FILE = 25 * 1024 * 1024
 MAX_FILES = 20000
@@ -128,6 +148,90 @@ def stage_root(checked, dst):
     return missing
 
 
+def live_history(entries, channel):
+    """The channel's deploys that are still in line to be live, oldest first; the last one is live.
+
+    A deploy goes on top (replacing the top if it is the same commit). A rollback takes
+    off everything above its target, so a second rollback goes further back instead of
+    forward to the build the first one rolled away from."""
+    stack = []
+    for e in entries:
+        if e["channel"] != channel:
+            continue
+        if e["action"] == "rollback":
+            while stack and stack[-1]["commit"] != e["commit"]:
+                stack.pop()
+            if stack:
+                stack.pop()
+        elif stack and stack[-1]["commit"] == e["commit"]:
+            stack.pop()
+        stack.append(e)
+    return stack
+
+
+def rollback_target(entries, channel, live, commit=None):
+    """(entry to put back, None) or (None, why not). live: the commit Cloudflare says is live;
+    commit: a full or 7+ character commit to go back to, instead of the one before live."""
+    if channel not in BRANCHES:
+        return None, f"unknown channel {channel!r}; use production or beta"
+    stack = live_history(entries, channel)
+    if stack and stack[-1]["commit"] != live:
+        return None, (f"{channel} serves {live[:7]}, but the deploy log's last {channel} deploy is "
+                      f"{stack[-1]['commit'][:7]}; something deployed around the log. Roll back in the Pages dashboard")
+    if commit is None:
+        if len(stack) < 2:
+            return None, f"no previous {channel} deployment in the deploy log to roll back to"
+        return stack[-2], None
+    if len(commit) < 7 or not any(e["commit"].startswith(commit) for e in stack):
+        return None, f"unknown commit {commit!r}: not a {channel} deploy the log can go back to"
+    if stack[-1]["commit"].startswith(commit):
+        return None, f"{commit} is already live on {channel}"
+    return next(e for e in reversed(stack[:-1]) if e["commit"].startswith(commit)), None
+
+
+def read_log(path):
+    if not path.is_file():
+        return []
+    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
+
+def append_log(path, entry):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a") as f:
+        f.write(json.dumps(entry, sort_keys=True) + "\n")
+
+
+def tree_sums(root):
+    return {str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest()
+            for p in sorted(root.rglob("*")) if p.is_file() and p.name != SUMS}
+
+
+def keep(staged, channel_dir, commit, count=KEEP):
+    """Copy what was uploaded (site/, functions/, wrangler.toml) to channel_dir/<commit>, with
+    its SHA-256 sums; keep the newest count copies. Returns the copy."""
+    dst = channel_dir / commit
+    shutil.rmtree(dst, ignore_errors=True)
+    shutil.copytree(staged, dst)
+    (dst / SUMS).write_text(json.dumps({"kept": time.time_ns(), "files": tree_sums(dst)}, indent=1))
+    copies = sorted((json.loads((d / SUMS).read_text())["kept"], d) for d in channel_dir.iterdir()
+                    if (d / SUMS).is_file())
+    for _, old in copies[:-count]:
+        shutil.rmtree(old)
+    return dst
+
+
+def kept_problems(kept):
+    """Everything that differs between a kept copy and the sums taken when it was kept."""
+    if not (kept / SUMS).is_file():
+        return [f"no kept copy at {kept}"]
+    want = json.loads((kept / SUMS).read_text())["files"]
+    have = tree_sums(kept)
+    problems = [f"{name} is missing" for name in sorted(want.keys() - have.keys())]
+    problems += [f"{name} was not in the deploy" for name in sorted(have.keys() - want.keys())]
+    problems += [f"{name} has changed" for name in sorted(want.keys() & have.keys()) if want[name] != have[name]]
+    return problems
+
+
 def git(*args, cwd=ROOT):
     run = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True)
     if run.returncode:
@@ -165,6 +269,54 @@ def load_credentials():
     return env
 
 
+def api(env, path="", method="GET"):
+    """A Pages API call for the project; its result."""
+    req = urllib.request.Request(API.format(account=env["CLOUDFLARE_ACCOUNT_ID"]) + path, method=method,
+                                 headers={"Authorization": f"Bearer {env['CLOUDFLARE_API_TOKEN']}"})
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            body = json.load(resp)
+    except urllib.error.HTTPError as e:
+        body = json.loads(e.read() or b"{}")
+    if not body.get("success"):
+        fail(f"Pages API {method} {path or '/'} failed: {body.get('errors')}")
+    return body["result"]
+
+
+def commit_of(deployment):
+    return deployment["deployment_trigger"]["metadata"]["commit_hash"]
+
+
+def live_deployment(env, channel):
+    """The deployment the channel serves: production's canonical one, or the beta branch's newest."""
+    if channel == "production":
+        return api(env)["canonical_deployment"]
+    for d in api(env, "/deployments?env=preview&per_page=25"):
+        if d["deployment_trigger"]["metadata"].get("branch") == BRANCHES[channel] \
+                and d["latest_stage"]["status"] == "success":
+            return d
+    fail(f"no successful {channel} deployment on Pages")
+
+
+def log_entry(action, channel, deployment, **extra):
+    return dict(action=action, channel=channel, commit=commit_of(deployment), deployment=deployment["id"],
+                time=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                session=os.environ.get("CLAUDE_CODE_SESSION_ID", "unknown"), **extra)
+
+
+def upload(env, staged, channel, commit, message):
+    run = subprocess.run(["npx", "--yes", WRANGLER, "pages", "deploy", "site",
+                          "--project-name", PROJECT, "--branch", BRANCHES[channel],
+                          "--commit-hash", commit, "--commit-message", message,
+                          "--commit-dirty=false"], env=env, cwd=staged)
+    if run.returncode:
+        fail(f"wrangler failed (exit {run.returncode}); its output is above")
+    live = live_deployment(env, channel)
+    if commit_of(live) != commit:
+        fail(f"uploaded {commit[:7]}, but {channel} serves {commit_of(live)[:7]}; check the Pages dashboard")
+    return live
+
+
 def deploy(channel, site):
     head = guard(channel)
     problem = built_from_problem(site, head)
@@ -174,14 +326,41 @@ def deploy(channel, site):
     if problems:
         fail("refusing to upload:\n  " + "\n  ".join(problems))
     env = load_credentials()
-    upload = subprocess.run(["npx", "--yes", WRANGLER, "pages", "deploy", "site",
-                    "--project-name", PROJECT, "--branch", BRANCHES[channel],
-                    "--commit-hash", head, "--commit-message", git("log", "-1", "--format=%s", head),
-                    "--commit-dirty=false"], env=env, cwd=STAGE)
-    if upload.returncode:
-        fail(f"wrangler failed (exit {upload.returncode}); its output is above")
-    url = "https://outrigger.music" if channel == "production" else "https://beta.outrigger.music"
-    print(f"deployed {head[:7]} to {channel}: {url}")
+    log = DEPLOYS / "deploys.jsonl"
+    if not live_history(read_log(log), channel):
+        # The first deploy the log sees: note what it replaces, so it can be rolled back to.
+        append_log(log, log_entry("baseline", channel, live_deployment(env, channel)))
+    live = upload(env, STAGE, channel, head, git("log", "-1", "--format=%s", head))
+    keep(STAGE, DEPLOYS / channel, head)
+    append_log(log, log_entry("deploy", channel, live))
+    print(f"deployed {head[:7]} to {channel}: {URLS[channel]} (deployment {live['id']}; logged in {log})")
+
+
+def rollback(channel, commit=None):
+    """Put the deploy before the live one (or commit's) back on channel."""
+    if channel not in BRANCHES:
+        fail(f"unknown channel {channel!r}; use production or beta")
+    env = load_credentials()
+    log = DEPLOYS / "deploys.jsonl"
+    live = live_deployment(env, channel)
+    target, problem = rollback_target(read_log(log), channel, commit_of(live), commit)
+    if problem:
+        fail(problem)
+    if channel == "production":
+        # Cloudflare points production back at that deployment: no upload, its Functions with it.
+        api(env, f"/deployments/{target['deployment']}/rollback", method="POST")
+        now = live_deployment(env, channel)
+        if now["id"] != target["deployment"]:
+            fail(f"rolled back, but production serves deployment {now['id']}; check the Pages dashboard")
+    else:
+        kept = DEPLOYS / channel / target["commit"]
+        problems = kept_problems(kept)
+        if problems:
+            fail(f"can't roll {channel} back to {target['commit'][:7]}:\n  " + "\n  ".join(problems))
+        now = upload(env, kept, channel, target["commit"], f"Rollback to {target['commit'][:7]}")
+    append_log(log, log_entry("rollback", channel, now, **{"from": commit_of(live)}))
+    print(f"rolled {channel} back from {commit_of(live)[:7]} to {target['commit'][:7]}: {URLS[channel]} "
+          f"serves {target['commit'][:7]} (deployment {now['id']}; logged in {log})")
 
 
 def main():
@@ -190,8 +369,10 @@ def main():
         guard(args[1])
     elif len(args) == 3 and args[0] == "deploy":
         deploy(args[1], Path(args[2]).resolve())
+    elif len(args) in (2, 3) and args[0] == "rollback":
+        rollback(*args[1:])
     else:
-        fail(__doc__.strip().splitlines()[2].strip())
+        fail("usage:\n" + "\n".join(__doc__.strip().splitlines()[2:6]))
 
 
 if __name__ == "__main__":

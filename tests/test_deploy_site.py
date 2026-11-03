@@ -171,5 +171,146 @@ class StageTest(unittest.TestCase):
             self.assertIn("wrangler.toml", missing[1])
 
 
+def entry(action, commit, channel="production", deployment=None, **kw):
+    return dict(action=action, channel=channel, commit=commit * 40 if len(commit) == 1 else commit,
+                deployment=deployment or f"dep-{commit}", time="2026-11-03T00:00:00Z", session="s", **kw)
+
+
+class RollbackTargetTest(unittest.TestCase):
+    """The deploy log's live history per channel, and which entry a rollback goes back to."""
+    def target(self, entries, live, channel="production", commit=None):
+        return deploy_site.rollback_target(entries, channel, live * 40 if len(live) == 1 else live, commit)
+
+    def test_goes_back_to_the_deploy_before_the_live_one(self):
+        log = [entry("deploy", "a"), entry("deploy", "b")]
+        target, problem = self.target(log, "b")
+        self.assertIsNone(problem)
+        self.assertEqual(target["deployment"], "dep-a")
+
+    def test_a_baseline_counts_as_a_previous_deployment(self):
+        log = [entry("baseline", "a"), entry("deploy", "b")]
+        self.assertEqual(self.target(log, "b")[0]["commit"], "a" * 40)
+
+    def test_no_previous_deployment_refused(self):
+        self.assertIn("no previous", self.target([entry("deploy", "a")], "a")[1])
+        self.assertIn("no previous", self.target([], "a")[1])
+
+    def test_other_channels_deploys_do_not_count(self):
+        log = [entry("deploy", "a", channel="beta"), entry("deploy", "b")]
+        self.assertIn("no previous", self.target(log, "b")[1])
+
+    def test_unknown_channel_refused(self):
+        self.assertIn("channel", self.target([entry("deploy", "a"), entry("deploy", "b")], "b", channel="staging")[1])
+
+    def test_a_second_rollback_goes_further_back_not_forward_to_the_bad_build(self):
+        log = [entry("deploy", "a"), entry("deploy", "b"), entry("deploy", "c"),
+               entry("rollback", "b", **{"from": "c" * 40})]
+        self.assertEqual(self.target(log, "b")[0]["commit"], "a" * 40)
+
+    def test_a_deploy_after_a_rollback_rolls_back_to_the_good_build(self):
+        log = [entry("deploy", "a"), entry("deploy", "b"), entry("rollback", "a", **{"from": "b" * 40}),
+               entry("deploy", "c")]
+        self.assertEqual(self.target(log, "c")[0]["commit"], "a" * 40)
+
+    def test_redeploying_the_live_commit_does_not_make_it_its_own_previous(self):
+        log = [entry("deploy", "a"), entry("deploy", "b"), entry("deploy", "b", deployment="dep-b2")]
+        self.assertEqual(self.target(log, "b")[0]["commit"], "a" * 40)
+
+    def test_live_commit_that_is_not_the_logs_last_refused(self):
+        """Someone deployed around the log (the dashboard, an old checkout): don't guess."""
+        log = [entry("deploy", "a"), entry("deploy", "b")]
+        self.assertIn("deploy log", self.target(log, "c")[1])
+
+    def test_named_commit_rolls_back_past_several(self):
+        log = [entry("deploy", "a"), entry("deploy", "b"), entry("deploy", "c")]
+        self.assertEqual(self.target(log, "c", commit="aaaaaaa")[0]["deployment"], "dep-a")
+
+    def test_unknown_commit_refused(self):
+        log = [entry("deploy", "a"), entry("deploy", "b")]
+        self.assertIn("unknown commit", self.target(log, "b", commit="ddddddd")[1])
+
+    def test_rolled_away_from_commit_is_no_longer_a_target(self):
+        log = [entry("deploy", "a"), entry("deploy", "b"), entry("deploy", "c"),
+               entry("rollback", "a", **{"from": "c" * 40})]
+        self.assertIn("no previous", self.target(log, "a")[1])
+        self.assertIn("unknown commit", self.target(log, "a", commit="bbbbbbb")[1])
+
+    def test_naming_the_live_commit_refused(self):
+        log = [entry("deploy", "a"), entry("deploy", "b")]
+        self.assertIn("already live", self.target(log, "b", commit="bbbbbbb")[1])
+
+    def test_too_short_a_commit_refused(self):
+        log = [entry("deploy", "a"), entry("deploy", "b")]
+        self.assertIn("unknown commit", self.target(log, "b", commit="a")[1])
+
+
+class DeployLogTest(unittest.TestCase):
+    def test_appends_and_reads_back_in_order(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp, "sub", "deploys.jsonl")
+            deploy_site.append_log(log, entry("deploy", "a"))
+            deploy_site.append_log(log, entry("deploy", "b"))
+            self.assertEqual([e["commit"][0] for e in deploy_site.read_log(log)], ["a", "b"])
+
+    def test_a_missing_log_reads_empty(self):
+        self.assertEqual(deploy_site.read_log(Path(tempfile.gettempdir(), "no-such-deploys.jsonl")), [])
+
+
+class KeptCopyTest(unittest.TestCase):
+    """Beta can't use Cloudflare's rollback, so each deploy keeps what it uploaded, with SHA-256 sums."""
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.staged = self.root / "pages"
+        (self.staged / "site").mkdir(parents=True)
+        (self.staged / "site" / "index.html").write_text("page")
+        (self.staged / "functions" / "api").mkdir(parents=True)
+        (self.staged / "functions" / "api" / "report.js").write_text("fn")
+        (self.staged / "wrangler.toml").write_text("toml")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def keep(self, commit):
+        return deploy_site.keep(self.staged, self.root / "kept" / "beta", commit * 40)
+
+    def test_kept_copy_checks_out(self):
+        kept = self.keep("a")
+        self.assertEqual(deploy_site.kept_problems(kept), [])
+        self.assertTrue((kept / "functions" / "api" / "report.js").is_file())
+        self.assertTrue((kept / "wrangler.toml").is_file())
+
+    def test_changed_file_refused(self):
+        kept = self.keep("a")
+        (kept / "site" / "index.html").write_text("tampered")
+        self.assertTrue(any("index.html" in p for p in deploy_site.kept_problems(kept)))
+
+    def test_missing_file_refused(self):
+        kept = self.keep("a")
+        (kept / "wrangler.toml").unlink()
+        self.assertTrue(any("wrangler.toml" in p for p in deploy_site.kept_problems(kept)))
+
+    def test_extra_file_refused(self):
+        kept = self.keep("a")
+        (kept / "site" / "extra.js").write_text("x")
+        self.assertTrue(any("extra.js" in p for p in deploy_site.kept_problems(kept)))
+
+    def test_no_kept_copy_refused(self):
+        self.assertTrue(deploy_site.kept_problems(self.root / "kept" / "beta" / ("c" * 40)))
+
+    def test_keeps_only_the_newest_few(self):
+        for c in "abcd":
+            self.keep(c)
+        kept = sorted(p.name[0] for p in (self.root / "kept" / "beta").iterdir())
+        self.assertEqual(kept, ["b", "c", "d"])
+
+    def test_keeping_a_commit_again_replaces_its_copy(self):
+        self.keep("a")
+        (self.staged / "site" / "index.html").write_text("page 2")
+        kept = self.keep("a")
+        self.assertEqual((kept / "site" / "index.html").read_text(), "page 2")
+        self.assertEqual(deploy_site.kept_problems(kept), [])
+
+
 if __name__ == "__main__":
     unittest.main()
