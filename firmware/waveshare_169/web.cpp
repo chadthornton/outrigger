@@ -699,6 +699,7 @@ static esp_err_t on_bench_command(httpd_req_t *req) {
 }
 
 bool web_take_bench_command(web_core::BenchCommand &out) {
+  if (!started) return false;  // Computer mode never runs web_begin: no state_mutex to take
   Lock l;
   if (!bench_has_pending) return false;
   out = bench_pending;
