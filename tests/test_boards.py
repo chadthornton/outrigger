@@ -228,5 +228,34 @@ class OutputTest(unittest.TestCase):
             self.assertEqual(p.read_text(), "b")
 
 
+class BlobTest(unittest.TestCase):
+    """The profile on the wire: tests/boards/blobs.tsv, the cases tests/test_board_blob.cpp runs too."""
+
+    def rows(self):
+        lines = (ROOT / "tests/boards/blobs.tsv").read_text().splitlines()
+        return [line.split("\t") for line in lines if line and not line.startswith("#")]
+
+    def test_the_cases_file_is_current(self):
+        self.assertEqual((ROOT / "tests/boards/blobs.tsv").read_text(), boards.blob_tsv(REAL),
+                         "regenerate: python3 -I tools/boards.py blob-cases")
+
+    def test_boards_py_agrees_with_every_case(self):
+        for name, hexed, code in self.rows():
+            with self.subTest(name):
+                data = bytes.fromhex(hexed)
+                if int(code) in (boards.BLOB_ERRORS["format"], boards.BLOB_ERRORS["crc"]):
+                    with self.assertRaises(ValueError):
+                        boards.unblob(data)
+                    continue
+                found = boards.check({"boards": {"x": boards.unblob(data)}})
+                self.assertEqual(bool(found), int(code) != 0, found)
+
+    def test_a_profile_survives_the_round_trip(self):
+        for bid, b in REAL["boards"].items():
+            with self.subTest(bid):
+                self.assertEqual(boards.blob(boards.unblob(boards.blob(b))), boards.blob(b))
+                self.assertEqual(len(boards.blob(b)), boards.BLOB_SIZE)
+
+
 if __name__ == "__main__":
     unittest.main()

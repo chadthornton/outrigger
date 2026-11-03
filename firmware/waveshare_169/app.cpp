@@ -31,6 +31,8 @@
 #include "diag.h"
 #include "board_config.h"
 #include "board_profile.h"
+#include "board_store.h"
+#include "computer_link.h"
 #include "boot_mode.h"
 #include "broker.h"
 #include "describe.h"
@@ -45,7 +47,6 @@
 #include "web.h"
 #endif
 
-extern const BoardProfile kBoard;
 
 EspUsbHost usb;
 static Preferences prefs;
@@ -532,6 +533,10 @@ static void hand_usb_to_serial_jtag() {
 
 void setup() {
   read_crumbs();
+  // The board's profile: the one stored on it, else this build's (board_store.h).
+  const char *board_from = board_select();
+  // BOOT held 3 s soon after a start: forget it, then Computer mode.
+  board_watch_escape(connect_computer);
   const midi_core::BootMode mode = read_boot_mode();
   prefs.begin("ui", false);
   // An old "typeface" key from builds with a Pixel font stays in NVS, unread.
@@ -544,7 +549,7 @@ void setup() {
   hooks.loader_select = loader_select;
   hooks.loader_act = loader_act;
 #endif
-  ui_begin(kBoard, settings, hooks, firmware);
+  ui_begin(board_profile(), settings, hooks, firmware);
 #if APP_LOADER
   // A job's boot, or the boot after it: the job's screen from the start, not Play.
   if (mode != midi_core::BootMode::Computer)
@@ -572,12 +577,12 @@ void setup() {
     // The USB host is never installed; the port goes to the chip's
     // USB-Serial-JTAG device so the computer can reset it into download mode.
     hand_usb_to_serial_jtag();
-    char info[40];
-    snprintf(info, sizeof info, "Firmware %s", firmware + 2);
+    // The page on outrigger.music can set the board's profile and add firmwares.
+    const bool linked = computer_link_begin(firmware + 2, back_to_host);
+    char info[160];
+    snprintf(info, sizeof info, "Firmware %s\nBoard profile: %s%s", firmware + 2, board_from,
+             linked ? "" : "\nUSB serial didn't start: the installer can't reach this board");
     ui_show_computer_mode(info);
-#if APP_LOADER
-    add_firmware_begin(firmware + 2);  // the page on outrigger.music can add firmwares
-#endif
     return;
   }
 #if APP_LOADER && LOADER_DIAG

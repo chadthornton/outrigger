@@ -49,6 +49,28 @@ A board is a profile, not new code:
 
 `make site` builds every board and the installer lists them all.
 
+## A profile stored on the board
+
+A board can carry its own profile, which overrides the one its build was made with (`lib/board/src/board_blob.h`
+for the format, `firmware/waveshare_169/board_store.h` for the rules). With the board in Computer mode:
+
+```
+build/tools-venv/bin/python tools/board_profile.py <port> get
+build/tools-venv/bin/python tools/board_profile.py <port> set <board id>
+build/tools-venv/bin/python tools/board_profile.py <port> forget
+build/tools-venv/bin/python tools/board_profile.py <port> restart
+```
+
+- **Checked twice.** The board refuses a profile that `tools/boards.py check` would refuse, for the same reasons;
+  both run `tests/boards/blobs.tsv`. It also refuses one for the other PSRAM mode.
+- **It applies at the next start.** Computer mode's screen says which profile is running ("Board profile: stored"
+  or "built in").
+- **When a profile is wrong** (a dark or garbled screen): restart the board (RST), then **hold BOOT for 3 seconds**
+  within 15 seconds. The board forgets the stored profile and comes back in Computer mode on its build's own. Holding
+  BOOT *while* pressing RST gives ROM download mode instead.
+- **A profile that crashes the board** three starts in a row is set aside until it's replaced or forgotten.
+- **A settings reset or a reinstall keeps it**: it lives in its own place in the board's settings.
+
 ## Research
 
 Research from 2026-10-27, done before Chad bought more boards. "Confirmed" means a primary source: a schematic, or a

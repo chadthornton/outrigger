@@ -107,9 +107,11 @@ FM1_TESTS := build/test_fm1_package build/test_fm1_library build/test_fm1_instal
 	build/test_fm1_softkey build/test_fm1_posix build/test_fm1_locked build/test_fm1_library_posix \
 	build/test_fm1_receive
 
-test: build/check_package build/test_fm1_interop build/test_touch_map build/test_panel test-board-configs build/test_midi_core build/test_status build/test_boot_mode build/test_broker build/test_describe build/test_web_core build/test_store_json build/test_loader_messages build/test_bench_writer $(FM1_TESTS) build/receive_pipe fixtures $(TOOLS_PY)
+test: build/check_package build/test_fm1_interop build/test_touch_map build/test_panel build/test_board_blob build/test_profile_link test-board-configs build/test_midi_core build/test_status build/test_boot_mode build/test_broker build/test_describe build/test_web_core build/test_store_json build/test_loader_messages build/test_bench_writer $(FM1_TESTS) build/receive_pipe fixtures $(TOOLS_PY)
 	./build/test_touch_map
 	./build/test_panel
+	./build/test_board_blob tests/boards/blobs.tsv
+	./build/test_profile_link
 	./build/test_midi_core
 	./build/test_status
 	./build/test_boot_mode
@@ -193,20 +195,29 @@ golden: $(GOLDEN_PY) fixtures
 # The touch chip's portrait coordinates turned to the screen's (board.cpp).
 build/test_touch_map: tests/test_touch_map.cpp firmware/waveshare_169/touch_map.h
 	mkdir -p build
-	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -Ifirmware/waveshare_169 -o $@ $<
+	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -Ifirmware/waveshare_169 -Ilib/board/src -o $@ $<
 
 # The panel's MADCTL byte and the touch axes from a profile (board_config_types.h, touch_map.h).
-build/test_panel: tests/test_panel.cpp firmware/waveshare_169/board_config_types.h firmware/waveshare_169/touch_map.h
+build/test_panel: tests/test_panel.cpp lib/board/src/board_config_types.h firmware/waveshare_169/touch_map.h
 	mkdir -p build
-	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -Ifirmware/waveshare_169 -o $@ $<
+	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -Ifirmware/waveshare_169 -Ilib/board/src -o $@ $<
 
 # Every profile's generated board_config.h compiles and makes sense (tests/test_board_config.cpp).
 .PHONY: test-board-configs
-test-board-configs: tests/test_board_config.cpp firmware/waveshare_169/board_config_types.h firmware/boards.json tools/boards.py
+test-board-configs: tests/test_board_config.cpp lib/board/src/board_config_types.h firmware/boards.json tools/boards.py
 	for b in $(ALL_BOARDS); do \
 		python3 -I tools/boards.py header $$b build/board-configs/$$b/board_config.h || exit 1; \
-		$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -Ibuild/board-configs/$$b -Ifirmware/waveshare_169 -Ilib/host_ui/src \
+		$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -Ibuild/board-configs/$$b -Ifirmware/waveshare_169 -Ilib/board/src -Ilib/host_ui/src \
 			-o build/board-configs/$$b/test $< && ./build/board-configs/$$b/test || exit 1; done
+
+# The board profile on the wire (lib/board): the cases boards.py generates, and the Computer-mode commands.
+BOARD_LIB := lib/board/src/board_blob.cpp lib/board/src/board_blob.h lib/board/src/board_config_types.h lib/host_ui/src/board_profile.h
+build/test_board_blob: tests/test_board_blob.cpp $(BOARD_LIB) tests/boards/blobs.tsv
+	mkdir -p build
+	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -Ilib/board/src -Ilib/host_ui/src -o $@ $< lib/board/src/board_blob.cpp
+build/test_profile_link: tests/test_profile_link.cpp lib/board/src/profile_link.cpp lib/board/src/profile_link.h $(BOARD_LIB)
+	mkdir -p build
+	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -Ilib/board/src -Ilib/host_ui/src -o $@ $< lib/board/src/profile_link.cpp lib/board/src/board_blob.cpp
 
 build/test_midi_core: tests/test_midi_core.cpp lib/midi_core/src/midi_core.cpp lib/midi_core/src/midi_core.h
 	mkdir -p build
@@ -301,7 +312,7 @@ build:
 		--build-property "upload.maximum_size=$(APP_SLOT)" \
 		--build-property "compiler.cpp.extra_flags=-I$(VERSION_DIR) -I$(BOARD_GEN)/$(BOARD) -DESP_USB_HOST_MAX_SERIAL_PORTS=0 $(APP_FLAGS_$(APPS)) $(WRITE_FLAGS) -DLV_CONF_INCLUDE_SIMPLE -I$(CURDIR)/firmware/config" \
 		--build-property "compiler.c.extra_flags=-DLV_CONF_INCLUDE_SIMPLE -I$(CURDIR)/firmware/config" \
-		--library lib/midi_core --library lib/EspUsbHost --library lib/host_ui --library lib/platform $(APP_LIBS_$(APPS)) \
+		--library lib/midi_core --library lib/EspUsbHost --library lib/host_ui --library lib/board --library lib/platform $(APP_LIBS_$(APPS)) \
 		--build-path $(CACHE_ROOT)/$(BOARD)/$(APPS)$(BUILD_SUFFIX) --output-dir $(BUILD) $(SKETCH)
 
 build-all:
@@ -318,8 +329,8 @@ probe:
 	$(if $(filter $(BOARD),$(ALL_BOARDS)),,$(error BOARD=$(BOARD); known: $(ALL_BOARDS)))
 	python3 -I tools/boards.py header $(BOARD) $(BOARD_GEN)/$(BOARD)/board_config.h
 	arduino-cli compile --fqbn $(subst USBMode=default,USBMode=hwcdc,$(FQBN)),CDCOnBoot=cdc --build-property "tools.ctags.path=$(CTAGS_DIR)" \
-		--build-property "compiler.cpp.extra_flags=-I$(BOARD_GEN)/$(BOARD) -I$(CURDIR)/firmware/waveshare_169 -I$(CURDIR)/lib/host_ui/src" \
-		--build-path $(CACHE_ROOT)/$(BOARD)/probe --output-dir $(PROBE_BUILD) firmware/board_probe
+		--build-property "compiler.cpp.extra_flags=-I$(BOARD_GEN)/$(BOARD) -I$(CURDIR)/firmware/waveshare_169 -I$(CURDIR)/lib/board/src -I$(CURDIR)/lib/host_ui/src" \
+		--library lib/board --build-path $(CACHE_ROOT)/$(BOARD)/probe --output-dir $(PROBE_BUILD) firmware/board_probe
 	arduino-cli upload --fqbn $(subst USBMode=default,USBMode=hwcdc,$(FQBN)),CDCOnBoot=cdc --input-dir $(PROBE_BUILD) --port $(PORT) firmware/board_probe
 
 # The store partition's first setup: a LittleFS image holding JieLi's loader
@@ -328,7 +339,7 @@ probe:
 # for CONFIRM=erase-store. The board must be in download mode (Computer mode).
 $(TOOLS_PY):
 	python3 -m venv build/tools-venv
-	$(TOOLS_PY) -m pip install -q littlefs-python==0.19.0
+	$(TOOLS_PY) -m pip install -q littlefs-python==0.19.0 pyserial==3.5
 store-image: $(TOOLS_PY) fixtures
 	$(TOOLS_PY) tools/store_image.py $(SKETCH)/partitions.csv build/store/store.bin
 flash-store: store-image

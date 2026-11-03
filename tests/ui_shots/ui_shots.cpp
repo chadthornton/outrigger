@@ -728,7 +728,7 @@ static void run_computer(const SimBoard &b) {
   ui_show_switching("Switching firmware");
   run(100);
   shoot("switching");
-  ui_show_computer_mode("Firmware 4d1d09e+ hub+L");
+  ui_show_computer_mode("Firmware 4d1d09e+ hub+L\nBoard profile: built in (the stored profile crashed 3 starts in a row)");
   run(100);
   shoot("computer");
   ui_set_computer_status("Adding Felucca 8 Patterns 1.6.1_and_sequences_2: 40%");
