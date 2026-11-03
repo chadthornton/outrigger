@@ -9,10 +9,14 @@ Channels: production (outrigger.music, from origin/master only) and beta
 (beta.outrigger.music, any pushed commit). `make deploy-site` runs both steps
 around `make check`, so only a site built from a clean checkout of a committed,
 pushed HEAD goes live. Each upload carries its commit, so the Pages dashboard
-answers "which commit is live?".
+answers "which commit is live?". The Pages Functions (functions/) and their
+config (wrangler.toml, with the D1 bindings) go up with the site, from the same
+checked commit: wrangler reads them from its working directory, so it runs in
+the staging folder, never in the worktree.
 
 Credentials: ~/.config/cloudflare/outrigger-pages.env (CLOUDFLARE_API_TOKEN with
-Account > Cloudflare Pages > Edit, and CLOUDFLARE_ACCOUNT_ID). Never printed.
+Account > Cloudflare Pages > Edit and Account > D1 > Edit, and
+CLOUDFLARE_ACCOUNT_ID). Never printed.
 """
 import json
 import os
@@ -32,6 +36,7 @@ BRANCHES = {"production": "master", "beta": "beta"}
 # At least two weeks old: npm here refuses releases younger than a week.
 WRANGLER = "wrangler@4.151.1"
 ENV_FILE = Path.home() / ".config/cloudflare/outrigger-pages.env"
+# The upload's working directory: site/, functions/ and wrangler.toml, as in the repo.
 STAGE = ROOT / "build/pages"
 # Cloudflare Pages limits (developers.cloudflare.com/pages/platform/limits/).
 MAX_FILE = 25 * 1024 * 1024
@@ -107,6 +112,22 @@ def stage(src, dst):
     shutil.copytree(src, dst, ignore=lambda _, names: [n for n in names if n.startswith(".")])
 
 
+def stage_root(checked, dst):
+    """build/checked's site, functions/ and wrangler.toml into an emptied dst. Returns what's missing."""
+    shutil.rmtree(dst, ignore_errors=True)
+    stage(checked / "site", dst / "site")
+    missing = []
+    if (checked / "functions").is_dir():
+        stage(checked / "functions", dst / "functions")
+    else:
+        missing.append("no functions/ beside the site; run make check")
+    if (checked / "wrangler.toml").is_file():
+        shutil.copyfile(checked / "wrangler.toml", dst / "wrangler.toml")
+    else:
+        missing.append("no wrangler.toml beside the site; run make check")
+    return missing
+
+
 def git(*args, cwd=ROOT):
     run = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True)
     if run.returncode:
@@ -149,15 +170,14 @@ def deploy(channel, site):
     problem = built_from_problem(site, head)
     if problem:
         fail(problem)
-    stage(site, STAGE)
-    problems = site_problems(STAGE, load_wl82_blob())
+    problems = stage_root(site.parent, STAGE) + site_problems(STAGE / "site", load_wl82_blob())
     if problems:
         fail("refusing to upload:\n  " + "\n  ".join(problems))
     env = load_credentials()
-    upload = subprocess.run(["npx", "--yes", WRANGLER, "pages", "deploy", str(STAGE),
+    upload = subprocess.run(["npx", "--yes", WRANGLER, "pages", "deploy", "site",
                     "--project-name", PROJECT, "--branch", BRANCHES[channel],
                     "--commit-hash", head, "--commit-message", git("log", "-1", "--format=%s", head),
-                    "--commit-dirty=false"], env=env)
+                    "--commit-dirty=false"], env=env, cwd=STAGE)
     if upload.returncode:
         fail(f"wrangler failed (exit {upload.returncode}); its output is above")
     url = "https://outrigger.music" if channel == "production" else "https://beta.outrigger.music"

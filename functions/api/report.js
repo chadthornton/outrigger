@@ -1,0 +1,72 @@
+// POST /api/report: the installer's "Report this board" form
+// (site/installer/report_form.js) writes one row into D1 (binding DB:
+// outrigger-reports on outrigger.music, outrigger-reports-beta on beta and
+// previews; wrangler.toml). tools/reports.py reads them.
+//
+// Rate limit without keeping IP addresses: each visitor is a SHA-256 of
+// today's random salt and their address. The salt lives in D1 for the day it
+// was made and is deleted with the day's records, after which a hash can't be
+// tied to an address, or to the same visitor's hash the next day.
+import { validateReport } from "../../site/installer/report.js";
+
+export const MAX_BODY = 16 * 1024;
+export const PER_HOUR = 5;
+export const ALL_PER_HOUR = 60;
+const HOUR = 3600 * 1000;
+const DAY = 24 * HOUR;
+
+// outrigger.music, beta, Pages previews (<hash>.outrigger.pages.dev), and wrangler pages dev on the Mac.
+const ORIGIN = /^(https:\/\/((beta\.)?outrigger\.music|([a-z0-9-]+\.)?outrigger\.pages\.dev)|http:\/\/(localhost|127\.0\.0\.1)(:\d+)?)$/;
+
+const reply = (status, data) => new Response(JSON.stringify(data), {
+  status, headers: { "content-type": "application/json", "cache-control": "no-store" },
+});
+
+const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+
+async function visitor(db, ip, now) {
+  const day = new Date(now).toISOString().slice(0, 10);
+  await db.prepare("DELETE FROM salts WHERE day <> ?").bind(day).run();
+  await db.prepare("INSERT OR IGNORE INTO salts (day, salt) VALUES (?, ?)")
+    .bind(day, hex(crypto.getRandomValues(new Uint8Array(32)))).run();
+  const { salt } = await db.prepare("SELECT salt FROM salts WHERE day = ?").bind(day).first();
+  return hex(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${salt}|${ip}`)));
+}
+
+// Testable without Cloudflare: request, a D1 database, and the time in ms.
+export async function handleReport(request, db, now) {
+  if (!ORIGIN.test(request.headers.get("origin") || "")) return reply(403, { ok: false, problems: ["Reports come from outrigger.music."] });
+  // The page's fetch always sends a length; without one the body could be any size before it's read.
+  const length = request.headers.get("content-length");
+  if (length === null) return reply(411, { ok: false, problems: ["The report has no length."] });
+  if (Number(length) > MAX_BODY) return reply(413, { ok: false, problems: ["The report is too big."] });
+  const raw = await request.text();
+  if (raw.length > MAX_BODY) return reply(413, { ok: false, problems: ["The report is too big."] });
+  let r;
+  try {
+    r = JSON.parse(raw);
+  } catch {
+    return reply(400, { ok: false, problems: ["The report isn't JSON."] });
+  }
+  const { ok, problems } = validateReport(r);
+  if (!ok) return reply(400, { ok: false, problems });
+  if (r.website) return reply(200, { ok: true }); // a bot filled in the hidden field
+
+  await db.prepare("DELETE FROM hits WHERE at <= ?").bind(now - DAY).run();
+  const key = await visitor(db, request.headers.get("cf-connecting-ip") || "", now);
+  const mine = await db.prepare("SELECT count(*) AS n FROM hits WHERE key = ? AND at > ?").bind(key, now - HOUR).first();
+  const all = await db.prepare("SELECT count(*) AS n FROM hits WHERE at > ?").bind(now - HOUR).first();
+  if (mine.n >= PER_HOUR || all.n >= ALL_PER_HOUR) {
+    return reply(429, { ok: false, problems: ["Too many reports in the last hour. Try again later."] });
+  }
+  await db.prepare("INSERT INTO hits (key, at) VALUES (?, ?)").bind(key, now).run();
+
+  const row = await db.prepare(
+    "INSERT INTO reports (created_at, chip, flash_mb, psram_mb, usb_vid, picked, verdict, installer, board, note, email) " +
+    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  ).bind(new Date(now).toISOString(), r.chip || null, r.flash_mb ?? null, r.psram_mb ?? null, r.usb_vid ?? null,
+    r.picked || null, r.verdict || null, r.installer || null, r.board.trim(), r.note || null, r.email || null).run();
+  return reply(200, { ok: true, id: row.meta.last_row_id });
+}
+
+export const onRequestPost = ({ request, env }) => handleReport(request, env.DB, Date.now());

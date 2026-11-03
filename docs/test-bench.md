@@ -7,7 +7,7 @@ Firmware switches run from the Mac against FM-1-2 (Chad's second FM-1), with nob
 
 | Part | Role |
 |---|---|
-| Waveshare-1 (MAC `d8:3b:da:a0:67:d0`) or Waveshare-2 (`a0:85:e3:f0:a2:3c`) | runs the BENCH build; host to FM-1-2 through the hub |
+| Waveshare-1 (MAC `a0:85:e3:f0:a2:3c`) or Waveshare-2 (`d8:3b:da:a0:67:d0`) | runs the BENCH build; host to FM-1-2 through the hub |
 | FM-1-2 (Chad's second FM-1) | the only FM-1 the bench switches or writes. Never FM-1-1, Chad's main FM-1 (unit `69bb070aaa87bd10`) |
 | FM-1 Transporter (XIAO RP2040, Quixotic7/MvaveFM1Unbricker @ `707470a`) | FM-1-2's pristine dump; recovery when the FM-1 can't take the SysEx key |
 

@@ -14,7 +14,7 @@ class FakeBoard:
         self.t = 0.0
         self.labels = list(labels)
         self.running = running
-        self.mac, self.board = "d8:3b:da:a0:67:d0", "waveshare-1"
+        self.mac, self.board = "a0:85:e3:f0:a2:3c", "waveshare-1"
         self.units = [{"id": "0123456789abcdef"}]
         self.last_unit = "0123456789abcdef"  # the FM-1 attached
         self.refuse_holds = False   # the Loader refuses the hold: no restart, a result on the same boot

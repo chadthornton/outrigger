@@ -160,8 +160,13 @@ make deploy-site CHANNEL=production  # outrigger.music
 - **Which commit is live:** each upload carries its commit hash, shown in the Pages dashboard under Workers & Pages,
   then `outrigger`, then Deployments.
 - **Rollback:** in that Deployments list, open an older production deployment and pick "Rollback to this deployment".
+- **Board reports:** the installer's "Report this board" pop-up (`site/installer/report_form.js`) posts to a Pages
+  Function, `functions/api/report.js`, which writes to D1: `outrigger-reports` for production, `outrigger-reports-beta`
+  for beta and previews (`wrangler.toml`, schema in `migrations/`). The function and `wrangler.toml` go up with the
+  site, from the same checked commit (`build/checked/`). Read new reports with `python3 -I tools/reports.py new`
+  (add `beta` for beta's); `forget <id>` deletes a report's email when someone asks.
 - **Credentials:** `~/.config/cloudflare/outrigger-pages.env` holds `CLOUDFLARE_API_TOKEN` (Account, Cloudflare Pages,
-  Edit) and `CLOUDFLARE_ACCOUNT_ID`. wrangler is pinned in `tools/deploy_site.py` and runs through `npx`.
+  Edit; Account, D1, Edit) and `CLOUDFLARE_ACCOUNT_ID`. wrangler is pinned in `tools/deploy_site.py` and runs through `npx`.
 - **Domains:** `outrigger.music` is the project's production custom domain. `beta.outrigger.music` is a custom domain
   whose proxied CNAME points at the beta branch alias, `beta.outrigger.pages.dev`
   ([Cloudflare's branch-domain guide](https://developers.cloudflare.com/pages/how-to/custom-branch-aliases/)). The
@@ -208,8 +213,9 @@ Once per ship (Chad, 2026-11-01), in this order:
 
 ### Boards
 
-There are three: Waveshare-1 (1.69", V2, MAC `D8:3B:DA:A0:67:D0`), Waveshare-2 (1.69", V1, MAC `a0:85:e3:f0:a2:3c`)
-and Board-3 (Waveshare 3.5"). A session books a board and the Mac's USB slot through the orchestrator session
+There are three: Waveshare-1 (1.69", MAC `a0:85:e3:f0:a2:3c`), Waveshare-2 (1.69", MAC `d8:3b:da:a0:67:d0`)
+and Board-3 (Waveshare 3.5", MAC `44:bd:8d:61:2b:28`). The names follow Chad's labels on the boards (checked
+2026-11-03; they had been recorded the other way round). A session books a board and the Mac's USB slot through the orchestrator session
 (`local_3a47bdc2-23d3-4414-b549-9e1e85c6718a`), checks the board's MAC before flashing, and reflashes the `master`
 build when done.
 

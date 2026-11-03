@@ -50,7 +50,7 @@ jobs:
           gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files" -q '.[].filename' > changed.txt
           cat changed.txt
           # Docs and site copy: none of it goes into a firmware build.
-          if grep -Ev '\.md$|^docs/|^site/|^tests/installer/|^\.github/ISSUE_TEMPLATE/' changed.txt; then
+          if grep -Ev '\.md$|^docs/|^site/|^tests/installer/|^tests/functions/|^functions/|^migrations/|^wrangler\.toml$|^\.github/ISSUE_TEMPLATE/' changed.txt; then
             echo "firmware=true" >> "$GITHUB_OUTPUT"
           else
             echo "Only docs and site copy changed: no firmware builds."
@@ -61,6 +61,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # tests/functions run D1's stand-in on node:sqlite (Node 22.13 and later).
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
       - uses: actions/cache@v4
         with:
           path: tests/fixtures

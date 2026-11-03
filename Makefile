@@ -132,7 +132,9 @@ test: build/check_package build/test_fm1_interop build/test_touch_map build/test
 	python3 -I tests/installer/test_tables.py
 	$(TOOLS_PY) tests/installer/test_store_template.py
 	node --test tests/installer/*.test.mjs
+	node --test tests/functions/*.test.mjs
 	python3 -I tests/test_deploy_site.py
+	python3 -I tests/test_reports.py
 	python3 -I tests/test_check.py
 	python3 -I tests/test_bench.py
 	python3 -I tests/test_bench_recover.py
