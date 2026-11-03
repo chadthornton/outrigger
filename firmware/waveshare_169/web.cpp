@@ -861,6 +861,7 @@ static void join(const char *ssid, const char *pass) {
 
 static bool enabled = false;
 void web_set_enabled(bool on) { enabled = on; }
+bool web_running() { return started; }
 
 void web_begin(bool safe_mode) {
   if (started || !enabled) return;  // Remote diagnostics off: no Wi-Fi at all

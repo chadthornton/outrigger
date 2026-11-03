@@ -430,6 +430,7 @@ static void device_refusal(uint8_t address, char *out, size_t len) {
 // What GET /status shows: the frame the screen just drew, every device with
 // its channel cost and the broker's refusal, and the Firmware page. Loop only.
 static void publish_diag(const UiFrame *frame) {
+  if (!web_running()) return;  // Remote diagnostics off: nobody reads it
   static uint32_t last = 0;
   if (frame && millis() - last < 250) return;  // /status is polled once a second
   last = millis();

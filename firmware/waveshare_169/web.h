@@ -43,6 +43,8 @@ struct DiagState {
 // Remote diagnostics (Setup): off, web_begin starts nothing, Wi-Fi included,
 // and the rest do nothing. Set before web_begin.
 void web_set_enabled(bool on);
+// True once web_begin started it: Remote diagnostics on.
+bool web_running();
 void web_begin(bool safe_mode);
 void web_loop(uint32_t now_ms);
 void web_publish(const DiagState &state);
