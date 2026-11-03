@@ -4,11 +4,18 @@
 you, backing it up first.** It runs on a small ESP32-S3 touchscreen board that sits on a powered USB hub next to the
 FM-1. Install it from your browser at **[outrigger.music](https://outrigger.music)**.
 
-- **Status: beta.** Tested on a Waveshare ESP32-S3-Touch-LCD-1.69 with a Novation Launchkey Mini MK4 37. Expect
-  rough edges; firmware switching writes to your FM-1, so read the beta guide first.
+- **Status: beta.** Tested on the Waveshare ESP32-S3-Touch-LCD-1.69 and the Waveshare ESP32-S3-Touch-LCD-3.5, with a
+  Novation Launchkey Mini MK4 37. The installer has a board picker. Expect rough edges; firmware switching writes to
+  your FM-1, so read the beta guide first.
 - **Beta guide:** [`docs/beta/`](docs/beta/01-what-you-need.md), from what you need to
   [what to do if your FM-1 won't boot](docs/beta/06-if-your-fm1-wont-boot.md) and the
   [known issues](docs/beta/07-known-issues.md).
+- **Built on and alongside:** The FM-1 has a lively community, and these are projects we use, learn from or sit next to.
+  - [Felucca](https://github.com/hugelton/felucca) and [felucca-bsp](https://github.com/hugelton/felucca-bsp) (Hügelton Instruments): a custom FM-1 firmware, and the board support package for JieLi-based M-VAVE synths.
+  - [fm1-base](https://github.com/charlesvestal/fm1-base), [X0X](https://github.com/charlesvestal/fm1-x0x), [AMB-1](https://github.com/charlesvestal/fm1-amb) and [more FM-1 firmwares](https://github.com/charlesvestal?tab=repositories&q=fm1) (Charles Vestal): a firmware base and template, a groovebox, a generative ambient machine, and others.
+  - [MvaveFM1Unbricker](https://github.com/Quixotic7/MvaveFM1Unbricker) and [RemoteFM1](https://github.com/Quixotic7/RemoteFM1) (Quixotic7): an FM-1 unbricker, and a player that runs FM-1 firmwares from the browser without installing them.
+  - [fm1-mirror](https://github.com/pfkellogg/fm1-mirror) (Patrick Kellogg): the FM-1's screen, big, on a computer.
+  - [fm1buddy](https://github.com/konsumer/fm1buddy) (David Konsumer), a related project: a touchscreen box that runs an FM-1 without a computer.
 - **Feedback:** feedback@outrigger.music.
 - **License:** [GPL-3.0](LICENSE). Third-party code and its licenses: [NOTICE](NOTICE). No M-VAVE firmware is in
   this repo; your browser downloads it at install time and checks each file.
@@ -17,9 +24,9 @@ The rest of this README is for working on the code.
 
 ## For developers
 
-A computer-free USB MIDI host. The first target is the Waveshare ESP32-S3-Touch-LCD-1.69: its USB-C port runs as
-a USB host through a powered hub, and incoming MIDI is shown on its screen. The goal is to play an M-VAVE FM-1
-from a Novation Launchkey Mini MK4 37 with both on the hub, power and MIDI on one cable each.
+A computer-free USB MIDI host. It runs on the Waveshare ESP32-S3-Touch-LCD-1.69 and 3.5 (`firmware/boards.json`
+lists every profile, tested or not). Its USB-C port runs as a USB host through a powered hub, and incoming MIDI is
+shown on its screen. The goal is to play an M-VAVE FM-1 from a Novation Launchkey Mini MK4 37 with both on the hub, power and MIDI on one cable each.
 
 It is one shared core with pluggable apps (Router, firmware Loader, and, in progress, Recorder and Web UI), chosen
 per build as an app set. The core owns the 8 USB host channels, the FM-1, the radio, storage, settings and the screen;
