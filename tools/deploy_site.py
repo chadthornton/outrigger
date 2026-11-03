@@ -202,8 +202,10 @@ def append_log(path, entry):
 
 
 def tree_sums(root):
+    """SHA-256 of every file under root, leaving out SUMS and dotfiles (wrangler's .wrangler/ cache)."""
+    files = (p for p in sorted(root.rglob("*")) if p.is_file() and p.name != SUMS)
     return {str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest()
-            for p in sorted(root.rglob("*")) if p.is_file() and p.name != SUMS}
+            for p in files if not any(part.startswith(".") for part in p.relative_to(root).parts)}
 
 
 def keep(staged, channel_dir, commit, count=KEEP):
@@ -211,7 +213,7 @@ def keep(staged, channel_dir, commit, count=KEEP):
     its SHA-256 sums; keep the newest count copies. Returns the copy."""
     dst = channel_dir / commit
     shutil.rmtree(dst, ignore_errors=True)
-    shutil.copytree(staged, dst)
+    shutil.copytree(staged, dst, ignore=lambda _, names: [n for n in names if n.startswith(".")])
     (dst / SUMS).write_text(json.dumps({"kept": time.time_ns(), "files": tree_sums(dst)}, indent=1))
     copies = sorted((json.loads((d / SUMS).read_text())["kept"], d) for d in channel_dir.iterdir()
                     if (d / SUMS).is_file())
@@ -224,7 +226,8 @@ def kept_problems(kept):
     """Everything that differs between a kept copy and the sums taken when it was kept."""
     if not (kept / SUMS).is_file():
         return [f"no kept copy at {kept}"]
-    want = json.loads((kept / SUMS).read_text())["files"]
+    want = {name: sha for name, sha in json.loads((kept / SUMS).read_text())["files"].items()
+            if not any(part.startswith(".") for part in Path(name).parts)}
     have = tree_sums(kept)
     problems = [f"{name} is missing" for name in sorted(want.keys() - have.keys())]
     problems += [f"{name} was not in the deploy" for name in sorted(have.keys() - want.keys())]

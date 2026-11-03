@@ -3,6 +3,7 @@
     python3 -I tests/test_deploy_site.py
 """
 import hashlib
+import json
 import shutil
 import sys
 import tempfile
@@ -297,6 +298,24 @@ class KeptCopyTest(unittest.TestCase):
 
     def test_no_kept_copy_refused(self):
         self.assertTrue(deploy_site.kept_problems(self.root / "kept" / "beta" / ("c" * 40)))
+
+    def test_wranglers_cache_is_neither_kept_nor_checked(self):
+        """wrangler writes .wrangler/ into the folder it uploads from, and again on a rollback upload."""
+        (self.staged / ".wrangler" / "tmp").mkdir(parents=True)
+        (self.staged / ".wrangler" / "tmp" / "bundle.js").write_text("cache")
+        kept = self.keep("a")
+        self.assertFalse((kept / ".wrangler").exists())
+        (kept / ".wrangler" / "cache").mkdir(parents=True)
+        (kept / ".wrangler" / "cache" / "x.json").write_text("written by the rollback upload")
+        self.assertEqual(deploy_site.kept_problems(kept), [])
+
+    def test_sums_naming_wranglers_cache_still_check_out(self):
+        """Copies kept before the cache was left out list .wrangler/ files in their sums."""
+        kept = self.keep("a")
+        sums = json.loads((kept / deploy_site.SUMS).read_text())
+        sums["files"][".wrangler/tmp/bundle.js"] = "0" * 64
+        (kept / deploy_site.SUMS).write_text(json.dumps(sums))
+        self.assertEqual(deploy_site.kept_problems(kept), [])
 
     def test_keeps_only_the_newest_few(self):
         for c in "abcd":
