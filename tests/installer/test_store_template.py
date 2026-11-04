@@ -28,8 +28,6 @@ FIXTURES = ROOT / "tests/fixtures"
 # named the way tools/store_add.py names them.
 EXPECTED = [
     ("stock-V15", "M-VAVE stock", "V15", "stock", "FM-1_015", "https://thefirmwarehub.com/fw/mvave/FM-1_015.fwsc"),
-    ("felucca-1.8.0", "Felucca", "1.8.0", "felucca", "FM-1_918", "https://thefirmwarehub.com/fw/felucca-1.8.0.fwsc"),
-    ("skiff-2.1.1", "Skiff", "2.1.1", "skiff", "FM-1_721", "https://thefirmwarehub.com/fw/skiff-2.1.1.fwsc"),
 ]
 
 

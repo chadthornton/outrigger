@@ -23,7 +23,7 @@ check says what should happen. Anything else is worth an email, even if it fixed
    *Expected:* the setting is still there after the restart.
 7. **Back up your FM-1.** On the **FM-1** screen, open **Backups** and hold the button.
    *Expected:* it reads the FM-1 twice, writes nothing to it, and says the backup is saved.
-8. **Switch firmware once** (a new ESP32 comes with stock V15, Felucca and Skiff). Read
+8. **Switch firmware once** (a new ESP32 comes with stock V15; add Felucca or Skiff first). Read
    [Switching FM-1 firmware](04-switching-firmware.md) and the switching part of [Known issues](07-known-issues.md)
    first. Start with Felucca ↔ Skiff, the tested pair, on the **FM-1** screen. Ask us before switching Skiff to stock.
    *Expected:* in about a minute the FM-1 restarts in the new firmware. Switch back, and your songs are where you
