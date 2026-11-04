@@ -107,7 +107,7 @@ static uint32_t store_at = 0;
 enum class Net : uint8_t { Connecting, Online };
 static Net net = Net::Connecting;
 static bool ap_on = false;
-static char own_ip[16] = "", ap_ip[16] = "", ssid_now[33] = "", ap_pass[9] = "";  // 8 characters, the WPA2 minimum: typed by hand on a phone
+static char own_ip[16] = "", ap_ip[16] = "", ssid_now[33] = "", ap_pass[13] = "";
 static uint32_t ap_ip_u32 = 0;  // network byte order, for the via-hotspot check
 static int8_t rssi = 0;
 static char network_line[48] = "";  // empty until web_begin()
@@ -837,11 +837,17 @@ static const Seen *find_seen(const char *ssid) {
 static void start_hotspot(uint32_t now) {
   if (ap_on) return;
   WiFi.mode(WIFI_AP_STA);  // the radio is on now, so esp_random() is truly random
-  // 12 characters from 32 easy-to-read ones: 60 bits, so a captured handshake
-  // can't be cracked offline the way 8 digits can.
-  static const char kAlphabet[] = "abcdefghjkmnpqrstuvwxyz23456789";
-  for (size_t i = 0; i + 1 < sizeof ap_pass; ++i) ap_pass[i] = kAlphabet[esp_random() % 31];
-  ap_pass[sizeof ap_pass - 1] = 0;
+  // 12 characters from 31 easy-to-read ones: 59 bits, so a captured handshake
+  // can't be cracked offline the way 8 digits can. Made once and kept in NVS:
+  // a QR code scanned before a power cut still joins after it (2026-11-04,
+  // Small-V1 restarted on its hub and the phone held the old password).
+  strlcpy(ap_pass, wifi_prefs.getString("ap_pass", "").c_str(), sizeof ap_pass);
+  if (strlen(ap_pass) != sizeof ap_pass - 1) {
+    static const char kAlphabet[] = "abcdefghjkmnpqrstuvwxyz23456789";
+    for (size_t i = 0; i + 1 < sizeof ap_pass; ++i) ap_pass[i] = kAlphabet[esp_random() % 31];
+    ap_pass[sizeof ap_pass - 1] = 0;
+    wifi_prefs.putString("ap_pass", ap_pass);
+  }
   WiFi.disconnect();  // a station still retrying hops channels and drags the hotspot along
   remember_scan(WiFi.scanNetworks(false));
   web_core::ScanEntry entries[sizeof seen / sizeof seen[0]];
