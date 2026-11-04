@@ -28,9 +28,10 @@
 #include "log_ring.h"
 #include "request_guard.h"
 #include "routes.h"
-#if BENCH
 #include <esp_mac.h>
-#include "bench.h"
+#include "bench.h"  // web_host_name in every build; the bench API only with BENCH=1
+#ifndef BENCH
+#define BENCH 0
 #endif
 
 using web_core::json_escape;
@@ -46,17 +47,12 @@ extern char last_crash[3][40];  // app.cpp: the last abnormal reset, if any
 #define FW_DIRTY 0
 #endif
 
-#if BENCH
-// A bench build answers under its own name: tools/soak_watch.py and the rig's
-// bookmarks reach fm1hub.local, never the bench (Makefile, BENCH=1).
-static const char kHostname[] = "fm1bench";
-static const char kMdnsName[] = "fm1bench.local";
-static const char kSetupSsid[] = "fm1bench-setup";
-#else
-static const char kHostname[] = "fm1hub";
-static const char kMdnsName[] = "fm1hub.local";
-static const char kSetupSsid[] = "fm1hub-setup";
-#endif
+// The board's network name, set once in web_begin from its MAC: each of Chad's
+// boards answers at its own name (small-v1.local ...), any other board at
+// fm1hub.local, or fm1bench.local in a BENCH=1 build so soak_watch.py and
+// bookmarks never reach a bench by mistake (web_core::web_host_name).
+static char host_name[16] = "fm1hub", mdns_name[24] = "fm1hub.local", setup_ssid[24] = "fm1hub-setup";
+static const char kHostMark[] = "@HOST@";  // in kSetupHtml: replaced by host_name as it's sent
 
 // ---------- The log: one ring per producing task, drained by the server task ----------
 static web_core::LineRing<32> *usb_ring;
@@ -220,7 +216,7 @@ static bool guard(httpd_req_t *req) {
   bool ok;
   {
     Lock l;
-    ok = web_core::host_allowed(host, {kMdnsName, own_ip, ap_ip});
+    ok = web_core::host_allowed(host, {mdns_name, own_ip, ap_ip});
   }
   if (ok) return true;
   if (via_hotspot(req)) redirect_to_setup(req);
@@ -330,19 +326,19 @@ tick();setInterval(tick,1000);
 
 static const char kSetupHtml[] = R"HTML(<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>fm1hub setup</title>
+<title>@HOST@ setup</title>
 <style>body{font:16px system-ui;margin:16px;max-width:28em}input,select,button{font:inherit;width:100%;margin:6px 0;padding:6px}</style>
-</head><body><h3>Put fm1hub on your Wi-Fi</h3>
+</head><body><h3>Put @HOST@ on your Wi-Fi</h3>
 <select id="ssid"></select><input id="pass" type="password" placeholder="Password">
 <button id="go">Join</button><p id="msg">The hub saves this network and joins it. Your phone may drop off this
-hotspot; then open <b>http://fm1hub.local</b> on the same Wi-Fi as the hub.</p>
+hotspot; then open <b>http://@HOST@.local</b> on the same Wi-Fi as the hub.</p>
 <script>
 const $=id=>document.getElementById(id);
 fetch('/setup/scan').then(r=>r.json()).then(j=>{for(const n of j.nets){const o=document.createElement('option');
  o.value=n.ssid;o.textContent=`${n.ssid} (${n.rssi} dBm)`;$('ssid').appendChild(o)}});
 $('go').onclick=async()=>{$('msg').textContent='Joining...';try{const r=await fetch('/setup/join',{method:'POST',
  body:JSON.stringify({ssid:$('ssid').value,pass:$('pass').value})});$('msg').textContent=(await r.json()).msg}
- catch(e){$('msg').textContent='The hotspot dropped, as expected. Open http://fm1hub.local on your Wi-Fi.'}};
+ catch(e){$('msg').textContent='The hotspot dropped, as expected. Open http://@HOST@.local on your Wi-Fi.'}};
 </script></body></html>
 )HTML";
 
@@ -351,7 +347,17 @@ static esp_err_t on_index(httpd_req_t *req) {
   if (!guard(req)) return ESP_OK;
   httpd_resp_set_type(req, "text/html; charset=utf-8");
   httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
-  if (via_hotspot(req)) return httpd_resp_send(req, kSetupHtml, sizeof kSetupHtml - 1);
+  if (via_hotspot(req)) {
+    // Chunks: the page between marks, then the board's name in place of each mark.
+    for (const char *p = kSetupHtml;;) {
+      const char *m = strstr(p, kHostMark);
+      httpd_resp_send_chunk(req, p, m ? m - p : strlen(p));
+      if (!m) break;
+      httpd_resp_send_chunk(req, host_name, strlen(host_name));
+      p = m + sizeof kHostMark - 1;
+    }
+    return httpd_resp_send_chunk(req, nullptr, 0);
+  }
   return httpd_resp_send(req, kIndexHtml, sizeof kIndexHtml - 1);
 }
 
@@ -636,9 +642,10 @@ static esp_err_t on_setup_join(httpd_req_t *req) {
     memcpy(creds_pass, pass, sizeof creds_pass);
     creds_pending = true;
   }
-  static const char kOk[] =
-      "{\"msg\":\"Joining. If it works, the hub's settings page shows its address; open http://fm1hub.local.\"}";
-  return send_json(req, kOk, sizeof kOk - 1);
+  char ok[160];
+  snprintf(ok, sizeof ok, "{\"msg\":\"Joining. If it works, the hub's settings page shows its address; open http://%s.\"}",
+           mdns_name);
+  return send_json(req, ok, strlen(ok));
 }
 
 #if BENCH
@@ -692,6 +699,7 @@ static esp_err_t on_bench_command(httpd_req_t *req) {
 }
 
 bool web_take_bench_command(web_core::BenchCommand &out) {
+  if (!started) return false;  // Computer mode never runs web_begin: no state_mutex to take
   Lock l;
   if (!bench_has_pending) return false;
   out = bench_pending;
@@ -785,8 +793,8 @@ static void set_ips() {
     ap_ip[0] = 0;
     ap_ip_u32 = 0;
   }
-  if (own_ip[0]) snprintf(network_line, sizeof network_line, "%s  %s", kMdnsName, own_ip);
-  else if (ap_on) snprintf(network_line, sizeof network_line, "Wi-Fi: join %s pw %s", kSetupSsid, ap_pass);
+  if (own_ip[0]) snprintf(network_line, sizeof network_line, "%s  %s", mdns_name, own_ip);
+  else if (ap_on) snprintf(network_line, sizeof network_line, "Wi-Fi: join %s pw %s", setup_ssid, ap_pass);
   else snprintf(network_line, sizeof network_line, "Wi-Fi: joining %s", saved_ssid);
 }
 
@@ -825,24 +833,30 @@ static const Seen *find_seen(const char *ssid) {
 static void start_hotspot(uint32_t now) {
   if (ap_on) return;
   WiFi.mode(WIFI_AP_STA);  // the radio is on now, so esp_random() is truly random
-  // 12 characters from 32 easy-to-read ones: 60 bits, so a captured handshake
-  // can't be cracked offline the way 8 digits can.
-  static const char kAlphabet[] = "abcdefghjkmnpqrstuvwxyz23456789";
-  for (size_t i = 0; i + 1 < sizeof ap_pass; ++i) ap_pass[i] = kAlphabet[esp_random() % 31];
-  ap_pass[sizeof ap_pass - 1] = 0;
+  // 12 characters from 31 easy-to-read ones: 59 bits, so a captured handshake
+  // can't be cracked offline the way 8 digits can. Made once and kept in NVS:
+  // a QR code scanned before a power cut still joins after it (2026-11-04,
+  // Small-V1 restarted on its hub and the phone held the old password).
+  strlcpy(ap_pass, wifi_prefs.getString("ap_pass", "").c_str(), sizeof ap_pass);
+  if (strlen(ap_pass) != sizeof ap_pass - 1) {
+    static const char kAlphabet[] = "abcdefghjkmnpqrstuvwxyz23456789";
+    for (size_t i = 0; i + 1 < sizeof ap_pass; ++i) ap_pass[i] = kAlphabet[esp_random() % 31];
+    ap_pass[sizeof ap_pass - 1] = 0;
+    wifi_prefs.putString("ap_pass", ap_pass);
+  }
   WiFi.disconnect();  // a station still retrying hops channels and drags the hotspot along
   remember_scan(WiFi.scanNetworks(false));
   web_core::ScanEntry entries[sizeof seen / sizeof seen[0]];
   for (int i = 0; i < seen_count; ++i) entries[i] = {seen[i].ssid, seen[i].rssi, seen[i].channel};
   hotspot_channel = web_core::pick_hotspot_channel(entries, seen_count, saved_ssid);
-  WiFi.softAP(kSetupSsid, ap_pass, hotspot_channel);
+  WiFi.softAP(setup_ssid, ap_pass, hotspot_channel);
   dns.start(53, "*", WiFi.softAPIP());
   {
     Lock l;
     ap_on = true;
   }
   set_ips();
-  DLOG_LOOP("wifi: hotspot %s on channel %u", kSetupSsid, hotspot_channel);
+  DLOG_LOOP("wifi: hotspot %s on channel %u", setup_ssid, hotspot_channel);
 }
 
 static void stop_hotspot() {
@@ -872,6 +886,13 @@ static void join(const char *ssid, const char *pass) {
 void web_begin(bool safe_mode) {
   if (started) return;
   safe = safe_mode;
+  {
+    uint8_t mac[6] = {};
+    esp_efuse_mac_get_default(mac);
+    web_core::web_host_name(mac, BENCH, host_name, sizeof host_name);
+    snprintf(mdns_name, sizeof mdns_name, "%s.local", host_name);
+    snprintf(setup_ssid, sizeof setup_ssid, "%s-setup", host_name);
+  }
 #if BENCH
   bench_check_board();
 #endif
@@ -905,7 +926,7 @@ void web_begin(bool safe_mode) {
   strlcpy(saved_ssid, wifi_prefs.getString("ssid", "").c_str(), sizeof saved_ssid);
   strlcpy(saved_pass, wifi_prefs.getString("pass", "").c_str(), sizeof saved_pass);
   WiFi.persistent(false);  // credentials live in our own NVS namespace
-  WiFi.setHostname(kHostname);
+  WiFi.setHostname(host_name);
   WiFi.onEvent(
       [](arduino_event_id_t, arduino_event_info_t info) {
         disconnect_reason = info.wifi_sta_disconnected.reason;
@@ -999,7 +1020,7 @@ void web_loop(uint32_t now) {
       wifi_prefs.putString("pass", saved_pass);
       trial_ssid[0] = trial_pass[0] = 0;
     }
-    if (!mdns_on && MDNS.begin(kHostname)) {
+    if (!mdns_on && MDNS.begin(host_name)) {
       MDNS.addService("http", "tcp", 80);
       mdns_on = true;
     }

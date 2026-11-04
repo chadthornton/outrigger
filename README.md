@@ -274,6 +274,9 @@ and **FM-B**. Their MACs and unit IDs live in the device registry, outside this 
 - **Every esptool MAC read ends with a hard reset,** so no board, another session's included, is left in download mode.
 - A session books a board and the Mac's USB slot through the orchestrator session, and reflashes the `master` build
   when done.
+- **On Wi-Fi:** Small-V1 (`small-v1.local`, hub A with FM-A), Small-V2 (`small-v2.local`, hub B with FM-B) and
+  Big-S3 (`big-s3.local`) run the Wi-Fi diagnostics build. Reading their status, logs and crash reports needs no
+  booking; switches do (`docs/test-bench.md`, "Using the lab boards").
 
 An app also lands with its row in the mode table, its claims and tests in the broker, its NVS namespace with a `schema`
 key, and its build flag (`docs/architecture.md`, "How an app lands on `master`"). Guarded work (anything that writes the
