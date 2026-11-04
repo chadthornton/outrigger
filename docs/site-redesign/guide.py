@@ -156,7 +156,7 @@ def write_guide(docs, out):
   <a class="link" href="mailto:feedback@outrigger.music">feedback@outrigger.music</a></nav>
 <main>
 <h1>Beta testers' guide</h1>
-<p class="lede">Thanks for testing Outrigger beta 1. Most testers need the first three parts; the rest are for when
+<p class="lede">Thanks for testing Outrigger. Most testers need the first three parts; the rest are for when
   something goes wrong.</p>
 <ol class="toc">{toc}</ol>
 {body}
