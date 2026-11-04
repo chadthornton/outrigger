@@ -82,6 +82,11 @@ static void test_key_not_sent() {
   EXPECT(strcmp(r.why, "No FM-1 on the hub.") == 0 && has(r.todo, "hub port 2"), "no FM-1");
   EXPECT(r.fix == UiAct::None, "no FM-1: OK, nothing to run");
 
+  o.key_stop = KeyStop::Unsupported;
+  r = result(o);
+  EXPECT(has(r.why, "Open firmware") && has(r.todo, "Workbench"), "Open firmware: switch back on M-VAVE's page");
+  EXPECT(r.fix == UiAct::None, "Open firmware: nothing to retry");
+
   o.key_stop = KeyStop::Answer;
   o.key = KeyResult::UpdateMode;
   EXPECT(has(result(o).why, "update"), "an FM-1 mid-update says so");
