@@ -417,6 +417,7 @@ CHANNEL ?= beta
 deploy-site:
 	@src=$$(python3 -I tools/deploy_site.py source $(CHANNEL) $(FULL)) || exit 1; \
 	if [ "$$src" = ci ]; then python3 -I tools/deploy_site.py deploy-ci $(CHANNEL); \
+	elif [ "$$src" = beta ]; then python3 -I tools/deploy_site.py deploy-beta $(CHANNEL); \
 	else $(MAKE) check && python3 -I tools/deploy_site.py deploy $(CHANNEL) build/checked/site; fi
 
 # Put the deploy before the live one back on CHANNEL (or COMMIT=<sha>'s), in seconds,
