@@ -290,10 +290,8 @@ STYLE = """
   aside.rail { position: sticky; top: 24px; display: grid; gap: 16px; max-height: calc(100vh - 48px); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; }
   @media (max-width: 920px) { aside.rail { position: static; max-height: none; overflow: visible; } }
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 24px; display: grid; gap: 16px; }
-  .steps3 { list-style: none; margin: 0; padding: 0; counter-reset: s; display: grid; gap: 20px; }
-  .steps3 > li { counter-increment: s; display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 12px; align-items: start; }
-  .steps3 > li::before { content: counter(s); width: 24px; height: 24px; margin-top: 1px; border-radius: 50%; background: var(--accent);
-                       color: var(--accent-fg); display: grid; place-items: center; font-weight: 650; font-size: .75rem; }
+  .steps3 { list-style: none; margin: 0; padding: 0; display: grid; gap: 16px; }
+  .steps3 > li + li { border-top: 1px solid var(--line); padding-top: 16px; }
   .steps3 b { display: block; font-weight: 600; line-height: 1.35; margin-bottom: 4px; text-wrap: balance; }
   .steps3 p { font-size: .9375rem; line-height: 1.5; color: var(--muted); }
   .steps3 .btn { margin-top: 14px; width: 100%; justify-content: center; }
