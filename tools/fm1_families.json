@@ -33,7 +33,8 @@
     "vector37": "old-felucca",
     "nauclerus": "old-felucca",
     "gator": "old-felucca",
-    "hawkchua": "old-felucca"
+    "hawkchua": "old-felucca",
+    "mycelium": "old-felucca"
   },
   "mutant_says": {
     "melodee": "listed as built on Felucca",
@@ -43,7 +44,8 @@
     "salt": "mutant.cloud says Felucca",
     "vector37": "mutant.cloud says its own code",
     "nauclerus": "via Hortator",
-    "gator": "mutant.cloud says its own code"
+    "gator": "mutant.cloud says its own code",
+    "mycelium": "the Hub says Felucca and SLOOP; mutant.cloud says Felucca"
   },
   "hub_ids": {
     "b1-drawbar-organ": "b1",

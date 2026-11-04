@@ -22,7 +22,7 @@ checkout of a committed, pushed HEAD goes live, built one of two ways:
   Either way, a red or running CI run of HEAD refuses, and production needs one.
 - make check on the Mac: for FULL=1, for a batch (since the commit production
   serves, on either channel, so beta carries the build production will) that
-  touches the critical list's code or any firmware (CRITICAL; README, "Shipping to
+  touches the critical list's code or any firmware (CRITICAL; CONTRIBUTING.md, "Shipping to
   production"), and for a
   commit CI has no build of (a branch commit: CI builds a PR merged into master;
   start CI on the branch by hand to get one).
@@ -80,7 +80,7 @@ REPO = "chadthornton/outrigger"
 # CI's build of HEAD, downloaded and laid out the way make check leaves build/checked.
 CI_FIRMWARE = ROOT / "build/ci-firmware"
 CI_CHECKED = ROOT / "build/ci-checked"
-# The critical list's code (README, "Shipping to production"), and all firmware: a batch touching any of it
+# The critical list's code (CONTRIBUTING.md, "Shipping to production"), and all firmware: a batch touching any of it
 # deploys the Mac's make check build, the one the hardware smoke check installs. Every firmware change, not a
 # list of loader and store files: store code hides under many names (board_store.h, board_blob.cpp,
 # add_firmware.cpp's LittleFS). fnmatch patterns; * crosses /.
@@ -231,7 +231,7 @@ def needs_baseline(entries, channel, live):
 
 
 def beta_first_problem(channel, head, beta):
-    """Production only takes the commit beta serves (README, "Shipping to production")."""
+    """Production only takes the commit beta serves (CONTRIBUTING.md, "Shipping to production")."""
     if channel == "production" and head != beta:
         return f"beta serves {beta[:7]}, not {head[:7]}; deploy it to beta and check it there first"
     return None
@@ -444,7 +444,7 @@ def read_env(path):
 
 def load_credentials():
     if not ENV_FILE.is_file():
-        fail(f"missing {ENV_FILE}; see README, 'Publishing the site'")
+        fail(f"missing {ENV_FILE}; see docs/publishing.md, 'Credentials'")
     env = dict(os.environ, **read_env(ENV_FILE))
     if not env.get("CLOUDFLARE_API_TOKEN") or not env.get("CLOUDFLARE_ACCOUNT_ID"):
         fail(f"{ENV_FILE} needs CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID")
