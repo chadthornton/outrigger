@@ -47,6 +47,12 @@ struct Package {
 PackageError parse_package(const uint8_t *data, size_t len, Package &out,
                            const Hash *expected_sha256 = nullptr);
 
+// Undoes the .fwsc framing and the UFW container: the identity the marker
+// bytes spell and flash.bin's bytes (from flash address 0). No layout or
+// identity checks: parse_package adds those.
+PackageError unpack_flash_bin(const uint8_t *data, size_t len, std::string &identity,
+                              std::vector<uint8_t> &flash);
+
 // FM-1_ and 3 to 15 digits. The family comes from the catalog project
 // (family_of_project, library.h), never from the identity's digits.
 bool valid_identity(const std::string &identity);

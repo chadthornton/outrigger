@@ -39,6 +39,12 @@ FIXTURES = [
      "a31760f2588b39bcb3a8d6f78f6041a1a550978a972ecd71564e45513698ecd6"),
     ("skiff-2.1.1.fwsc", "skiff", GITHUB + "illuminus5/skiff/releases/download/v2.1.1/skiff-2.1.1.fwsc",
      "0cfae2431f351365d83842bf1a381ee48baead371e81f77faaa2b3c6aabbd304"),
+    # M-VAVE's FM1 Open V14 (Workbench release, not on the Firmware Hub): the
+    # Open layout's fixture. M-VAVE's URLs are named by the file's SHA-256.
+    ("open-v14.fwsc", None,
+     "https://open.m-vave.com/assets/fm1/"
+     "7e7b6d260163cdf9d716f7fab44f19be600edeffcd390de74370b83c917fd0c6.bin",
+     "7e7b6d260163cdf9d716f7fab44f19be600edeffcd390de74370b83c917fd0c6"),
     # JieLi's loader, from jl-uboot-tool at the commit the Unbricker pins.
     ("wl82loader.bin", None, JLUB_RAW + "data/loaderblobs/usb/wl82loader.bin",
      "d41da6126760c9d66660bcc0cac8d27d221806c5e369a8036921efe68dca5376"),

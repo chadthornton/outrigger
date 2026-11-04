@@ -16,6 +16,49 @@ constexpr size_t kUfwMin = 0x400;
 uint16_t u16(const uint8_t *p) { return uint16_t(p[0] | p[1] << 8); }
 uint32_t u32(const uint8_t *p) { return u16(p) | uint32_t(u16(p + 2)) << 16; }
 
+// The .fwsc framing and UFW container: identity, the logical image, and
+// flash.bin's place in it.
+PackageError unpack(const uint8_t *data, size_t len, std::string &identity,
+                    std::vector<uint8_t> &image, uint32_t &flash_offset, uint32_t &flash_len) {
+  identity.clear();
+  image.clear();
+  // Undo the .fwsc framing: drop one marker byte after each of the first 20 blocks.
+  const size_t stride = kBlock + 1;
+  if (len < stride * kMarkedBlocks) return PackageError::TooShort;
+  image.reserve(len);
+  for (size_t i = 0; i < kMarkedBlocks; ++i) {
+    const uint8_t *block = data + i * stride;
+    image.insert(image.end(), block, block + kBlock);
+    if (block[kBlock] != kNoChar) identity += char(uint8_t(block[kBlock] - i - 1));
+  }
+  image.insert(image.end(), data + stride * kMarkedBlocks, data + len);
+
+  if (image.size() < kUfwMin) return PackageError::TooShort;
+  uint8_t hdr[kUfwHeader];
+  memcpy(hdr, image.data(), kUfwHeader);
+  jl_enc(hdr, kUfwHeader);
+  if (crc16(hdr + 2, kUfwHeader - 2) != u16(hdr)) return PackageError::HeaderCrc;
+  size_t entries = u16(hdr + 8);
+  if (entries == 0 || entries > 11) return PackageError::EntryCount;
+  // The entry-list CRC covers the entries still scrambled.
+  if (crc16(image.data() + kUfwHeader, entries * kUfwEntry) != u16(hdr + 2))
+    return PackageError::EntryCrc;
+  bool found = false;
+  for (size_t i = 0; i < entries; ++i) {
+    uint8_t e[kUfwEntry];
+    memcpy(e, image.data() + kUfwHeader + i * kUfwEntry, kUfwEntry);
+    jl_enc(e, kUfwEntry);
+    if (u16(e) == 0) {  // the last type-0 entry wins, as in ufw_flash()
+      flash_offset = u32(e + 8);
+      flash_len = u32(e + 12);
+      found = true;
+    }
+  }
+  if (!found) return PackageError::NoFlashBin;
+  if (uint64_t(flash_offset) + flash_len > image.size()) return PackageError::FlashBinPastEnd;
+  return PackageError::None;
+}
+
 }  // namespace
 
 const char *package_error_text(PackageError e) {
@@ -46,48 +89,24 @@ bool valid_identity(const std::string &id) {
   return true;
 }
 
+PackageError unpack_flash_bin(const uint8_t *data, size_t len, std::string &identity,
+                              std::vector<uint8_t> &flash) {
+  uint32_t offset = 0, flash_len = 0;
+  std::vector<uint8_t> image;
+  PackageError e = unpack(data, len, identity, image, offset, flash_len);
+  flash.clear();
+  if (e == PackageError::None) flash.assign(image.begin() + offset, image.begin() + offset + flash_len);
+  return e;
+}
+
 PackageError parse_package(const uint8_t *data, size_t len, Package &out,
                            const Hash *expected_sha256) {
   out = Package();
   out.file_sha256 = sha256(data, len);
   if (expected_sha256 && *expected_sha256 != out.file_sha256) return PackageError::HashMismatch;
-
-  // Undo the .fwsc framing: drop one marker byte after each of the first 20 blocks.
-  const size_t stride = kBlock + 1;
-  if (len < stride * kMarkedBlocks) return PackageError::TooShort;
   std::vector<uint8_t> image;
-  image.reserve(len);
-  for (size_t i = 0; i < kMarkedBlocks; ++i) {
-    const uint8_t *block = data + i * stride;
-    image.insert(image.end(), block, block + kBlock);
-    if (block[kBlock] != kNoChar) out.identity += char(uint8_t(block[kBlock] - i - 1));
-  }
-  image.insert(image.end(), data + stride * kMarkedBlocks, data + len);
-
-  if (image.size() < kUfwMin) return PackageError::TooShort;
-  uint8_t hdr[kUfwHeader];
-  memcpy(hdr, image.data(), kUfwHeader);
-  jl_enc(hdr, kUfwHeader);
-  if (crc16(hdr + 2, kUfwHeader - 2) != u16(hdr)) return PackageError::HeaderCrc;
-  size_t entries = u16(hdr + 8);
-  if (entries == 0 || entries > 11) return PackageError::EntryCount;
-  // The entry-list CRC covers the entries still scrambled.
-  if (crc16(image.data() + kUfwHeader, entries * kUfwEntry) != u16(hdr + 2))
-    return PackageError::EntryCrc;
-  bool found = false;
-  for (size_t i = 0; i < entries; ++i) {
-    uint8_t e[kUfwEntry];
-    memcpy(e, image.data() + kUfwHeader + i * kUfwEntry, kUfwEntry);
-    jl_enc(e, kUfwEntry);
-    if (u16(e) == 0) {  // the last type-0 entry wins, as in ufw_flash()
-      out.flash_offset = u32(e + 8);
-      out.flash_len = u32(e + 12);
-      found = true;
-    }
-  }
-  if (!found) return PackageError::NoFlashBin;
-  if (uint64_t(out.flash_offset) + out.flash_len > image.size())
-    return PackageError::FlashBinPastEnd;
+  PackageError e = unpack(data, len, out.identity, image, out.flash_offset, out.flash_len);
+  if (e != PackageError::None) return e;
   if (out.flash_len < kAppEnd) return PackageError::FlashBinShort;
   if (!valid_identity(out.identity)) return PackageError::BadIdentity;
 

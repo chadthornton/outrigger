@@ -53,6 +53,10 @@ def chunks(data):
             yield c
 
 
+# Fixtures parse_package refuses by design: M-VAVE Open's layout (docs/open-firmware.md).
+REFUSED_FIXTURES = {"open-v14.fwsc"}
+
+
 def main():
     failures = []
     _, size = store_partition(PARTITIONS)
@@ -158,6 +162,8 @@ def main():
     # For the JS port of parse_package (store.test.mjs): every package fixture's identity and app hash.
     apps = {}
     for p in sorted(FIXTURES.glob("*.fwsc")):
+        if p.name in REFUSED_FIXTURES:
+            continue
         ident, app = fm1lib.parse_package(p.read_bytes())
         apps[p.name] = [ident, hashlib.sha256(app).hexdigest()]
     (out / "starter-apps.json").write_text(json.dumps(apps))
