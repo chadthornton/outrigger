@@ -67,8 +67,8 @@ The ESP32-S3 host controller has 8 channels. ESP-IDF allocates one per open pipe
 
 - **The audio endpoint costs a channel as soon as the FM-1 enumerates.** The library claims any audio streaming
   interface that has endpoints during enumeration, so on Skiff the FM-1 costs 4 (EP0 + MIDI bulk IN + MIDI bulk OUT
-  + iso IN), not the 3 the README counts.
-- **Open question:** the README measured hub + FM-1 + Launchkey working at 8/8. With the audio pipe that should be
+  + iso IN), not the 3 the hardware notes count (`docs/hardware-notes.md`).
+- **Open question:** the hardware notes measured hub + FM-1 + Launchkey working at 8/8. With the audio pipe that should be
   9, so either the audio claim failed silently in that rig (Launchkey enumerated first), or the unit's build has no
   audio. The spike firmware shows each interface's claim result to settle this.
 
