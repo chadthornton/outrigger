@@ -390,7 +390,7 @@ store-add: $(TOOLS_PY)
 	$(if $(PKGS)$(LIST),,$(error PKGS="file.fwsc ..." names the packages to add; LIST=1 only lists))
 	$(TOOLS_PY) tools/store_add.py $(SKETCH)/partitions.csv $(PORT) $(if $(PIN),--pin) $(if $(LIST),--list) $(PKGS)
 
-# The production deploy's check (README.md): the worktree's last commit, checked out
+# The production deploy's check (docs/publishing.md): the worktree's last commit, checked out
 # clean in one clone every worktree shares (~/Library/Caches/outrigger-check),
 # one check at a time, then make test, make ui-shots and make site (every board
 # x app set built and staged, with build_site.py's wl82loader.bin scan). Run it
@@ -423,7 +423,7 @@ serve: site
 # pushed commit) or CHANNEL=production (outrigger.music, origin/master only).
 # Uploads CI's build of this commit (its push run's site-firmware), or, for FULL=1, a
 # batch touching the critical list since production's commit, or a commit CI never built itself,
-# the site make check builds here (build/checked/site). README, "Publishing the site".
+# the site make check builds here (build/checked/site). docs/publishing.md.
 CHANNEL ?= beta
 deploy-site:
 	@src=$$(python3 -I tools/deploy_site.py source $(CHANNEL) $(FULL)) || exit 1; \
