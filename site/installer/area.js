@@ -296,8 +296,8 @@ class InstallArea {
       );
     }
     const storeWords = store.action !== "create" ? null
-      : `${noStore} Installing also sets up a fresh one with ${store.starter.length} FM-1 firmwares to switch between: ${listOf(store.starter)}. ` +
-        "They download from thefirmwarehub.com, and the file the loader needs from the FM-1's chip maker from GitHub, straight into this browser.";
+      : `${noStore} Installing also sets up a fresh one with ${listOf(store.starter)}; add Felucca, Skiff and others after. ` +
+        "It downloads from thefirmwarehub.com, and the file the loader needs from the FM-1's chip maker from GitHub, straight into this browser.";
     this.show(
       h("p", { class: "install-read" }, words.board),
       words.warning ? h("p", { class: "install-error", role: "alert" }, words.warning) : null,
@@ -348,7 +348,7 @@ class InstallArea {
     const name = `${buildName(build.manifest.build.app_set)} ${build.manifest.build.commit}`;
     const storeWords = store.action !== "create" ? null
       : storeProblem ? `Firmware switching isn't set up: ${storeProblem}.`
-        : `Its store is set up with ${listOf(store.starter)}. Switch between them from the loader on the board.`;
+        : `Its store is set up with ${listOf(store.starter)}. Add more firmwares below, then switch between them from the loader on the board.`;
     document.dispatchEvent(new CustomEvent("outrigger-installed"));  // unlocks "Add custom FM-1 firmwares" (site/index.html)
     this.show(h("div", { class: "install-done", role: "status" },
       h("p", {}, h("b", {}, `Installed ${name}.`), " The board restarts by itself. If its screen stays dark, tap RST once."),

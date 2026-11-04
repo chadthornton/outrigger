@@ -98,7 +98,7 @@ test("buildStore rebuilds the store the Mac mounted, run by run, the superblock 
 test("buildStore refuses a store that isn't the one the template describes", { skip }, async () => {
   const { template, files } = realFiles();
   const got = await fetchStarter(template, serving(files));
-  const older = { loader: got.loader, apps: new Map([...got.apps, ["felucca-1.8.0", parsePackage(fixture("felucca-1.6.1.fwsc")).app]]) };
+  const older = { loader: got.loader, apps: new Map() };
   await assert.rejects(buildStore(template, older), /missing/);
   const loader = got.loader.slice();
   loader[100] ^= 0xff;
@@ -111,13 +111,13 @@ test("buildStore refuses a store that isn't the one the template describes", { s
 
 test("fetchStarter names the firmware that didn't download, and why", { skip }, async () => {
   const { template, files } = realFiles();
-  const felucca = template.packages.find((p) => p.id === "felucca-1.8.0").url;
-  await assert.rejects(fetchStarter(template, serving(files, { [felucca]: async () => ({ ok: false, status: 404 }) })), /404 for Felucca 1\.8\.0/);
+  const felucca = template.packages.find((p) => p.id === "stock-V15").url;
+  await assert.rejects(fetchStarter(template, serving(files, { [felucca]: async () => ({ ok: false, status: 404 }) })), /404 for M-VAVE stock V15/);
   await assert.rejects(fetchStarter(template, serving(files, { [felucca]: async () => { throw new TypeError("Failed to fetch"); } })),
-    /couldn't reach the Firmware Hub.*Felucca 1\.8\.0/i);
+    /couldn't reach the Firmware Hub.*M-VAVE stock V15/i);
   const wrong = fixture("felucca-1.6.1.fwsc");
   await assert.rejects(fetchStarter(template, serving(files, { [felucca]: async () => ({ ok: true, arrayBuffer: async () => wrong.buffer }) })),
-    /Felucca 1\.8\.0.*didn't match/);
+    /M-VAVE stock V15.*didn't match/);
   await assert.rejects(fetchStarter(template, serving(files, { [template.loader.url]: async () => ({ ok: false, status: 503 }) })), /GitHub answered 503/);
 });
 
