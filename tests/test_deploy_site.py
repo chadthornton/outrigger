@@ -414,8 +414,24 @@ class CiRunTest(unittest.TestCase):
 
 class ChooseSourceTest(unittest.TestCase):
     """Where the site comes from, once CI's run of HEAD is known green (or absent)."""
-    def choose(self, channel="production", full="", ran=True, crit=()):
-        return deploy_site.choose_source(channel, full, run() if ran else None, list(crit))
+    def choose(self, channel="production", full="", ran=True, crit=(), beta=None):
+        return deploy_site.choose_source(channel, full, run() if ran else None, list(crit), beta)
+
+    def test_production_reuses_betas_checked_build(self):
+        """A firmware ship runs make check once, for beta, not again for production."""
+        self.assertEqual(self.choose(crit=["firmware/x.cpp"], beta="check")[0], "beta")
+
+    def test_production_reuses_betas_ci_build_of_a_plain_batch(self):
+        self.assertEqual(self.choose(beta="ci")[0], "beta")
+
+    def test_critical_batch_does_not_reuse_a_ci_build_on_beta(self):
+        self.assertEqual(self.choose(crit=["firmware/x.cpp"], beta="ci")[0], "check")
+
+    def test_full_1_does_not_reuse_beta(self):
+        self.assertEqual(self.choose(full="1", beta="check")[0], "check")
+
+    def test_beta_never_reuses_itself(self):
+        self.assertEqual(self.choose("beta", crit=["firmware/x.cpp"], beta="check")[0], "check")
 
     def test_green_ci_build_of_a_plain_batch_goes_up(self):
         self.assertEqual(self.choose()[0], "ci")
@@ -444,6 +460,53 @@ class ChooseSourceTest(unittest.TestCase):
 
     def test_beta_branch_commit_without_a_ci_build_gets_make_check(self):
         self.assertEqual(self.choose("beta", ran=False)[0], "check")
+
+
+class BetaBuildTest(unittest.TestCase):
+    """Beta's kept copy of HEAD, if production may upload it instead of building again."""
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        staged = Path(self.tmp.name) / "pages"
+        (staged / "site").mkdir(parents=True)
+        (staged / "site" / "index.html").write_text("page")
+        (staged / "wrangler.toml").write_text("toml")
+        self.beta = Path(self.tmp.name) / "beta"
+        self.kept = deploy_site.keep(staged, self.beta, HEAD)
+        self.log = [entry("deploy", "b", channel="beta", built="check"),
+                    entry("deploy", "a", channel="beta", built="check")]
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def built(self, log=None):
+        return deploy_site.beta_build(self.log if log is None else log, self.beta, HEAD)
+
+    def test_kept_build_of_head_on_beta_is_reusable(self):
+        self.assertEqual(self.built(), ("check", []))
+
+    def test_how_beta_built_it_comes_from_the_log(self):
+        self.log[-1]["built"] = "ci"
+        self.assertEqual(self.built()[0], "ci")
+
+    def test_beta_serving_another_commit_refused(self):
+        self.assertIn("beta", self.built(self.log[:1])[1][0])
+
+    def test_beta_rolled_back_to_head_still_reusable(self):
+        log = self.log + [entry("deploy", "c", channel="beta", built="ci"),
+                          entry("rollback", "a", channel="beta", **{"from": "c" * 40})]
+        self.assertEqual(self.built(log), ("check", []))
+
+    def test_changed_kept_copy_refused(self):
+        (self.kept / "site" / "index.html").write_text("tampered")
+        self.assertTrue(any("index.html" in p for p in self.built()[1]))
+
+    def test_no_kept_copy_refused(self):
+        shutil.rmtree(self.kept)
+        self.assertTrue(self.built()[1])
+
+    def test_deploy_from_before_the_log_said_how_refused(self):
+        del self.log[-1]["built"]
+        self.assertTrue(self.built()[1])
 
 
 class ArtifactTest(unittest.TestCase):

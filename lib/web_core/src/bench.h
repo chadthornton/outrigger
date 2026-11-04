@@ -28,6 +28,11 @@ constexpr int kBenchRouteCount = sizeof kBenchRoutes / sizeof kBenchRoutes[0];
 // board, which gets no bench API.
 const char *waveshare_name(const uint8_t mac[6]);
 
+// The board's network name: its name above when listed ("small-v1", so each of
+// Chad's boards answers at its own .local address), else the build's default
+// ("fm1bench" in a BENCH=1 build, "fm1hub" otherwise). Copied into out.
+void web_host_name(const uint8_t mac[6], bool bench_build, char *out, size_t len);
+
 enum class BenchKind : uint8_t { None, Select, Switch, Backup, Retry };
 struct BenchCommand {
   BenchKind kind = BenchKind::None;

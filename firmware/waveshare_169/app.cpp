@@ -763,6 +763,7 @@ void loop() {
     last_net = millis();
 #if !HEAP_ON_SCREEN  // the heap line has the spot (below)
     ui_set_network(web_network_line());
+    ui_set_join_qr(web_join_qr());  // with its line, which keeps the password to type
 #endif
     if (!host_running) publish_diag(nullptr);
   }

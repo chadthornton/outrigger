@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Outrigger: FM-1’s new best friend</title>
+<title>Outrigger: a little companion for your FM-1</title>
 <meta name="description" content="Play the M-VAVE FM-1 from any MIDI controller with a USB connection, and switch between 100+ firmwares without a laptop.">
 <script type="module" src="installer/area.js"></script>
 <script type="module" src="installer/add_area.js"></script>
@@ -45,16 +45,13 @@
   aside.rail { position: sticky; top: 24px; display: grid; gap: 16px; max-height: calc(100vh - 48px); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; }
   @media (max-width: 920px) { aside.rail { position: static; max-height: none; overflow: visible; } }
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 24px; display: grid; gap: 16px; }
-  .steps3 { list-style: none; margin: 0; padding: 0; counter-reset: s; display: grid; gap: 20px; }
-  .steps3 li { counter-increment: s; display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 12px; align-items: start; }
-  .steps3 li::before { content: counter(s); width: 24px; height: 24px; margin-top: 1px; border-radius: 50%; background: var(--accent);
-                       color: var(--accent-fg); display: grid; place-items: center; font-weight: 650; font-size: .75rem; }
+  .steps3 { list-style: none; margin: 0; padding: 0; display: grid; gap: 24px; }
   .steps3 b { display: block; font-weight: 600; line-height: 1.35; margin-bottom: 4px; text-wrap: balance; }
   .steps3 p { font-size: .9375rem; line-height: 1.5; color: var(--muted); }
   .steps3 .btn { margin-top: 14px; width: 100%; justify-content: center; }
   .steps3 .install-out { margin-top: 10px; font-size: .875rem; line-height: 1.45; }
   .shopping { list-style: none; margin: 0; padding: 0; display: grid; }
-  .shopping a { display: grid; grid-template-columns: 36px 1fr auto; gap: 14px; align-items: center; padding: 12px 0; text-decoration: none; border-bottom: 1px solid var(--line); }
+  .shopping a { display: grid; grid-template-columns: 36px 1fr auto; gap: 14px; align-items: center; padding: 12px 0; text-decoration: none; color: inherit; border-bottom: 1px solid var(--line); }
   .shopping li:first-child a { padding-top: 0; }
   .shopping li:last-child a { border-bottom: 0; padding-bottom: 0; }
   .shopping svg { width: 36px; color: var(--fg); }
@@ -115,7 +112,7 @@
   .coming .tip { display: block; margin-top: 10px; padding: 10px 12px; border-radius: 8px; background: color-mix(in srgb, var(--accent) 10%, transparent); color: var(--fg); font-size: .875rem; line-height: 1.45; }
   .coming .tip b { font-weight: 650; }
   /* The real install area (site/installer/area.js, from PR #14): buttons, then the board readout, progress and result. */
-  .install { display: grid; gap: 10px; margin-top: 14px; }
+  .install { display: grid; gap: 12px; margin-top: 12px; }
   .install button { background: var(--accent); color: var(--accent-fg); border: 0; border-radius: 10px; padding: 13px 22px;
                     font: inherit; font-weight: 600; line-height: 1.2; cursor: pointer; width: 100%; }
   .install button.alt { background: transparent; color: var(--fg); box-shadow: inset 0 0 0 2px var(--line); }
@@ -135,6 +132,10 @@
   .install-boards legend { padding: 0; margin-bottom: 6px; font-weight: 600; font-size: .875rem; }
   .install-boards label { display: flex; gap: 6px; align-items: center; cursor: pointer; }
   .install-boards input { accent-color: var(--accent); margin: 0; }
+  .install-links { display: grid; gap: 6px; font-size: .875rem; }
+  .install-links a { text-decoration: none; }
+  .install-links a:hover, .install-links a:focus-visible { text-decoration: underline; }
+  .report-choice { display: grid; gap: 14px; }
   .install-log { border: 0; padding: 0; font-size: .8125rem; color: var(--muted); }
   .install-log pre { margin: 6px 0 0; max-height: 14em; overflow: auto; white-space: pre-wrap; font: .75rem ui-monospace, "SF Mono", Menlo, monospace; }
   .install .check { display: flex; gap: 8px; align-items: baseline; }
@@ -145,6 +146,7 @@
   .nerd h2 { margin-bottom: 24px; }
   .nerd .eyebrow { margin-bottom: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
   .nerd a { color: var(--accent); }
+  .nerd { --link: var(--accent); }
   .nerd:not(footer) { padding-bottom: 24px; }
   footer.nerd { margin-top: 0; padding-block: 0 48px; }
   .nerd .fine { margin-top: 24px; max-width: 760px; }
@@ -203,8 +205,8 @@
   <div class="layout">
     <main>
       <section class="hero">
-        <h1>FM&#8209;1&rsquo;s new best friend</h1>
-        <p class="sub"><span>Plug in your keys.</span> <span>Pop in a new instrument.</span></p>
+        <h1>A little companion for your FM&#8209;1</h1>
+        <p class="sub">Any MIDI controller in, any firmware on</p>
         <figure class="rig-fig" data-rig aria-label="The setup: your MIDI controller and the FM-1 on a USB hub, with Outrigger on the hub">
   <svg viewBox="0 0 640 312" role="img" aria-label="A MIDI controller and the FM-1 plugged into a USB hub, with Outrigger on the hub"><use href="art.svg#rig"/></svg>
   <div class="chips" role="group" aria-label="Tap a part to look closer">
@@ -258,7 +260,7 @@
           <div><h2>Pop in a new instrument</h2>
 <p>A groovebox tonight, a sampler tomorrow: switch between more than a hundred community firmwares in about a minute,
   right on Outrigger. It backs up before every switch, so your songs are waiting when you come back.</p>
-<div class="fwshots"><figure><img src="shots/fw/sloop.png" alt="SLOOP on the FM-1's screen"><figcaption><b>SLOOP</b> a live groovebox</figcaption></figure><figure><img src="shots/fw/x0x.png" alt="X0X on the FM-1's screen"><figcaption><b>X0X</b> 909, 808 and two 303s</figcaption></figure><figure><img src="shots/fw/zp12.png" alt="zp12 on the FM-1's screen"><figcaption><b>zp12</b> a 12-bit sampler</figcaption></figure><figure><img src="shots/fw/winampfm.png" alt="winampFM on the FM-1's screen"><figcaption><b>winampFM</b> a synth that looks like Winamp</figcaption></figure><a class="fwmore" href="https://thefirmwarehub.com/" target="_blank" rel="noopener"><b>100+</b> more at the Firmware Hub ↗</a></div>
+<div class="fwshots"><figure><img src="shots/fw/loom.png" alt="LOOM-8 on the FM-1's screen"><figcaption><b>LOOM-8</b> a groovebox inspired by the OP-XY</figcaption></figure><figure><img src="shots/fw/x0x.png" alt="X0X on the FM-1's screen"><figcaption><b>X0X</b> 909, 808 and two 303s</figcaption></figure><figure><img src="shots/fw/zp12.png" alt="zp12 on the FM-1's screen"><figcaption><b>zp12</b> a 12-bit sampler</figcaption></figure><figure><img src="shots/fw/winampfm.png" alt="winampFM on the FM-1's screen"><figcaption><b>winampFM</b> a synth that looks like Winamp</figcaption></figure><a class="fwmore" href="https://thefirmwarehub.com/" target="_blank" rel="noopener"><b>100+</b> more at the Firmware Hub ↗</a></div>
   <details class="addfw" id="add">
     <summary><span>Got Outrigger installed?</span> <b>Add custom FM-1 firmwares</b></summary>
     <div class="addfw-body">
@@ -273,7 +275,7 @@
     document.addEventListener("outrigger-installed", open);
     document.addEventListener("click", function (e) {
       var a = e.target.closest && e.target.closest('a[href="#add"]');
-      if (a) { open(); d.scrollIntoView(); }
+      if (a) { e.preventDefault(); open(); d.scrollIntoView({ behavior: "smooth" }); }
     });
     if (location.hash === "#add") open();
   })();
@@ -284,14 +286,12 @@
 
     <aside class="rail" id="install">
       <div class="card"><p class="eyebrow">Set up once</p><ol class="steps3">
-  <li><div><b>Install Outrigger on your ESP32</b><p>Plug your ESP32 into a computer and click Check my board: it
-    says what's on the board and changes nothing. Then click Install. About two minutes, free.</p>
-    <div class="install" data-builds="[{&quot;label&quot;: &quot;Check my board&quot;, &quot;manifest&quot;: &quot;firmware/waveshare-esp32-s3-touch-lcd-1.69/hub-loader/manifest.json&quot;, &quot;board&quot;: &quot;Waveshare 1.69\&quot;&quot;, &quot;tag_id&quot;: 0, &quot;flash_mb&quot;: 16, &quot;psram_mb&quot;: 8, &quot;tested&quot;: true}, {&quot;label&quot;: &quot;Check my board&quot;, &quot;manifest&quot;: &quot;firmware/waveshare-esp32-s3-touch-lcd-3.5/hub-loader/manifest.json&quot;, &quot;board&quot;: &quot;Waveshare 3.5\&quot;&quot;, &quot;tag_id&quot;: 1, &quot;flash_mb&quot;: 16, &quot;psram_mb&quot;: 8, &quot;tested&quot;: true}, {&quot;label&quot;: &quot;Check my board&quot;, &quot;manifest&quot;: null, &quot;board&quot;: &quot;Another ESP32-S3 board&quot;, &quot;tag_id&quot;: null}]" data-suggest="[&quot;Waveshare 1.69\&quot;&quot;, &quot;Waveshare 3.5\&quot;&quot;, &quot;Freenove 2.8\&quot;&quot;]" data-help="#no-port">
+  <li><div><b>Install Outrigger on your ESP32</b><p>Plug it into this computer.</p>
+    <div class="install" data-builds="[{&quot;label&quot;: &quot;Check my ESP32&quot;, &quot;manifest&quot;: &quot;firmware/waveshare-esp32-s3-touch-lcd-1.69/hub-loader/manifest.json&quot;, &quot;board&quot;: &quot;Waveshare 1.69\&quot;&quot;, &quot;tag_id&quot;: 0, &quot;flash_mb&quot;: 16, &quot;psram_mb&quot;: 8, &quot;tested&quot;: true}, {&quot;label&quot;: &quot;Check my ESP32&quot;, &quot;manifest&quot;: &quot;firmware/waveshare-esp32-s3-touch-lcd-3.5/hub-loader/manifest.json&quot;, &quot;board&quot;: &quot;Waveshare 3.5\&quot;&quot;, &quot;tag_id&quot;: 1, &quot;flash_mb&quot;: 16, &quot;psram_mb&quot;: 8, &quot;tested&quot;: true}, {&quot;label&quot;: &quot;Check my ESP32&quot;, &quot;manifest&quot;: null, &quot;board&quot;: &quot;Another ESP32-S3 board&quot;, &quot;tag_id&quot;: null}]" data-suggest="[&quot;Waveshare 1.69\&quot;&quot;, &quot;Waveshare 3.5\&quot;&quot;, &quot;Freenove 2.8\&quot;&quot;]" data-help="#no-port">
       <p class="install-note">Installing needs Chrome or Edge on a computer, with JavaScript on.</p>
     </div></div></li>
-  <li><div><b>Add firmwares</b><p>Stock V15, Felucca and Skiff come with it. Add more from the Firmware
-    Hub's list, right on this page: <a href="#add">Add custom firmwares</a>.</p></div></li>
-  <li><div><b>Plug everything into the hub</b><p>From then on, everything happens on Outrigger's screen.</p></div></li>
+  <li><div><b>Add firmwares</b><p>Stock V15, Felucca and Skiff come with it. Add more with the <a href="#add">firmware installer</a> below.</p></div></li>
+  <li><div><b>Plug everything into the hub</b><p>From then on, it all happens on Outrigger's screen.</p></div></li>
 </ol>
 <details class="overview"><summary>Installation overview</summary>
   <dl>
@@ -335,7 +335,7 @@
       <p>This runs Outrigger. Most ESP32-S3 boards with a screen should work; we're still testing.</p>
       <ul class="picks">
         <li><span class="tag">Tested</span><a class="" href="https://www.amazon.com/s?k=Waveshare+ESP32-S3-Touch-LCD-1.69" target="_blank" rel="noopener">Waveshare ESP32-S3 Touch LCD 1.69 ↗</a></li>
-        <li><span class="tag">Testing</span><a class="" href="https://www.amazon.com/dp/B0F3WS2W5R" target="_blank" rel="noopener">Waveshare ESP32-S3 Touch LCD 3.5 ↗</a></li>
+        <li><span class="tag">Tested</span><a class="" href="https://www.amazon.com/dp/B0F3WS2W5R" target="_blank" rel="noopener">Waveshare ESP32-S3 Touch LCD 3.5 ↗</a></li>
         <li><span class="tag">Likely</span><a class="" href="https://www.amazon.com/gp/product/B0DSVK5576" target="_blank" rel="noopener">Waveshare ESP32-S3 1.8-inch AMOLED ↗</a></li>
         <li><span class="tag">Likely</span><a class="" href="https://www.amazon.com/Waveshare-Capacitive-Development-Resolution-Dual-Core/dp/B0D925SBYF" target="_blank" rel="noopener">Waveshare ESP32-S3 4.3-inch Touch, Board B ↗</a></li>
       </ul>
@@ -411,14 +411,14 @@
   <section class="section" id="trouble" style="max-width:760px"><h2>Troubleshooting</h2><div class="faq">
   <details><summary>How do I update Outrigger?</summary><div class="answer">
     <p>Outrigger's USB port is busy running your MIDI gear, so first hand it to your computer: in Settings, open
-      Computer mode and hold the button. Then plug Outrigger into your computer and click Check my board, then Install. It goes back to
+      Computer mode and hold the button. Then plug Outrigger into your computer and click Check my ESP32, then Install. It goes back to
       MIDI by itself afterwards, and your backups stay.</p>
     <div class="shots-sm">
       <figure><img src="shots/M_setup.png" alt="Outrigger's Settings, with Computer mode: for updates over USB"><figcaption>Settings</figcaption></figure>
       <figure><img src="shots/M_computer_confirm.png" alt="Computer mode screen: hold to restart in Computer mode"><figcaption>Hold to restart</figcaption></figure>
     </div></div></details>
   <details id="no-port"><summary>Why can't the installer find my ESP32?</summary><p>Try another cable: charge-only cables never show up. Or
-    hold BOOT, tap RST, let go of BOOT, and click Check my board again.</p></details>
+    hold BOOT, tap RST, let go of BOOT, and click Check my ESP32 again.</p></details>
   <details><summary>My FM-1 won't start. Is it broken?</summary><p>It's almost certainly not dead: its install mode lives in ROM.
     <a href="https://thefirmwarehub.com/#rescue" target="_blank" rel="noopener">The Firmware Hub's Rescue</a> or
     <a href="https://github.com/Quixotic7/MvaveFM1Unbricker" target="_blank" rel="noopener">the Unbricker</a> brings it back
@@ -432,7 +432,7 @@
 <section class="nerd" id="builders"><div class="wrap">
   <p class="eyebrow">For builders</p>
   <h2>Under the hood</h2>
-  <div class="coming"><article><h4>Many boards, one firmware</h4><p>Each ESP32 board gets a profile, so the screens, installer checks and tests adapt to it. Round and square screens from 1.69 to 4.3 inches, on ESP32-S3 and P4, are in testing. <a href="https://github.com/chadthornton/outrigger/blob/master/docs/boards.md">See the board list.</a></p></article><article><h4>Only the parts you need</h4><p>One shared base with apps on top, built into editions. Today that's Hub or Hub + Loader.A general MIDI hub for any USB synth is planned.</p></article><article><h4>Open source</h4><p>Outrigger's core and apps are open source. Build your own edition with only what you need. <a href="https://github.com/chadthornton/outrigger">Source on GitHub.</a></p></article></div>
+  <div class="coming"><article><h4>Many boards, one firmware</h4><p>Each ESP32 board gets a profile, so the screens, installer checks and tests adapt to it. Two boards today, the 1.69" and 3.5", with more coming. <a href="https://github.com/chadthornton/outrigger/blob/master/docs/boards.md">See the board list.</a></p></article><article><h4>Only the parts you need</h4><p>One shared base with apps on top, built into editions. Today that's Hub or Hub + Loader.A general MIDI hub for any USB synth is planned.</p></article><article><h4>Open source</h4><p>Outrigger's core and apps are open source. Build your own edition with only what you need. <a href="https://github.com/chadthornton/outrigger">Source on GitHub.</a></p></article></div>
   <p class="fine">Installs with <a href="https://github.com/espressif/esptool-js">esptool-js</a> 0.7.0 (Apache-2.0), served from this site.
     It writes only the program and its startup parts, never your settings or the backup store. Outrigger is
     <a href="LICENSE.txt">GPL-3.0</a> (<a href="https://github.com/chadthornton/outrigger">source</a>); the firmware includes
@@ -447,6 +447,7 @@
     <a href="https://github.com/pfkellogg/fm1-mirror">fm1-mirror</a> by Patrick Kellogg, and, a related project,
     <a href="https://github.com/konsumer/fm1buddy">fm1buddy</a> by David Konsumer.</p>
   <p>Firmware screenshots by their authors, via the Firmware Hub. Not affiliated with M-VAVE or Waveshare.</p>
+  <p id="installer-version" hidden></p>
 </div></footer>
 <script src="rig.js"></script>
 </body>

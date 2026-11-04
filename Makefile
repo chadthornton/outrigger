@@ -49,7 +49,7 @@ WRITE_FLAGS += $(if $(filter 1,$(WIFI_BOOTLOOP)),-DWIFI_BOOTLOOP=1)
 # sizing screens on a board whose USB port is busy hosting. Never a release.
 WRITE_FLAGS += $(if $(filter 1,$(HEAP_ON_SCREEN)),-DHEAP_ON_SCREEN=1)
 # BENCH=1 (with DIAG_WEB=1, APPS=hub-loader): the test bench's control API at
-# fm1bench.local (lib/web_core/src/bench.h), answered only on Chad's Waveshares.
+# the board's own address (small-v2.local ...; lib/web_core/src/bench.h), answered only on Chad's boards.
 # tools/bench.py drives it. Never a release: make site checks no shipped build has it.
 ifeq ($(BENCH),1)
 $(if $(filter 1,$(DIAG_WEB)),,$(error BENCH=1 needs DIAG_WEB=1))
@@ -416,6 +416,7 @@ CHANNEL ?= beta
 deploy-site:
 	@src=$$(python3 -I tools/deploy_site.py source $(CHANNEL) $(FULL)) || exit 1; \
 	if [ "$$src" = ci ]; then python3 -I tools/deploy_site.py deploy-ci $(CHANNEL); \
+	elif [ "$$src" = beta ]; then python3 -I tools/deploy_site.py deploy-beta $(CHANNEL); \
 	else $(MAKE) check && python3 -I tools/deploy_site.py deploy $(CHANNEL) build/checked/site; fi
 
 # Put the deploy before the live one back on CHANNEL (or COMMIT=<sha>'s), in seconds,

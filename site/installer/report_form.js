@@ -16,8 +16,26 @@ function usbWords(vid) {
   return USB_BRIDGES[vid] ? `${USB_BRIDGES[vid]} (${hex})` : hex;
 }
 
-// {facts, picked, verdict, installer}: what the area read and decided.
+// "Request support for my ESP32 board": read it from here, or list it by hand.
+export function openRequestChoice({ installer, onRead }) {
+  const close = () => dialog.close();
+  const dialog = h("dialog", { class: "report", "aria-label": "Request support for my ESP32 board", on: { close: () => dialog.remove() } },
+    h("div", { class: "report-choice" },
+      h("h2", {}, "Request support for your ESP32 board"),
+      onRead ? h("p", {}, h("b", {}, "Have the board?"), " Plug it in and we'll read it for you.") : null,
+      onRead ? h("div", { class: "row" }, h("button", { type: "button", on: { click: () => { close(); onRead(); } } }, "Plug it in and read it")) : null,
+      h("p", {}, h("b", {}, "Don't have it yet?"), " List it here: its name or a link, a note, and an email if you want to hear back."),
+      h("div", { class: "row" },
+        h("button", { type: "button", class: onRead ? "alt" : null, on: { click: () => { close(); openReportForm({ facts: null, picked: "", verdict: "Listed by hand, no board read", installer }); } } }, "List it here"),
+        h("button", { type: "button", class: "alt", on: { click: close } }, "Cancel"))));
+  document.body.append(dialog);
+  dialog.showModal();
+}
+
+// {facts, picked, verdict, installer}: what the area read and decided. facts null: listed by hand, no chip data.
 export function openReportForm({ facts, picked, verdict, installer }) {
+  const listed = facts == null;
+  if (listed) facts = { chip: "", features: [], flashId: null, usbVendorId: null };
   const flash = flashBytesFromId(facts.flashId);
   const psram = psramMbFromFeatures(facts.features);
   const read = [
@@ -41,7 +59,10 @@ export function openReportForm({ facts, picked, verdict, installer }) {
   const cancel = h("button", { type: "button", class: "alt", on: { click: () => dialog.close() } }, "Cancel");
 
   const form = h("form", { method: "dialog", on: { submit: (e) => { e.preventDefault(); submit(); } } },
-    ...(boardFits(facts) ? [
+    ...(listed ? [
+      h("h2", {}, "Request support for your ESP32 board"),
+      h("p", {}, "There are hundreds of ESP32 boards, each wired its own way. Tell us which one you'd like, and we'll look."),
+    ] : boardFits(facts) ? [
       h("h2", {}, "Sorry, we don't know this board yet"),
       h("p", {}, "There are hundreds of ESP32 boards, each wired its own way, so we can't cover them all from the start."),
       h("p", {}, h("b", {}, "The good news: yours has everything Outrigger needs."), " We just need to set it up for its " +
@@ -54,7 +75,7 @@ export function openReportForm({ facts, picked, verdict, installer }) {
     field("Which board is it?", board),
     field("Anything else we should know?", note),
     field("Your email (optional)", email, `So we can tell you when it's ready. Used for nothing else; we'll delete it if you ask (${FEEDBACK}).`),
-    h("details", { class: "report-read" }, h("summary", {}, "What we'll send from your board"),
+    listed ? null : h("details", { class: "report-read" }, h("summary", {}, "What we'll send from your board"),
       h("dl", {}, read.flatMap(([k, v]) => [h("dt", {}, k), h("dd", {}, v)]))),
     h("div", { class: "report-trap", "aria-hidden": "true" }, field("Website", website)),
     status,
@@ -68,6 +89,7 @@ export function openReportForm({ facts, picked, verdict, installer }) {
   async function submit() {
     const report = buildReport({ facts, picked, verdict, installer, board: board.value, note: note.value,
       email: email.value, website: website.value });
+    if (listed) report.psram_mb = null; // nothing was read: not "no PSRAM"
     const check = validateReport(report);
     status.classList.remove("report-sending");
     if (!check.ok) {

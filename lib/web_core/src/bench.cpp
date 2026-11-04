@@ -1,5 +1,6 @@
 #include "bench.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -14,8 +15,8 @@ struct Waveshare {
   uint8_t mac[6];
 };
 constexpr Waveshare kWaveshares[] = {
-    {"small-v1", {0xA0, 0x85, 0xE3, 0xF0, 0xA2, 0x3C}},
-    {"small-v2", {0xD8, 0x3B, 0xDA, 0xA0, 0x67, 0xD0}},
+    {"small-v1", {0xD8, 0x3B, 0xDA, 0xA0, 0x67, 0xD0}},  // swapped 2026-11-03: Chad checked the board on the Mac
+    {"small-v2", {0xA0, 0x85, 0xE3, 0xF0, 0xA2, 0x3C}},
     {"big-s3", {0x44, 0xBD, 0x8D, 0x61, 0x2B, 0x28}},
 };
 
@@ -53,6 +54,11 @@ const char *waveshare_name(const uint8_t mac[6]) {
   for (const Waveshare &w : kWaveshares)
     if (memcmp(mac, w.mac, 6) == 0) return w.name;
   return nullptr;
+}
+
+void web_host_name(const uint8_t mac[6], bool bench_build, char *out, size_t len) {
+  const char *name = waveshare_name(mac);
+  snprintf(out, len, "%s", name ? name : bench_build ? "fm1bench" : "fm1hub");
 }
 
 const char *bench_kind_name(BenchKind k) {

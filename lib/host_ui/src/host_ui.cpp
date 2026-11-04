@@ -1274,6 +1274,11 @@ void ui_update_loader(const UiLoader &l) {
 static lv_obj_t *size_buttons[3], *version_label, *computer_screen_confirm;
 static lv_obj_t *network_labels[3];  // Setup, the Computer mode screen, Remote diagnostics
 static char network_text[48] = "";
+// The setup hotspot as a QR code and a hint, under Setup's network line, only
+// while it's open (ui_set_join_qr): made then and deleted after, so it costs no
+// RAM the rest of the time.
+static lv_obj_t *join_qr;
+static char join_qr_text[64] = "";
 // Computer mode's line about a firmware the page is adding (ui_set_computer_status).
 static char computer_status[64] = "";
 static lv_obj_t *computer_status_label;
@@ -1292,6 +1297,29 @@ static lv_obj_t *network_label(lv_obj_t *parent) {
   lv_obj_t *l = text(parent, network_text, kMuted, Role::Detail);
   show_if(l, network_text[0]);
   return l;
+}
+
+// Black on white with a quiet zone, the way phone cameras read best: 37 modules
+// (the hotspot's text, version 3 or 4 by the board's name, and the quiet zone)
+// at 4 px, or 3 px on a narrow screen so all of it shows without scrolling.
+// Beside it, what to do when the phone doesn't open the setup page by itself
+// (iOS doesn't always): the hotspot's address, the ESP32 default.
+static void place_join_qr() {
+  if (join_qr) lv_obj_delete(join_qr);
+  join_qr = nullptr;
+  lv_obj_t *line = network_labels[0];
+  if (!join_qr_text[0] || !line) return;
+  join_qr = row(lv_obj_get_parent(line), 8);
+  lv_obj_t *qr = lv_qrcode_create(join_qr);
+  lv_qrcode_set_size(qr, board->width >= 320 ? 148 : 111);
+  lv_qrcode_set_dark_color(qr, c(0x000000));
+  lv_qrcode_set_light_color(qr, c(0xFFFFFF));
+  lv_qrcode_set_quiet_zone(qr, true);
+  lv_qrcode_update(qr, join_qr_text, strlen(join_qr_text));
+  lv_obj_t *hint = text(join_qr, "Scan to join. No setup page? Open 192.168.4.1", kMuted, Role::Detail);
+  lv_obj_set_width(hint, 1);
+  lv_obj_set_flex_grow(hint, 1);
+  lv_obj_move_to_index(join_qr, lv_obj_get_index(line) + 1);
 }
 
 static void computer_tapped(lv_event_t *) { push(computer_screen_confirm); }
@@ -1327,6 +1355,8 @@ static void build_setup() {
   Page t = section_page(kSetup);
   version_label = text(t.content, firmware, kGrey, Role::Body);
   network_labels[0] = network_label(t.content);
+  join_qr = nullptr;  // went with the old Setup (rebuild)
+  place_join_qr();
   // Text size: three buttons sharing the width, each lettered in the size it
   // picks, so the letters are the preview.
   lv_obj_t *sizes = row(t.content, 6);
@@ -1517,6 +1547,12 @@ void ui_set_network(const char *line) {
     lv_label_set_text(l, network_text);
     show_if(l, network_text[0]);
   }
+}
+
+void ui_set_join_qr(const char *text) {
+  if (strcmp(text, join_qr_text) == 0) return;
+  strlcpy(join_qr_text, text, sizeof join_qr_text);
+  place_join_qr();
 }
 
 void ui_set_computer_status(const char *line) {

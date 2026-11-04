@@ -151,6 +151,9 @@ void ui_update_loader(const UiLoader &loader);
 // The network line on Setup and Computer mode (the Web UI's address, or how to
 // reach its setup hotspot). Empty hides it.
 void ui_set_network(const char *line);
+// The setup hotspot as a Wi-Fi QR code's text (WIFI:T:WPA;S:...;;), drawn under
+// Setup's network line so a phone joins with one scan. Empty removes it.
+void ui_set_join_qr(const char *text);
 // The Computer mode screen's line about a firmware being added from the
 // browser ("Adding Felucca 1.8.0: 40%"). Empty hides it.
 void ui_set_computer_status(const char *line);
