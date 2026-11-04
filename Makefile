@@ -149,6 +149,7 @@ test: build/check_package build/test_fm1_interop build/test_touch_map build/test
 	python3 -I tests/test_reports.py
 	python3 -I tests/test_installs.py
 	python3 -I tests/test_check.py
+	python3 -I tests/test_ecosystem_check.py
 	python3 -I tests/test_bench.py
 	python3 -I tests/test_bench_recover.py
 	python3 -I tests/test_guide.py
