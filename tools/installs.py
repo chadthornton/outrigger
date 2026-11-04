@@ -63,13 +63,10 @@ def main():
     env = load_credentials()
     for channel in args or ["beta", "production"]:
         name, db_id = database(channel)
-        try:
-            rows = query(env, db_id, "SELECT day, board, edition, installer, result, failure FROM installs")["results"]
-        except SystemExit as e:  # reports.query exits with D1's words
-            if "no such table" not in str(e.code):
-                raise
+        if not query(env, db_id, "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'installs'")["results"]:
             print(f"{name}: no installs table yet (tools/reports.py migrate{'' if channel == 'production' else ' beta'})")
             continue
+        rows = query(env, db_id, "SELECT day, board, edition, installer, result, failure FROM installs")["results"]
         print(describe(name, summarise(rows)))
 
 

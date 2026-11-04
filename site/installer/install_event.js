@@ -48,12 +48,16 @@ export function validateInstallEvent(e) {
   return { ok: !problems.length, problems };
 }
 
-// Storage can be missing or throw (blocked site data, private windows); then the box is ticked and nothing is remembered.
+// Storage can be missing or throw (blocked site data, private windows). Then this page load remembers instead, so
+// an unticked box stays unticked and a counted board isn't counted again until the page reloads.
+const memory = new Map(); // storage -> {key: value}, only for a storage that throws
+const remembered = (storage) => memory.get(storage) || memory.set(storage, {}).get(storage);
+
 function read(storage, key) {
   try {
     return storage.getItem(key);
   } catch {
-    return null;
+    return remembered(storage)[key] ?? null;
   }
 }
 
@@ -62,7 +66,8 @@ function write(storage, key, value) {
     if (value === null) storage.removeItem(key);
     else storage.setItem(key, value);
   } catch {
-    // not remembered
+    if (value === null) delete remembered(storage)[key];
+    else remembered(storage)[key] = value;
   }
 }
 

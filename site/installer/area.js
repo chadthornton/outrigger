@@ -200,11 +200,13 @@ class InstallArea {
       const step = h("span", {});
       this.show(h("p", { class: "install-note", role: "status" }, "Reading the board… ", step));
       onLogLine = (text) => { if (!text.startsWith("Debug")) step.textContent = text; };
+      let stage = "read"; // for the install count: where it stopped
       try {
         // Only the board read is timed: a slow download isn't a cable problem.
         const reading = this.open(port, choice).then((loader) => readBoard(loader));
         reading.catch(() => {}); // after a timeout it fails against the closed port; nothing waits for it
         const board = await withTimeout(reading, READ_TIMEOUT_MS, "Reading the board");
+        stage = "store";
         if (build.template && !board.store) this.show(h("p", { class: "install-note", role: "status" }, "Checking the board's store…"));
         // The region's MD5 takes seconds and each download has its own deadline; this bounds them all.
         const store = await withTimeout(prepareStore({ loader: this.loader, board, build }), STORE_TIMEOUT_MS, "Checking the board's store");
@@ -215,7 +217,7 @@ class InstallArea {
         }
         this.confirm(choice, build, board, store);
       } catch (e) {
-        this.count(choice, this.refused ? "chip" : "read");
+        this.count(choice, this.refused ? "chip" : stage);
         await this.close();
         this.ready(this.explain(e, "Couldn't read the board."));
       }

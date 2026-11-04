@@ -134,11 +134,20 @@ test("an event that doesn't validate is never sent", async () => {
   assert.equal(fetch.calls.length, 0);
 });
 
-test("blocked storage or a network error never throws", async () => {
+test("blocked storage still honours an unticked box and a counted board, for this page load", async () => {
+  const off = storage({ broken: true });
+  assert.equal(countingOn(off), true);
+  setCounting(off, false);
+  assert.equal(countingOn(off), false);
+  assert.equal(await sendInstallEvent(ok(), { fetch: fakeFetch(), storage: off }), false);
   const store = storage({ broken: true });
-  assert.equal(countingOn(store), true);
-  setCounting(store, false);
-  assert.equal(await sendInstallEvent(ok(), { fetch: fakeFetch(), storage: store }), true);
+  const fetch = fakeFetch();
+  assert.equal(await sendInstallEvent(ok(), { fetch, storage: store }), true);
+  assert.equal(await sendInstallEvent(ok(), { fetch, storage: store }), false);
+  assert.equal(await sendInstallEvent(ok(), { fetch: fakeFetch(), storage: null }), true, "no storage at all");
+});
+
+test("a network error never throws", async () => {
   const down = async () => { throw new TypeError("Failed to fetch"); };
   assert.equal(await sendInstallEvent(ok(), { fetch: down, storage: storage() }), false);
 });
