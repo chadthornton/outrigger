@@ -1,6 +1,7 @@
-// Adding a Firmware Hub firmware to an Outrigger that's set up: the Hub's
-// list, minus the firmwares Outrigger can't take yet; the file downloaded
-// into the visitor's browser and checked against the catalog's SHA-256; then
+// Adding a catalog firmware to an Outrigger that's set up: mutant.cloud's
+// list (the Firmware Hub's when mutant.cloud is down or slow), minus the
+// firmwares Outrigger can't take yet; the file downloaded into the visitor's
+// browser and checked against the catalog's SHA-256; then
 // sent over Web Serial to the board in Computer mode, which checks it again
 // and stores it (lib/fm1_loader/src/receive.h has the protocol). This site
 // never hosts a firmware. Pure, so `make test` runs it against the board's own
@@ -9,6 +10,19 @@ import { crc16, parsePackage, sha256Hex } from "./store.js";
 
 export const HUB = "https://thefirmwarehub.com/";
 export const CATALOG_URL = `${HUB}catalog.json`;
+// mutant.cloud (konsumer/mutantcloud): a community catalog in the Hub's shape,
+// FM-1 packages only. Its pkg links point at GitHub, whose downloads have no
+// CORS, so files come through its /dl/<entry>/<file>, which serves only listed
+// files. firmware.json adds what each firmware is built on (its family).
+export const MUTANT = "https://mutant.cloud/";
+export const MUTANT_CATALOG_URL = `${MUTANT}catalog.json?device=fm1`;
+export const MUTANT_FIRMWARE_URL = `${MUTANT}firmware.json?device=fm1&kind=firmware`;
+// How long mutant.cloud gets before the page asks the Hub instead.
+const CATALOG_TIMEOUT_MS = 5000;
+const DOWNLOAD_TIMEOUT_MS = 30000;
+// mutant.cloud entries the Hub (and so boards' stores and shelves) knows by
+// another id, matched by repo on 2026-11-04. The daily ecosystem check flags new ones.
+const HUB_ID = { "b1-drawbar-organ": "b1", "demake-synth": "demake", "fm1-dock": "fm1dock", "fm1-sid": "fm1sid" };
 
 // Projects the board's loader blocks (library.cpp kBlocked): they write the
 // FM-1's Bluetooth sector, whose hash is how Outrigger tells FM-1s apart.
@@ -21,58 +35,133 @@ const BLOCKED = ["melodee", "tessera"];
 // after the survey aren't classified: they're listed, and switch with a clean
 // slate like every untested switch.
 const OLD_FELUCCA = ["sloop", "clipper", "spampy", "winampfm", "floyd", "jangada", "nmsfm", "karma", "sloopdx",
-  "hortator", "sloopbanks", "fm1quest", "mnm1", "salt", "vector37", "nauclerus", "gator", "hawkchua"];
+  "hortator", "sloopbanks", "fm1quest", "mnm1", "salt", "vector37", "nauclerus", "gator", "hawkchua",
+  // The Hub lists it on Felucca and SLOOP; mutant.cloud on Felucca only, so mutant.cloud's base alone wouldn't hold it.
+  "mycelium"];
 
 // Files that fail Outrigger's package checks (make check-latest LATEST_ALL=1,
 // 2026-11-01: 1 of 143). Any other that fails is caught at download.
 const FAILS_CHECKS = ["amenity"];
 
 const WHY_BLOCKED = "Not yet: it writes the FM-1's Bluetooth sector, which Outrigger uses to tell FM-1s apart.";
+const WHY_MELODEE = "Not yet: it's built on Melodee, which writes the FM-1's Bluetooth sector Outrigger uses to tell FM-1s apart.";
 const WHY_OLD = "Not yet: it's built on an older Felucca, and switching from it to Felucca or Skiff could crash them.";
 const WHY_CHECKS = "Not yet: its file doesn't pass Outrigger's checks (its firmware is cut short).";
 const WHY_LICENSE = "Not from the list: it has no license, so add it yourself once files of your own are allowed.";
 
 // {addable, held}: addable are {project, name, version, sha256, size, url,
-// installs}, stock last; held are {project, name, why}. Entries without a
-// file aren't in either.
+// installs, family, lic}, stock last; held are {project, name, why}. Entries
+// without a file aren't in either. pkg is relative to the catalog's home
+// (catalog.home, the Hub when absent) or a whole URL.
 export function addableFirmwares(catalog) {
+  const home = catalog.home || HUB;
   const addable = [];
   const held = [];
   for (const e of catalog.firmwares || []) {
     if (!e.pkg || !e.sha256) continue;
     const base = e.base || [];
-    const why = BLOCKED.includes(e.id) ? WHY_BLOCKED
-      : OLD_FELUCCA.includes(e.id) || base.some((b) => OLD_FELUCCA.includes(b)) ? WHY_OLD
-        : FAILS_CHECKS.includes(e.id) ? WHY_CHECKS : !e.lic ? WHY_LICENSE : null;
+    // A variant file (fromMutant) answers for its entry too.
+    const ids = [e.id, e.entry || e.id];
+    const is = (list) => ids.some((i) => list.includes(i));
+    const why = is(BLOCKED) ? WHY_BLOCKED
+      : base.includes("melodee") ? WHY_MELODEE
+        : is(OLD_FELUCCA) || base.some((b) => OLD_FELUCCA.includes(b)) ? WHY_OLD
+          : is(FAILS_CHECKS) ? WHY_CHECKS : !e.lic ? WHY_LICENSE : null;
     if (why) held.push({ project: e.id, name: e.name, why });
     else addable.push({ project: e.id, name: e.name, version: e.version || "", sha256: e.sha256, size: e.size,
-      url: HUB + e.pkg, installs: e.installs || 0 });
+      url: new URL(e.pkg, home).href, installs: e.installs || 0, family: e.family || "", lic: e.lic });
   }
   addable.sort((a, b) => b.installs - a.installs || a.name.localeCompare(b.name));
   const s = catalog.stock;
   if (s && s.pkg && s.sha256) {
     // As tools/store_add.py names it: "stock", version "V15".
     addable.push({ project: "stock", name: "M-VAVE stock", version: `V${parseInt(s.product.slice(5), 10)}`,
-      sha256: s.sha256, size: s.size, url: HUB + s.pkg, installs: 0 });
+      sha256: s.sha256, size: s.size, url: new URL(s.pkg, home).href, installs: 0, family: "", lic: "Apache-2.0" });
   }
   return { addable, held };
 }
 
-const DOWNLOAD_TIMEOUT_MS = 30000;
+// mutant.cloud's catalog in the shape addableFirmwares reads. families is
+// firmware.json (or null): its bases name each entry's family. A firmware
+// with several FM-1 files (a Bluetooth build, a one-core build) keeps its
+// entry as the project for its main file, and each other file is a project
+// of its own: a different file never shares a shelf of saves by accident.
+// The main file is the one named <entry>-<version>.fwsc (the build the Hub
+// lists, checked 2026-11-04), else the row whose id is the entry.
+export function fromMutant(catalog, families) {
+  const entries = new Map((families && families.entries || []).map((f) => [f.id, f]));
+  const names = (families && families.bases) || {};
+  const rows = (catalog.firmwares || []).filter((e) => /^FM-1_/.test(e.product || "") && e.file && e.entry);
+  const main = new Map();
+  for (const e of rows) {
+    const named = e.file === `${e.entry}-${e.version}.fwsc`;
+    const was = main.get(e.entry);
+    if (!was || (named && !was.named) || (named === was.named && e.id === e.entry && was.row.id !== e.entry)) {
+      main.set(e.entry, { row: e, named, count: (was?.count || 0) + 1 });
+    } else was.count++;
+  }
+  const firmwares = rows.map((e) => {
+    const m = main.get(e.entry);
+    const own = m.count === 1 || m.row === e;
+    const base = entries.get(e.entry)?.base;
+    return {
+      id: own ? HUB_ID[e.entry] || e.entry
+        : e.id !== e.entry ? e.id : `${e.entry}-${e.file.replace(/\.fwsc$/, "").replace(/[^A-Za-z0-9._-]/g, "-")}`,
+      entry: HUB_ID[e.entry] || e.entry,
+      name: own ? e.name : `${e.name} (${e.file.replace(/\.fwsc$/, "")})`,
+      version: e.version, sha256: e.sha256, size: e.size, lic: e.lic,
+      pkg: `dl/${e.entry}/${encodeURIComponent(e.file)}`,
+      base: base ? [base] : [],
+      family: base && base !== "original" ? (names[base]?.name || base) : "",
+    };
+  });
+  const s = catalog.stock;
+  return { home: MUTANT, from: "mutant.cloud", firmwares, stock: s && /^FM-1_/.test(s.product || "") ? s : null };
+}
 
-// The file, checked against the catalog and parsed as the board will.
-export async function fetchHubPackage(fw, fetchFn = fetch) {
+async function getJson(fetchFn, url, ms) {
+  const res = await fetchFn(url, { cache: "no-cache", signal: AbortSignal.timeout(ms) });
+  if (!res.ok) throw new Error(`${url} answered ${res.status}`);
+  return res.json();
+}
+
+// The catalog to add from: mutant.cloud's, or the Hub's when mutant.cloud
+// fails, is slow or sends nothing usable. Its families are a nicety: without
+// them the list still works.
+export async function loadCatalog(fetchFn = fetch, ms = CATALOG_TIMEOUT_MS) {
+  try {
+    const [catalog, families] = await Promise.all([
+      getJson(fetchFn, MUTANT_CATALOG_URL, ms),
+      getJson(fetchFn, MUTANT_FIRMWARE_URL, ms).catch(() => null),
+    ]);
+    const c = fromMutant(catalog, families);
+    if (c.firmwares.length) return c;
+  } catch { /* the Hub, below */ }
+  let res;
+  try {
+    res = await fetchFn(CATALOG_URL, { cache: "no-cache", signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) });
+  } catch (e) {
+    throw new Error(`Couldn't reach mutant.cloud or the Firmware Hub for their list (${e.message}).`);
+  }
+  if (!res.ok) throw new Error(`mutant.cloud didn't answer, and the Firmware Hub answered ${res.status} for its list.`);
+  return { ...(await res.json()), home: HUB, from: "the Firmware Hub" };
+}
+
+// The file, checked against the catalog and parsed as the board will. from
+// names where it comes from, for the messages.
+export async function fetchHubPackage(fw, fetchFn = fetch, from = "the Firmware Hub") {
   const label = `${fw.name} ${fw.version}`.trim();
+  const From = from.replace(/^the /, "The ");
   let res;
   try {
     res = await fetchFn(fw.url, { signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) });
   } catch (e) {
-    throw new Error(`Couldn't reach the Firmware Hub to download ${label} (${e.message}).`);
+    throw new Error(`Couldn't reach ${from} to download ${label} (${e.message}).`);
   }
-  if (!res.ok) throw new Error(`The Firmware Hub answered ${res.status} for ${label}.`);
+  if (!res.ok) throw new Error(`${From} answered ${res.status} for ${label}.`);
   const data = new Uint8Array(await res.arrayBuffer());
   if (await sha256Hex(data) !== fw.sha256) {
-    throw new Error(`${label} from the Firmware Hub didn't match its catalog. Reload the page: it may have just released.`);
+    throw new Error(`${label} from ${from} didn't match its catalog. Reload the page: it may have just released.`);
   }
   try {
     parsePackage(data);
