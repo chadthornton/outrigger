@@ -51,7 +51,7 @@
   .steps3 .btn { margin-top: 14px; width: 100%; justify-content: center; }
   .steps3 .install-out { margin-top: 10px; font-size: .875rem; line-height: 1.45; }
   .shopping { list-style: none; margin: 0; padding: 0; display: grid; }
-  .shopping a { display: grid; grid-template-columns: 36px 1fr auto; gap: 14px; align-items: center; padding: 12px 0; text-decoration: none; border-bottom: 1px solid var(--line); }
+  .shopping a { display: grid; grid-template-columns: 36px 1fr auto; gap: 14px; align-items: center; padding: 12px 0; text-decoration: none; color: inherit; border-bottom: 1px solid var(--line); }
   .shopping li:first-child a { padding-top: 0; }
   .shopping li:last-child a { border-bottom: 0; padding-bottom: 0; }
   .shopping svg { width: 36px; color: var(--fg); }
@@ -133,7 +133,8 @@
   .install-boards label { display: flex; gap: 6px; align-items: center; cursor: pointer; }
   .install-boards input { accent-color: var(--accent); margin: 0; }
   .install-links { display: grid; gap: 6px; font-size: .875rem; }
-  .install-links a { color: var(--muted); }
+  .install-links a { text-decoration: none; }
+  .install-links a:hover, .install-links a:focus-visible { text-decoration: underline; }
   .report-choice { display: grid; gap: 14px; }
   .install-log { border: 0; padding: 0; font-size: .8125rem; color: var(--muted); }
   .install-log pre { margin: 6px 0 0; max-height: 14em; overflow: auto; white-space: pre-wrap; font: .75rem ui-monospace, "SF Mono", Menlo, monospace; }
@@ -145,6 +146,7 @@
   .nerd h2 { margin-bottom: 24px; }
   .nerd .eyebrow { margin-bottom: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
   .nerd a { color: var(--accent); }
+  .nerd { --link: var(--accent); }
   .nerd:not(footer) { padding-bottom: 24px; }
   footer.nerd { margin-top: 0; padding-block: 0 48px; }
   .nerd .fine { margin-top: 24px; max-width: 760px; }
