@@ -1,9 +1,9 @@
 # Known issues
 
-A living list for beta 1. If you hit something that isn't here, email
+A living list. If you hit something that isn't here, email
 [feedback@outrigger.music](mailto:feedback@outrigger.music).
 
-## What beta 1 has, and doesn't
+## What it has, and doesn't
 
 - **Three FM-1 firmwares come with it.** A new ESP32 gets M-VAVE stock V15, Felucca 1.8.0 and Skiff 2.1.1 at install.
 - **SLOOP, and the firmwares built on it or on Felucca 0.9, are left out on purpose.** SLOOP is built on an older Felucca, and going from SLOOP to Felucca or Skiff can leave
@@ -13,7 +13,7 @@ A living list for beta 1. If you hit something that isn't here, email
   there's no way to remove a firmware yet.
 - **Melodee and Tessera can't be added yet.** They write the part of the FM-1's memory Outrigger uses to tell FM-1s
   apart.
-- **No Wi-Fi.** Beta 1's Install button gives you Outrigger without Wi-Fi and without its own web page. Both are coming.
+- **No Wi-Fi.** The Install button gives you Outrigger without Wi-Fi and without its own web page. Both are coming.
 
 ## Firmware switching
 
@@ -33,7 +33,9 @@ Which switches we've run on a real FM-1, with these exact versions:
 - **During a firmware switch the board restarts 2–3 times, and the FM-1 goes dark for about a minute.** That's normal.
   A crash looks different: a safe-mode screen that says where it stopped and "RST to try again". If you see that,
   email us.
-- **After several switches in a row, your MIDI controller may stop sending.** Unplug it and plug it back in.
+- **After a firmware switch, your MIDI controller may stop sending.** Unplug it and plug it back in.
+- **A factory-stock FM-1 may not be marked "running" in the firmware list after its first backup,** even though it is.
+  Harmless; the fix is coming.
 - What can go wrong during a switch, and what to do, is on [Switching FM-1 firmware](04-switching-firmware.md).
 
 ## Setup
@@ -46,6 +48,9 @@ Which switches we've run on a real FM-1, with these exact versions:
   Email us if you see it.
 - **Adding a firmware needs Outrigger in Computer mode, on a build from this page.** After an install it restarts into
   MIDI: go back to Computer mode before adding.
+- **An FM-1 running M-VAVE's October "Open" firmware isn't recognised yet.** Its USB ID is 3654:7756 ("FM1 Community").
+  Outrigger treats it as a MIDI controller and shows no FM-1. The fix is coming; until then, switch it back to stock
+  with M-VAVE's own tools or the Transporter.
 - **Installing needs Chrome or Edge on a computer.** Phones, Safari and Firefox can't talk to the board's USB port.
 - **There's no way back to an earlier build from the website.** See [Install and first setup](02-install-and-setup.md).
 
