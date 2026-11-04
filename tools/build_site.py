@@ -24,6 +24,10 @@ browser downloads them from the Firmware Hub): no .fwsc file, no copy of a
 fixture package, and no JSON file holding the hex of a 1 KiB piece of a
 fixture package's app (the store template is JSON; its own test checks it
 piece by piece).
+
+Privacy guard: an app holding a test board's MAC from the local device registry
+(tools/devices.py) is refused. Only DIAG_WEB builds list the registry's boards
+(lib/web_core/src/bench.cpp), and those are for the bench, not the site.
 """
 import hashlib
 import json
@@ -35,6 +39,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import boards as board_table  # noqa: E402
+import devices  # noqa: E402
 import fm1lib  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -239,6 +244,23 @@ def wl82_problem(name, data, chunks, sha=WL82_SHA256):
     return None
 
 
+def registry_macs(path=None):
+    """(label, MAC bytes) for each ESP32 in the local device registry; [] without one."""
+    try:
+        reg = devices.load(path)
+    except devices.DeviceError:
+        return []
+    return [(d["label"], bytes.fromhex(d["mac"].replace(":", ""))) for d in reg.entries if d["kind"] == "esp32"]
+
+
+def mac_problem(app, macs):
+    """Why an app can't go on the site because it names a test board; None if it doesn't."""
+    for label, mac in macs:
+        if mac in app:
+            return f"holds {label}'s MAC from the device registry (a DIAG_WEB build?)"
+    return None
+
+
 def check_licensing(files):
     blob = load_wl82_blob()
     chunks = wl82_chunks(blob)
@@ -290,6 +312,9 @@ def main():
         parts[offset] = path.read_bytes()
     check_layout(parts, board)
     tag = check_build_tag(parts[0x10000], app_set, board)
+    problem = mac_problem(parts[0x10000], registry_macs())
+    if problem:
+        fail(f"{build_dir}'s app {problem}; it must not be published")
 
     out = SITE / "firmware" / board_id / app_set
     # Builds before app sets were staged flat in the board folder; don't keep serving them.
