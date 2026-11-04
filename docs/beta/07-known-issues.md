@@ -14,8 +14,7 @@ A living list. If you hit something that isn't here, email
   [Adding a firmware](04a-adding-firmware.md). Files of your own (not on the Hub's list) can't be added yet, and
   there's no way to remove a firmware yet.
 - **Melodee, Tessera and the firmwares built on Melodee can't be added yet.** They write the part of the FM-1's
-  memory Outrigger uses to tell FM-1s apart. Outrigger refuses to switch to them, and to SLOOP's family, even from
-  a store set up some other way.
+  memory Outrigger uses to tell FM-1s apart.
 - **No Wi-Fi.** The Install button gives you Outrigger without Wi-Fi and without its own web page. Both are coming.
 
 ## Firmware switching
