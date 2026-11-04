@@ -235,14 +235,14 @@ COMING_HTML = "".join(
 TROUBLE = """<div class="faq">
   <details><summary>How do I update Outrigger?</summary><div class="answer">
     <p>Outrigger's USB port is busy running your MIDI gear, so first hand it to your computer: in Settings, open
-      Computer mode and hold the button. Then plug Outrigger into your computer and click Check my board, then Install. It goes back to
+      Computer mode and hold the button. Then plug Outrigger into your computer and click Check my ESP32, then Install. It goes back to
       MIDI by itself afterwards, and your backups stay.</p>
     <div class="shots-sm">
       <figure><img src="shots/M_setup.png" alt="Outrigger's Settings, with Computer mode: for updates over USB"><figcaption>Settings</figcaption></figure>
       <figure><img src="shots/M_computer_confirm.png" alt="Computer mode screen: hold to restart in Computer mode"><figcaption>Hold to restart</figcaption></figure>
     </div></div></details>
   <details id="no-port"><summary>Why can't the installer find my ESP32?</summary><p>Try another cable: charge-only cables never show up. Or
-    hold BOOT, tap RST, let go of BOOT, and click Check my board again.</p></details>
+    hold BOOT, tap RST, let go of BOOT, and click Check my ESP32 again.</p></details>
   <details><summary>My FM-1 won't start. Is it broken?</summary><p>It's almost certainly not dead: its install mode lives in ROM.
     <a href="https://thefirmwarehub.com/#rescue" target="_blank" rel="noopener">The Firmware Hub's Rescue</a> or
     <a href="https://github.com/Quixotic7/MvaveFM1Unbricker" target="_blank" rel="noopener">the Unbricker</a> brings it back
@@ -291,8 +291,8 @@ STYLE = """
   @media (max-width: 920px) { aside.rail { position: static; max-height: none; overflow: visible; } }
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 24px; display: grid; gap: 16px; }
   .steps3 { list-style: none; margin: 0; padding: 0; counter-reset: s; display: grid; gap: 20px; }
-  .steps3 li { counter-increment: s; display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 12px; align-items: start; }
-  .steps3 li::before { content: counter(s); width: 24px; height: 24px; margin-top: 1px; border-radius: 50%; background: var(--accent);
+  .steps3 > li { counter-increment: s; display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 12px; align-items: start; }
+  .steps3 > li::before { content: counter(s); width: 24px; height: 24px; margin-top: 1px; border-radius: 50%; background: var(--accent);
                        color: var(--accent-fg); display: grid; place-items: center; font-weight: 650; font-size: .75rem; }
   .steps3 b { display: block; font-weight: 600; line-height: 1.35; margin-bottom: 4px; text-wrap: balance; }
   .steps3 p { font-size: .9375rem; line-height: 1.5; color: var(--muted); }
@@ -360,7 +360,7 @@ STYLE = """
   .coming .tip { display: block; margin-top: 10px; padding: 10px 12px; border-radius: 8px; background: color-mix(in srgb, var(--accent) 10%, transparent); color: var(--fg); font-size: .875rem; line-height: 1.45; }
   .coming .tip b { font-weight: 650; }
   /* The real install area (site/installer/area.js, from PR #14): buttons, then the board readout, progress and result. */
-  .install { display: grid; gap: 10px; margin-top: 14px; }
+  .install { display: grid; gap: 12px; margin-top: 12px; }
   .install button { background: var(--accent); color: var(--accent-fg); border: 0; border-radius: 10px; padding: 13px 22px;
                     font: inherit; font-weight: 600; line-height: 1.2; cursor: pointer; width: 100%; }
   .install button.alt { background: transparent; color: var(--fg); box-shadow: inset 0 0 0 2px var(--line); }
@@ -380,9 +380,9 @@ STYLE = """
   .install-boards legend { padding: 0; margin-bottom: 6px; font-weight: 600; font-size: .875rem; }
   .install-boards label { display: flex; gap: 6px; align-items: center; cursor: pointer; }
   .install-boards input { accent-color: var(--accent); margin: 0; }
-  .install-supported { margin-top: 10px; font-size: .875rem; color: var(--muted); }
-  .install-supported summary { cursor: pointer; }
-  .install-supported ul { margin: 6px 0 0; padding-left: 18px; }
+  .install-links { display: grid; gap: 6px; font-size: .875rem; }
+  .install-links a { color: var(--muted); }
+  .report-choice { display: grid; gap: 14px; }
   .install-log { border: 0; padding: 0; font-size: .8125rem; color: var(--muted); }
   .install-log pre { margin: 6px 0 0; max-height: 14em; overflow: auto; white-space: pre-wrap; font: .75rem ui-monospace, "SF Mono", Menlo, monospace; }
   .install .check { display: flex; gap: 8px; align-items: baseline; }

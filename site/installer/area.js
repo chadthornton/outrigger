@@ -18,7 +18,7 @@ import { ESPLoader } from "../vendor/esptool-js-0.7.0/bundle.js";
 import { ChunkedTransport, readFlashInPieces } from "./serial.js";
 import { describeBoard, buildName } from "./board.js";
 import { checkChip, USB_BRIDGES } from "./chip.js";
-import { openReportForm } from "./report_form.js";
+import { openReportForm, openRequestChoice } from "./report_form.js";
 import { readBoard, fetchBuild, install, finish, prepareStore } from "./install.js";
 import { PORT_FILTER, SERIAL_OPTIONS, port as lock, h } from "./ui.js";
 
@@ -105,25 +105,45 @@ class InstallArea {
         on: { click: () => openReportForm({ ...this.refused, installer: INSTALLER_VERSION }) } }, "Ask us to add this board")) : null,
       note && LOG.length ? h("details", { class: "install-log" }, h("summary", {}, "Details"),
         h("pre", {}, [`Installer ${INSTALLER_VERSION}`, ...LOG.slice(-25), "", ...this.trace.split("\n").slice(-40).map((l) => l.slice(0, 160))].join("\n"))) : null,
-      expanded && this.boards.length > 1 ? this.boardPicker() : h("div", { class: "row" },
-        h("button", { on: { click: () => this.boards.length > 1 ? this.ready(undefined, true) : this.connect(this.builds[0]) } }, this.builds[0].label)),
-      this.supported(),
+      expanded && this.boards.length > 1 ? this.boardPicker() : null,
+      h("div", { class: "row" }, this.mainButton(expanded)),
+      this.links(),
     );
   }
 
-  // "Which boards work?": closed until opened.
-  supported() {
-    const named = this.boards.filter((b) => b.manifest);
-    return h("details", { class: "install-supported" }, h("summary", {}, "Which boards work?"),
-      h("ul", {}, named.map((b) => h("li", {}, b.board, b.tested === false ? " (should work, not tried yet)" : " (tested)"))),
-      h("p", { class: "install-note" }, "Another ESP32-S3 with a screen? ", h("a", { href: this.helpHref }, "No board listed?")));
+  // One primary button. With several boards it first opens the board question ("Check my ESP32"), then
+  // waits for an answer ("Continue", which starts the port chooser).
+  mainButton(expanded) {
+    const many = this.boards.length > 1;
+    if (many && expanded) {
+      this.continueButton = h("button", { disabled: !this.board,
+        on: { click: () => this.connect(this.builds.find((b) => b.board === this.board)) } }, "Continue");
+      return this.continueButton;
+    }
+    return h("button", { on: { click: () => many ? this.ready(undefined, true) : this.connect(this.builds[0]) } }, this.builds[0].label);
+  }
+
+  links() {
+    const help = (e) => {
+      e.preventDefault();
+      const d = document.querySelector(this.helpHref);
+      if (d) { d.open = true; d.scrollIntoView({ behavior: "smooth", block: "center" }); }
+    };
+    const request = (e) => {
+      e.preventDefault();
+      const read = this.builds.find((b) => !b.manifest);
+      openRequestChoice({ installer: INSTALLER_VERSION, onRead: read ? () => { this.requested = true; this.connect(read); } : null });
+    };
+    return h("p", { class: "install-links" },
+      h("a", { href: this.helpHref, on: { click: help } }, "I plugged it in, nothing's happening"),
+      h("a", { href: "#", on: { click: request } }, "Request support for my ESP32 board"));
   }
 
   boardPicker() {
-    // The chip can't say which board it sits on (chip.js), so the visitor does. Picking one opens the port chooser.
+    // The chip can't say which board it sits on (chip.js), so the visitor does.
     const pick = (board) => {
       this.board = board;
-      this.connect(this.builds.find((b) => b.board === board));
+      if (this.continueButton) this.continueButton.disabled = false;
     };
     return h("fieldset", { class: "install-boards" }, h("legend", {}, "Which one is it?"),
       this.boards.map((b) => h("label", {},
@@ -183,7 +203,12 @@ class InstallArea {
       await withTimeout(this.open(port, null), READ_TIMEOUT_MS, "Reading the board");
     } catch (e) {
       await this.close();
-      return this.ready(this.explain(e, "Couldn't read the board."));
+      const asked = this.requested;
+      this.requested = false;
+      this.ready(this.explain(e, "Couldn't read the board."));
+      // "Request support" said "plug it in and we'll read it": the refusal is the answer, so the form opens with it.
+      if (asked && this.refused) openReportForm({ ...this.refused, installer: INSTALLER_VERSION });
+      return;
     }
   }
 
