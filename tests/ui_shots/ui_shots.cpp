@@ -503,8 +503,8 @@ static void setup_pages(int size) {
   lv_obj_t *setup = lv_screen_active();
   shoot("setup");
   // The setup hotspot is open: its line, and the QR code under it.
-  ui_set_network("Wi-Fi: join small-v1-setup pw abcd2345");
-  ui_set_join_qr("WIFI:T:WPA;S:small-v1-setup;P:abcd2345;;");
+  ui_set_network("Wi-Fi: join small-v1-setup pw abcd2345wxyz");
+  ui_set_join_qr("WIFI:T:WPA;S:small-v1-setup;P:abcd2345wxyz;;");
   run(100);
   shoot("setup_hotspot");
   ui_set_network("Web: 192.168.1.40");

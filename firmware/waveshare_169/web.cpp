@@ -139,6 +139,11 @@ struct Seen {
 static Seen seen[24];
 static int seen_count = 0;
 static uint8_t hotspot_channel = 0;
+// The last request the hotspot redirected to the setup page (a phone's
+// captive-portal check, such as captive.apple.com/hotspot-detect.html), for the
+// loop to log: it shows whether a phone's check reached the board at all.
+static char redirected[64] = "";
+static uint32_t redirect_count = 0;
 static char saved_ssid[33], saved_pass[65];
 static char trial_ssid[33], trial_pass[65];  // from the setup page; saved once they work
 
@@ -194,10 +199,13 @@ static bool via_hotspot(httpd_req_t *req) {
 }
 
 static esp_err_t redirect_to_setup(httpd_req_t *req) {
-  char where[40];
+  char where[40], host[40] = "";
+  header(req, "Host", host, sizeof host);
   {
     Lock l;
     snprintf(where, sizeof where, "http://%s/", ap_ip);
+    snprintf(redirected, sizeof redirected, "%s%s", host, req->uri);
+    ++redirect_count;
   }
   httpd_resp_set_status(req, "302 Found");
   httpd_resp_set_hdr(req, "Location", where);
@@ -989,6 +997,16 @@ void web_loop(uint32_t now) {
     join(trial_ssid, trial_pass);
   }
   if (ap_on) dns.processNextRequest();
+  static uint32_t logged_redirects = 0;
+  char probe[sizeof redirected] = "";
+  {
+    Lock l;
+    if (redirect_count != logged_redirects) {
+      logged_redirects = redirect_count;
+      strlcpy(probe, redirected, sizeof probe);
+    }
+  }
+  if (probe[0]) DLOG_LOOP("wifi: hotspot sent %s to the setup page", probe);
 
   const wl_status_t status = WiFi.status();
   static wl_status_t logged_status = WL_NO_SHIELD;
