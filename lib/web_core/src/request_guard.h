@@ -1,6 +1,6 @@
 // Which requests the web server answers at all. Checking Host blocks DNS
 // rebinding (a foreign name pointed at the hub's IP); checking a WebSocket's
-// Origin blocks other sites opening one from Chad's browser.
+// Origin blocks other sites opening one from the user's browser.
 #pragma once
 
 namespace web_core {

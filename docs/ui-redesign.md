@@ -1,6 +1,6 @@
 # UI redesign: nav, Play, switching firmware, errors
 
-**Status:** signed off by Chad, 2026-10-30, after six rounds of review (the full set of mockups below). The light-tier
+**Status:** signed off 2026-10-30, after six rounds of review (the full set of mockups below). The light-tier
 parts are built in `host_ui` (see "Built so far" at the end), and so is the chained backup of a switch.
 
 - **Review page:** https://claude.ai/artifact/AemH6yE3Nzyeu6GYobHaeg. It shows every screen on every board and
@@ -13,7 +13,7 @@ parts are built in `host_ui` (see "Built so far" at the end), and so is the chai
   - **Round 1** (the first pass, every page under a status strip and bottom tabs) still renders to
     `build/ui-mocks/` for comparison. It's superseded.
 
-**Chad's goals:** "a top level nav and better error messaging and better clarity around what's currently running
+**The goals:** "a top level nav and better error messaging and better clarity around what's currently running
 and what the backup process is". Then, in review: switching firmware is the tool's main job and shouldn't be
 cumbersome.
 
@@ -111,7 +111,7 @@ so the USB name is never used.
 - "Brings back Felucca's songs", or "Starts Felucca fresh: no songs saved yet".
 - "MIDI stops until it's done."
 
-**What the hold runs (Chad's decision: back up only when the FM-1 changed):**
+**What the hold runs (decision: back up only when the FM-1 changed):**
 1. **The install visit, as today:** autosave from the stored backup, plan, key, then one read compared with the
    backup (`Installer::do_check`).
 2. **If it matches:** write, restore that firmware's songs or start fresh, then restart the FM-1.
@@ -140,7 +140,7 @@ more (the plan's figure for a manual save). Felucca's autosave may make "changed
 built, and revisit "always back up first" if so.
 
 **Guarded.** This changes the install path: one hold runs up to three ROM-boot visits. It needs its own plan,
-Chad's go-ahead and tests first in the loader session. Tests to write first:
+a go-ahead and tests first in the loader session. Tests to write first:
 - **Stale switch:** a stale check, then a backup, then an install that succeeds, with the songs saved from the new
   backup.
 - **Stale twice:** a second stale check stops the switch.
@@ -249,7 +249,7 @@ later, but only for detail about the row directly to its left.
 | Landscape | 480×320, 800×480 | left rail |
 | Square or round | 480×480, 412×412 | top band, icons kept inside the circle |
 
-- **Chad's two new panels** are 320×480 (IPS and SPI): 2:3, a bit taller than 4:3.
+- **The two new panels** are 320×480 (IPS and SPI): 2:3, a bit taller than 4:3.
 - **Recommended defaults:** landscape on the 320×480 panels, portrait on the 1.69". Rotation is an LVGL display
   rotation, saved in settings.
 - **Square-cornered panels** use a 10 px side margin and 8 px top and bottom (host_ui's rect padding is 6).

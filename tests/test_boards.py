@@ -51,7 +51,7 @@ class RealTableTest(unittest.TestCase):
         self.assertEqual(b["tag_id"], 0)
 
     def test_only_tested_boards_are_built(self):
-        # Chad's rule: CI, make site and the installer build only boards he owns and has tested.
+        # The rule: CI, make site and the installer build only boards the project has tested.
         self.assertEqual(boards.ids(REAL), ["waveshare_169", "waveshare_35"])
         self.assertIn("freenove_28", boards.all_ids(REAL))
 

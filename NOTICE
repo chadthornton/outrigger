@@ -61,7 +61,7 @@ MvaveFM1Unbricker, https://github.com/Quixotic7/MvaveFM1Unbricker (in the firmwa
   The Unbricker's package parsing, CRC and header cipher say they are ports of
   firmware/src/ota.c in Felucca (https://github.com/hugelton/Felucca), which
   derives from M-VAVE's fm1_open; both are GPL-3.0. See
-  docs/public-release-audit.md, "Licenses". Outrigger as a whole is GPL-3.0,
+  docs/licenses.md. Outrigger as a whole is GPL-3.0,
   which settles that question.
 
 jl-uboot-tool, https://github.com/kagaimiq/jl-uboot-tool (in the firmware)

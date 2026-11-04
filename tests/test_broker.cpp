@@ -50,7 +50,7 @@ static DeviceDesc hub(uint8_t address) {
   return d;
 }
 
-// Skiff on Chad's unit: audio control, MIDI, audio streaming (iso IN on alt 1),
+// Skiff on the test unit: audio control, MIDI, audio streaming (iso IN on alt 1),
 // then the CDC serial pair.
 static DeviceDesc skiff(uint8_t address) {
   DeviceDesc d = device(address, 0x1209, 0x0001, "FEL");
