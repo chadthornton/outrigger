@@ -48,8 +48,8 @@ extern char last_crash[3][40];  // app.cpp: the last abnormal reset, if any
 #define FW_DIRTY 0
 #endif
 
-// The board's network name, set once in web_begin from its MAC: each of Chad's
-// boards answers at its own name (small-v1.local ...), any other board at
+// The board's network name, set once in web_begin from its MAC: each board in
+// the build's device registry answers at its own name (small-v1.local ...), any other board at
 // fm1hub.local, or fm1bench.local in a BENCH=1 build so soak_watch.py and
 // bookmarks never reach a bench by mistake (web_core::web_host_name).
 static char host_name[16] = "fm1hub", mdns_name[24] = "fm1hub.local", setup_ssid[24] = "fm1hub-setup";
@@ -772,7 +772,7 @@ static void start_server() {
     httpd_register_uri_handler(server, &u);
   }
 #if BENCH
-  // Only on one of Chad's Waveshares; tools/bench.py checks it's the one it asked for.
+  // Only on a board in the device registry; tools/bench.py checks it's the one it asked for.
   if (bench_board) {
     for (const web_core::Route &r : web_core::kBenchRoutes) {
       httpd_uri_t u{};
@@ -839,7 +839,7 @@ static const Seen *find_seen(const char *ssid) {
   return best;
 }
 
-// The hotspot starts on the channel of the network Chad will most likely pick,
+// The hotspot starts on the channel of the network the user will most likely pick,
 // so joining it doesn't move the radio and drop the phone (web-UI spike).
 // The scan blocks the loop ~2 s; USB routing runs on its own task.
 static void start_hotspot(uint32_t now) {

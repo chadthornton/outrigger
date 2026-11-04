@@ -49,7 +49,8 @@ WRITE_FLAGS += $(if $(filter 1,$(WIFI_BOOTLOOP)),-DWIFI_BOOTLOOP=1)
 # sizing screens on a board whose USB port is busy hosting. Never a release.
 WRITE_FLAGS += $(if $(filter 1,$(HEAP_ON_SCREEN)),-DHEAP_ON_SCREEN=1)
 # BENCH=1 (with DIAG_WEB=1, APPS=hub-loader): the test bench's control API at
-# the board's own address (small-v2.local ...; lib/web_core/src/bench.h), answered only on Chad's boards.
+# the board's own address (small-v2.local ...; lib/web_core/src/bench.h), answered only on the boards in
+# the local device registry (tools/devices.py), which a bench build needs.
 # tools/bench.py drives it. Never a release: make site checks no shipped build has it.
 ifeq ($(BENCH),1)
 $(if $(filter 1,$(DIAG_WEB)),,$(error BENCH=1 needs DIAG_WEB=1))
@@ -81,6 +82,11 @@ endif
 # it waits for the branches editing it to land.
 SKETCH := firmware/waveshare_169
 BUILD := build/$(BOARD)/$(APPS)$(BUILD_SUFFIX)
+# The board table (bench_boards.h, lib/web_core/src/bench.cpp): the registry's
+# names and MACs for DIAG_WEB builds (required for BENCH=1), empty otherwise, so
+# release builds carry no MACs. One per build, outside the repo.
+BENCH_GEN = $(CACHE_ROOT)/bench-boards/$(APPS)$(BUILD_SUFFIX)
+BENCH_HEADER_ARGS := $(if $(filter 1,$(DIAG_WEB)),--registry $(if $(filter 1,$(BENCH)),,--optional))
 # arduino-cli's build paths and ui-shots' LVGL objects. make check points it
 # outside its clone, so a check recompiles only what the commit changed.
 CACHE_ROOT ?= $(CURDIR)/build/cache
@@ -245,13 +251,17 @@ build/test_describe: tests/test_describe.cpp lib/platform/src/describe.cpp lib/p
 	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -Ilib/platform/src -Ilib/midi_core/src -o $@ tests/test_describe.cpp lib/platform/src/describe.cpp lib/platform/src/broker.cpp lib/midi_core/src/midi_core.cpp
 
 WEB_CORE_SRC := $(wildcard lib/web_core/src/*.cpp)
-build/test_web_core: tests/test_web_core.cpp $(WEB_CORE_SRC) $(wildcard lib/web_core/src/*.h)
+# The Mac tests' board table: tools/devices.example.json's made-up MACs.
+EXAMPLE_BOARDS := build/example-boards/bench_boards.h
+$(EXAMPLE_BOARDS): tools/devices.example.json tools/devices.py
+	python3 -I tools/devices.py header $@ --registry tools/devices.example.json
+build/test_web_core: tests/test_web_core.cpp $(WEB_CORE_SRC) $(wildcard lib/web_core/src/*.h) $(EXAMPLE_BOARDS)
 	mkdir -p build
-	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -pthread -Ilib/web_core/src -o $@ tests/test_web_core.cpp $(WEB_CORE_SRC)
+	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -pthread -Ilib/web_core/src -I$(dir $(EXAMPLE_BOARDS)) -o $@ tests/test_web_core.cpp $(WEB_CORE_SRC)
 
-build/test_store_json: tests/test_store_json.cpp firmware/waveshare_169/store_json.cpp firmware/waveshare_169/store_json.h $(FM1_TEST_SRC) $(FM1_HDR) $(WEB_CORE_SRC)
+build/test_store_json: tests/test_store_json.cpp firmware/waveshare_169/store_json.cpp firmware/waveshare_169/store_json.h $(FM1_TEST_SRC) $(FM1_HDR) $(WEB_CORE_SRC) $(EXAMPLE_BOARDS)
 	mkdir -p build
-	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -DAPP_LOADER=1 -DAPP_WEB_UI=1 -Ilib/fm1_loader/src -Ilib/web_core/src \
+	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -DAPP_LOADER=1 -DAPP_WEB_UI=1 -Ilib/fm1_loader/src -Ilib/web_core/src -I$(dir $(EXAMPLE_BOARDS)) \
 		-Ilib/platform/src -Ifirmware/waveshare_169 -Itests -o $@ $< firmware/waveshare_169/store_json.cpp $(FM1_TEST_SRC) $(WEB_CORE_SRC)
 
 # The FM-1 pages' wording (firmware/waveshare_169/loader_messages.cpp): pure C++
@@ -310,13 +320,14 @@ build:
 	$(if $(filter $(BOARD),$(ALL_BOARDS)),,$(error BOARD=$(BOARD); known: $(ALL_BOARDS)))
 	$(if $(filter synth,$(APPS)),$(if $(filter $(SYNTH_BOARD),$(BOARD)),,$(error APPS=synth builds for BOARD=$(SYNTH_BOARD) only)))
 	python3 -I tools/boards.py header $(BOARD) $(BOARD_GEN)/$(BOARD)/board_config.h
+	python3 -I tools/devices.py header $(BENCH_GEN)/bench_boards.h $(BENCH_HEADER_ARGS)
 	mkdir -p $(VERSION_DIR)
 	printf '#define FW_VERSION %s\n#define FW_DIRTY %s\n' $(FW_VERSION) $(FW_DIRTY) > $(VERSION_DIR)/fw_version.h.$$$$ \
 		&& { cmp -s $(VERSION_DIR)/fw_version.h.$$$$ $(VERSION_DIR)/fw_version.h \
 			&& rm $(VERSION_DIR)/fw_version.h.$$$$ || mv $(VERSION_DIR)/fw_version.h.$$$$ $(VERSION_DIR)/fw_version.h; }
 	arduino-cli compile --fqbn $(FQBN) --build-property "tools.ctags.path=$(CTAGS_DIR)" \
 		--build-property "upload.maximum_size=$(APP_SLOT)" \
-		--build-property "compiler.cpp.extra_flags=-I$(VERSION_DIR) -I$(BOARD_GEN)/$(BOARD) -DESP_USB_HOST_MAX_SERIAL_PORTS=0 $(APP_FLAGS_$(APPS)) $(WRITE_FLAGS) -DLV_CONF_INCLUDE_SIMPLE -I$(CURDIR)/firmware/config" \
+		--build-property "compiler.cpp.extra_flags=-I$(VERSION_DIR) -I$(BOARD_GEN)/$(BOARD) -I$(BENCH_GEN) -DESP_USB_HOST_MAX_SERIAL_PORTS=0 $(APP_FLAGS_$(APPS)) $(WRITE_FLAGS) -DLV_CONF_INCLUDE_SIMPLE -I$(CURDIR)/firmware/config" \
 		--build-property "compiler.c.extra_flags=-DLV_CONF_INCLUDE_SIMPLE -I$(CURDIR)/firmware/config $(if $(filter synth,$(APPS)),$(SYNTH_C_FLAGS))" \
 		--library lib/midi_core --library lib/EspUsbHost --library lib/host_ui --library lib/board --library lib/platform $(APP_LIBS_$(APPS)) \
 		--build-path $(CACHE_ROOT)/$(BOARD)/$(APPS)$(BUILD_SUFFIX) --output-dir $(BUILD) $(SKETCH)

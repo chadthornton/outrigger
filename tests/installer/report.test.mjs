@@ -4,7 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildReport, validateReport, boardFits, LIMITS } from "../../site/installer/report.js";
 
-const MAC = "f4:12:fa:43:5b:c8";
+const MAC = "02:00:00:00:00:01";  // made up (locally administered)
 // What area.js has after a refused chip check: esptool-js's facts, plus things
 // that must never leave the page (the MAC, the log) riding along on purpose.
 const facts = {

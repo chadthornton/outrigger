@@ -8,16 +8,16 @@ namespace web_core {
 
 namespace {
 
-// Chad's names for his boards, by the MACs on his labelled boards (2026-11-03;
-// the Mac's registry is tools/devices.py).
+// The test boards' names by MAC, from the local device registry: make build
+// writes bench_boards.h (tools/devices.py header) for DIAG_WEB builds, and an
+// empty one for every other build, so no MAC is in the repo or a release.
 struct Waveshare {
   const char *name;
   uint8_t mac[6];
 };
 constexpr Waveshare kWaveshares[] = {
-    {"small-v1", {0xD8, 0x3B, 0xDA, 0xA0, 0x67, 0xD0}},  // swapped 2026-11-03: Chad checked the board on the Mac
-    {"small-v2", {0xA0, 0x85, 0xE3, 0xF0, 0xA2, 0x3C}},
-    {"big-s3", {0x44, 0xBD, 0x8D, 0x61, 0x2B, 0x28}},
+#include "bench_boards.h"
+    {nullptr, {}},
 };
 
 // The value of key in a query string ("a=1&b=2"), copied into out.
@@ -52,7 +52,7 @@ bool parse_index(const char *query, int &out) {
 
 const char *waveshare_name(const uint8_t mac[6]) {
   for (const Waveshare &w : kWaveshares)
-    if (memcmp(mac, w.mac, 6) == 0) return w.name;
+    if (w.name && memcmp(mac, w.mac, 6) == 0) return w.name;
   return nullptr;
 }
 

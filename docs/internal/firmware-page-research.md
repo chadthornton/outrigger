@@ -41,7 +41,7 @@ different screen, and loader-3a-final owns its layout.
   button, before the click.
 - **The recovery steps get the same weight as the main path.** First-time installers on a board running something
   else do need BOOT+RST. Everyone else doesn't.
-- **No hardware guidance.** The README's hardware findings are the real failure modes, and none of them are on the
+- **No hardware guidance.** The hardware findings (docs/hardware-notes.md) are the real failure modes, and none of them are on the
   page:
   - only the hub's USB-C ports work;
   - the 8-channel budget: hub + FM-1 + one controller fills it, and a third device shows its name but plays nothing;
