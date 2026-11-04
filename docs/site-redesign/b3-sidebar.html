@@ -200,8 +200,8 @@
   <div class="layout">
     <main>
       <section class="hero">
-        <h1>FM&#8209;1&rsquo;s new best friend</h1>
-        <p class="sub"><span>Plug in your keys.</span> <span>Pop in a new instrument.</span></p>
+        <h1>A little companion for your FM&#8209;1.</h1>
+        <p class="sub">Any MIDI controller in, any firmware on.</p>
         <figure class="rig-fig" data-rig aria-label="The setup: your MIDI controller and the FM-1 on a USB hub, with Outrigger on the hub">
   <svg viewBox="0 0 640 312" role="img" aria-label="A MIDI controller and the FM-1 plugged into a USB hub, with Outrigger on the hub"><use href="art.svg#rig"/></svg>
   <div class="chips" role="group" aria-label="Tap a part to look closer">
@@ -255,18 +255,19 @@
           <div><h2>Pop in a new instrument</h2>
 <p>A groovebox tonight, a sampler tomorrow: switch between more than a hundred community firmwares in about a minute,
   right on Outrigger. It backs up before every switch, so your songs are waiting when you come back.</p>
-<div class="fwshots"><figure><img src="shots/fw/sloop.png" alt="SLOOP on the FM-1's screen"><figcaption><b>SLOOP</b> a live groovebox</figcaption></figure><figure><img src="shots/fw/x0x.png" alt="X0X on the FM-1's screen"><figcaption><b>X0X</b> 909, 808 and two 303s</figcaption></figure><figure><img src="shots/fw/zp12.png" alt="zp12 on the FM-1's screen"><figcaption><b>zp12</b> a 12-bit sampler</figcaption></figure><figure><img src="shots/fw/winampfm.png" alt="winampFM on the FM-1's screen"><figcaption><b>winampFM</b> a synth that looks like Winamp</figcaption></figure><a class="fwmore" href="https://thefirmwarehub.com/" target="_blank" rel="noopener"><b>100+</b> more at the Firmware Hub ↗</a></div></div>
+<div class="fwshots"><figure><img src="shots/fw/loom.png" alt="LOOM-8 on the FM-1's screen"><figcaption><b>LOOM-8</b> a groovebox inspired by the OP-XY</figcaption></figure><figure><img src="shots/fw/x0x.png" alt="X0X on the FM-1's screen"><figcaption><b>X0X</b> 909, 808 and two 303s</figcaption></figure><figure><img src="shots/fw/zp12.png" alt="zp12 on the FM-1's screen"><figcaption><b>zp12</b> a 12-bit sampler</figcaption></figure><figure><img src="shots/fw/winampfm.png" alt="winampFM on the FM-1's screen"><figcaption><b>winampFM</b> a synth that looks like Winamp</figcaption></figure><a class="fwmore" href="https://thefirmwarehub.com/" target="_blank" rel="noopener"><b>100+</b> more at the Firmware Hub ↗</a></div></div>
         </section>
       </div>
     </main>
 
     <aside class="rail" id="install">
       <div class="card"><p class="eyebrow">Set up once</p><ol class="steps3">
-  <li><div><b>Install Outrigger on your ESP32</b><p>Plug your ESP32 into a computer and click Install. About two
-    minutes, free.</p>
+  <li><div><b>Install Outrigger on your ESP32</b><p>Plug it into this computer and pick your board. Check my board reads it
+    without changing anything; Install takes about two minutes.</p>
     <button class="btn" type="button" data-install="out-b">Install Outrigger</button>
 <p class="install-out" id="out-b" role="status" hidden></p></div></li>
-  <li><div><b>Plug everything into the hub</b><p>From then on, everything happens on Outrigger's screen.</p></div></li>
+  <li><div><b>Add firmwares</b><p>Stock V15, Felucca and Skiff come with it. Add more from the <a href="#add">Firmware Hub</a>.</p></div></li>
+  <li><div><b>Plug everything into the hub</b><p>From then on, it all happens on Outrigger's screen.</p></div></li>
 </ol>
 <details class="overview"><summary>Installation overview</summary>
   <dl>
@@ -309,7 +310,7 @@
       <p>This runs Outrigger. Most ESP32-S3 boards with a screen should work; we're still testing.</p>
       <ul class="picks">
         <li><span class="tag">Tested</span><a class="" href="https://www.amazon.com/s?k=Waveshare+ESP32-S3-Touch-LCD-1.69" target="_blank" rel="noopener">Waveshare ESP32-S3 Touch LCD 1.69 ↗</a></li>
-        <li><span class="tag">Testing</span><a class="" href="https://www.amazon.com/dp/B0F3WS2W5R" target="_blank" rel="noopener">Waveshare ESP32-S3 Touch LCD 3.5 ↗</a></li>
+        <li><span class="tag">Tested</span><a class="" href="https://www.amazon.com/dp/B0F3WS2W5R" target="_blank" rel="noopener">Waveshare ESP32-S3 Touch LCD 3.5 ↗</a></li>
         <li><span class="tag">Likely</span><a class="" href="https://www.amazon.com/gp/product/B0DSVK5576" target="_blank" rel="noopener">Waveshare ESP32-S3 1.8-inch AMOLED ↗</a></li>
         <li><span class="tag">Likely</span><a class="" href="https://www.amazon.com/Waveshare-Capacitive-Development-Resolution-Dual-Core/dp/B0D925SBYF" target="_blank" rel="noopener">Waveshare ESP32-S3 4.3-inch Touch, Board B ↗</a></li>
       </ul>
