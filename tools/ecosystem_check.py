@@ -107,12 +107,28 @@ def load_families(root=ROOT):
     return json.loads((root / "tools/fm1_families.json").read_text())
 
 
-def group_of(entry_id, entries, fam):
+def bases_of(entries, hub=None):
+    """{id: [base, ...]} from mutant.cloud's entries and the Hub's catalog, as the loader's blocks read them."""
+    return gen_families.lineage_bases({
+        "mutant": {i: e.get("base") for i, e in entries.items()},
+        "hub": {e["id"]: e.get("base") or [] for e in (hub or {}).get("firmwares") or []}})
+
+
+def group_of(entry_id, entries, fam, bases=None):
     """keep, clean, blocked or unknown for a mutant.cloud entry id, by the same
     rules as the loader's blocks (tools/gen_families.py)."""
-    bases = {i: [e["base"]] if e.get("base") else [] for i, e in entries.items()}
-    c = gen_families.category(entry_id, bases, fam)
+    c = gen_families.category(entry_id, bases if bases is not None else bases_of(entries), fam)
     return "blocked" if c in gen_families.BLOCKS else c
+
+
+def unblocked_on_board(fam, entries, hub, variants, committed):
+    """Projects today's catalogs would block that the committed families_gen.h doesn't:
+    the snapshot needs a refresh (tools/gen_families.py --refresh) and a build."""
+    live = gen_families.blocked_projects(fam, {
+        "mutant": {i: e.get("base") for i, e in entries.items()},
+        "hub": {e["id"]: e.get("base") or [] for e in (hub or {}).get("firmwares") or []},
+        "variants": variants})
+    return sorted(p for p in live if p not in committed)
 
 
 # ---------- What's new ----------
@@ -151,12 +167,6 @@ def missing_assets(entries):
     return out
 
 
-def hub_ids_in_page(root=ROOT):
-    """add.js's HUB_ID: mutant.cloud entries the page maps back to the Hub's ids ({} before it existed)."""
-    m = re.search(r"const HUB_ID = (\{.*?\});", (root / "site/installer/add.js").read_text(), re.S)
-    return json.loads(m.group(1)) if m else {}
-
-
 def renames(hub, mutant, mapped):
     """["<entry> (Hub: <id>)"] for mutant.cloud listings whose entry isn't the Hub's id for the
     same repo and that the page doesn't map back: added from mutant.cloud, they'd start a new shelf."""
@@ -173,7 +183,7 @@ def renames(hub, mutant, mapped):
     return sorted(out)
 
 
-def build_report(links_bad, feed, entries, fam, state, today, renamed=()):
+def build_report(links_bad, feed, entries, fam, state, today, renamed=(), hub=None, stale=()):
     """(markdown body, new state, needs attention). state is what the last run
     saw ({} on the first run: then only the last day's releases count as new)."""
     first = not state
@@ -183,10 +193,12 @@ def build_report(links_bad, feed, entries, fam, state, today, renamed=()):
     missing = missing_assets(entries)
     new_missing = sorted(k for k in missing if k not in set(state.get("missing", [])))
     new_renamed = [r for r in renamed if r not in set(state.get("renamed", []))]
+    new_stale = [p for p in stale if p not in set(state.get("stale", []))]
+    bases = bases_of(entries, hub)
 
     grouped = {g: [] for g, _ in GROUPS}
     for f in new:
-        grouped[group_of(f["id"], entries, fam)].append(f)
+        grouped[group_of(f["id"], entries, fam, bases)].append(f)
 
     lines = [f"Daily check, {today}. Updated by `.github/workflows/ecosystem-check.yml`; "
              "a comment appears only when something needs a look.", ""]
@@ -200,13 +212,15 @@ def build_report(links_bad, feed, entries, fam, state, today, renamed=()):
     lines.append("")
 
     lines.append(f"## New FM-1 releases since {'yesterday' if first else state.get('date', 'the last run')}")
-    if not new and not new_missing and not new_renamed:
+    if not new and not new_missing and not new_renamed and not new_stale:
         lines.append("None.")
     for g, heading in GROUPS:
         items = grouped[g]
         extra = ([f"- **File gone missing:** {md(k)} (since {md(missing[k])})" for k in new_missing]
-                 + [f"- **Renamed on mutant.cloud:** {md(r)}. Map it back in add.js HUB_ID, or it starts a new shelf"
-                    for r in new_renamed]) if g == "unknown" else []
+                 + [f"- **Renamed on mutant.cloud:** {md(r)}. Map it back in tools/fm1_families.json hub_ids, "
+                    "or it starts a new shelf" for r in new_renamed]
+                 + [f"- **Not blocked on the board yet:** {md(p)}. Run tools/gen_families.py --refresh and ship a build"
+                    for p in new_stale]) if g == "unknown" else []
         if not items and not extra:
             continue
         lines += ["", f"### {heading}"] + extra
@@ -223,10 +237,10 @@ def build_report(links_bad, feed, entries, fam, state, today, renamed=()):
     # that list no base land in the first group without a comment.
     new_bases = sorted({entries[f["id"]]["base"] for f in grouped["unknown"]
                         if (entries.get(f["id"]) or {}).get("base")})
-    attention = bool(links_bad or new_missing or new_bases or new_renamed)
+    attention = bool(links_bad or new_missing or new_bases or new_renamed or new_stale)
     # The feed is the window: what it lists today is all a later run needs to remember.
     new_state = {"date": today, "seen": sorted({f["guid"] for f in feed}),
-                 "missing": sorted(missing), "renamed": list(renamed)}
+                 "missing": sorted(missing), "renamed": list(renamed), "stale": list(stale)}
     lines.append(f"<!-- ecosystem-state {json.dumps(new_state)} -->")
     return "\n".join(lines), new_state, attention
 
@@ -273,6 +287,7 @@ def main(argv=None):
     args = ap.parse_args(argv)
     today = dt.date.today().isoformat()
 
+    fam = load_families()
     links_bad = []
     got = {}
     for link in installer_links():
@@ -280,11 +295,12 @@ def main(argv=None):
         if why:
             links_bad.append((link["name"], link["url"], why))
     try:
-        renamed = renames(json.loads(got[HUB_CATALOG]), json.loads(got[MUTANT_CATALOG]), hub_ids_in_page())
+        hub, mutant_cat = json.loads(got[HUB_CATALOG]), json.loads(got[MUTANT_CATALOG])
+        renamed = renames(hub, mutant_cat, fam.get("hub_ids", {}))
     except (KeyError, ValueError):
+        hub = mutant_cat = None
         renamed = None  # a catalog is down: that's reported above
 
-    fam = load_families()
     try:
         feed = parse_feed(get(FEED_URL))
         entries = {e["id"]: e for e in json.loads(get(FIRMWARE_URL))["entries"]}
@@ -300,7 +316,13 @@ def main(argv=None):
         state = json.loads(m.group(1)) if m else {}
     if renamed is None:
         renamed = state.get("renamed", [])
-    body, _, attention = build_report(links_bad, feed, entries, fam, state, today, renamed)
+    if entries and hub and mutant_cat:
+        variants = {e["id"]: e["entry"] for e in mutant_cat["firmwares"] if e.get("entry") and e["id"] != e["entry"]}
+        committed = re.findall(r'^    "([^"]+)",$', gen_families.HEADER.read_text(), re.M)
+        stale = unblocked_on_board(fam, entries, hub, variants, set(committed))
+    else:
+        stale = state.get("stale", [])
+    body, _, attention = build_report(links_bad, feed, entries, fam, state, today, renamed, hub, stale)
     if not entries and state:
         # Keep what the last run saw, so tomorrow's run still lists today's releases.
         body = STATE_RE.sub(f"<!-- ecosystem-state {json.dumps(state)} -->", body)

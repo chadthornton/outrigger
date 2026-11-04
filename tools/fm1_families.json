@@ -1,5 +1,5 @@
 {
-  "about": "How Outrigger treats each FM-1 firmware family, keyed by mutant.cloud firmware.json's `base`. Reviewed by hand: a listing's base is self-serve on mutant.cloud, so blocked_ids here override it. tools/gen_families.py turns this and tools/fm1_lineage.json into the loader's lib/fm1_loader/src/families_gen.h. docs/firmware-catalog.md explains the groups.",
+  "about": "How Outrigger treats each FM-1 firmware family, keyed by mutant.cloud firmware.json's `base`. Reviewed by hand: a listing's base is self-serve on mutant.cloud, so blocked_ids here override it. tools/gen_families.py turns this and tools/fm1_lineage.json into the loader's lib/fm1_loader/src/families_gen.h and the Add firmware page's site/installer/families_gen.js. hub_ids: mutant.cloud entries the Hub (and boards' shelves) know by another id, matched by repo. docs/firmware-catalog.md explains the groups.",
   "keep": [
     "felucca"
   ],
@@ -44,5 +44,11 @@
     "vector37": "mutant.cloud says its own code",
     "nauclerus": "via Hortator",
     "gator": "mutant.cloud says its own code"
+  },
+  "hub_ids": {
+    "b1-drawbar-organ": "b1",
+    "demake-synth": "demake",
+    "fm1-dock": "fm1dock",
+    "fm1-sid": "fm1sid"
   }
 }

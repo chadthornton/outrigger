@@ -41,6 +41,22 @@ class BlockTest(unittest.TestCase):
         self.assertEqual(b["tessera-fm-1-83773022"], "bluetooth")
         self.assertNotIn("ctl-usb", b)
 
+    def test_a_renamed_blocked_firmware_is_blocked_under_the_hubs_id_too(self):
+        fam = dict(FAM, hub_ids={"orbit-renamed": "orbit-hub"})
+        b = g.blocked_projects(fam, {"mutant": {"orbit-renamed": "sloop"}, "hub": {}, "variants": {}})
+        self.assertEqual(b["orbit-hub"], "old-felucca")
+
+    def test_an_unreviewed_co_parent_makes_it_unknown(self):
+        bases = {"estampie": ["felucca", "ghoulbox"], "tuna": ["felucca"], "sill": ["felucca", "tuna"]}
+        self.assertEqual(g.category("estampie", bases, FAM), "unknown")
+        self.assertEqual(g.category("sill", bases, FAM), "keep")
+
+    def test_the_page_gets_the_boards_list(self):
+        src = g.PAGE.read_text()
+        for project in ("sloop", "orbit", "mycelium", "tessera-fm-1-83773022"):
+            self.assertIn(f'"{project}"', src)
+        self.assertIn('"b1-drawbar-organ": "b1"', src)
+
     def test_loops_and_unknown_bases_end(self):
         bases = {"fomni": ["fomni"], "a": ["b"], "b": ["a"], "new": ["brandnew"]}
         for i in bases:

@@ -6,22 +6,19 @@
 // never hosts a firmware. Pure, so `make test` runs it against the board's own
 // receiver (tests/installer/add.test.mjs).
 import { crc16, parsePackage, sha256Hex } from "./store.js";
+import { BLOCKED } from "./families_gen.js";
 
 export const HUB = "https://thefirmwarehub.com/";
 export const CATALOG_URL = `${HUB}catalog.json`;
 
-// Projects the board's loader blocks (library.cpp kBlocked): they write the
-// FM-1's Bluetooth sector, whose hash is how Outrigger tells FM-1s apart.
-const BLOCKED = ["melodee", "tessera"];
-// Built on Felucca 0.9 (SLOOP and its family), from the 2026-11-01 survey of
-// every Hub firmware's source (fw-map-bench.md). Going from one of these to
-// Felucca or Skiff can leave data that crashes them (Chad, 2026-11-01: SLOOP
-// waits until a store dump shows where it keeps its data). A firmware whose
-// catalog "base" names one of these is held too. Firmwares added to the Hub
-// after the survey aren't classified: they're listed, and switch with a clean
-// slate like every untested switch.
-const OLD_FELUCCA = ["sloop", "clipper", "spampy", "winampfm", "floyd", "jangada", "nmsfm", "karma", "sloopdx",
-  "hortator", "sloopbanks", "fm1quest", "mnm1", "salt", "vector37", "nauclerus", "gator", "hawkchua"];
+// Projects the board's loader refuses (families_gen.js, generated with the
+// board's families_gen.h from tools/fm1_families.json): Melodee, Tessera and
+// firmwares built on Melodee write the FM-1's Bluetooth sector, whose hash is
+// how Outrigger tells FM-1s apart; SLOOP, firmwares built on it and our
+// Felucca 0.9 survey (fw-map-bench.md) can leave data that crashes Felucca or
+// Skiff. A firmware whose catalog "base" names one of these is held too.
+// Firmwares added to a catalog since the snapshot aren't classified: they're
+// listed, and switch with a clean slate like every untested switch.
 
 // Files that fail Outrigger's package checks (make check-latest LATEST_ALL=1,
 // 2026-11-01: 1 of 143). Any other that fails is caught at download.
@@ -41,8 +38,10 @@ export function addableFirmwares(catalog) {
   for (const e of catalog.firmwares || []) {
     if (!e.pkg || !e.sha256) continue;
     const base = e.base || [];
-    const why = BLOCKED.includes(e.id) ? WHY_BLOCKED
-      : OLD_FELUCCA.includes(e.id) || base.some((b) => OLD_FELUCCA.includes(b)) ? WHY_OLD
+    // Built on a blocked firmware (SLOOP and Melodee are in the list themselves): held with it.
+    const block = BLOCKED[e.id] || base.map((b) => BLOCKED[b]).find(Boolean);
+    const why = block === "bluetooth" ? WHY_BLOCKED
+      : block ? WHY_OLD
         : FAILS_CHECKS.includes(e.id) ? WHY_CHECKS : !e.lic ? WHY_LICENSE : null;
     if (why) held.push({ project: e.id, name: e.name, why });
     else addable.push({ project: e.id, name: e.name, version: e.version || "", sha256: e.sha256, size: e.size,
