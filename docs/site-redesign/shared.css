@@ -5,7 +5,7 @@
 }
 :root {
   --bg: #f6f5f1; --fg: #151714; --muted: #5f645c; --line: #dddfd7; --panel: #ffffff; --soft: #eceee6;
-  --screen: #141713; --accent: #1f8a4c; --accent-fg: #ffffff; --warn: #9a3a00;
+  --screen: #141713; --accent: #1f8a4c; --link: #17703b; --accent-fg: #ffffff; --warn: #9a3a00;
   --radius: 14px;
   --sans: "Commissioner", system-ui, -apple-system, "Segoe UI", sans-serif;
   color-scheme: light dark;
@@ -13,7 +13,7 @@
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --bg: #0f110e; --fg: #eceee8; --muted: #9ba096; --line: #2a2e28; --panel: #181b17; --soft: #1d211c;
-    --screen: #050605; --accent: #46d384; --accent-fg: #06150c; --warn: #ffab6b;
+    --screen: #050605; --accent: #46d384; --link: #46d384; --accent-fg: #06150c; --warn: #ffab6b;
   }
 }
 * { box-sizing: border-box; }
@@ -22,12 +22,16 @@ html { -webkit-text-size-adjust: 100%; }
 body { margin: 0; background: var(--bg); color: var(--fg); font: 400 1.0625rem/1.6 var(--sans); font-kerning: normal;
        -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
 img, svg { display: block; max-width: 100%; }
-a { color: inherit; text-underline-offset: 3px; }
+/* Links: the link colour, no underline at rest, underline on hover and focus. Links inside running text keep theirs:
+   the colour alone sits too close to the text around it (WCAG 1.4.1). */
+a { color: var(--link); text-decoration: none; text-underline-offset: 3px; }
+a:hover, a:focus-visible { text-decoration: underline; }
+p a, dd a { text-decoration: underline; }
 h1, h2, h3 { margin: 0; text-wrap: balance; font-weight: 650; }
 p { margin: 0; text-wrap: pretty; }
 button:focus-visible, a:focus-visible, summary:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
 
-.wordmark { font-weight: 700; letter-spacing: -.01em; font-size: 1.1rem; display: inline-flex; gap: 8px; align-items: center; text-decoration: none; }
+.wordmark { font-weight: 700; letter-spacing: -.01em; font-size: 1.1rem; display: inline-flex; gap: 8px; align-items: center; text-decoration: none; color: inherit; }
 .wordmark i { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); display: inline-block; }
 .beta { font-size: .7rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
         border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; }

@@ -545,7 +545,15 @@ class CriticalPathsTest(unittest.TestCase):
     """Which changed files make a production deploy run the full make check."""
     def test_site_copy_needs_no_check(self):
         self.assertEqual(deploy_site.critical_paths(["site/index.html", "docs/beta/x.md", "README.md",
-                                                     "firmware/waveshare_169/ui_play.cpp"]), [])
+                                                     "tools/bench.py", "tests/test_bench.py"]), [])
+
+    def test_any_firmware_change_gets_the_mac_build(self):
+        """Store code hides under many names (board_store.h, board_blob.cpp, add_firmware.cpp's LittleFS):
+        every firmware change ships the build the hardware smoke check installs."""
+        for path in ("firmware/waveshare_169/ui_play.cpp", "firmware/waveshare_169/board_store.h",
+                     "lib/board/src/board_blob.cpp", "lib/web_core/src/bench.cpp", "firmware/boards.json",
+                     "tools/store_template.py", "tools/boards.py"):
+            self.assertEqual(deploy_site.critical_paths([path]), [path], path)
 
     def test_critical_code_needs_the_check(self):
         for path in ("lib/fm1_loader/src/installer.cpp", "lib/EspUsbHost/src/EspUsbHost.cpp",

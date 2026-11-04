@@ -20,7 +20,7 @@ Then put it on the hub:
 Outrigger's **Play** screen shows a line each for the hub, your controller, the router and the FM-1. All green means
 notes are getting through.
 
-**Wi-Fi:** beta 1's Install button gives you Outrigger without Wi-Fi. Wi-Fi and Outrigger's own web page are coming;
+**Wi-Fi:** the Install button gives you Outrigger without Wi-Fi. Wi-Fi and Outrigger's own web page are coming;
 see "What's coming" on the homepage.
 
 ## Updating

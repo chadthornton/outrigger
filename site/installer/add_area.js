@@ -6,7 +6,6 @@
 //   <div class="add-firmware"></div>
 import { addableFirmwares, fetchHubPackage, BoardLink, CATALOG_URL } from "./add.js";
 import { PORT_FILTER, SERIAL_OPTIONS, port as lock, h } from "./ui.js";
-import { INSTALLER_VERSION } from "./area.js";
 
 const BAUD = 115200;  // ignored by USB-Serial-JTAG, but Web Serial needs one
 const HOW = "On Outrigger, open Settings, then Computer mode, and hold the button. Then plug it into this computer with a data cable.";
@@ -63,7 +62,6 @@ class AddArea {
         shot("shots/M_setup.png", "Outrigger's Settings, with Computer mode", "Settings"),
         shot("shots/M_computer_confirm.png", "Computer mode screen: hold to restart in Computer mode", "Hold to restart")),
       h("div", { class: "row" }, h("button", { on: { click: () => this.connect() } }, "Choose my Outrigger")),
-      h("p", { class: "install-version" }, `Installer ${INSTALLER_VERSION}`),
     );
   }
 

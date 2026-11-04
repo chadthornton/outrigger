@@ -1626,20 +1626,51 @@ static uint16_t ch34xBaudValue(uint32_t baud)
   return static_cast<uint16_t>(((0x100 - divisor) << 8) | (factor << 2) | prescaler);
 }
 
+// A hub control request is waited for by the caller, but the caller may give up
+// before the hub answers. Whichever side moves the state off Pending first wins:
+// if the callback wins, the caller frees the transfer as usual; if the caller
+// wins (Abandoned), the callback frees it when the transfer finally completes or
+// is cancelled, so a short timeout does not leak a transfer each time it fires.
 struct HubControlTransferContext
 {
-  volatile bool done = false;
+  enum : uint8_t
+  {
+    Pending,
+    Done,
+    Abandoned
+  };
+  std::atomic<uint8_t> state{Pending};
   usb_transfer_status_t status = USB_TRANSFER_STATUS_ERROR;
 };
 
 static void hubControlTransferCallback(usb_transfer_t *transfer)
 {
   HubControlTransferContext *context = static_cast<HubControlTransferContext *>(transfer->context);
-  if (context)
+  if (!context)
   {
-    context->status = transfer->status;
-    context->done = true;
+    return;
   }
+  context->status = transfer->status;
+  uint8_t expected = HubControlTransferContext::Pending;
+  if (!context->state.compare_exchange_strong(expected, HubControlTransferContext::Done))
+  {
+    usb_host_transfer_free(transfer);
+    delete context;
+  }
+}
+
+// True when the request completed within timeoutMs. False means it was
+// abandoned: the transfer and context now belong to the callback and the caller
+// must not touch or free either.
+static bool waitHubControlTransfer(HubControlTransferContext *context, uint32_t timeoutMs)
+{
+  const uint32_t start = millis();
+  while (context->state.load() != HubControlTransferContext::Done && millis() - start < timeoutMs)
+  {
+    delay(1);
+  }
+  uint8_t expected = HubControlTransferContext::Pending;
+  return !context->state.compare_exchange_strong(expected, HubControlTransferContext::Abandoned);
 }
 
 template <typename Callback, typename Event>
@@ -2507,14 +2538,9 @@ bool EspUsbHost::setHubPortPower(uint8_t hubAddress, uint8_t port, bool enable)
     return false;
   }
 
-  const uint32_t deadline = millis() + 1000;
-  while (!context->done && millis() < deadline)
-  {
-    delay(1);
-  }
-
-  const bool done = context->done;
-  const usb_transfer_status_t transferStatus = context->status;
+  const bool done = waitHubControlTransfer(context, 1000);
+  // Once abandoned, context belongs to the callback; read it only when done.
+  const usb_transfer_status_t transferStatus = done ? context->status : USB_TRANSFER_STATUS_ERROR;
   const bool ok = done && transferStatus == USB_TRANSFER_STATUS_COMPLETED;
   if (!done)
   {
@@ -2545,7 +2571,7 @@ bool EspUsbHost::setHubPortPower(uint8_t hubAddress, uint8_t port, bool enable)
   return ok;
 }
 
-bool EspUsbHost::getHubPortStatus(uint8_t hubAddress, uint8_t port, uint16_t &status, uint16_t &change)
+bool EspUsbHost::getHubPortStatus(uint8_t hubAddress, uint8_t port, uint16_t &status, uint16_t &change, uint32_t timeoutMs)
 {
   status = 0;
   change = 0;
@@ -2625,14 +2651,9 @@ bool EspUsbHost::getHubPortStatus(uint8_t hubAddress, uint8_t port, uint16_t &st
     return false;
   }
 
-  const uint32_t deadline = millis() + 1000;
-  while (!context->done && millis() < deadline)
-  {
-    delay(1);
-  }
-
-  const bool done = context->done;
-  const usb_transfer_status_t transferStatus = context->status;
+  const bool done = waitHubControlTransfer(context, timeoutMs);
+  // Once abandoned, context belongs to the callback; read it only when done.
+  const usb_transfer_status_t transferStatus = done ? context->status : USB_TRANSFER_STATUS_ERROR;
   const bool ok = done && transferStatus == USB_TRANSFER_STATUS_COMPLETED;
   if (ok)
   {
@@ -15182,14 +15203,9 @@ bool EspUsbHost::getHubInfo(uint8_t hubAddress, EspUsbHostHubInfo &hub)
     return false;
   }
 
-  const uint32_t deadline = millis() + 1000;
-  while (!context->done && millis() < deadline)
-  {
-    delay(1);
-  }
-
-  const bool done = context->done;
-  const usb_transfer_status_t transferStatus = context->status;
+  const bool done = waitHubControlTransfer(context, 1000);
+  // Once abandoned, context belongs to the callback; read it only when done.
+  const usb_transfer_status_t transferStatus = done ? context->status : USB_TRANSFER_STATUS_ERROR;
   const bool ok = done && transferStatus == USB_TRANSFER_STATUS_COMPLETED;
   if (ok)
   {

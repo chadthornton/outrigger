@@ -21,7 +21,8 @@ checkout of a committed, pushed HEAD goes live, built one of two ways:
   Either way, a red or running CI run of HEAD refuses, and production needs one.
 - make check on the Mac: for FULL=1, for a batch (since the commit production
   serves, on either channel, so beta carries the build production will) that
-  touches the critical list's code (CRITICAL; README, "Shipping to production"), and for a
+  touches the critical list's code or any firmware (CRITICAL; README, "Shipping to
+  production"), and for a
   commit CI has no build of (a branch commit: CI builds a PR merged into master;
   start CI on the branch by hand to get one). Each upload carries its commit, so the Pages dashboard
 answers "which commit is live?". The Pages Functions (functions/) and their
@@ -74,12 +75,13 @@ REPO = "chadthornton/outrigger"
 # CI's build of HEAD, downloaded and laid out the way make check leaves build/checked.
 CI_FIRMWARE = ROOT / "build/ci-firmware"
 CI_CHECKED = ROOT / "build/ci-checked"
-# The critical list's code (README, "Shipping to production"): a production batch touching any of it
-# gets the full make check on the Mac. fnmatch patterns; * crosses /.
-CRITICAL = ["lib/fm1_loader/*", "lib/EspUsbHost/*", "firmware/*loader_*", "firmware/*store_*",
-            "firmware/*bench_writer*", "firmware/*switch_chain*", "*partitions.csv",
+# The critical list's code (README, "Shipping to production"), and all firmware: a batch touching any of it
+# deploys the Mac's make check build, the one the hardware smoke check installs. Every firmware change, not a
+# list of loader and store files: store code hides under many names (board_store.h, board_blob.cpp,
+# add_firmware.cpp's LittleFS). fnmatch patterns; * crosses /.
+CRITICAL = ["firmware/*", "lib/*", "*partitions.csv",
             "functions/*", "wrangler.toml", "migrations/*", "tools/deploy_site.py", "tools/check.py",
-            "tools/build_site.py", "Makefile", ".github/workflows/*"]
+            "tools/build_site.py", "tools/store_template.py", "tools/boards.py", "Makefile", ".github/workflows/*"]
 # The deploy log and beta's kept copies, outside build/ so every worktree sees the same ones.
 DEPLOYS = Path.home() / "Library/Application Support/outrigger/deploys"
 KEEP = 3  # kept copies per channel

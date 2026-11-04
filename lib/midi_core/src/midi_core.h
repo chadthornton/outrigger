@@ -44,6 +44,8 @@ class Router {
   void device_connected(uint8_t address, uint16_t vid, uint16_t pid);
   void device_disconnected(uint8_t address);
   bool is_target(uint8_t address) const;
+  // True when address is connected, with its role (what /status shows).
+  bool knows(uint8_t address, Role &role) const;
   // Returns the address to send packet to, or 0 to send nothing. Never returns
   // an address that isn't a connected FM-1, so a caller can't fall through to
   // a library's "any device" default.
@@ -52,8 +54,16 @@ class Router {
   // 'c' cable other than 0, 'k' code index doesn't match, 's' system message.
   uint8_t route(uint8_t source, uint8_t cable, uint8_t code_index, uint8_t status,
                 uint8_t data1, uint8_t data2, uint8_t packet[4], char *why = nullptr) const;
+  // Outrigger Synth builds: whether the board's own synth plays this message.
+  // The same rules as route(), less the FM-1: a connected controller's channel
+  // voice message on cable 0, whether an FM-1 is connected or not.
+  bool to_synth(uint8_t source, uint8_t cable, uint8_t code_index, uint8_t status,
+                uint8_t data1, uint8_t data2) const;
 
  private:
+  // route()'s reasons other than 'n', or 0 when a controller's message passes.
+  char refuse(uint8_t source, uint8_t cable, uint8_t code_index, uint8_t status,
+              uint8_t data1, uint8_t data2, uint8_t packet[4]) const;
   static constexpr int kMaxAddress = 127;  // USB device addresses are 1-127
   bool known_[kMaxAddress + 1] = {};
   Role role_[kMaxAddress + 1] = {};
