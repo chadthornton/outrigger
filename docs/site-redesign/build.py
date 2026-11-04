@@ -101,7 +101,7 @@ INSTALL_BTN = """<button class="btn" type="button" data-install="{out}">Install 
 SETUP = f"""<ol class="steps3">
   <li><div><b>Install Outrigger on your ESP32</b><p>Plug it into this computer.</p>
     {INSTALL_BTN.format(out="out-b")}</div></li>
-  <li><div><b>Add firmwares</b><p>Stock V15, Felucca and Skiff come with it. Add more from the <a href="#add">Firmware Hub</a>.</p></div></li>
+  <li><div><b>Add firmwares</b><p>Stock V15, Felucca and Skiff come with it. Add more with the <a href="#add">firmware installer</a> below.</p></div></li>
   <li><div><b>Plug everything into the hub</b><p>From then on, it all happens on Outrigger's screen.</p></div></li>
 </ol>
 <details class="overview"><summary>Installation overview</summary>
@@ -549,7 +549,7 @@ ADD_BLOCK = """<details class="addfw" id="add">
     document.addEventListener("outrigger-installed", open);
     document.addEventListener("click", function (e) {
       var a = e.target.closest && e.target.closest('a[href="#add"]');
-      if (a) { open(); d.scrollIntoView(); }
+      if (a) { e.preventDefault(); open(); d.scrollIntoView({ behavior: "smooth" }); }
     });
     if (location.hash === "#add") open();
   })();
