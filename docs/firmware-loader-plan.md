@@ -107,7 +107,7 @@ checkpoint 1 read-only").** Branch `loader-session2`. Nothing is written to the 
    - **Then with Chad, read-only:** back up the FM-1 on the hub. Pass when the boot head and `0xE9000–0xFBFFF` match
      the 2026-10-25 dump, if it's the same unit.
    - **It answers the open questions** listed under "On hardware".
-10. **Merge:** the README gate, plus `code-review` at high effort (partition table and stored data).
+10. **Merge:** the merge gate (`CONTRIBUTING.md`), plus `code-review` at high effort (partition table and stored data).
 
 The firmware browser and the web install page with laptop backups follow in their own session, after this merges.
 
@@ -166,9 +166,9 @@ So it splits in two.
 - **Checkpoint 3, second session (2026-10-27/29, builds `c42d5f0` to `b4a4d71`):**
   - **Leg 1 done, Skiff → Felucca 1.6.1, but through the retry.** The board booted with the FM-1 in ROM boot and
     found the first attempt's pending record. The top row's hold became "retry the install" while the row still
-    read "Back up this FM-1", and Chad held it as a backup. It ran the first attempt's confirmed plan (fresh start,
+    read "Back up this FM-1", and it was held as a backup. It ran the first attempt's confirmed plan (fresh start,
     143 + 6 sectors) as a resume. The Skiff saves stayed in the store. Fixed: the row now reads
-    "Retry the … install", and `/status` shows the top row, quoted to Chad before every hold.
+    "Retry the … install", and `/status` shows the top row, quoted before every hold.
   - **Leg 2 stopped twice before any erase:** the FM-1 left ROM boot on its own about 8.5 s after the loader
     started (two backup reads, then the plan). A resume reaches its first erase 3.3 s in and wrote for 9 s without
     a stop. Leading hypothesis: a loader watchdog that erases and writes feed and reads don't. Fixed in `d860144`:
@@ -183,7 +183,7 @@ So it splits in two.
     (6 sectors)". The install verified all 149 sectors, autosaved Felucca's data first (s9), and cleared its
     pending record. A backup afterwards found the FM-1 running `FM-1_714` (Skiff 1.4), with the boot head and the
     Bluetooth and voice data still equal to the 2026-10-25 dump.
-  - **Marked round trip, the same day:** Chad set Skiff's tempo to 137 and changed a pattern step, then
+  - **Marked round trip, the same day:** Skiff's tempo was set to 137 and changed a pattern step, then
     backed up (b50) and went Skiff → Felucca → Skiff. Both changes came back. The restored save (s51) was
     captured from b50, and the install read back each of its 6 sectors. The first erase came 2.1 s after the
     loader started.
@@ -245,7 +245,7 @@ So it splits in two.
 **Decision for Chad:** start 3a now (browser, `store-add`, then checkpoints 2 and 3 at the board), or land the Web UI
 first.
 
-**Checkpoint 1: passed, 2026-10-27** (Chad at the board; build `e848423`, read-only). On the recovered unit:
+**Checkpoint 1: passed, 2026-10-27** (at the board; build `e848423`, read-only). On the recovered unit:
 - **Result:** "Backed up. Nothing written."
 - **Same unit:** the dump's unit.
 - **Untouched areas:** the boot head (`d9f43191…`) and the Bluetooth data plus factory voices (`70a8f5be…`) equal
@@ -286,7 +286,7 @@ The Waveshare holds a library of FM-1 firmwares and installs one onto a **workin
 no computer involved. It also does two more things:
 - **Save states:** it keeps each firmware's songs and presets per FM-1, so switching back to a firmware brings your
   work back.
-- **More than one FM-1:** it tells your FM-1s apart from the start, so one Waveshare serves both of Chad's units.
+- **More than one FM-1:** it tells your FM-1s apart from the start, so one Waveshare serves both test units.
 
 **Not in scope for v1:**
 - **Reviving a dead FM-1:** that needs the USB_KEY power-on pulses, which can't pass through a hub. The XIAO
@@ -299,12 +299,12 @@ no computer involved. It also does two more things:
 FM-1 firmware gets installed one of two ways (details in the recovery project's `FM1-LOADERS-NOTES.md`):
 
 1. **USB-MIDI SysEx to the running firmware**, which stages the update and applies it after a restart. An
-   interruption between those two steps is what bricked Chad's unit.
+   interruption between those two steps is what bricked the test unit.
 2. **The JieLi ROM bootloader** (`4C4A:8057`, a USB mass-storage device that takes vendor SCSI commands):
    - **How it writes:** after a small loader is uploaded to RAM, flash is written directly.
    - **Why it's safer:** an interrupted write is fixed by running it again, as long as the ROM bootloader can still
      be reached.
-   - **Track record:** Quixotic7's Unbricker and the Transporter use it, and it recovered Chad's unit on 2026-10-25.
+   - **Track record:** Quixotic7's Unbricker and the Transporter use it, and it recovered the test unit on 2026-10-25.
 
 The loader uses path 2. It enters ROM boot with the SysEx key `F0 22 24 35 7D F7`, which only a working FM-1 accepts
 and which passes through the hub.
@@ -322,7 +322,7 @@ the Felucca-family installers, and The Firmware Hub. It's documented in
 - **Its appeal:** the host side is about 150 lines, needs no loader blob, and works with any package that carries its
   own loader.
 - **Why it isn't v1:**
-  - Its applying step is the one that bricked Chad's unit when interrupted.
+  - Its applying step is the one that bricked the test unit when interrupted.
   - It writes nothing the host can verify.
   - It can't take a backup.
 - **Where it might return:** as a later "compatible" mode for packages the ROM-boot path rejects, once v1 is
@@ -503,13 +503,13 @@ An update is a firmware switch where the identity stays the same:
   - Each firmware's author, repo, license and provenance fields are shown before installing.
   - The ROM-boot path never touches the boot head, so a bad app can always be overwritten. The exception: a bad
     app that also ignores the ROM-boot key needs the Transporter.
-- **Not redistributable:** stock V16, Baud Girl and Groove OS. These can only arrive from the Mac, from a copy Chad
+- **Not redistributable:** stock V16, Baud Girl and Groove OS. These can only arrive from the Mac, from a copy the owner
   downloaded himself.
 
 ### Getting onto Wi-Fi
 
 - **Setup:** from the phone, not the 1.69" screen. The Waveshare opens a setup hotspot with a small captive page,
-  where Chad picks the network and enters the password.
+  where the user picks the network and enters the password.
 - **Storage:** credentials go in NVS.
 - **Use:** Wi-Fi is on only while checking or downloading. Routing never depends on it.
 
@@ -518,7 +518,7 @@ An update is a firmware switch where the identity stays the same:
 - **Building the library:** `make library` builds the library partition on the Mac from a list of catalog IDs. It uses
   the same download and verify steps, run on the Mac.
 - **Flashing it:** in download mode, the library partition is flashed alone, so backups and saves are untouched.
-- **Own copies:** packages Chad downloaded himself go in the same way.
+- **Own copies:** packages the owner downloaded go in the same way.
 
 ### The Waveshare's own updates
 
@@ -559,7 +559,7 @@ stored once, under its hash, and each package, backup or save is a list of secto
 
 ## Laptop backups through the web page (added 2026-10-27)
 
-Chad's request is that work on a firmware should never be lost to a swap, and that device space shouldn't limit
+The aim is that work on a firmware should never be lost to a swap, and that device space shouldn't limit
 history. The browser the web UI already uses is the archive.
 
 **Export: "Back up this FM-1"**
@@ -593,7 +593,7 @@ history. The browser the web UI already uses is the archive.
 - **Catalog firmwares:** the device downloads them itself over Wi-Fi. (Stale since 2026-10-31: thefirmwarehub.com
   answers with `access-control-allow-origin: *`, and the web installer's starter set downloads from it in the
   browser; GitHub release assets still send no CORS header.)
-- **Chad's own downloads:** non-redistributable ones like V16 and Baud Girl get uploaded through the page.
+- **Own downloads:** non-redistributable ones like V16 and Baud Girl get uploaded through the page.
 - **Never:** `wl82loader.bin` is never offered for download.
 
 ## Adding firmware from the browser (added 2026-11-01)
@@ -673,7 +673,7 @@ re-derived:
 **Licenses (from `catalog.json`, 2026-10-26):**
 - **Fine to cache:** 93 packages are GPL-3.0, 8 are MPL-2.0, and stock V15 is Apache-2.0 (mirrored from
   m-vave/fm1_open).
-- **Not to be redistributed:** stock V16, Baud Girl and Groove OS. The Waveshare can still install a copy Chad
+- **Not to be redistributed:** stock V16, Baud Girl and Groove OS. The Waveshare can still install a copy the owner
   downloads himself, but the repo and any bundled library never carry them.
 
 **How packages get onto the Waveshare in v1:** a folder on the Mac is built into a LittleFS image, which I flash into the library partition only, so the backups partition is untouched. In
@@ -704,7 +704,7 @@ package; Wi-Fi is set up from a phone.
   - **Write failures:** a read-back mismatch that clears on retry, and one that persists.
   - **Mid-write events:** the device disconnecting mid-write, and backup reads that disagree.
 
-**On hardware, one checkpoint at a time, each with Chad present:**
+**On hardware, one checkpoint at a time, each with someone at the board:**
 1. **Read-only.**
    - Steps: enter ROM boot, identify, upload the loader, read the IDs, take a full backup, then reset the FM-1
      without writing anything.

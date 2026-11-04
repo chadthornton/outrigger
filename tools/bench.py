@@ -15,7 +15,7 @@ itself, as it does for a person; the plan's lines go into the run's record.
 Each job runs in boots of its own, so the board drops off Wi-Fi in between;
 the runner waits it out and reads the result from /status.
 
-Safety: the board answers /bench/ only on Chad's boards (lib/web_core/src/bench.cpp).
+Safety: the board answers /bench/ only on the boards in the device registry (lib/web_core/src/bench.cpp).
 This script refuses any board but the one --board names, by its MAC, and any
 FM-1 but the one --fm1 names, by its unit ID, both from the device registry
 (tools/devices.py): a check that the run has the devices it asked for. The
@@ -245,7 +245,7 @@ def do_switch(board, label, want, fm1, reg):
 
 
 def fm1_report(board, want, reg):
-    """Read only: what an agent would otherwise ask Chad to read off the screen."""
+    """Read only: what an agent would otherwise ask someone to read off the screen."""
     st = check_board(board, want, reg)
     s = board.get("/status")
     if s is None:

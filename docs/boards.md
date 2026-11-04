@@ -73,7 +73,7 @@ build/tools-venv/bin/python tools/board_profile.py <port> restart
 
 ## Research
 
-Research from 2026-10-27, done before Chad bought more boards. "Confirmed" means a primary source: a schematic, or a
+Research from 2026-10-27, done before more boards were bought. "Confirmed" means a primary source: a schematic, or a
 datasheet from the maker. Re-check before relying on any entry marked "likely".
 
 ## The one test: native USB on the connector
@@ -112,7 +112,7 @@ A TF slot says nothing about hosting.
 ## Waveshare ESP32-S3-Touch-LCD-3.5
 
 From Waveshare's repo (`waveshareteam/ESP32-S3-Touch-LCD-3.5`): the V1 and V2 schematics' pin tables, and the Arduino
-examples `08_gfx_helloworld` and `11_lvgl_arduino_v8`. Board-3 (MAC 44:BD:8D:61:2B:28) read as ESP32-S3 with 8 MB
+examples `08_gfx_helloworld` and `11_lvgl_arduino_v8`. Board-3 (MAC redacted) read as ESP32-S3 with 8 MB
 embedded PSRAM and 16 MB flash.
 
 - **Display:** ST7796, 320×480 IPS, run in landscape (480×320, rotation 1, USB-C on the right; touch turns with it, checked on Board-3). SPI on SCK 5, MOSI 1, MISO 2, DC 3, in SPI mode 0: Arduino_GFX 1.6 defaults the ST7796 to mode 3, which left Board-3's screen dark (CS is tied low). CS is tied low. Backlight on GPIO6. The
