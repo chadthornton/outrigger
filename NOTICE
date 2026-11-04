@@ -43,6 +43,11 @@ Commissioner, site/fonts/commissioner-latin.woff2 (the installer page)
   (https://github.com/kosbarts/Commissioner). SIL Open Font License 1.1:
   https://openfontlicense.org/open-font-license-official-text/
 
+Geist Mono, site/fonts/geist-mono-500-latin.woff2 (the installer page)
+  Copyright 2024 The Geist Project Authors (https://github.com/vercel/geist-font).
+  SIL Open Font License 1.1:
+  https://openfontlicense.org/open-font-license-official-text/
+
 
 Ported into this repository
 ---------------------------
