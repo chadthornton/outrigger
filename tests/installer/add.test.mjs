@@ -166,6 +166,7 @@ const mutantCatalog = {
     { id: "orange-cat", entry: "orange-cat", name: "Orange Cat", version: "1", file: "orange-cat-1.fwsc", pkg: "x", product: "FM-1_970", sha256: "ff", size: 1, lic: "GPL-3.0" },
     { id: "melodee-bt", entry: "melodee", name: "Melodee", version: "1.6", file: "melodee-bt.fwsc", pkg: "x", product: "FM-1_91061", sha256: "m1", size: 1, lic: "GPL-3.0" },
     { id: "melodee", entry: "melodee", name: "Melodee", version: "1.6", file: "melodee.fwsc", pkg: "x", product: "FM-1_91061", sha256: "m2", size: 1, lic: "GPL-3.0" },
+    { id: "mycelium", entry: "mycelium", name: "Mycelium", version: "1", file: "mycelium-1.fwsc", pkg: "x", product: "FM-1_918", sha256: "my", size: 1, lic: "GPL-3.0" },
     { id: "clipper", entry: "clipper", name: "Clipper", version: "1", file: "clipper-1.fwsc", pkg: "x", product: "FM-1_900", sha256: "11", size: 1, lic: "GPL-3.0" },
   ],
 };
@@ -173,7 +174,7 @@ const mutantFamilies = {
   bases: { felucca: { name: "Felucca" }, sloop: { name: "SLOOP" }, melodee: { name: "Melodee" }, original: { name: "its own code" } },
   entries: [
     { id: "felucca", base: null }, { id: "skiff", base: "felucca" }, { id: "choralroot", base: "original" },
-    { id: "orange-cat", base: "melodee" }, { id: "melodee", base: "felucca" }, { id: "clipper", base: "sloop" },
+    { id: "orange-cat", base: "melodee" }, { id: "mycelium", base: "felucca" }, { id: "melodee", base: "felucca" }, { id: "clipper", base: "sloop" },
   ],
 };
 
@@ -198,6 +199,7 @@ test("fromMutant: FM-1 files only, through mutant.cloud's /dl, with the Hub's id
   const why = Object.fromEntries(held.map((h) => [h.project, h.why]));
   assert.match(why["orange-cat"], /Melodee/);
   assert.match(why.clipper, /older Felucca/);
+  assert.match(why.mycelium, /older Felucca/);  // the Hub says built on SLOOP too
   // Melodee is listed as built on Felucca: its id holds it, and its other file too.
   assert.match(why.melodee, /Bluetooth/);
   assert.match(why["melodee-bt"], /Bluetooth/);

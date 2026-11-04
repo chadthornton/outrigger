@@ -35,7 +35,9 @@ const BLOCKED = ["melodee", "tessera"];
 // after the survey aren't classified: they're listed, and switch with a clean
 // slate like every untested switch.
 const OLD_FELUCCA = ["sloop", "clipper", "spampy", "winampfm", "floyd", "jangada", "nmsfm", "karma", "sloopdx",
-  "hortator", "sloopbanks", "fm1quest", "mnm1", "salt", "vector37", "nauclerus", "gator", "hawkchua"];
+  "hortator", "sloopbanks", "fm1quest", "mnm1", "salt", "vector37", "nauclerus", "gator", "hawkchua",
+  // The Hub lists it on Felucca and SLOOP; mutant.cloud on Felucca only, so mutant.cloud's base alone wouldn't hold it.
+  "mycelium"];
 
 // Files that fail Outrigger's package checks (make check-latest LATEST_ALL=1,
 // 2026-11-01: 1 of 143). Any other that fails is caught at download.
