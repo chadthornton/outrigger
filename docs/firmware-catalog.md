@@ -25,7 +25,8 @@ which list it shows.
 page keeps those ids stable whichever list it reads:
 
 - A listing's `entry` is its project (`skiff`, not mutant.cloud's row id `skiff-fm-1-722`).
-- Four listings mutant.cloud renamed map back to the Hub's ids: `b1`, `demake`, `fm1dock` and `fm1sid`.
+- Four listings mutant.cloud renamed map back to the Hub's ids: `b1`, `demake`, `fm1dock` and `fm1sid`
+  (`hub_ids` in `tools/fm1_families.json`).
 - A firmware with several FM-1 files (a Bluetooth build, a one-core build) keeps its id for its main file. Each
   other file is a project of its own, so two different files never share a shelf.
 
@@ -55,9 +56,15 @@ never survives a switch, and the board asks before it erases.
 Today every switch between two different firmwares is a clean slate unless that exact pair was tested on hardware
 (`kTestedPairs` in `lib/fm1_loader/src/library.cpp`).
 
-**Still open:** whether the Felucca family should skip the clean slate when switching within the family. That
-decision waits for Chad. Until it's made, the table above sorts the daily check's report and the page's held list,
-and the board's own rules are unchanged.
+**The Felucca family keeps the clean slate too** (orchestrator, 2026-11-04): trusting it would only skip the
+staging erase and the prompt, and a stale update record must not survive a switch.
+
+**Blocks are built in, not read live.** `tools/gen_families.py` turns the table and a committed snapshot of what
+mutant.cloud and the Hub say each firmware is built on (`tools/fm1_lineage.json`) into
+`lib/fm1_loader/src/families_gen.h` for the board and `site/installer/families_gen.js` for the page, so the page
+never offers what the board refuses. A listing's edit on mutant.cloud changes nothing until someone runs
+`python3 -I tools/gen_families.py --refresh`, reviews the diff and ships a build. The daily check says when that's
+due.
 
 **Blocked, and why:**
 
@@ -83,16 +90,20 @@ Actions tab. It needs no Claude session and no Mac, and it uses only the default
    - broken links come first, then the groups above;
    - what the last run saw rides in a hidden comment in the body.
 
-   It adds a comment, which is what notifies you, only for:
+   It adds a comment that @-mentions the owner, which is what notifies you, only for:
    - a broken link;
    - a newly missing file;
-   - a family the table doesn't know.
+   - a family the table doesn't know;
+   - a listing renamed on mutant.cloud;
+   - a firmware the board's built-in list should block but doesn't yet.
 
 What to do with what it reports:
 
 - **A broken installer link:** fresh installs fail. Bump the pin in `tools/store_template.py` (and
   `tools/fetch_fixtures.py`), then redeploy the site.
-- **A new family:** decide its group, then add it to `tools/fm1_families.json`.
+- **A new family:** decide its group, then add it to `tools/fm1_families.json` and run `tools/gen_families.py`.
+- **Not blocked on the board yet:** run `python3 -I tools/gen_families.py --refresh`, review the diff, ship a build.
+- **A rename:** add it to `hub_ids` in `tools/fm1_families.json`, then run `tools/gen_families.py`.
 - **A missing file:** the Add firmware list shows what mutant.cloud lists, and mutant.cloud marks the file missing.
   Nothing to do unless it's in the starter set.
 

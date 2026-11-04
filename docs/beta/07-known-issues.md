@@ -13,14 +13,15 @@ A living list. If you hit something that isn't here, email
 - **Add firmwares from the Firmware Hub's list** on the homepage, up to ten in all: see
   [Adding a firmware](04a-adding-firmware.md). Files of your own (not on the Hub's list) can't be added yet, and
   there's no way to remove a firmware yet.
-- **Melodee and Tessera can't be added yet.** They write the part of the FM-1's memory Outrigger uses to tell FM-1s
-  apart.
+- **Melodee, Tessera and the firmwares built on Melodee can't be added yet.** They write the part of the FM-1's
+  memory Outrigger uses to tell FM-1s apart. Outrigger refuses to switch to them, and to SLOOP's family, even from
+  a store set up some other way.
 - **No Wi-Fi.** The Install button gives you Outrigger without Wi-Fi and without its own web page. Both are coming.
 
 ## Firmware switching
 
-**Switching is tested on stock and the Felucca family; other firmwares switch in clean-slate mode.** A clean slate
-clears the old firmware's data from the FM-1 first. A community firmware's songs and settings wait on its shelf in
+**Switching is tested on stock and the Felucca family. Every switch between two different firmwares starts on a
+clean slate:** it clears the old firmware's data from the FM-1 first. A community firmware's songs and settings wait on its shelf in
 Outrigger and come back when you switch back to it. Stock's settings aren't brought back: they're only in the full
 backup Outrigger takes before every switch.
 
