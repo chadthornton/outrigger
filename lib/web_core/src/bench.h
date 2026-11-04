@@ -1,8 +1,9 @@
 // The test bench's control API (BENCH=1 builds only, never a release): the Mac
 // (tools/bench.py) starts a firmware switch or a backup on a Waveshare wired
 // to FM-1-2, with nobody at the screen. Everything here is pure, so the Mac
-// tests hold it; the routes are registered only when the board's MAC is one of
-// Chad's Waveshares (waveshare_name), and the Mac checks it's the one it asked for.
+// tests hold it; the routes are registered only when the board's MAC is in the
+// device registry the build was made with (waveshare_name), and the Mac checks
+// it's the one it asked for.
 //
 // The API presses what the screen would press: select a row (its plan is
 // previewed), then act on it. The Loader still refuses an act whose row
@@ -24,12 +25,12 @@ constexpr Route kBenchRoutes[] = {
 };
 constexpr int kBenchRouteCount = sizeof kBenchRoutes / sizeof kBenchRoutes[0];
 
-// Chad's boards by MAC ("small-v1", "small-v2", "big-s3"); null for any other
-// board, which gets no bench API.
+// The registry's boards by MAC ("small-v1", "small-v2", "big-s3"); null for any
+// other board, which gets no bench API. Release builds list none.
 const char *waveshare_name(const uint8_t mac[6]);
 
-// The board's network name: its name above when listed ("small-v1", so each of
-// Chad's boards answers at its own .local address), else the build's default
+// The board's network name: its name above when listed ("small-v1", so each
+// test board answers at its own .local address), else the build's default
 // ("fm1bench" in a BENCH=1 build, "fm1hub" otherwise). Copied into out.
 void web_host_name(const uint8_t mac[6], bool bench_build, char *out, size_t len);
 

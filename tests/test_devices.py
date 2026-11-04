@@ -74,5 +74,45 @@ class RegistryTest(unittest.TestCase):
         self.assertIn("devices.example.json", str(e.exception))
 
 
+class BenchHeaderTest(unittest.TestCase):
+    """The firmware's board table (lib/web_core/src/bench.cpp), written at build time so no MAC is in the repo."""
+
+    def test_lists_each_esp32_by_name_and_mac(self):
+        text = devices.bench_header(devices.load(EXAMPLE))
+        self.assertIn('{"small-v1", {0x02, 0x00, 0x00, 0x00, 0x00, 0x01}},', text)
+        self.assertIn('{"big-s3", {0x02, 0x00, 0x00, 0x00, 0x00, 0x03}},', text)
+        self.assertNotIn("fm-a", text.lower())  # FM-1s have no MAC
+
+    def test_no_registry_is_an_empty_table(self):
+        text = devices.bench_header(None)
+        self.assertNotIn("{", text)
+
+    def test_a_name_too_long_for_the_board_is_refused(self):
+        with tempfile.NamedTemporaryFile("w", suffix=".json") as f:
+            json.dump({"devices": [{"label": "Waveshare-number-one", "kind": "esp32", "mac": "02:00:00:00:00:01"}]}, f)
+            f.flush()
+            with self.assertRaises(devices.DeviceError):
+                devices.bench_header(devices.load(f.name))
+
+    def test_write_header(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d) / "gen" / "bench_boards.h"
+            devices.write_header(out, None)
+            self.assertNotIn("0x", out.read_text())
+            devices.write_header(out, EXAMPLE)
+            self.assertIn("0x03", out.read_text())
+            before = out.stat().st_mtime_ns
+            devices.write_header(out, EXAMPLE)  # unchanged: not rewritten, so nothing recompiles
+            self.assertEqual(out.stat().st_mtime_ns, before)
+
+    def test_a_bench_build_needs_the_registry(self):
+        with tempfile.TemporaryDirectory() as d:
+            out = Path(d) / "bench_boards.h"
+            with self.assertRaises(devices.DeviceError):
+                devices.write_header(out, "/nonexistent/devices.json")
+            devices.write_header(out, "/nonexistent/devices.json", optional=True)  # a DIAG_WEB build without one
+            self.assertNotIn("0x", out.read_text())
+
+
 if __name__ == "__main__":
     unittest.main()
