@@ -1,10 +1,10 @@
 // The "Add a firmware" area on site/index.html: connect to an Outrigger in
-// Computer mode, list the Firmware Hub's firmwares against what its store
-// has, and add one (add.js does the work). The board stays in its running
+// Computer mode, list mutant.cloud's firmwares (or the Firmware Hub's)
+// against what its store has, and add one (add.js does the work). The board stays in its running
 // program: no BOOT+RST, nothing but its store's new package is written.
 //
 //   <div class="add-firmware"></div>
-import { addableFirmwares, fetchHubPackage, BoardLink, CATALOG_URL } from "./add.js";
+import { addableFirmwares, fetchHubPackage, loadCatalog, BoardLink } from "./add.js";
 import { PORT_FILTER, SERIAL_OPTIONS, port as lock, h } from "./ui.js";
 
 const BAUD = 115200;  // ignored by USB-Serial-JTAG, but Web Serial needs one
@@ -81,9 +81,9 @@ class AddArea {
       this.link = new BoardLink(this.io);
       const hello = await this.link.hello();
       if (hello.protocol !== 1) throw new Error("This Outrigger speaks a newer protocol than this page. Reload the page.");
-      const res = await fetch(CATALOG_URL, { cache: "no-cache" });
-      if (!res.ok) throw new Error(`The Firmware Hub answered ${res.status} for its list.`);
-      this.catalog = addableFirmwares(await res.json());
+      const catalog = await loadCatalog();
+      this.from = catalog.from;
+      this.catalog = addableFirmwares(catalog);
       await this.list();
     } catch (e) {
       await this.close();
@@ -99,13 +99,14 @@ class AddArea {
     const stored = new Set((await this.link.list()).map((p) => p.sha256));
     const full = hello.packages >= hello.maxPackages;
     const rows = this.catalog.addable.map((fw) => h("li", {},
-      h("span", {}, h("b", {}, fw.name), ` ${fw.version}`),
+      h("span", {}, h("b", {}, fw.name), ` ${fw.version}`,
+        fw.family || fw.lic ? h("small", {}, ` ${[fw.family && `${fw.family} family`, fw.lic].filter(Boolean).join(" · ")}`) : null),
       stored.has(fw.sha256) ? h("small", {}, "On your Outrigger")
         : h("button", { class: "alt", disabled: full, on: { click: () => this.add(fw) } }, "Add")));
     this.show(
       note ? h("p", { class: note.bad ? "install-error" : "install-done", role: note.bad ? "alert" : "status" }, note.text) : null,
       h("p", { class: "install-read" }, `Outrigger has ${hello.packages} of ${hello.maxPackages} firmwares, ${mb(hello.free)} free.`,
-        full ? " Its list is full." : ""),
+        full ? " Its list is full." : "", ` The list is from ${this.from}.`),
       h("ul", { class: "add-list" }, rows),
       this.catalog.held.length ? h("details", { class: "install-log" }, h("summary", {}, `Not on the list yet (${this.catalog.held.length})`),
         h("ul", {}, this.catalog.held.map((f) => h("li", {}, h("b", {}, f.name), ` ${f.why}`)))) : null,
@@ -118,8 +119,8 @@ class AddArea {
     lock.busy = true;
     const label = `${fw.name} ${fw.version}`.trim();
     try {
-      this.show(h("p", { class: "install-note", role: "status" }, `Downloading ${label} from the Firmware Hub…`));
-      const data = await fetchHubPackage(fw);
+      this.show(h("p", { class: "install-note", role: "status" }, `Downloading ${label} from ${this.from}…`));
+      const data = await fetchHubPackage(fw, fetch, this.from);
       const bar = h("progress", { max: data.length, value: 0 });
       const words = h("p", { class: "install-note", role: "status" }, `Sending ${label} to Outrigger. Keep the cable in.`);
       this.show(bar, words);
