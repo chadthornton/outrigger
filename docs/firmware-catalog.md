@@ -39,12 +39,12 @@ ids override it. Melodee, Hortator, Jangada and Salt, for example, are listed th
 
 Lookups follow "built on" through firmwares that are themselves bases: Tribe → X0X → Felucca.
 
-| Family (`base`) | Group | What a switch does |
+| Family (`base`) | Group | On the Add firmware list |
 |---|---|---|
-| stock, felucca | Known | Data kept per firmware. Tested on stock and the Felucca family |
-| fm1base, dinghy, original, foma | Clean slate | Data kept per firmware, on a clean slate |
-| sloop, melodee; ids melodee, tessera; the Felucca 0.9 survey | Blocked | Not on the Add firmware list |
-| anything else, or none listed | Unknown | Clean slate, like every untested switch |
+| stock, felucca | Known (tested on hardware) | Yes |
+| fm1base, dinghy, original, foma | Clean slate | Yes |
+| sloop, melodee; ids melodee, tessera; the Felucca 0.9 survey | Blocked | No, held with the reason |
+| anything else, or none listed | Unknown | Yes |
 
 **What "data kept per firmware" means.** Every firmware's data is saved on its own shelf before a switch and comes
 back when you switch back to it (`docs/package-sources.md`).
