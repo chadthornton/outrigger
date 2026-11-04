@@ -11,7 +11,7 @@ Firmware switches run from the Mac against an FM-1 (FM-B by default), with nobod
 | FM-B, or FM-A when a run asks for it (`--fm1`, default FM-B) | the FM-1 the bench switches |
 | FM-1 Transporter (XIAO RP2040, Quixotic7/MvaveFM1Unbricker @ `707470a`) | an FM-1's pristine dump; recovery when the FM-1 can't take the SysEx key |
 
-The names, MACs and unit IDs come from the device registry (README, "Boards").
+The names, MACs and unit IDs come from the device registry (`CONTRIBUTING.md`, "Test hardware").
 
 Buzzer (2026-11-01): both Waveshares ticked or chattered while GPIO42, the buzzer pin in Waveshare's pin map, was left
 floating. Master since PR #30 holds it low, and Small-V1 (no "V2" sticker) went silent on it. So the sticker doesn't

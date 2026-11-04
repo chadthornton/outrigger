@@ -107,7 +107,7 @@ checkpoint 1 read-only").** Branch `loader-session2`. Nothing is written to the 
    - **Then with Chad, read-only:** back up the FM-1 on the hub. Pass when the boot head and `0xE9000–0xFBFFF` match
      the 2026-10-25 dump, if it's the same unit.
    - **It answers the open questions** listed under "On hardware".
-10. **Merge:** the README gate, plus `code-review` at high effort (partition table and stored data).
+10. **Merge:** the merge gate (`CONTRIBUTING.md`), plus `code-review` at high effort (partition table and stored data).
 
 The firmware browser and the web install page with laptop backups follow in their own session, after this merges.
 

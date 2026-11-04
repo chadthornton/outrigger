@@ -1,7 +1,7 @@
 # outrigger.music: design brief for the second pass
 
 2026-10-31. Chad's review of the page PR #7 shipped, written back as criteria to judge the variations against.
-The research behind the first pass is in `docs/firmware-page-research.md`.
+The research behind the first pass is in `docs/internal/firmware-page-research.md`.
 
 ## What Chad said
 
@@ -33,7 +33,7 @@ The research behind the first pass is in `docs/firmware-page-research.md`.
 ## Facts the variations have to respect
 
 - **The rig today:** a powered USB hub. Hub power brick into the hub, the hub's upstream cable into the board, the FM-1
-  and the controller into the hub's USB-C ports. One supply runs everything (README, hardware findings).
+  and the controller into the hub's USB-C ports. One supply runs everything (docs/hardware-notes.md).
 - **Controllers with a 5-pin or TRS MIDI out** don't need this: a cable into the FM-1's TRS MIDI IN does it.
 - **The loader:** 129 of the Firmware Hub's 130 firmwares parse (loader session 3b). Today a Mac sets up the store
   once, because `wl82loader.bin` can't be published. Beta docs page 5: backups live on the board only. Copying them to
@@ -118,7 +118,7 @@ Chad liked A and B. What changed in `a2-two-doors.html` and `b2-sidebar.html` (b
   keep the credit, before this ships.**
 - **What's coming:** outrigger.local, recording (then streaming), firmware over Wi-Fi, the catalog on a TF card, a
   bigger MIDI hub (several controllers, Bluetooth MIDI, the ESP32-P4's 16 channels), backups on a computer, and bigger
-  screens. Each carries its real status from `docs/firmware-page-research.md`.
+  screens. Each carries its real status from `docs/internal/firmware-page-research.md`.
 - **Setup:** three steps in the sidebar, per Chad's answer on the laptop wording:
   1. install from a computer;
   2. the one-time loader file from a Mac, only for switching;
