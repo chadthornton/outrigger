@@ -29,7 +29,7 @@ CHAT_INVITE = None
 
 # FM-1 screenshots the Firmware Hub hosts. They belong to each firmware's author: credit them, and ask before launch.
 SCREENS = [
-    ("sloop", "SLOOP", "a live groovebox"),
+    ("loom", "LOOM-8", "a groovebox inspired by the OP-XY"),
     ("x0x", "X0X", "909, 808 and two 303s"),
     ("zp12", "zp12", "a 12-bit sampler"),
     ("winampfm", "winampFM", "a synth that looks like Winamp"),
@@ -99,10 +99,11 @@ INSTALL_BTN = """<button class="btn" type="button" data-install="{out}">Install 
 <p class="install-out" id="{out}" role="status" hidden></p>"""
 
 SETUP = f"""<ol class="steps3">
-  <li><div><b>Install Outrigger on your ESP32</b><p>Plug your ESP32 into a computer and click Install. About two
-    minutes, free.</p>
+  <li><div><b>Install Outrigger on your ESP32</b><p>Plug it into this computer and pick your board. Check my board reads it
+    without changing anything; Install takes about two minutes.</p>
     {INSTALL_BTN.format(out="out-b")}</div></li>
-  <li><div><b>Plug everything into the hub</b><p>From then on, everything happens on Outrigger's screen.</p></div></li>
+  <li><div><b>Add firmwares</b><p>Stock V15, Felucca and Skiff come with it. Add more from the <a href="#add">Firmware Hub</a>.</p></div></li>
+  <li><div><b>Plug everything into the hub</b><p>From then on, it all happens on Outrigger's screen.</p></div></li>
 </ol>
 <details class="overview"><summary>Installation overview</summary>
   <dl>
@@ -137,7 +138,7 @@ NEED = f"""<div class="need-items">
       <p>This runs Outrigger. Most ESP32-S3 boards with a screen should work; we're still testing.</p>
       <ul class="picks">
         {pick("Tested", BUY_BOARD, "Waveshare ESP32-S3 Touch LCD 1.69 ↗")}
-        {pick("Testing", BUY_35, "Waveshare ESP32-S3 Touch LCD 3.5 ↗")}
+        {pick("Tested", BUY_35, "Waveshare ESP32-S3 Touch LCD 3.5 ↗")}
         {pick("Likely", BUY_AMOLED, "Waveshare ESP32-S3 1.8-inch AMOLED ↗")}
         {pick("Likely", BUY_43B, "Waveshare ESP32-S3 4.3-inch Touch, Board B ↗")}
       </ul>
@@ -447,8 +448,8 @@ BODY = f"""<nav class="wrap topnav">
   <div class="layout">
     <main>
       <section class="hero">
-        <h1>FM&#8209;1&rsquo;s new best friend</h1>
-        <p class="sub"><span>Plug in your keys.</span> <span>Pop in a new instrument.</span></p>
+        <h1>A little companion for your FM&#8209;1.</h1>
+        <p class="sub">Any MIDI controller in, any firmware on.</p>
         {RIG}
       </section>
       <div class="features">
@@ -530,10 +531,6 @@ def install_area(label, app_set):
             '      <p class="install-note">Installing needs Chrome or Edge on a computer, with JavaScript on.</p>\n    </div>')
 
 
-REAL_STEP2 = """<li><div><b>Add firmwares</b><p>Stock V15, Felucca and Skiff come with it. Add more from the Firmware
-    Hub's list, right on this page: <a href="#add">Add custom firmwares</a>.</p></div></li>
-  <li><div><b>Plug everything into the hub</b>"""
-
 # Adding a Firmware Hub firmware to a set-up Outrigger (site/installer/add_area.js), its own section under the hero.
 # Under "Pop in a new instrument": closed until clicked, and opened by a finished install (site/installer/area.js).
 ADD_BLOCK = """<details class="addfw" id="add">
@@ -559,8 +556,8 @@ ADD_BLOCK = """<details class="addfw" id="add">
 
 BUILDERS = [
     ("Many boards, one firmware",
-     "Each ESP32 board gets a profile, so the screens, installer checks and tests adapt to it. Round and square "
-     "screens from 1.69 to 4.3 inches, on ESP32-S3 and P4, are in testing. "
+     "Each ESP32 board gets a profile, so the screens, installer checks and tests adapt to it. Two boards "
+     "today, the 1.69\" and 3.5\", with more coming. "
      '<a href="https://github.com/chadthornton/outrigger/blob/master/docs/boards.md">See the board list.</a>'),
     ("Only the parts you need",
      "One shared base with apps on top, built into editions. Today that's Hub or Hub + Loader."
@@ -575,17 +572,13 @@ BUILDERS_HTML = '<div class="coming">' + "".join(f"<article><h4>{t}</h4><p>{d}</
 real = MOCK
 for a, b in [
     (INSTALL_BTN.format(out="out-b"), install_area("Check my board", "hub-loader")),
-    ("""Plug your ESP32 into a computer and click Install. About two
-    minutes, free.</p>""", """Plug your ESP32 into a computer and click Check my board: it
-    says what's on the board and changes nothing. Then click Install. About two minutes, free.</p>"""),
-    ('<li><div><b>Plug everything into the hub</b>', REAL_STEP2),
     ("""<dd>Switching needs a 24 KB file from the FM-1's chip maker that we can't host ourselves. The installer fetches it
       from the open-source tool that already publishes it, checks it, and stores it on your ESP32.</dd>""",
      """<dd>Switching needs a 24 KB file from the FM-1's chip maker that we can't host ourselves. On a new ESP32 the
       installer downloads it straight from GitHub into your browser, and the three starter firmwares from the Firmware
       Hub, checks every one, and puts them on Outrigger. If a download fails, nothing is written.</dd>"""),
     ('more at the Firmware Hub ↗</a></div>', 'more at the Firmware Hub ↗</a></div>\n  ' + ADD_BLOCK),
-    ('<title>Outrigger: B3</title>', '<title>Outrigger: FM-1\u2019s new best friend</title>\n'
+    ('<title>Outrigger: B3</title>', '<title>Outrigger: a little companion for your FM-1</title>\n'
      '<meta name="description" content="Play the M-VAVE FM-1 from any MIDI controller with a USB connection, and switch between 100+ firmwares without a laptop.">\n'
      '<script type="module" src="installer/area.js"></script>\n<script type="module" src="installer/add_area.js"></script>'),
     ('<link rel="stylesheet" href="shared.css">', '<link rel="stylesheet" href="style.css">'),
@@ -610,6 +603,7 @@ for a, b in [
     <a href="https://github.com/pfkellogg/fm1-mirror">fm1-mirror</a> by Patrick Kellogg, and, a related project,
     <a href="https://github.com/konsumer/fm1buddy">fm1buddy</a> by David Konsumer.</p>
   <p>Firmware screenshots by their authors, via the Firmware Hub. Not affiliated with M-VAVE or Waveshare.</p>
+  <p id="installer-version" hidden></p>
 </div></footer>"""),
 ]:
     assert a in real, a[:70]

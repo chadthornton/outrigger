@@ -22,9 +22,13 @@ import { openReportForm } from "./report_form.js";
 import { readBoard, fetchBuild, install, finish, prepareStore } from "./install.js";
 import { PORT_FILTER, SERIAL_OPTIONS, port as lock, h } from "./ui.js";
 
-// Shown under each install area and in Details, so a bug report says which
+// Shown in the page footer and in Details, so a bug report says which
 // installer ran. Bump it with every change to site/installer/.
-export const INSTALLER_VERSION = "2026-11-03.2";
+export const INSTALLER_VERSION = "2026-11-04.1";
+
+// The page footer shows it (build.py), so a bug report says which installer ran.
+const versionLine = typeof document !== "undefined" && document.getElementById("installer-version");
+if (versionLine) { versionLine.textContent = `Installer ${INSTALLER_VERSION}`; versionLine.hidden = false; }
 
 // Installing lists converter chips beside the ESP32-S3's own port (ui.js), so
 // a board that can't host (a Cheap Yellow Display, say) shows up and hears why
@@ -61,7 +65,7 @@ async function withTimeout(promise, ms, what) {
 // Chad's wording (2026-10-31) for a store region that holds data but no store.
 const UNREADABLE = "Your ESP32 has storage we can't read. Email feedback@outrigger.music before continuing. Nothing was installed.";
 
-const KEEPS = "Checking reads the board and changes nothing: nothing is installed until you confirm. Installing replaces the program only. Settings, Wi-Fi and FM-1 backups stay.";
+const KEEPS = "Your settings and FM-1 backups stay.";
 
 
 let areas = 0;
@@ -104,7 +108,6 @@ class InstallArea {
         h("button", { class: i ? "alt" : null, "data-needs-board": this.boards.length > 1, disabled: !this.board && this.boards.length > 1,
           on: { click: () => this.connect(this.builds.find((b) => b.label === label && (!b.board || b.board === this.board))) } }, label))),
       h("p", { class: "install-note" }, KEEPS, " ", h("a", { href: this.helpHref }, "No board listed?")),
-      h("p", { class: "install-version" }, `Installer ${INSTALLER_VERSION}`),
     );
   }
 
