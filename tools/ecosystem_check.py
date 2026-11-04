@@ -76,10 +76,13 @@ def get(url):
         return r.read()
 
 
-def check_link(link, fetch=get):
-    """None when the link answers with what the installer expects, else why not."""
+def check_link(link, fetch=get, keep=None):
+    """None when the link answers with what the installer expects, else why not.
+    keep (a dict), when given, gets the downloaded bytes by URL."""
     try:
         data = fetch(link["url"])
+        if keep is not None:
+            keep[link["url"]] = data
     except urllib.error.HTTPError as e:
         return f"answered {e.code}"
     except Exception as e:  # noqa: BLE001 - any failure to fetch is the finding
@@ -160,7 +163,29 @@ def missing_assets(entries):
     return out
 
 
-def build_report(links_bad, feed, entries, fam, state, today):
+def hub_ids_in_page(root=ROOT):
+    """add.js's HUB_ID: mutant.cloud entries the page maps back to the Hub's ids ({} before it existed)."""
+    m = re.search(r"const HUB_ID = (\{.*?\});", (root / "site/installer/add.js").read_text(), re.S)
+    return json.loads(m.group(1)) if m else {}
+
+
+def renames(hub, mutant, mapped):
+    """["<entry> (Hub: <id>)"] for mutant.cloud listings whose entry isn't the Hub's id for the
+    same repo and that the page doesn't map back: added from mutant.cloud, they'd start a new shelf."""
+    by_repo = {}
+    for e in hub.get("firmwares") or []:
+        if e.get("repo"):
+            by_repo.setdefault(e["repo"].lower(), set()).add(e["id"])
+    out = set()
+    for e in mutant.get("firmwares") or []:
+        ids = by_repo.get((e.get("repo") or "").lower())
+        entry = e.get("entry") or e.get("id")
+        if ids and entry not in ids and mapped.get(entry) not in ids:
+            out.add(f"{entry} (Hub: {', '.join(sorted(ids))})")
+    return sorted(out)
+
+
+def build_report(links_bad, feed, entries, fam, state, today, renamed=()):
     """(markdown body, new state, needs attention). state is what the last run
     saw ({} on the first run: then only the last day's releases count as new)."""
     first = not state
@@ -169,6 +194,7 @@ def build_report(links_bad, feed, entries, fam, state, today):
     new = [f for f in feed if (f["date"] >= since if first else f["guid"] not in seen)]
     missing = missing_assets(entries)
     new_missing = sorted(k for k in missing if k not in set(state.get("missing", [])))
+    new_renamed = [r for r in renamed if r not in set(state.get("renamed", []))]
 
     grouped = {g: [] for g, _ in GROUPS}
     for f in new:
@@ -186,11 +212,13 @@ def build_report(links_bad, feed, entries, fam, state, today):
     lines.append("")
 
     lines.append(f"## New FM-1 releases since {'yesterday' if first else state.get('date', 'the last run')}")
-    if not new and not new_missing:
+    if not new and not new_missing and not new_renamed:
         lines.append("None.")
     for g, heading in GROUPS:
         items = grouped[g]
-        extra = [f"- **File gone missing:** {md(k)} (since {md(missing[k])})" for k in new_missing] if g == "unknown" else []
+        extra = ([f"- **File gone missing:** {md(k)} (since {md(missing[k])})" for k in new_missing]
+                 + [f"- **Renamed on mutant.cloud:** {md(r)}. Map it back in add.js HUB_ID, or it starts a new shelf"
+                    for r in new_renamed]) if g == "unknown" else []
         if not items and not extra:
             continue
         lines += ["", f"### {heading}"] + extra
@@ -207,16 +235,18 @@ def build_report(links_bad, feed, entries, fam, state, today):
     # that list no base land in the first group without a comment.
     new_bases = sorted({entries[f["id"]]["base"] for f in grouped["unknown"]
                         if (entries.get(f["id"]) or {}).get("base")})
-    attention = bool(links_bad or new_missing or new_bases)
-    new_state = {"date": today, "seen": sorted({f["guid"] for f in feed} | seen)[-500:],
-                 "missing": sorted(missing)}
+    attention = bool(links_bad or new_missing or new_bases or new_renamed)
+    # The feed is the window: what it lists today is all a later run needs to remember.
+    new_state = {"date": today, "seen": sorted({f["guid"] for f in feed}),
+                 "missing": sorted(missing), "renamed": list(renamed)}
     lines.append(f"<!-- ecosystem-state {json.dumps(new_state)} -->")
     return "\n".join(lines), new_state, attention
 
 
-def attention_comment(links_bad):
-    first = "Installer links are broken" if links_bad else "New releases need a look"
-    return f"**{first}.** Today's report is in the issue body above."
+def attention_comment(links_bad, owner):
+    # The bot opened the issue, so only a mention reaches the repo's owner.
+    first = "Installer links are broken" if links_bad else "Something new needs a look"
+    return f"@{owner} **{first}.** Today's report is in the issue body above."
 
 
 # ---------- GitHub ----------
@@ -231,8 +261,22 @@ def gh(method, path, token, payload=None):
 
 
 def find_issue(repo, token):
+    """The report's issue: by label, else (a label GitHub dropped) by title and author."""
     issues = gh("GET", f"/repos/{repo}/issues?labels={LABEL}&state=all&per_page=10", token)
-    return next((i for i in issues if "pull_request" not in i), None)
+    found = next((i for i in issues if "pull_request" not in i), None)
+    if found:
+        return found
+    issues = gh("GET", f"/repos/{repo}/issues?creator=github-actions%5Bbot%5D&state=all&per_page=50", token)
+    return next((i for i in issues if "pull_request" not in i and i.get("title") == TITLE), None)
+
+
+def ensure_label(repo, token):
+    try:
+        gh("POST", f"/repos/{repo}/labels", token, {"name": LABEL, "color": "5319e7",
+                                                   "description": "The daily ecosystem check's report"})
+    except urllib.error.HTTPError as e:
+        if e.code != 422:  # 422: it exists
+            raise
 
 
 def main(argv=None):
@@ -242,10 +286,15 @@ def main(argv=None):
     today = dt.date.today().isoformat()
 
     links_bad = []
+    got = {}
     for link in installer_links():
-        why = check_link(link)
+        why = check_link(link, keep=got)
         if why:
             links_bad.append((link["name"], link["url"], why))
+    try:
+        renamed = renames(json.loads(got[HUB_CATALOG]), json.loads(got[MUTANT_CATALOG]), hub_ids_in_page())
+    except (KeyError, ValueError):
+        renamed = None  # a catalog is down: that's reported above
 
     fam = load_families()
     try:
@@ -261,7 +310,9 @@ def main(argv=None):
     if issue:
         m = STATE_RE.search(issue.get("body") or "")
         state = json.loads(m.group(1)) if m else {}
-    body, _, attention = build_report(links_bad, feed, entries, fam, state, today)
+    if renamed is None:
+        renamed = state.get("renamed", [])
+    body, _, attention = build_report(links_bad, feed, entries, fam, state, today, renamed)
     if not entries and state:
         # Keep what the last run saw, so tomorrow's run still lists today's releases.
         body = STATE_RE.sub(f"<!-- ecosystem-state {json.dumps(state)} -->", body)
@@ -272,12 +323,13 @@ def main(argv=None):
         print(f"\nneeds attention: {attention}", file=sys.stderr)
     else:
         if issue is None:
+            ensure_label(repo, token)
             issue = gh("POST", f"/repos/{repo}/issues", token, {"title": TITLE, "body": body, "labels": [LABEL]})
         else:
             gh("PATCH", f"/repos/{repo}/issues/{issue['number']}", token, {"body": body, "state": "open"})
         if attention:
             gh("POST", f"/repos/{repo}/issues/{issue['number']}/comments", token,
-               {"body": attention_comment(links_bad)})
+               {"body": attention_comment(links_bad, repo.split("/")[0])})
         print(f"updated issue #{issue['number']}; needs attention: {attention}")
     for name, url, why in links_bad:
         print(f"::error::{name} {why}: {url}")

@@ -100,6 +100,20 @@ class LinkTest(unittest.TestCase):
         self.assertIn("not with JSON", ec.check_link(cat, lambda u: b"<html>"))
 
 
+class RenameTest(unittest.TestCase):
+    def test_renames_by_repo_unless_the_page_maps_them(self):
+        hub = {"firmwares": [{"id": "b1", "repo": "Foo/B1"}, {"id": "skiff", "repo": "illuminus5/skiff"},
+                             {"id": "fm1sid", "repo": "x/sid"}]}
+        mutant = {"firmwares": [{"id": "b1-drawbar-organ", "entry": "b1-drawbar-organ", "repo": "foo/b1"},
+                                {"id": "skiff-fm-1-722", "entry": "skiff", "repo": "illuminus5/skiff"},
+                                {"id": "fm1-sid", "entry": "fm1-sid", "repo": "x/sid"},
+                                {"id": "new", "entry": "new", "repo": "y/new"}]}
+        self.assertEqual(ec.renames(hub, mutant, {"fm1-sid": "fm1sid"}), ["b1-drawbar-organ (Hub: b1)"])
+
+    def test_the_page_map_is_read_from_add_js(self):
+        self.assertIsInstance(ec.hub_ids_in_page(), dict)
+
+
 class ReportTest(unittest.TestCase):
     def test_broken_links_first_then_riskiest_releases(self):
         feed = [item("x0x", "v1.3"), item("orbit", "v2"), item("fmel", "v1.2"), item("penumbra", "v1.2")]
@@ -150,6 +164,21 @@ class ReportTest(unittest.TestCase):
         self.assertNotIn("](http://evil)", line)
         self.assertNotIn("<!--", line)
         self.assertIn("](https://mutant.cloud/x0x)", line)
+
+    def test_the_state_remembers_the_feed_window_only(self):
+        _, state, _ = ec.build_report([], [item("x0x", "v2")], ENTRIES, FAM, {"seen": ["mutant.cloud/old@v1"]}, "2026-11-04")
+        self.assertEqual(state["seen"], ["mutant.cloud/x0x@v2"])
+
+    def test_a_rename_is_flagged_once(self):
+        r = ["b1-drawbar-organ (Hub: b1)"]
+        body, state, attention = ec.build_report([], [], {}, FAM, {"seen": ["z"]}, "2026-11-04", r)
+        self.assertTrue(attention)
+        self.assertIn("Renamed on mutant.cloud:** b1-drawbar-organ (Hub: b1)", body)
+        _, _, attention = ec.build_report([], [], {}, FAM, state, "2026-11-05", r)
+        self.assertFalse(attention)
+
+    def test_the_comment_mentions_the_owner(self):
+        self.assertTrue(ec.attention_comment([], "chadthornton").startswith("@chadthornton "))
 
     def test_state_rides_in_the_body(self):
         body, state, _ = ec.build_report([], [item("x0x", "v1")], ENTRIES, FAM, {}, "2026-11-04")
