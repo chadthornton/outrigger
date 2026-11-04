@@ -578,7 +578,9 @@ def deploy_beta(channel):
     kind, head, _ = plan(channel)
     if kind != "beta":  # the same choice make deploy-site made
         fail("this deploy doesn't reuse beta's build; make deploy-site picks the right one")
-    built, _ = beta_build(read_log(DEPLOYS / "deploys.jsonl"), DEPLOYS / "beta", head)
+    built, problems = beta_build(read_log(DEPLOYS / "deploys.jsonl"), DEPLOYS / "beta", head)
+    if problems:  # beta's copy changed since plan() looked
+        fail("beta's build changed:\n  " + "\n  ".join(problems))
     publish(channel, head, DEPLOYS / "beta" / head, built, reused="beta")
 
 
