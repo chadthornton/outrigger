@@ -38,9 +38,7 @@ Mini MK4 37. What else should work, and how to add a board: [docs/boards.md](doc
 The FM-1 has a lively community, and these are projects we use, learn from or sit next to.
 
 - [Felucca](https://github.com/hugelton/felucca) and [felucca-bsp](https://github.com/hugelton/felucca-bsp) (Hügelton Instruments): a custom FM-1 firmware, and the board support package for JieLi-based M-VAVE synths.
-- [fm1-base](https://github.com/charlesvestal/fm1-base), [X0X](https://github.com/charlesvestal/fm1-x0x), [AMB-1](https://github.com/charlesvestal/fm1-amb) and [more FM-1 firmwares](https://github.com/charlesvestal?tab=repositories&q=fm1) (Charles Vestal): a firmware base and template, a groovebox, a generative ambient machine, and others.
 - [MvaveFM1Unbricker](https://github.com/Quixotic7/MvaveFM1Unbricker) and [RemoteFM1](https://github.com/Quixotic7/RemoteFM1) (Quixotic7): an FM-1 unbricker, and a player that runs FM-1 firmwares from the browser without installing them.
-- [fm1-mirror](https://github.com/pfkellogg/fm1-mirror) (Patrick Kellogg): the FM-1's screen, big, on a computer.
 - [fm1buddy](https://github.com/konsumer/fm1buddy) (David Konsumer), a related project: a touchscreen box that runs an FM-1 without a computer.
 
 ## License
