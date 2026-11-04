@@ -132,6 +132,9 @@
   .install-boards legend { padding: 0; margin-bottom: 6px; font-weight: 600; font-size: .875rem; }
   .install-boards label { display: flex; gap: 6px; align-items: center; cursor: pointer; }
   .install-boards input { accent-color: var(--accent); margin: 0; }
+  .install-supported { margin-top: 10px; font-size: .875rem; color: var(--muted); }
+  .install-supported summary { cursor: pointer; }
+  .install-supported ul { margin: 6px 0 0; padding-left: 18px; }
   .install-log { border: 0; padding: 0; font-size: .8125rem; color: var(--muted); }
   .install-log pre { margin: 6px 0 0; max-height: 14em; overflow: auto; white-space: pre-wrap; font: .75rem ui-monospace, "SF Mono", Menlo, monospace; }
   .install .check { display: flex; gap: 8px; align-items: baseline; }
@@ -200,8 +203,8 @@
   <div class="layout">
     <main>
       <section class="hero">
-        <h1>A little companion for your FM&#8209;1.</h1>
-        <p class="sub">Any MIDI controller in, any firmware on.</p>
+        <h1>A little companion for your FM&#8209;1</h1>
+        <p class="sub">Any MIDI controller in, any firmware on</p>
         <figure class="rig-fig" data-rig aria-label="The setup: your MIDI controller and the FM-1 on a USB hub, with Outrigger on the hub">
   <svg viewBox="0 0 640 312" role="img" aria-label="A MIDI controller and the FM-1 plugged into a USB hub, with Outrigger on the hub"><use href="art.svg#rig"/></svg>
   <div class="chips" role="group" aria-label="Tap a part to look closer">
@@ -262,8 +265,7 @@
 
     <aside class="rail" id="install">
       <div class="card"><p class="eyebrow">Set up once</p><ol class="steps3">
-  <li><div><b>Install Outrigger on your ESP32</b><p>Plug it into this computer and pick your board. Check my board reads it
-    without changing anything; Install takes about two minutes.</p>
+  <li><div><b>Install Outrigger on your ESP32</b><p>Plug it into this computer.</p>
     <button class="btn" type="button" data-install="out-b">Install Outrigger</button>
 <p class="install-out" id="out-b" role="status" hidden></p></div></li>
   <li><div><b>Add firmwares</b><p>Stock V15, Felucca and Skiff come with it. Add more from the <a href="#add">Firmware Hub</a>.</p></div></li>

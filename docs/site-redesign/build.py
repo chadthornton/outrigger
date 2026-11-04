@@ -99,8 +99,7 @@ INSTALL_BTN = """<button class="btn" type="button" data-install="{out}">Install 
 <p class="install-out" id="{out}" role="status" hidden></p>"""
 
 SETUP = f"""<ol class="steps3">
-  <li><div><b>Install Outrigger on your ESP32</b><p>Plug it into this computer and pick your board. Check my board reads it
-    without changing anything; Install takes about two minutes.</p>
+  <li><div><b>Install Outrigger on your ESP32</b><p>Plug it into this computer.</p>
     {INSTALL_BTN.format(out="out-b")}</div></li>
   <li><div><b>Add firmwares</b><p>Stock V15, Felucca and Skiff come with it. Add more from the <a href="#add">Firmware Hub</a>.</p></div></li>
   <li><div><b>Plug everything into the hub</b><p>From then on, it all happens on Outrigger's screen.</p></div></li>
@@ -381,6 +380,9 @@ STYLE = """
   .install-boards legend { padding: 0; margin-bottom: 6px; font-weight: 600; font-size: .875rem; }
   .install-boards label { display: flex; gap: 6px; align-items: center; cursor: pointer; }
   .install-boards input { accent-color: var(--accent); margin: 0; }
+  .install-supported { margin-top: 10px; font-size: .875rem; color: var(--muted); }
+  .install-supported summary { cursor: pointer; }
+  .install-supported ul { margin: 6px 0 0; padding-left: 18px; }
   .install-log { border: 0; padding: 0; font-size: .8125rem; color: var(--muted); }
   .install-log pre { margin: 6px 0 0; max-height: 14em; overflow: auto; white-space: pre-wrap; font: .75rem ui-monospace, "SF Mono", Menlo, monospace; }
   .install .check { display: flex; gap: 8px; align-items: baseline; }
@@ -448,8 +450,8 @@ BODY = f"""<nav class="wrap topnav">
   <div class="layout">
     <main>
       <section class="hero">
-        <h1>A little companion for your FM&#8209;1.</h1>
-        <p class="sub">Any MIDI controller in, any firmware on.</p>
+        <h1>A little companion for your FM&#8209;1</h1>
+        <p class="sub">Any MIDI controller in, any firmware on</p>
         {RIG}
       </section>
       <div class="features">
@@ -571,7 +573,7 @@ BUILDERS_HTML = '<div class="coming">' + "".join(f"<article><h4>{t}</h4><p>{d}</
 
 real = MOCK
 for a, b in [
-    (INSTALL_BTN.format(out="out-b"), install_area("Check my board", "hub-loader")),
+    (INSTALL_BTN.format(out="out-b"), install_area("Check my ESP32", "hub-loader")),
     ("""<dd>Switching needs a 24 KB file from the FM-1's chip maker that we can't host ourselves. The installer fetches it
       from the open-source tool that already publishes it, checks it, and stores it on your ESP32.</dd>""",
      """<dd>Switching needs a 24 KB file from the FM-1's chip maker that we can't host ourselves. On a new ESP32 the

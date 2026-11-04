@@ -91,7 +91,9 @@ class InstallArea {
     this.el.replaceChildren(...kids.filter((k) => k != null));
   }
 
-  ready(note) {
+  // expanded: the board question is open. A refusal or failure opens it, so the visitor can try again.
+  ready(note, expanded = !!note) {
+    if (!expanded) this.board = this.boards.length === 1 ? this.boards[0].board : null;
     if (!("serial" in navigator)) {
       return this.show(h("p", { class: "install-note" }, window.isSecureContext
         ? "This browser can't install. Use Chrome or Edge on a computer."
@@ -103,23 +105,30 @@ class InstallArea {
         on: { click: () => openReportForm({ ...this.refused, installer: INSTALLER_VERSION }) } }, "Ask us to add this board")) : null,
       note && LOG.length ? h("details", { class: "install-log" }, h("summary", {}, "Details"),
         h("pre", {}, [`Installer ${INSTALLER_VERSION}`, ...LOG.slice(-25), "", ...this.trace.split("\n").slice(-40).map((l) => l.slice(0, 160))].join("\n"))) : null,
-      this.boards.length > 1 ? this.boardPicker() : null,
-      h("div", { class: "row" }, [...new Set(this.builds.map((b) => b.label))].map((label, i) =>
-        h("button", { class: i ? "alt" : null, "data-needs-board": this.boards.length > 1, disabled: !this.board && this.boards.length > 1,
-          on: { click: () => this.connect(this.builds.find((b) => b.label === label && (!b.board || b.board === this.board))) } }, label))),
-      h("p", { class: "install-note" }, KEEPS, " ", h("a", { href: this.helpHref }, "No board listed?")),
+      expanded && this.boards.length > 1 ? this.boardPicker() : h("div", { class: "row" },
+        h("button", { on: { click: () => this.boards.length > 1 ? this.ready(undefined, true) : this.connect(this.builds[0]) } }, this.builds[0].label)),
+      this.supported(),
     );
   }
 
+  // "Which boards work?": closed until opened.
+  supported() {
+    const named = this.boards.filter((b) => b.manifest);
+    return h("details", { class: "install-supported" }, h("summary", {}, "Which boards work?"),
+      h("ul", {}, named.map((b) => h("li", {}, b.board, b.tested === false ? " (should work, not tried yet)" : " (tested)"))),
+      h("p", { class: "install-note" }, "Another ESP32-S3 with a screen? ", h("a", { href: this.helpHref }, "No board listed?")));
+  }
+
   boardPicker() {
+    // The chip can't say which board it sits on (chip.js), so the visitor does. Picking one opens the port chooser.
     const pick = (board) => {
       this.board = board;
-      for (const b of this.el.querySelectorAll("button[data-needs-board]")) b.disabled = false;
+      this.connect(this.builds.find((b) => b.board === board));
     };
-    return h("fieldset", { class: "install-boards" }, h("legend", {}, "Which ESP32 do you have?"),
+    return h("fieldset", { class: "install-boards" }, h("legend", {}, "Which one is it?"),
       this.boards.map((b) => h("label", {},
         h("input", { type: "radio", name: `board-${this.id}`, value: b.board, checked: this.board === b.board,
-          on: { change: () => pick(b.board) } }), " ", b.board)));
+          on: { click: () => pick(b.board) } }), " ", b.board)));
   }
 
   async connect(choice) {
@@ -241,6 +250,7 @@ class InstallArea {
       h("div", { class: "row" },
         h("button", { on: { click: () => this.run(build, board, store) } }, `Install ${name}`),
         h("button", { class: "alt", on: { click: async () => { await this.close(); this.ready(); } } }, "Cancel")),
+      h("p", { class: "install-note" }, KEEPS),
     );
   }
 

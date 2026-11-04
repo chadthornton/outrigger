@@ -42,7 +42,7 @@ const DRAWING = `
   <g class="part" data-part="outrigger"><rect class="hit" x="254" y="-14" width="132" height="168" rx="16"/><use href="art.svg#board" x="276" y="8" width="88" height="124"/></g>
   <g class="labels" style="font-family: var(--sans)" font-size="16" font-weight="600" fill="currentColor">
     <text x="80" y="282" text-anchor="middle">MIDI controller</text><text x="543" y="306" text-anchor="middle">FM-1</text>
-    <text x="376" y="74">Outrigger</text><text x="320" y="250" text-anchor="middle" font-weight="400" opacity=".7">Powered USB hub</text>
+    <text x="376" y="74">Outrigger</text><text x="376" y="93" font-size="14" font-weight="400" opacity=".7">a little ESP32 device</text><text x="320" y="250" text-anchor="middle" font-weight="400" opacity=".7">Powered USB hub</text>
   </g>
   <g class="dots">
 <circle class="ring" cx="150" cy="190" r="11"/><circle cx="150" cy="190" r="11"/><circle class="ring" cx="362" cy="22" r="11"/><circle cx="362" cy="22" r="11"/><circle class="ring" cx="372" cy="182" r="11"/><circle cx="372" cy="182" r="11"/><circle class="ring" cx="612" cy="198" r="11"/><circle cx="612" cy="198" r="11"/>
