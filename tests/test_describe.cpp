@@ -35,7 +35,7 @@ static void finish(std::vector<uint8_t> &d) {
   d[3] = d.size() >> 8;
 }
 
-// Skiff on Chad's unit: audio control, MIDI, audio streaming (alt 0 empty,
+// Skiff on the test unit: audio control, MIDI, audio streaming (alt 0 empty,
 // alt 1 one iso endpoint), CDC control, CDC data.
 static std::vector<uint8_t> skiff() {
   std::vector<uint8_t> d;

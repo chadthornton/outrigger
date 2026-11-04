@@ -88,7 +88,7 @@ test("not JSON, or a report that doesn't validate, is a 400 that says why", asyn
   const res = await send(fakeD1(), body({ board: "" }));
   assert.equal(res.status, 400);
   assert.match((await res.json()).problems.join(" "), /board/i);
-  assert.equal((await send(fakeD1(), body({ mac: "f4:12:fa:43:5b:c8" }))).status, 400);
+  assert.equal((await send(fakeD1(), body({ mac: "02:00:00:00:00:01" }))).status, 400);
 });
 
 test("a filled-in honeypot looks accepted but stores nothing", async () => {

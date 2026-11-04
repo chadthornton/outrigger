@@ -263,14 +263,15 @@ Non-critical batches skip the smoke check. Every production deploy and rollback 
 
 ### Boards
 
-Chad's names (2026-11-03): **Small-V1** (Waveshare 1.69", the older revision, usually on the rig), **Small-V2** (1.69"
-with the V2 sticker), **Big-S3** (Waveshare 3.5" S3), **Big-P4** (the Synth track's 3.5" P4), and the FM-1s **FM-A**
-and **FM-B**. Their MACs and unit IDs live in the device registry, outside this public repo
-(`~/Library/Application Support/outrigger/devices.json`; the shape is `tools/devices.example.json`).
+Test hardware is referred to by name: **Small-V1** (Waveshare 1.69", the older revision), **Small-V2** (1.69" with
+the V2 sticker), **Big-S3** (Waveshare 3.5" S3), **Big-P4** (the Synth track's 3.5" P4), and the FM-1s **FM-A** and
+**FM-B**. The names map to MACs and unit IDs in a local device registry outside this repo; its shape is
+`tools/devices.example.json`. Builds with the Wi-Fi diagnostics (`DIAG_WEB=1`) read the ESP32s' names from it at build
+time (`tools/devices.py header`); release builds carry no MACs.
 
 - **Tools ask for a device by name** and refuse any other: `tools/port_for.py Small-V2` finds its port,
   `tools/wait_for_board.sh Small-V2` waits for it, and `tools/bench.py --board Small-V2 --fm1 FM-B` drives the bench.
-- **Wiping any of them is fine** (Chad, 2026-11-03). The check only makes sure a session has the device it asked for.
+- **Wiping any of them is fine,** FM-1s included (2026-11-03). The check only makes sure a session has the device it asked for.
 - **Every esptool MAC read ends with a hard reset,** so no board, another session's included, is left in download mode.
 - A session books a board and the Mac's USB slot through the orchestrator session, and reflashes the `master` build
   when done.
