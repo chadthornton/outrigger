@@ -1,28 +1,48 @@
 {
-  "about": "How Outrigger treats each FM-1 firmware family, keyed by mutant.cloud firmware.json's `base`. Reviewed by hand: a listing's base is self-serve on mutant.cloud, so ids here override it. docs/firmware-catalog.md explains the groups.",
-  "keep": ["felucca"],
-  "clean": ["fm1base", "dinghy", "original", "foma"],
-  "blocked_bases": ["sloop", "melodee"],
+  "about": "How Outrigger treats each FM-1 firmware family, keyed by mutant.cloud firmware.json's `base`. Reviewed by hand: a listing's base is self-serve on mutant.cloud, so blocked_ids here override it. tools/gen_families.py turns this and tools/fm1_lineage.json into the loader's lib/fm1_loader/src/families_gen.h. docs/firmware-catalog.md explains the groups.",
+  "keep": [
+    "felucca"
+  ],
+  "clean": [
+    "fm1base",
+    "dinghy",
+    "original",
+    "foma"
+  ],
+  "blocked_bases": {
+    "sloop": "old-felucca",
+    "melodee": "bluetooth"
+  },
   "blocked_ids": {
-    "melodee": "writes the FM-1's Bluetooth sector (listed as built on Felucca)",
-    "tessera": "writes the FM-1's Bluetooth sector",
-    "sloop": "built on Felucca 0.9",
-    "clipper": "built on Felucca 0.9",
-    "spampy": "built on Felucca 0.9",
-    "winampfm": "built on Felucca 0.9",
-    "floyd": "built on Felucca 0.9",
-    "jangada": "built on Felucca 0.9 (mutant.cloud says Felucca)",
-    "nmsfm": "built on Felucca 0.9",
-    "karma": "built on Felucca 0.9",
-    "sloopdx": "built on Felucca 0.9",
-    "hortator": "built on Felucca 0.9 (mutant.cloud says Felucca)",
-    "sloopbanks": "built on Felucca 0.9",
-    "fm1quest": "built on Felucca 0.9",
-    "mnm1": "built on Felucca 0.9 (via Hortator)",
-    "salt": "built on Felucca 0.9 (mutant.cloud says Felucca)",
-    "vector37": "built on Felucca 0.9 (mutant.cloud says its own code)",
-    "nauclerus": "built on Felucca 0.9 (via Hortator)",
-    "gator": "built on Felucca 0.9 (mutant.cloud says its own code)",
-    "hawkchua": "built on Felucca 0.9"
+    "melodee": "bluetooth",
+    "tessera": "bluetooth",
+    "sloop": "old-felucca",
+    "clipper": "old-felucca",
+    "spampy": "old-felucca",
+    "winampfm": "old-felucca",
+    "floyd": "old-felucca",
+    "jangada": "old-felucca",
+    "nmsfm": "old-felucca",
+    "karma": "old-felucca",
+    "sloopdx": "old-felucca",
+    "hortator": "old-felucca",
+    "sloopbanks": "old-felucca",
+    "fm1quest": "old-felucca",
+    "mnm1": "old-felucca",
+    "salt": "old-felucca",
+    "vector37": "old-felucca",
+    "nauclerus": "old-felucca",
+    "gator": "old-felucca",
+    "hawkchua": "old-felucca"
+  },
+  "mutant_says": {
+    "melodee": "listed as built on Felucca",
+    "jangada": "mutant.cloud says Felucca",
+    "hortator": "mutant.cloud says Felucca",
+    "mnm1": "via Hortator",
+    "salt": "mutant.cloud says Felucca",
+    "vector37": "mutant.cloud says its own code",
+    "nauclerus": "via Hortator",
+    "gator": "mutant.cloud says its own code"
   }
 }

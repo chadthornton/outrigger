@@ -26,6 +26,9 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import gen_families  # noqa: E402
+
 ROOT = Path(__file__).resolve().parent.parent
 UA = "outrigger-ecosystem-check (+https://github.com/chadthornton/outrigger)"
 MUTANT = "https://mutant.cloud/"
@@ -105,26 +108,11 @@ def load_families(root=ROOT):
 
 
 def group_of(entry_id, entries, fam):
-    """keep, clean, blocked or unknown for a mutant.cloud entry id, following
-    "built on" through firmwares that are bases themselves (X0X, Hortator)."""
-    if entry_id in fam["blocked_ids"]:
-        return "blocked"
-    if entry_id == "stock" or entry_id in fam["keep"]:
-        return "keep"
-    seen = {entry_id}
-    base = (entries.get(entry_id) or {}).get("base")
-    while base:
-        if base in fam["blocked_ids"] or base in fam["blocked_bases"]:
-            return "blocked"
-        if base in fam["keep"] or base == "stock":
-            return "keep"
-        if base in fam["clean"]:
-            return "clean"
-        if base in seen or base not in entries:
-            return "unknown"
-        seen.add(base)
-        base = entries[base].get("base")
-    return "unknown"
+    """keep, clean, blocked or unknown for a mutant.cloud entry id, by the same
+    rules as the loader's blocks (tools/gen_families.py)."""
+    bases = {i: [e["base"]] if e.get("base") else [] for i, e in entries.items()}
+    c = gen_families.category(entry_id, bases, fam)
+    return "blocked" if c in gen_families.BLOCKS else c
 
 
 # ---------- What's new ----------
