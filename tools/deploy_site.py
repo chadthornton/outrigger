@@ -3,6 +3,7 @@
 
     tools/deploy_site.py source <channel> [FULL]     refuse early; print "ci" or "check": where the site comes from
     tools/deploy_site.py deploy-ci <channel>          stage, check and upload CI's build of HEAD
+    tools/deploy_site.py deploy-beta production       upload beta's kept copy of HEAD, as checked there
     tools/deploy_site.py deploy <channel> <site dir>  stage, check and upload a site make check built
                                                      (build/checked/site; its commit in build/checked/commit)
     tools/deploy_site.py rollback <channel> [commit]  put the deploy before the live one back (or that commit's)
@@ -24,7 +25,11 @@ checkout of a committed, pushed HEAD goes live, built one of two ways:
   touches the critical list's code or any firmware (CRITICAL; README, "Shipping to
   production"), and for a
   commit CI has no build of (a branch commit: CI builds a PR merged into master;
-  start CI on the branch by hand to get one). Each upload carries its commit, so the Pages dashboard
+  start CI on the branch by hand to get one).
+- Beta's build, for production: production uploads beta's kept copy of HEAD
+  (the bytes checked there, matching their SHA-256 sums) when the deploy log
+  says beta serves HEAD and how it was built: a make check build always, a CI
+  build if the batch needs no make check. A firmware ship runs make check once. Each upload carries its commit, so the Pages dashboard
 answers "which commit is live?". The Pages Functions (functions/) and their
 config (wrangler.toml, with the D1 bindings) go up with the site, from the same
 checked commit: wrangler reads them from its working directory, so it runs in
@@ -350,21 +355,37 @@ def ci_firmware_problems(fw, head):
     return problems
 
 
-def choose_source(channel, full, run, crit):
-    """("ci" or "check", why), or (None, why not). run: CI's green run of exactly HEAD, or None if CI
-    never built HEAD itself; crit: the critical-list files changed since the commit production serves."""
+def choose_source(channel, full, run, crit, beta=None):
+    """("ci", "check" or "beta", why), or (None, why not). run: CI's green run of exactly HEAD, or None
+    if CI never built HEAD itself; crit: the critical-list files changed since the commit production
+    serves; beta: how beta's verified kept copy of HEAD was built ("ci" or "check"), or None."""
     if full not in ("", "1"):
         return None, f"FULL={full}: use FULL=1, or leave it out"
     if run is None and channel == "production":
         return None, "CI hasn't built origin/master's head yet; wait for its run"
     if full == "1":
         return "check", "FULL=1: make check builds the site on the Mac"
+    if channel == "production" and (beta == "check" or (beta == "ci" and not crit)):
+        return "beta", f"beta's build of this commit ({'make check' if beta == 'check' else 'CI'}), as checked there"
     if crit:
         more = ", ..." if len(crit) > 5 else ""
         return "check", f"the batch since production touches the critical list ({', '.join(crit[:5])}{more}): make check on the Mac"
     if run is None:
         return "check", "CI has no build of this commit itself (it builds a branch merged into master): make check on the Mac"
     return "ci", f"CI's build (run {run['id']})"
+
+
+def beta_build(entries, beta_dir, head):
+    """(how beta's kept copy of head was built, its problems). Reusable for production when beta
+    serves head (by the deploy log) and the copy still matches its sums."""
+    stack = live_history(entries, "beta")
+    if not stack or stack[-1]["commit"] != head:
+        return None, [f"beta doesn't serve {head[:7]} by the deploy log"]
+    deploys = [e for e in entries if e["channel"] == "beta" and e["action"] == "deploy" and e["commit"] == head]
+    built = deploys[-1].get("built") if deploys else None
+    if built not in ("ci", "check"):
+        return None, [f"the deploy log doesn't say how beta's {head[:7]} was built"]
+    return built, kept_problems(beta_dir / head)
 
 
 def critical_paths(files):
@@ -517,7 +538,13 @@ def plan(channel, full=""):
     run = ci_build(head)
     live = commit_of(live_deployment(load_credentials(), "production"))
     crit = critical_paths(git("diff", "--name-only", live, head).splitlines())
-    kind, why = choose_source(channel, full, run, crit)
+    beta = None
+    if channel == "production":
+        beta, problems = beta_build(read_log(DEPLOYS / "deploys.jsonl"), DEPLOYS / "beta", head)
+        if problems:
+            print(f"not reusing beta's build: {problems[0]}", file=sys.stderr)
+            beta = None
+    kind, why = choose_source(channel, full, run, crit, beta)
     if kind is None:
         fail(why)
     print(why, file=sys.stderr)
@@ -546,6 +573,15 @@ def deploy_ci(channel):
     publish(channel, head, CI_CHECKED, "ci")
 
 
+def deploy_beta(channel):
+    """Production uploads beta's kept copy of HEAD: the bytes checked on beta, without building again."""
+    kind, head, _ = plan(channel)
+    if kind != "beta":  # the same choice make deploy-site made
+        fail("this deploy doesn't reuse beta's build; make deploy-site picks the right one")
+    built, _ = beta_build(read_log(DEPLOYS / "deploys.jsonl"), DEPLOYS / "beta", head)
+    publish(channel, head, DEPLOYS / "beta" / head, built, reused="beta")
+
+
 def deploy(channel, site):
     head = guard(channel)
     problem = built_from_problem(site, head)
@@ -554,7 +590,7 @@ def deploy(channel, site):
     publish(channel, head, site.parent, "check")
 
 
-def publish(channel, head, checked, built):
+def publish(channel, head, checked, built, **extra):
     """Stage checked (site/, functions/, wrangler.toml), scan it, upload it and log it. built: "ci" or "check"."""
     problems = stage_root(checked, STAGE) + site_problems(STAGE / "site", load_wl82_blob())
     if problems:
@@ -566,7 +602,7 @@ def publish(channel, head, checked, built):
         # Note what this deploy replaces, so a rollback can go back to it.
         append_log(log, log_entry("baseline", channel, before))
     live = upload(env, STAGE, channel, head, git("log", "-1", "--format=%s", head))
-    append_log(log, log_entry("deploy", channel, live, built=built))
+    append_log(log, log_entry("deploy", channel, live, built=built, **extra))
     if channel != "production":  # production rolls back through Cloudflare, with no copy
         keep(STAGE, DEPLOYS / channel, head)
     print(f"deployed {head[:7]} to {channel}: {URLS[channel]} (deployment {live['id']}; logged in {log})")
@@ -607,12 +643,14 @@ def main():
         print(plan(*args[1:])[0])
     elif len(args) == 2 and args[0] == "deploy-ci":
         deploy_ci(args[1])
+    elif len(args) == 2 and args[0] == "deploy-beta":
+        deploy_beta(args[1])
     elif len(args) == 3 and args[0] == "deploy":
         deploy(args[1], Path(args[2]).resolve())
     elif len(args) in (2, 3) and args[0] == "rollback":
         rollback(*args[1:])
     else:
-        fail("usage:\n" + "\n".join(__doc__.strip().splitlines()[2:8]))
+        fail("usage:\n" + "\n".join(__doc__.strip().splitlines()[2:9]))
 
 
 if __name__ == "__main__":
