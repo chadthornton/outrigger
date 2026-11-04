@@ -5,7 +5,9 @@ A living list. If you hit something that isn't here, email
 
 ## What it has, and doesn't
 
-- **Three FM-1 firmwares come with it.** A new ESP32 gets M-VAVE stock V15, Felucca 1.8.0 and Skiff 2.1.1 at install.
+- **Stock V15 comes with it.** A new ESP32 gets M-VAVE stock V15 at install; add Felucca, Skiff and others from
+  the Firmware Hub's list. The Hub now carries Felucca 1.8.2-beta and Skiff 2.2, which haven't been through our switch
+  tests yet (1.8.0 and 2.1.1 were).
 - **SLOOP, and the firmwares built on it or on Felucca 0.9, are left out on purpose.** SLOOP is built on an older Felucca, and going from SLOOP to Felucca or Skiff can leave
   data that crashes them. It waits until we know where SLOOP keeps its data.
 - **Add firmwares from the Firmware Hub's list** on the homepage, up to ten in all: see
@@ -43,9 +45,6 @@ Which switches we've run on a real FM-1, with these exact versions:
 - **If an install stops partway** (the cable came out), install again: it picks up where it stopped.
 - **An ESP32 that ran an earlier beta may stop at "storage we can't read".** Nothing was installed. Email us before
   going further: your backups may be in there.
-- **The starter firmwares can stop downloading when one of them releases.** The Firmware Hub keeps only each
-  firmware's newest file, so a fresh install says a download failed and writes nothing until we update the site.
-  Email us if you see it.
 - **Adding a firmware needs Outrigger in Computer mode, on a build from this page.** After an install it restarts into
   MIDI: go back to Computer mode before adding.
 - **An FM-1 running M-VAVE's October "Open" firmware isn't recognised yet.** Its USB ID is 3654:7756 ("FM1 Community").

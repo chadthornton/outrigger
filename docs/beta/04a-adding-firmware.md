@@ -1,6 +1,6 @@
 # Adding a firmware
 
-Outrigger comes with three FM-1 firmwares: M-VAVE stock V15, Felucca and Skiff. You can add more from the Firmware
+Outrigger comes with M-VAVE stock V15. Add Felucca, Skiff or any other firmware from the Firmware
 Hub's list, up to ten in all, from the homepage. No Mac tools, and nothing on Outrigger is erased.
 
 ## How
