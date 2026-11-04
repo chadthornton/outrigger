@@ -130,6 +130,8 @@
   .install-boards label { display: flex; gap: 6px; align-items: center; cursor: pointer; }
   .install-boards input { accent-color: var(--accent); margin: 0; }
   .install-links { display: grid; gap: 6px; font-size: .875rem; }
+  .install-count { display: flex; gap: 8px; align-items: baseline; font-size: .8125rem; color: var(--muted); cursor: pointer; }
+  .install-count input { accent-color: var(--accent); margin: 0; }
   .install-links a { text-decoration: none; }
   .install-links a:hover, .install-links a:focus-visible { text-decoration: underline; }
   .report-choice { display: grid; gap: 14px; }
@@ -401,6 +403,10 @@
     from a computer.</p></details>
   <details><summary>Why doesn't my second MIDI controller play?</summary><p>For now, Outrigger has room
     for one MIDI controller next to the FM-1. Unplug the other one. More than one is coming.</p></details>
+  <details id="counts"><summary>Does the installer send anything about me?</summary><p>One anonymous install count, unless you
+    untick the box under the install button: which board profile, which edition, the installer's version, whether it
+    finished or where it stopped, and the day. No MAC address, chip serial, IP address, browser details or cookies. A
+    finished install counts once per board in each browser.</p></details>
   <details><summary>Where do my backups live?</summary><p>On Outrigger itself, never online. Copying them to a computer is
     coming.</p></details>
 </div></section>
