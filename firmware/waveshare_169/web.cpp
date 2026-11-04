@@ -24,6 +24,7 @@
 #include "diag.h"
 #include "hotspot_channel.h"
 #include "wifi_fallback.h"
+#include "wifi_qr.h"
 #include "json_field.h"
 #include "log_ring.h"
 #include "request_guard.h"
@@ -110,6 +111,7 @@ static char own_ip[16] = "", ap_ip[16] = "", ssid_now[33] = "", ap_pass[13] = ""
 static uint32_t ap_ip_u32 = 0;  // network byte order, for the via-hotspot check
 static int8_t rssi = 0;
 static char network_line[48] = "";  // empty until web_begin()
+static char join_qr[64] = "";       // the hotspot as a Wi-Fi QR code, while the network line says to join it
 static char scan_json[1200] = "{\"nets\":[]}";
 static char creds_ssid[33], creds_pass[65];
 static bool creds_pending = false;
@@ -137,6 +139,11 @@ struct Seen {
 static Seen seen[24];
 static int seen_count = 0;
 static uint8_t hotspot_channel = 0;
+// The last request the hotspot redirected to the setup page (a phone's
+// captive-portal check, such as captive.apple.com/hotspot-detect.html), for the
+// loop to log: it shows whether a phone's check reached the board at all.
+static char redirected[64] = "";
+static uint32_t redirect_count = 0;
 static char saved_ssid[33], saved_pass[65];
 static char trial_ssid[33], trial_pass[65];  // from the setup page; saved once they work
 
@@ -198,10 +205,13 @@ static bool via_hotspot(httpd_req_t *req) {
 }
 
 static esp_err_t redirect_to_setup(httpd_req_t *req) {
-  char where[40];
+  char where[40], host[40] = "";
+  header(req, "Host", host, sizeof host);
   {
     Lock l;
     snprintf(where, sizeof where, "http://%s/", ap_ip);
+    snprintf(redirected, sizeof redirected, "%s%s", host, req->uri);
+    ++redirect_count;
   }
   httpd_resp_set_status(req, "302 Found");
   httpd_resp_set_hdr(req, "Location", where);
@@ -796,6 +806,8 @@ static void set_ips() {
   if (own_ip[0]) snprintf(network_line, sizeof network_line, "%s  %s", mdns_name, own_ip);
   else if (ap_on) snprintf(network_line, sizeof network_line, "Wi-Fi: join %s pw %s", setup_ssid, ap_pass);
   else snprintf(network_line, sizeof network_line, "Wi-Fi: joining %s", saved_ssid);
+  if (!own_ip[0] && ap_on) web_core::wifi_qr_payload(setup_ssid, ap_pass, join_qr, sizeof join_qr);
+  else join_qr[0] = 0;
 }
 
 static void remember_scan(int found) {
@@ -995,6 +1007,16 @@ void web_loop(uint32_t now) {
     join(trial_ssid, trial_pass);
   }
   if (ap_on) dns.processNextRequest();
+  static uint32_t logged_redirects = 0;
+  char probe[sizeof redirected] = "";
+  {
+    Lock l;
+    if (redirect_count != logged_redirects) {
+      logged_redirects = redirect_count;
+      strlcpy(probe, redirected, sizeof probe);
+    }
+  }
+  if (probe[0]) DLOG_LOOP("wifi: hotspot sent %s to the setup page", probe);
 
   const wl_status_t status = WiFi.status();
   static wl_status_t logged_status = WL_NO_SHIELD;
@@ -1105,5 +1127,6 @@ void diag_publish_store(std::string &&json) {
 }  // the old body, now in json, is freed by the caller, after the lock
 
 const char *web_network_line() { return network_line; }
+const char *web_join_qr() { return join_qr; }
 
 #endif  // APP_WEB_UI

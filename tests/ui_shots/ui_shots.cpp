@@ -502,6 +502,14 @@ static void play_pages(bool fm1) {
 static void setup_pages(int size) {
   lv_obj_t *setup = lv_screen_active();
   shoot("setup");
+  // The setup hotspot is open: its line, and the QR code under it.
+  ui_set_network("Wi-Fi: join small-v1-setup pw abcd2345wxyz");
+  ui_set_join_qr("WIFI:T:WPA;S:small-v1-setup;P:abcd2345wxyz;;");
+  run(100);
+  shoot("setup_hotspot");
+  ui_set_network("Web: 192.168.1.40");
+  ui_set_join_qr("");
+  run(100);
   tap_on("Computer mode");
   if (lv_screen_active() == setup) {
     fail("Computer mode didn't open its page");
@@ -743,7 +751,7 @@ static void run_computer(const SimBoard &b) {
 static const char *const kColumns[] = {
     "play",       "play_hub",  "play5",      "play5_open",  "play_fm1",   "problem",  "nav_focus", "play_focus",
     "fm1_list",   "fm1_list_focus", "plan_wait", "plan",    "plan_fresh", "backups",  "job_switch", "job_backup", "job_chain_backup", "job_chain_write",
-    "switched",   "err_retry", "err_norom",  "err_stale",   "not_ready",  "unfinished", "setup",   "computer_confirm",
+    "switched",   "err_retry", "err_norom",  "err_stale",   "not_ready",  "unfinished", "setup",   "setup_hotspot", "computer_confirm",
     "switching",  "computer", "computer_adding"};
 constexpr int kCols = sizeof kColumns / sizeof *kColumns, kGap = 8, kCaption = 18;
 static uint8_t caption_rgb[480 * kCaption * 3];
