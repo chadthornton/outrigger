@@ -180,14 +180,18 @@ const mutantFamilies = {
 test("fromMutant: FM-1 files only, through mutant.cloud's /dl, with the Hub's ids and each file its own shelf", () => {
   const { addable, held } = addableFirmwares(fromMutant(mutantCatalog, mutantFamilies));
   const by = Object.fromEntries(addable.map((f) => [f.project, f]));
-  assert.deepEqual(Object.keys(by).sort(), ["choralroot", "choralroot-fm-1-920", "felucca", "fm1dock", "skiff", "stock"]);
+  // Choralroot's main file is the one named choralroot-0.29.2.fwsc (the Hub's), though its row id isn't
+  // the entry; the one-core build, whose row id is the entry, gets a project of its own.
+  assert.equal(addable.length, Object.keys(by).length);  // no two files share a project
+  assert.deepEqual(Object.keys(by).sort(), ["choralroot", "choralroot-choralroot-0.29.2-1core", "felucca", "fm1dock", "skiff", "stock"]);
+  assert.equal(by.choralroot.url, "https://mutant.cloud/dl/choralroot/choralroot-0.29.2.fwsc");
   // The entry is the project, as boards' shelves and the loader's tables know it ("skiff", not "skiff-fm-1-722").
   assert.equal(by.skiff.url, "https://mutant.cloud/dl/skiff/skiff-2.2.fwsc");
   assert.equal(by.skiff.family, "Felucca");
   assert.equal(by.skiff.lic, "GPL-3.0");
   assert.equal(by.felucca.family, "");
   assert.equal(by.choralroot.family, "");  // "its own code" isn't a family
-  assert.match(by["choralroot-fm-1-920"].name, /\(choralroot-0\.29\.2\)/);
+  assert.match(by["choralroot-choralroot-0.29.2-1core"].name, /\(choralroot-0\.29\.2-1core\)/);
   assert.equal(by.fm1dock.url, "https://mutant.cloud/dl/fm1-dock/fm1-dock-1.0.fwsc");
   assert.equal(by.stock.url, mutantCatalog.stock.pkg);
   assert.equal(by.stock.version, "V15");

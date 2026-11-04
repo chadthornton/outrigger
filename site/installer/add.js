@@ -76,20 +76,30 @@ export function addableFirmwares(catalog) {
 // mutant.cloud's catalog in the shape addableFirmwares reads. families is
 // firmware.json (or null): its bases name each entry's family. A firmware
 // with several FM-1 files (a Bluetooth build, a one-core build) keeps its
-// entry as the project for the file whose row is the entry, and each other
-// file is a project of its own: a different file never shares a shelf of
-// saves by accident.
+// entry as the project for its main file, and each other file is a project
+// of its own: a different file never shares a shelf of saves by accident.
+// The main file is the one named <entry>-<version>.fwsc (the build the Hub
+// lists, checked 2026-11-04), else the row whose id is the entry.
 export function fromMutant(catalog, families) {
   const entries = new Map((families && families.entries || []).map((f) => [f.id, f]));
   const names = (families && families.bases) || {};
   const rows = (catalog.firmwares || []).filter((e) => /^FM-1_/.test(e.product || "") && e.file && e.entry);
-  const perEntry = new Map();
-  for (const e of rows) perEntry.set(e.entry, (perEntry.get(e.entry) || 0) + 1);
+  const main = new Map();
+  for (const e of rows) {
+    const named = e.file === `${e.entry}-${e.version}.fwsc`;
+    const was = main.get(e.entry);
+    if (!was || (named && !was.named) || (named === was.named && e.id === e.entry && was.row.id !== e.entry)) {
+      main.set(e.entry, { row: e, named, count: (was?.count || 0) + 1 });
+    } else was.count++;
+  }
   const firmwares = rows.map((e) => {
-    const own = perEntry.get(e.entry) === 1 || e.id === e.entry;
+    const m = main.get(e.entry);
+    const own = m.count === 1 || m.row === e;
     const base = entries.get(e.entry)?.base;
     return {
-      id: own ? HUB_ID[e.entry] || e.entry : e.id, entry: HUB_ID[e.entry] || e.entry,
+      id: own ? HUB_ID[e.entry] || e.entry
+        : e.id !== e.entry ? e.id : `${e.entry}-${e.file.replace(/\.fwsc$/, "").replace(/[^A-Za-z0-9._-]/g, "-")}`,
+      entry: HUB_ID[e.entry] || e.entry,
       name: own ? e.name : `${e.name} (${e.file.replace(/\.fwsc$/, "")})`,
       version: e.version, sha256: e.sha256, size: e.size, lic: e.lic,
       pkg: `dl/${e.entry}/${encodeURIComponent(e.file)}`,
