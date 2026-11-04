@@ -1274,6 +1274,11 @@ void ui_update_loader(const UiLoader &l) {
 static lv_obj_t *size_buttons[3], *version_label, *computer_screen_confirm;
 static lv_obj_t *network_labels[2];  // Setup, the Computer mode screen
 static char network_text[48] = "";
+// The setup hotspot as a QR code, under Setup's network line, only while it's
+// open (ui_set_join_qr): made then and deleted after, so it costs no RAM the
+// rest of the time.
+static lv_obj_t *join_qr;
+static char join_qr_text[64] = "";
 // Computer mode's line about a firmware the page is adding (ui_set_computer_status).
 static char computer_status[64] = "";
 static lv_obj_t *computer_status_label;
@@ -1294,6 +1299,22 @@ static lv_obj_t *network_label(lv_obj_t *parent) {
   return l;
 }
 
+// Black on white with a quiet zone, the way phone cameras read best. 132 px is
+// 33 modules at 4 px: the hotspot's text (version 3) and the quiet zone.
+static void place_join_qr() {
+  if (join_qr) lv_obj_delete(join_qr);
+  join_qr = nullptr;
+  lv_obj_t *line = network_labels[0];
+  if (!join_qr_text[0] || !line) return;
+  join_qr = lv_qrcode_create(lv_obj_get_parent(line));
+  lv_qrcode_set_size(join_qr, 132);
+  lv_qrcode_set_dark_color(join_qr, c(0x000000));
+  lv_qrcode_set_light_color(join_qr, c(0xFFFFFF));
+  lv_qrcode_set_quiet_zone(join_qr, true);
+  lv_qrcode_update(join_qr, join_qr_text, strlen(join_qr_text));
+  lv_obj_move_to_index(join_qr, lv_obj_get_index(line) + 1);
+}
+
 static void computer_tapped(lv_event_t *) { push(computer_screen_confirm); }
 static void run_computer_hold(Hold &) {
   if (hooks.connect_computer) hooks.connect_computer();
@@ -1303,6 +1324,8 @@ static void build_setup() {
   Page t = section_page(kSetup);
   version_label = text(t.content, firmware, kGrey, Role::Body);
   network_labels[0] = network_label(t.content);
+  join_qr = nullptr;  // went with the old Setup (rebuild)
+  place_join_qr();
   // Text size: three buttons sharing the width, each lettered in the size it
   // picks, so the letters are the preview.
   lv_obj_t *sizes = row(t.content, 6);
@@ -1486,6 +1509,12 @@ void ui_set_network(const char *line) {
     lv_label_set_text(l, network_text);
     show_if(l, network_text[0]);
   }
+}
+
+void ui_set_join_qr(const char *text) {
+  if (strcmp(text, join_qr_text) == 0) return;
+  strlcpy(join_qr_text, text, sizeof join_qr_text);
+  place_join_qr();
 }
 
 void ui_set_computer_status(const char *line) {
