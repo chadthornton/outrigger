@@ -40,6 +40,21 @@ DIRS = [
                 "engineering.",
     },
     {
+        "id": "geist", "cls": "d-geist", "tab": "Current + Geist", "name": "Current + Geist Mono",
+        "light": dict(bg="#f6f5f1", fg="#151714", muted="#5f645c", line="#dddfd7", panel="#ffffff", soft="#eceee6",
+                      screen="#141713", accent="#1f8a4c", **{"accent-fg": "#ffffff"}, warn="#9a3a00", grid="transparent"),
+        "dark": dict(bg="#0f110e", fg="#eceee8", muted="#9ba096", line="#2a2e28", panel="#181b17", soft="#1d211c",
+                     screen="#050605", accent="#46d384", **{"accent-fg": "#06150c"}, warn="#ffab6b", grid="transparent"),
+        "pair": "Commissioner for everything you read + Geist Mono 500 in four places: the Beta tag, the eyebrow labels, "
+                "the step numbers and the firmware names",
+        "scale": "Unchanged from Current; mono labels at 11–12",
+        "body": "The current page with one change: Geist Mono for the small labels a firmware author scans. Those are the "
+                "Beta tag, the “Set up once” eyebrow, the numbers in the green step dots, and the firmware "
+                "names under each screenshot, set like file names. Layout, radius, colour, headings and every sentence "
+                "stay as they are. It reads as the same product with someone technical behind it. Trade-off: on its own "
+                "it's subtle, and a casual visitor may not notice. That's fine for a beta audience that reads labels.",
+    },
+    {
         "id": "datasheet", "cls": "d-sheet", "tab": "A · Datasheet", "name": "A · Datasheet",
         "light": dict(bg="#f2f2ef", fg="#111311", muted="#555954", line="#cfd1cb", panel="#fbfbf9", soft="#e7e8e3",
                       screen="#121412", accent="#c2410c", **{"accent-fg": "#ffffff"}, warn="#b42318", grid="transparent"),
@@ -83,10 +98,57 @@ DIRS = [
     },
 ]
 
+# Palette variations, applied over Current, Current + Geist and C. "brand" keeps each direction's own colours.
+PALETTES = [
+    {"id": "brand", "name": "Brand green", "note": "Today's colours: warm off-white, green-grey neutrals, Outrigger green."},
+    {"id": "graphite", "name": "Graphite",
+     "light": dict(bg="#f3f4f5", fg="#14171a", muted="#5b626a", line="#d8dce0", panel="#ffffff", soft="#e9ecef",
+                   screen="#121518", accent="#16805a", **{"accent-fg": "#ffffff"}, warn="#9a3a00", grid="transparent"),
+     "dark": dict(bg="#0e1012", fg="#e8ebee", muted="#949ba3", line="#272b30", panel="#16191c", soft="#1c2024",
+                  screen="#050607", accent="#3ccf95", **{"accent-fg": "#04140d"}, warn="#ffab6b", grid="transparent"),
+     "note": "Cool grey neutrals with a slightly bluer green. The green reads as a status light on a grey chassis. "
+             "It's the most technical of the four and still on brand."},
+    {"id": "solder", "name": "Solder mask",
+     "light": dict(bg="#eef2ec", fg="#12201a", muted="#4f6158", line="#ccd8d0", panel="#f9fbf8", soft="#e1e9e3",
+                   screen="#0b1a12", accent="#8a5a00", **{"accent-fg": "#ffffff"}, warn="#b42318", grid="transparent"),
+     "dark": dict(bg="#07130d", fg="#e3ece6", muted="#8fa398", line="#1c2e24", panel="#0d1c14", soft="#12241a",
+                  screen="#020805", accent="#e2b450", **{"accent-fg": "#1b1200"}, warn="#ff8f80", grid="transparent"),
+     "note": "A circuit board's colours: green-tinted neutrals with gold-pad accents. The most distinctive in dark mode. "
+             "Gold buttons are a real break from the brand."},
+    {"id": "kraft", "name": "Kraft paper",
+     "light": dict(bg="#e2d4bb", fg="#2a2118", muted="#67563f", line="#c9b796", panel="#efe5d3", soft="#d7c6a7",
+                   screen="#1c1712", accent="#2f7743", **{"accent-fg": "#ffffff"}, warn="#9a3a00", grid="transparent"),
+     "dark": dict(bg="#1e1913", fg="#ede4d4", muted="#ab9a80", line="#3b3228", panel="#28211a", soft="#2e261e",
+                  screen="#0b0907", accent="#72cf91", **{"accent-fg": "#0b1a10"}, warn="#ffab6b", grid="transparent"),
+     "note": "The cream pushed into brown, toward kraft card and a printed manual. A fine grain and faint mottling on the "
+             "page and cards make it feel like a physical sheet. The cards are a lighter stock laid on top. Green stays, "
+             "a shade deeper so it holds on brown. Trade-off: the grain shows most on big flat areas and on high-density screens, "
+             "and it is a texture image to ship and keep subtle."},
+    {"id": "ink", "name": "Ink blue",
+     "light": dict(bg="#f5f4f0", fg="#16181d", muted="#5c6170", line="#dcdde2", panel="#ffffff", soft="#ebecf0",
+                   screen="#12141a", accent="#2747c9", **{"accent-fg": "#ffffff"}, warn="#9a3a00", grid="transparent"),
+     "dark": dict(bg="#0f1014", fg="#e9eaef", muted="#9a9eab", line="#2a2c34", panel="#17181e", soft="#1d1f26",
+                  screen="#050608", accent="#8ea6ff", **{"accent-fg": "#0a1030"}, warn="#ffab6b", grid="transparent"),
+     "note": "Docs blue, the colour of datasheets and GitHub links. Calm and technical, but it loses the tie to "
+             "Outrigger's Play screen, which turns green when notes get through."},
+]
+PAL_DIRS = {"current", "geist", "instrumented"}
+
+# Paper grain for Kraft: fine speckle plus faint large-scale mottling, grey with low alpha so it reads in both themes.
+def _noise(freq, octaves, alpha, size):
+    svg = (f"<svg xmlns='http://www.w3.org/2000/svg' width='{size}' height='{size}'><filter id='n'>"
+           f"<feTurbulence type='fractalNoise' baseFrequency='{freq}' numOctaves='{octaves}' stitchTiles='stitch'/>"
+           f"<feColorMatrix values='0 0 0 0 .45  0 0 0 0 .36  0 0 0 0 .25  0 0 0 {alpha} 0'/></filter>"
+           f"<rect width='100%' height='100%' filter='url(%23n)'/></svg>")
+    return 'url("data:image/svg+xml;utf8,' + svg.replace('"', "'").replace("<", "%3C").replace(">", "%3E") + '")'
+
+KRAFT = (f'.frame.pal[data-palette="kraft"],.frame.pal[data-palette="kraft"] .card'
+         f'{{background-image:{_noise(".85", 3, ".22", 180)},{_noise(".012", 2, ".07", 600)}}}\n')
+
 RECOMMEND = [
-    "Ship C. It keeps the Commissioner voice you like and makes the facts look measured.",
-    "Mono is reserved for numbers, units and step markers, so the page reads as more technical without getting cold.",
-    "It's also the only one small enough to land as a CSS pass on style.css without touching the copy audit.",
+    "Ship Current + Geist now. It changes four kinds of label and leaves layout and copy alone, so it's safe on announcement day.",
+    "Try Graphite next. It's the most technical-reading palette that keeps green, and green is what Outrigger's Play screen shows when notes get through.",
+    "Keep C as the fuller follow-up once the copy audit settles; its readout strip adds words.",
 ]
 
 
@@ -118,6 +180,7 @@ def page(d):
     k = d["id"]
     x = {
         "current": {},
+        "geist": {},
         "datasheet": {
             "meta": '<div class="meta"><span>USB MIDI host for the M-VAVE FM-1</span><span>ESP32-S3 · P4</span></div>',
             "fig": '<figcaption><b>Fig. 1</b> The setup. MIDI controller and FM-1 on a powered USB-C hub; Outrigger on the host port.</figcaption>',
@@ -433,10 +496,20 @@ INST = """
 @container (max-width:560px){.d-inst .readout{grid-template-columns:repeat(2,minmax(0,1fr))}.d-inst .readout div:nth-child(3){border-left:0;padding-left:0}.d-inst .readout div:nth-child(n+3){border-top:1px solid var(--line)}}
 """
 
+# Current + Geist: the current rules, with Geist Mono on four kinds of small label.
+GEIST = BASE.replace(".d-base", ".d-geist") + """
+.d-geist .beta,.d-geist .eyebrow,.d-geist .steps3 li::before,.d-geist .fwshots figcaption b{font-family:"Geist Mono",ui-monospace,monospace;font-variant-numeric:tabular-nums}
+.d-geist .beta{font-weight:500;letter-spacing:.06em;font-size:.6875rem}
+.d-geist .eyebrow{font-weight:500;letter-spacing:.06em;font-size:.6875rem}
+.d-geist .steps3 li::before{font-weight:600;font-size:.75rem}
+.d-geist .fwshots figcaption b{font-weight:500;font-size:.75rem;letter-spacing:.01em;margin-bottom:1px}
+"""
+
 SHELL = """
 :root{--shell-bg:#f3f3f1;--shell-fg:#1a1b19;--shell-muted:#62655f;--shell-line:#d6d7d2;--shell-panel:#ffffff;--shell-ink:#1a1b19}
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--shell-bg:#121311;--shell-fg:#e7e8e4;--shell-muted:#9a9d96;--shell-line:#2c2e2a;--shell-panel:#1a1b19;--shell-ink:#e7e8e4;color-scheme:dark}}
 :root[data-theme="dark"]{--shell-bg:#121311;--shell-fg:#e7e8e4;--shell-muted:#9a9d96;--shell-line:#2c2e2a;--shell-panel:#1a1b19;--shell-ink:#e7e8e4;color-scheme:dark}
+[hidden]{display:none!important}
 body{background:var(--shell-bg);color:var(--shell-fg);font:400 15px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}
 .shell{max-width:1240px;margin:0 auto;padding-block:28px 64px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:grid;gap:20px}
 .shell h1{margin:0;font-size:1.375rem;letter-spacing:-.01em}
@@ -461,6 +534,7 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
 .sw{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
 .sw i{width:22px;height:22px;border-radius:4px;box-shadow:inset 0 0 0 1px rgb(127 127 127/.35)}
 .sw span{font-size:.75rem;color:var(--shell-muted);width:3.2em}
+.palnote{display:grid;gap:6px;font-size:.875rem;max-width:78ch}.palnote p{margin:0}.palnote .only{color:var(--shell-muted)}
 .caveat{font-size:.8125rem;color:var(--shell-muted);margin-top:10px!important}
 @media (max-width:760px){.notes{grid-template-columns:1fr}}
 @media (prefers-reduced-motion:reduce){.frame{transition:none}}
@@ -468,7 +542,7 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
 
 SCRIPT = """
 (function(){
-  var ids = %s, tabs = document.querySelectorAll('[role=tab]'), scheme = '', width = 'full';
+  var ids = %s, tabs = document.querySelectorAll('[role=tab]'), scheme = '', width = 'full', pal = 'brand';
   function show(id){
     if (ids.indexOf(id) < 0) id = ids[0];
     tabs.forEach(function(t){ t.setAttribute('aria-selected', t.dataset.id === id); t.tabIndex = t.dataset.id === id ? 0 : -1; });
@@ -478,7 +552,7 @@ SCRIPT = """
   function apply(){
     document.querySelectorAll('.frame').forEach(function(f){
       if (scheme) f.setAttribute('data-scheme', scheme); else f.removeAttribute('data-scheme');
-      f.setAttribute('data-width', width);
+      f.setAttribute('data-width', width); f.setAttribute('data-palette', pal);
     });
   }
   tabs.forEach(function(t){
@@ -492,6 +566,9 @@ SCRIPT = """
     scheme = b.dataset.schemeBtn; document.querySelectorAll('[data-scheme-btn]').forEach(function(o){ o.setAttribute('aria-pressed', o === b); }); apply(); }); });
   document.querySelectorAll('[data-width-btn]').forEach(function(b){ b.addEventListener('click', function(){
     width = b.dataset.widthBtn; document.querySelectorAll('[data-width-btn]').forEach(function(o){ o.setAttribute('aria-pressed', o === b); }); apply(); }); });
+  document.querySelectorAll('[data-pal-btn]').forEach(function(b){ b.addEventListener('click', function(){
+    pal = b.dataset.palBtn; document.querySelectorAll('[data-pal-btn]').forEach(function(o){ o.setAttribute('aria-pressed', o === b); });
+    document.querySelectorAll('[data-pal-note]').forEach(function(n){ n.hidden = n.dataset.palNote !== pal; }); apply(); }); });
   // Links inside the renders are stand-ins: keep them from changing the tab.
   document.querySelectorAll('.frame a[href^="#"]').forEach(function(a){ a.addEventListener('click', function(e){ e.preventDefault(); }); });
   var start = location.hash.slice(1);
@@ -507,12 +584,13 @@ def swatches(vals):
 
 
 def main():
-    css = SHELL + COMMON + BASE + SHEET + NOTE + INST + "".join(theme_css("." + d["cls"], d) for d in DIRS)
+    css = (SHELL + COMMON + BASE + GEIST + SHEET + NOTE + INST + "".join(theme_css("." + d["cls"], d) for d in DIRS)
+           + "".join(theme_css(f'.frame.pal[data-palette="{p["id"]}"]', p) for p in PALETTES if "light" in p) + KRAFT)
     tabs = "".join(f'<button type="button" role="tab" id="t-{d["id"]}" data-id="{d["id"]}" aria-controls="p-{d["id"]}">{d["tab"]}</button>'
                    for d in DIRS)
     panels = ""
     for d in DIRS:
-        caveat = ("" if d["id"] == "current" else
+        caveat = ("" if d["id"] in ("current", "geist") else
                   '<p class="caveat">Copy is the live site\'s, unchanged. Mono labels and spec rows are a visual device '
                   'built from facts already on the page, not a copy proposal.</p>')
         panels += f"""
@@ -525,8 +603,15 @@ def main():
       <div><dt>Palette</dt><dd><div class="sw"><span>Light</span>{swatches(d['light'])}</div><div class="sw" style="margin-top:4px"><span>Dark</span>{swatches(d['dark'])}</div></dd></div>
     </dl>
   </div>
-  <div class="frame {d['cls']}" data-width="full"><div class="site">{page(d)}</div></div>
+  <div class="frame {d['cls']}{' pal' if d['id'] in PAL_DIRS else ''}" data-width="full" data-palette="brand"><div class="site">{page(d)}</div></div>
 </section>"""
+    pal_btns = "".join(f'<button type="button" data-pal-btn="{p["id"]}" aria-pressed="{str(p["id"] == "brand").lower()}">{p["name"]}</button>'
+                       for p in PALETTES)
+    pal_notes = "".join(
+        f'<div class="palnote" data-pal-note="{p["id"]}"{"" if p["id"] == "brand" else " hidden"}>'
+        + (f'<div class="sw"><span>Light</span>{swatches(p["light"])}<span style="margin-left:10px">Dark</span>{swatches(p["dark"])}</div>' if "light" in p else "")
+        + f'<p><b>{p["name"]}.</b> {p["note"]} <span class="only">Applies to Current, Current + Geist and C.</span></p></div>'
+        for p in PALETTES)
     rec = "".join(f"<p>{line}</p>" for line in RECOMMEND)
     html = f"""<title>Outrigger Visual Directions</title>
 <meta name="claude:viewport-fit-sides" content="cover">
@@ -536,16 +621,18 @@ def main():
 {sprite()}
 <div class="shell">
   <header>
-    <h1>Outrigger homepage: three directions</h1>
-    <p class="lede">The live hero, &ldquo;Set up once&rdquo; and the firmware feature, rendered in today&rsquo;s look and three alternatives.
-    Same copy everywhere. Switch the theme and width to see each one in dark mode and at phone width.</p>
+    <h1>Outrigger homepage: visual directions</h1>
+    <p class="lede">The live hero, &ldquo;Set up once&rdquo; and the firmware feature, rendered in today&rsquo;s look, a light Geist Mono pass on it, and three alternatives.
+    Same copy everywhere. Palette swaps the colours on Current, Current + Geist and C; Theme and Width show dark mode and phone width.</p>
   </header>
   <div class="rec"><b>Recommendation</b>{rec}</div>
   <div class="bar">
     <div class="seg" role="tablist" aria-label="Direction">{tabs}</div>
     <div class="ctl">Theme <span class="seg"><button type="button" data-scheme-btn="" aria-pressed="true">Auto</button><button type="button" data-scheme-btn="light" aria-pressed="false">Light</button><button type="button" data-scheme-btn="dark" aria-pressed="false">Dark</button></span></div>
+    <div class="ctl">Palette <span class="seg">{pal_btns}</span></div>
     <div class="ctl">Width <span class="seg"><button type="button" data-width-btn="full" aria-pressed="true">Full</button><button type="button" data-width-btn="phone" aria-pressed="false">Phone</button></span></div>
   </div>
+  {pal_notes}
   {panels}
 </div>
 <script>{SCRIPT % repr([d['id'] for d in DIRS]).replace("'", '"')}</script>
