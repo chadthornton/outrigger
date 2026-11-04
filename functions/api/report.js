@@ -16,21 +16,35 @@ const HOUR = 3600 * 1000;
 const DAY = 24 * HOUR;
 
 // outrigger.music, beta, Pages previews (<hash>.outrigger.pages.dev), and wrangler pages dev on the Mac.
-const ORIGIN = /^(https:\/\/((beta\.)?outrigger\.music|([a-z0-9-]+\.)?outrigger\.pages\.dev)|http:\/\/(localhost|127\.0\.0\.1)(:\d+)?)$/;
+export const ORIGIN = /^(https:\/\/((beta\.)?outrigger\.music|([a-z0-9-]+\.)?outrigger\.pages\.dev)|http:\/\/(localhost|127\.0\.0\.1)(:\d+)?)$/;
 
-const reply = (status, data) => new Response(JSON.stringify(data), {
+export const reply = (status, data) => new Response(JSON.stringify(data), {
   status, headers: { "content-type": "application/json", "cache-control": "no-store" },
 });
 
 const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
 
-async function visitor(db, ip, now) {
+export async function visitor(db, ip, now) {
   const day = new Date(now).toISOString().slice(0, 10);
   await db.prepare("DELETE FROM salts WHERE day <> ?").bind(day).run();
   await db.prepare("INSERT OR IGNORE INTO salts (day, salt) VALUES (?, ?)")
     .bind(day, hex(crypto.getRandomValues(new Uint8Array(32)))).run();
   const { salt } = await db.prepare("SELECT salt FROM salts WHERE day = ?").bind(day).first();
   return hex(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${salt}|${ip}`)));
+}
+
+// true when this visitor, or everyone together, has had their share this hour; otherwise counts this one. table:
+// "hits" (reports) or "install_hits" (installs, functions/api/install.js), so each keeps its own limit. Rows older
+// than a day are deleted.
+export async function limited(db, table, ip, now, perHour, allPerHour) {
+  if (!["hits", "install_hits"].includes(table)) throw new Error(`no rate-limit table ${table}`);
+  await db.prepare(`DELETE FROM ${table} WHERE at <= ?`).bind(now - DAY).run();
+  const key = await visitor(db, ip, now);
+  const mine = await db.prepare(`SELECT count(*) AS n FROM ${table} WHERE key = ? AND at > ?`).bind(key, now - HOUR).first();
+  const all = await db.prepare(`SELECT count(*) AS n FROM ${table} WHERE at > ?`).bind(now - HOUR).first();
+  if (mine.n >= perHour || all.n >= allPerHour) return true;
+  await db.prepare(`INSERT INTO ${table} (key, at) VALUES (?, ?)`).bind(key, now).run();
+  return false;
 }
 
 // Testable without Cloudflare: request, a D1 database, and the time in ms.
@@ -52,14 +66,9 @@ export async function handleReport(request, db, now) {
   if (!ok) return reply(400, { ok: false, problems });
   if (r.website) return reply(200, { ok: true }); // a bot filled in the hidden field
 
-  await db.prepare("DELETE FROM hits WHERE at <= ?").bind(now - DAY).run();
-  const key = await visitor(db, request.headers.get("cf-connecting-ip") || "", now);
-  const mine = await db.prepare("SELECT count(*) AS n FROM hits WHERE key = ? AND at > ?").bind(key, now - HOUR).first();
-  const all = await db.prepare("SELECT count(*) AS n FROM hits WHERE at > ?").bind(now - HOUR).first();
-  if (mine.n >= PER_HOUR || all.n >= ALL_PER_HOUR) {
+  if (await limited(db, "hits", request.headers.get("cf-connecting-ip") || "", now, PER_HOUR, ALL_PER_HOUR)) {
     return reply(429, { ok: false, problems: ["Too many reports in the last hour. Try again later."] });
   }
-  await db.prepare("INSERT INTO hits (key, at) VALUES (?, ?)").bind(key, now).run();
 
   const row = await db.prepare(
     "INSERT INTO reports (created_at, chip, flash_mb, psram_mb, usb_vid, picked, verdict, installer, board, note, email) " +
