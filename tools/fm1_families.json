@@ -1,8 +1,18 @@
 {
   "about": "How Outrigger treats each FM-1 firmware family, keyed by mutant.cloud firmware.json's `base`. Reviewed by hand: a listing's base is self-serve on mutant.cloud, so ids here override it. docs/firmware-catalog.md explains the groups.",
-  "keep": ["felucca"],
-  "clean": ["fm1base", "dinghy", "original", "foma"],
-  "blocked_bases": ["sloop", "melodee"],
+  "keep": [
+    "felucca"
+  ],
+  "clean": [
+    "fm1base",
+    "dinghy",
+    "original",
+    "foma"
+  ],
+  "blocked_bases": [
+    "sloop",
+    "melodee"
+  ],
   "blocked_ids": {
     "melodee": "writes the FM-1's Bluetooth sector (listed as built on Felucca)",
     "tessera": "writes the FM-1's Bluetooth sector",
@@ -23,6 +33,7 @@
     "vector37": "built on Felucca 0.9 (mutant.cloud says its own code)",
     "nauclerus": "built on Felucca 0.9 (via Hortator)",
     "gator": "built on Felucca 0.9 (mutant.cloud says its own code)",
-    "hawkchua": "built on Felucca 0.9"
+    "hawkchua": "built on Felucca 0.9",
+    "mycelium": "built on Felucca 0.9 (the Hub says Felucca and SLOOP; mutant.cloud says Felucca)"
   }
 }
