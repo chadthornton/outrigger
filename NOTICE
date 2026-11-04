@@ -20,7 +20,7 @@ Vendored in this repository
 
 EspUsbHost 2.10.1, lib/EspUsbHost/ (in the firmware)
   Copyright (c) 2026 TANAKA Masayuki. MIT License: lib/EspUsbHost/LICENSE.
-  Patched: ESP_USB_HOST_MAX_SERIAL_PORTS is overridable (see README).
+  Patched: ESP_USB_HOST_MAX_SERIAL_PORTS is overridable (see CONTRIBUTING.md, "Commands").
 
 Felucca 1.7.0, through andrerezemini/fm1-cartridge's port,
 lib/synth/third_party/fm1-cartridge/ (the synth bench; not on the installer site)
