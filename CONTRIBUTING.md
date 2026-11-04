@@ -163,7 +163,8 @@ Non-critical batches skip the smoke check. Every production deploy and rollback 
 Test hardware is referred to by name: **Small-V1** (Waveshare 1.69", the older revision), **Small-V2** (1.69" with
 the V2 sticker), **Big-S3** (Waveshare 3.5" S3), **Big-P4** (the Synth track's 3.5" P4), and the FM-1s **FM-A** and
 **FM-B**. The names map to MACs and unit IDs in a local device registry outside this repo; its shape is
-`tools/devices.example.json`.
+`tools/devices.example.json`. Builds with the Wi-Fi diagnostics (`DIAG_WEB=1`) read the ESP32s' names from it at build
+time (`tools/devices.py header`); release builds carry no MACs, and `tools/build_site.py` refuses one that does.
 
 - **Tools ask for a device by name** and refuse any other: `tools/port_for.py Small-V2` finds its port,
   `tools/wait_for_board.sh Small-V2` waits for it, and `tools/bench.py --board Small-V2 --fm1 FM-B` drives the bench.

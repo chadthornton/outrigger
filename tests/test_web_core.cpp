@@ -1,5 +1,5 @@
 // Host-side tests for lib/web_core: the diagnostics log, the route table (read
-// only), the request guard, the setup page's JSON fields and the Wi-Fi fallback. Run with `make test`.
+// only), the request guard, the setup page's JSON fields, the Wi-Fi fallback and the hotspot's QR code. Run with `make test`.
 #include <stdio.h>
 #include <string.h>
 
@@ -15,6 +15,7 @@
 #include "request_guard.h"
 #include "routes.h"
 #include "wifi_fallback.h"
+#include "wifi_qr.h"
 
 using namespace web_core;
 
@@ -169,11 +170,11 @@ static void test_bench_routes_apart() {
 }
 
 static void test_bench_mac() {
-  // Chad's names, by the MACs on his labelled boards (2026-11-03).
-  const uint8_t v1[6] = {0xD8, 0x3B, 0xDA, 0xA0, 0x67, 0xD0};
-  const uint8_t v2[6] = {0xA0, 0x85, 0xE3, 0xF0, 0xA2, 0x3C};
-  const uint8_t s3[6] = {0x44, 0xBD, 0x8D, 0x61, 0x2B, 0x28};
-  const uint8_t other[6] = {0xD8, 0x3B, 0xDA, 0xA0, 0x67, 0xD1};
+  // Built against tools/devices.example.json's made-up MACs (Makefile, build/example-boards).
+  const uint8_t v1[6] = {0x02, 0x00, 0x00, 0x00, 0x00, 0x01};
+  const uint8_t v2[6] = {0x02, 0x00, 0x00, 0x00, 0x00, 0x02};
+  const uint8_t s3[6] = {0x02, 0x00, 0x00, 0x00, 0x00, 0x03};
+  const uint8_t other[6] = {0x02, 0x00, 0x00, 0x00, 0x00, 0x04};
   EXPECT(waveshare_name(v1) && strcmp(waveshare_name(v1), "small-v1") == 0, "Small-V1 by MAC");
   EXPECT(waveshare_name(v2) && strcmp(waveshare_name(v2), "small-v2") == 0, "Small-V2 by MAC");
   EXPECT(waveshare_name(s3) && strcmp(waveshare_name(s3), "big-s3") == 0, "Big-S3 by MAC");
@@ -237,6 +238,21 @@ static void test_hotspot_channel() {
   EXPECT(pick_hotspot_channel(nets, 2, "home") == 11, "saved network's channel");
   EXPECT(pick_hotspot_channel(nets, 2, "") == 1, "else the strongest");
   EXPECT(pick_hotspot_channel(nets, 0, "") == kDefaultHotspotChannel, "else the default");
+}
+
+// ---------- The setup hotspot's Wi-Fi QR code ----------
+static void test_wifi_qr() {
+  char out[64];
+  EXPECT(wifi_qr_payload("small-v1-setup", "abcd2345", out, sizeof out) &&
+             strcmp(out, "WIFI:T:WPA;S:small-v1-setup;P:abcd2345;;") == 0,
+         "the board's hotspot, as is");
+  EXPECT(wifi_qr_payload("a;b,c", "p:q\\r\"s", out, sizeof out) &&
+             strcmp(out, "WIFI:T:WPA;S:a\\;b\\,c;P:p\\:q\\\\r\\\"s;;") == 0,
+         "\\ ; , : \" escaped in name and password");
+  const char *exact = "WIFI:T:WPA;S:ab;P:12345678;;";  // 28 characters
+  EXPECT(wifi_qr_payload("ab", "12345678", out, strlen(exact) + 1) && strcmp(out, exact) == 0, "fits exactly");
+  EXPECT(!wifi_qr_payload("ab", "12345678", out, strlen(exact)) && out[0] == 0, "one byte short: empty");
+  EXPECT(!wifi_qr_payload("a;", "12345678", out, strlen(exact) + 1) && out[0] == 0, "an escape that doesn't fit");
 }
 
 // ---------- WifiFallback: the saved network after a boot ----------
@@ -399,6 +415,7 @@ int main() {
   test_host_guard();
   test_json_fields();
   test_hotspot_channel();
+  test_wifi_qr();
   test_fallback_stalled_boot();
   test_fallback_no_nudge_while_associated();
   test_fallback_never_after_online();

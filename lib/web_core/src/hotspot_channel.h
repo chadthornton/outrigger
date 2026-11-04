@@ -1,7 +1,7 @@
 // Which channel the setup hotspot should use. The ESP32-S3 has one radio, so
 // when it joins a network the hotspot moves to that network's channel, which
 // drops the phone mid-setup. Starting the hotspot on the channel of the
-// network Chad will most likely pick avoids the move.
+// network the user will most likely pick avoids the move.
 #pragma once
 
 #include <stddef.h>

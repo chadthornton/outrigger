@@ -17,15 +17,17 @@ Buzzer (2026-11-01): both Waveshares ticked or chattered while GPIO42, the buzze
 floating. Master since PR #30 holds it low, and Small-V1 (no "V2" sticker) went silent on it. So the sticker doesn't
 predict the buzzer pin, at least on this unit.
 
-Test sessions may erase any of these (Chad, 2026-11-03). The build answers `/bench/` only on Chad's boards
-(`lib/web_core/src/bench.cpp`), and `tools/bench.py` checks the board's MAC and the attached FM-1's unit ID are the
+Test sessions may erase any of these, FM-1s included (2026-11-03). The build answers `/bench/` only on the boards in
+the device registry (`lib/web_core/src/bench.cpp`, from `tools/devices.py header` at build time), and `tools/bench.py` checks the board's MAC and the attached FM-1's unit ID are the
 ones `--board` and `--fm1` name. That checks the run has the devices it asked for; none is off limits.
 
 ## Using the lab boards
 
-Chad's boards run `hub-loader` with `DIAG_WEB=1 BENCH=1` and stay on his home Wi-Fi (Chad, 2026-11-03), each at its
-own address. The firmware picks the name from the board's MAC (`web_core::web_host_name`); a board that isn't Chad's
-answers at `fm1hub.local` (`fm1bench.local` in a bench build).
+The lab boards run `hub-loader` with `DIAG_WEB=1 BENCH=1` and stay on the lab's Wi-Fi (2026-11-03), each at its own
+address. The firmware picks the name from the board's MAC (`web_core::web_host_name`); a board that isn't in the
+registry answers at `fm1hub.local` (`fm1bench.local` in a bench build). The names come from the registry when the
+build is made on the Mac, so a lab board installed from outrigger.music (no registry, no names) answers at
+`fm1hub.local` until it's flashed with a `DIAG_WEB=1` build again.
 
 | Board | Address | Hub | FM-1 |
 |---|---|---|---|
@@ -33,7 +35,7 @@ answers at `fm1hub.local` (`fm1bench.local` in a bench build).
 | Small-V2 | `small-v2.local` | hub B | FM-B |
 | Big-S3 | `big-s3.local` | as a card says (shared with the Synth track) | — |
 
-Two sessions can test in parallel, one per hub. Chad replugs by hand, in batched cards. Big-P4 doesn't run Outrigger;
+Two sessions can test in parallel, one per hub. Cables are replugged by hand, in batched cards. Big-P4 doesn't run Outrigger;
 its session reads it over serial. The addresses are also in the device registry (`host`), so the tools take a name:
 
 **Reads are free.** No booking; nothing changes on the board or the FM-1:
@@ -61,12 +63,12 @@ follow-up backup passed), and `running` (the board identifies the backed-up app 
 hash: `loader_app.cpp`, `known_unit`). The run passes when all five do. A factory-installed stock V15 may not be
 recognised as running (issue #39); a stock V15 the loader installed is.
 
-**What still needs Chad's hands** (no relays or soldering on these benches, by Chad's choice):
-- **Reflashing.** The build has no over-the-air update and no remote Computer mode, so a new build means Chad taps
+**What still needs a person at the bench** (no relays or soldering on these benches, by choice):
+- **Reflashing.** The build has no over-the-air update and no remote Computer mode, so a new build means someone taps
   Computer mode and moves the board's cable to the Mac. A board's build lags `master`: check `/status`'s commit
   (`bench.py fm1`'s `build`) before trusting a result for a recent change. Wi-Fi survives a reflash: `make flash`
   writes the bootloader, partition table and app but leaves NVS (0x9000) alone; erasing the whole flash or NVS loses
-  it, and Chad joins that board again.
+  it, and the board has to join again.
 - **A dark FM-1.** If a switch leaves it in ROM boot (`unfinished` in the record), recovery is the Transporter, and the
   cable move is a person's.
 - **Switching an FM-1 off and on.** It runs from its own battery (2000 mAh), so cutting USB power doesn't restart it.

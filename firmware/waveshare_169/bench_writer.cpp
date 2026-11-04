@@ -49,8 +49,7 @@ const char *stop_text(Stop s) {
     case Stop::LoaderBad: return "the loader blob is damaged";
     case Stop::LoaderFailed: return "the loader didn't start";
     case Stop::IdsWrong: return "chip key or flash ID isn't the FM-1's";
-    case Stop::WrongUnit: return "not FM-1-2";
-    case Stop::Fm11Unit: return "that is FM-1-1, Chad's main FM-1";
+    case Stop::WrongUnit: return "not the FM-1 named";
     case Stop::ReadFailed: return "a read failed";
     case Stop::EraseFailed: return "an erase failed";
     case Stop::WriteFailed: return "a write failed";
@@ -90,7 +89,6 @@ Report write_sectors(ScsiTransport &scsi, LoaderHost &host, const std::vector<ui
     if (!allowed(s.addr, o.protected_ok, &why)) return stop(Stop::Refused, at(why, s.addr));
   }
   if (o.unit.empty()) return stop(Stop::WrongUnit, "no bench unit named");
-  if (o.unit == kFm11Unit) return stop(Stop::Fm11Unit);
   if (!kWritesEnabled && o.write) return stop(Stop::WriteFailed, "this build can't write (FM1_LOADER_WRITES)");
   if (hex(sha256(blob.data(), blob.size())) != kLoaderSha256) return stop(Stop::LoaderBad);
   if (loader_needs_host_scramble(true, true)) return stop(Stop::LoaderBad, "the loader would need scrambling");
@@ -131,8 +129,7 @@ Report write_sectors(ScsiTransport &scsi, LoaderHost &host, const std::vector<ui
   std::vector<uint8_t> buf(kSector);
   if (!read_sector(rom, kUnitSector, chunk, buf.data())) return home(Stop::ReadFailed, at("read", kUnitSector));
   r.unit = unit_id_of(buf.data());
-  if (r.unit == kFm11Unit || r.unit != o.unit)
-    return home(r.unit == kFm11Unit ? Stop::Fm11Unit : Stop::WrongUnit, "FM-1 unit " + r.unit);
+  if (r.unit != o.unit) return home(Stop::WrongUnit, "FM-1 unit " + r.unit);
 
   // One sector at a time, compare then write, so the first erase comes early:
   // in checkpoint 3 the FM-1 restarted itself ~8.5 s after the loader started

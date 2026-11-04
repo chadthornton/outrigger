@@ -1484,7 +1484,7 @@
  *
  *  Enable: LV_USE_CANVAS
  */
-#define LV_USE_QRCODE 0
+#define LV_USE_QRCODE 1
 
 /** Legacy rlottie binding, kept for compatibility. Use LV_USE_LOTTIE instead. */
 #define LV_USE_RLOTTIE 0
