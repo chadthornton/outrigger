@@ -87,6 +87,16 @@ class BenchHeaderTest(unittest.TestCase):
         text = devices.bench_header(None)
         self.assertNotIn("{", text)
 
+    def test_the_name_is_the_host_the_tools_dial(self):
+        with tempfile.NamedTemporaryFile("w", suffix=".json") as f:
+            json.dump({"devices": [{"label": "Small-V1", "kind": "esp32", "mac": "02:00:00:00:00:01",
+                                    "host": "bench-one.local"},
+                                   {"label": "Big-P4", "kind": "esp32", "mac": "02:00:00:00:00:04"}]}, f)
+            f.flush()
+            text = devices.bench_header(devices.load(f.name))
+        self.assertIn('{"bench-one", {', text)  # tools reach it at its host, so the firmware answers there
+        self.assertIn('{"big-p4", {', text)     # no host: the label
+
     def test_a_name_too_long_for_the_board_is_refused(self):
         with tempfile.NamedTemporaryFile("w", suffix=".json") as f:
             json.dump({"devices": [{"label": "Waveshare-number-one", "kind": "esp32", "mac": "02:00:00:00:00:01"}]}, f)

@@ -25,7 +25,9 @@ ones `--board` and `--fm1` name. That checks the run has the devices it asked fo
 
 The lab boards run `hub-loader` with `DIAG_WEB=1 BENCH=1` and stay on the lab's Wi-Fi (2026-11-03), each at its own
 address. The firmware picks the name from the board's MAC (`web_core::web_host_name`); a board that isn't in the
-registry answers at `fm1hub.local` (`fm1bench.local` in a bench build).
+registry answers at `fm1hub.local` (`fm1bench.local` in a bench build). The names come from the registry when the
+build is made on the Mac, so a lab board installed from outrigger.music (no registry, no names) answers at
+`fm1hub.local` until it's flashed with a `DIAG_WEB=1` build again.
 
 | Board | Address | Hub | FM-1 |
 |---|---|---|---|

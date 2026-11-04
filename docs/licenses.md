@@ -1,6 +1,6 @@
 # Licenses
 
-The licence review done before the repo went public (2026-10-31).
+The license review done before the repo went public (2026-10-31).
 
 **Vendored, ported and linked code:**
 

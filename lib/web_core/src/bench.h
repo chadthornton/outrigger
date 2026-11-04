@@ -1,6 +1,6 @@
 // The test bench's control API (BENCH=1 builds only, never a release): the Mac
 // (tools/bench.py) starts a firmware switch or a backup on a Waveshare wired
-// to FM-1-2, with nobody at the screen. Everything here is pure, so the Mac
+// to a bench FM-1, with nobody at the screen. Everything here is pure, so the Mac
 // tests hold it; the routes are registered only when the board's MAC is in the
 // device registry the build was made with (waveshare_name), and the Mac checks
 // it's the one it asked for.
