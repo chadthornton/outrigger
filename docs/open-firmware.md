@@ -9,7 +9,16 @@ Sources:
   layout writer), `sdk/WebUpdate.js` (the Workbench updater), `app/instrument.h`, `app/project.c`, `app/samples.c`.
 - The Workbench's release package, sha256 `7e7b6d26…0fd6`, identity `FM-1_8000014` (`tests/fixtures/open-v14.fwsc`).
 
-## Does Outrigger's key reach the ROM bootloader? Probably; unproven
+## Does Outrigger's key reach the ROM bootloader? Yes (probe, 2026-11-05)
+
+**Probe result.** FM-B on Official Open V14 (installed by Chad with the Workbench, force flash from Felucca). Small-V2
+ran `fb3dc0d` (BENCH, the backup-only bypass). The Backup job sent the 7D key, read the whole flash and finished OK
+(`08d4edf4e6f63ad5-b1`). FM-B came back on Open (3654:7756). The unit ID is FM-B's usual one, so the Workbench
+install left 0xE9000 alone. Not yet read: the dump itself (head, VM start), which needs Small-V2's store over USB.
+During the job Small-V2 was off Wi-Fi for about 25 minutes, yet its uptime afterwards dated its boot before the
+job. Small-V1 showed the same Wi-Fi stall on a build with master 7945bac, so it's probably not Open-specific.
+
+What led here:
 
 - Outrigger's identity query (`F0 00 32 45 00 00 00 40 7F F7`) is M-VAVE's update-protocol command 17. The
   Workbench sends it to Open and gets 27 bytes of ASCII back, so Open answers it. `FM-1_8000014` passes
@@ -66,7 +75,7 @@ image end, a `Family::Open` shelf and its guard ranges, install-Open erasing up 
 and the Python side (`tools/fm1lib.py`) with the interop test.
 
 Hardware, one card each, on hub B (Small-V2) with FM-B:
-1. **Probe (parked by Chad 2026-11-04, "Later").** Chad puts FM-B on Open with the Workbench (force flash). A
+1. **Probe (done 2026-11-05: the key works).** Chad puts FM-B on Open with the Workbench (force flash). A
    BENCH-only Backup job sends the key and reads the whole flash; nothing is written. It answers whether the key
    works, whether the Workbench wrote Open's head, where VM starts, and whether 0xE9000 is still stock's sector.
 2. **Switch loop, after the code.** Open → Felucca → Open → stock, checking that each boots and plays (including
