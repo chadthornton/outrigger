@@ -118,7 +118,7 @@ below with its own build before merging.
 
 How much review a change gets follows what a mistake would cost:
 
-- **Light:** UI, layout, copy, read paths, test tooling. No review round before merging; check it on the beta site or
+- **Light:** UI, layout, copy, read paths, test tooling. No review round before merging; check it on the preview site or
   the board. A light change that needed a rollback moves that kind of change to guarded.
 - **Guarded:** anything a rollback can't undo. That means writing the FM-1's flash, the partition table or stored data, deploy
   tooling, server code and secrets. Plan first, tests first (a bug fix comes with a test that fails without it), then one
@@ -132,7 +132,7 @@ key, and its build flag ([docs/architecture.md](docs/architecture.md), "How an a
 Agents ship production themselves (Chad, 2026-11-03) when all of these hold:
 
 1. The commit is `origin/master`'s head, and its CI (`ci-ok`) is green.
-2. Beta serves the same commit (`make deploy-site` from it), checked by content: `/version.json`'s `site` shows the
+2. Preview (preview.outrigger.music) serves the same commit (`make deploy-site` from it), checked by content: `/version.json`'s `site` shows the
    commit, `firmware/<board>/<app set>/manifest.json`'s `version` shows `/version.json`'s `firmware` (the same commit
    unless the deploy was pinned, [docs/publishing.md](docs/publishing.md)), and what the batch changed works there.
 3. Nothing in the batch is on the critical list. The batch is firmware changes since production's firmware commit and

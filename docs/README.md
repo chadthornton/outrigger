@@ -40,7 +40,7 @@ What Outrigger does with your firmware, and where its data lives.
 - [Contributing](../CONTRIBUTING.md): build, test, and how changes land and ship.
 - [Architecture](architecture.md): one core, pluggable apps, modes and app sets.
 - [UI design](ui-redesign.md): the screens, holds, jobs and error wording.
-- [Publishing the site](publishing.md): beta and production deploys, rollback, which commit is live.
+- [Publishing the site](publishing.md): preview and production deploys, rollback, which commit is live.
 - [Test bench](test-bench.md): the lab boards and the bench tools that drive them.
 - [Recording spike](audio-recording-spike.md): capturing the FM-1's USB audio on the board.
 - [Licenses](licenses.md): third-party code and why the project is GPL-3.0.
