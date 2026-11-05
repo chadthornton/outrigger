@@ -125,6 +125,12 @@ jobs:
         env:
           BOARD: ${{ matrix.board }}
           APPS: ${{ matrix.apps }}
+      # The recovery app (firmware/recovery) is one build per board: it must
+      # still compile and fit its 768 KB slot whenever lib/ota changes.
+      - if: matrix.apps == 'hub'
+        run: make recovery BOARD="$BOARD"
+        env:
+          BOARD: ${{ matrix.board }}
       # The site job has no toolchain, so boot_app0.bin travels with the build.
       - name: Keep the parts the site stages
         env:
