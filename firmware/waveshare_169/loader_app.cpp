@@ -224,6 +224,9 @@ class UsbMidiLink : public MidiLink {
 class Host : public LoaderHost {
  public:
   bool reboot_on_miss = false;  // first attempt: a ROM device that doesn't show up restarts the board
+  // BENCH builds only: a Backup job may send the key to an Open FM-1, to find out
+  // whether Open takes it (docs/open-firmware.md, the probe). A backup writes nothing.
+  bool untested_key_ok = false;
   bool wants_reboot = false;
   std::string identity;
   KeyResult key = KeyResult::NoAnswer;
@@ -262,7 +265,8 @@ class Host : public LoaderHost {
       return false;
     }
     // Checked last, just before the key, for the FM-1 that's on the hub now.
-    if (!fm1_switchable.load()) {
+    if (!fm1_switchable.load() && untested_key_ok) DLOG_LOADER("bench: key sent to an untested FM-1 (backup only)");
+    if (!fm1_switchable.load() && !untested_key_ok) {
       key = KeyResult::NotFm1;
       why = "M-VAVE Open firmware: key untested";
       stop = KeyStop::Unsupported;
@@ -730,6 +734,9 @@ void run_job() {
   UsbScsi scsi;
   Host host;
   host.reboot_on_miss = j.attempt < kKeyTries && j.kind != JobKind::Resume;
+#if BENCH
+  host.untested_key_ok = j.kind == JobKind::Backup;
+#endif
   Installer inst(scsi, host, *library, blob);
   InstallOptions o;
   o.confirmed = true;  // the 2-second hold on the Firmware page, before the restart
