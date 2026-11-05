@@ -4,27 +4,19 @@
 
 // {project: "bluetooth" | "old-felucca"}: firmwares the board refuses to install.
 export const BLOCKED = {
-  "clipper": "old-felucca",
   "dock": "bluetooth",
   "double-rainbow": "bluetooth",
-  "floyd": "old-felucca",
-  "floyd-felucca": "old-felucca",
-  "floyd-sloop": "old-felucca",
   "fm-dub": "old-felucca",
   "fm1-move": "old-felucca",
-  "fm1quest": "old-felucca",
   "fm80s": "old-felucca",
   "gator": "old-felucca",
   "hypno-1": "old-felucca",
   "jangada": "old-felucca",
-  "karma": "old-felucca",
   "launchparty": "old-felucca",
   "maqam": "old-felucca",
-  "melodee": "bluetooth",
   "melodee-waveloop-build": "bluetooth",
   "merthsloop": "old-felucca",
   "mycelium": "old-felucca",
-  "nmsfm": "old-felucca",
   "notesorcery": "old-felucca",
   "optimist": "old-felucca",
   "optimist-0-2-drum-machines": "old-felucca",
@@ -33,24 +25,18 @@ export const BLOCKED = {
   "orange-cat": "bluetooth",
   "orbit": "old-felucca",
   "shifl": "old-felucca",
-  "sloop": "old-felucca",
   "sloop-2-6-ja": "old-felucca",
   "sloop-3-songs": "old-felucca",
   "sloop-alg": "old-felucca",
   "sloop-lab": "old-felucca",
-  "sloopbanks": "old-felucca",
-  "spampy": "old-felucca",
   "spiralfm1": "old-felucca",
   "synthesthetic": "old-felucca",
   "synthesthetic-fm-1-953": "old-felucca",
   "tamampe": "bluetooth",
-  "tessera": "bluetooth",
-  "tessera-fm-1-83773022": "bluetooth",
   "vector37": "old-felucca",
   "vector37-fm1": "old-felucca",
   "videodrome": "old-felucca",
-  "vintages": "bluetooth",
-  "winampfm": "old-felucca"
+  "vintages": "bluetooth"
 };
 
 // Firmwares our survey cleared by id: a blocked catalog "base" doesn't hold them.
@@ -63,6 +49,43 @@ export const CLEARED = [
   "salt",
   "sloopdx"
 ];
+
+// Installable after a warning on the board: they may change the FM-1's Bluetooth identity.
+export const RISKIER = [
+  "clipper",
+  "floyd",
+  "floyd-felucca",
+  "floyd-sloop",
+  "fm1quest",
+  "karma",
+  "melodee",
+  "nmsfm",
+  "sloop",
+  "sloopbanks",
+  "spampy",
+  "tessera",
+  "tessera-fm-1-83773022",
+  "winampfm"
+];
+
+// {base: why}: a firmware the snapshot doesn't know yet is held when built on one of these.
+export const HELD_BASES = {
+  "clipper": "bluetooth",
+  "floyd": "bluetooth",
+  "fm1quest": "bluetooth",
+  "gator": "old-felucca",
+  "jangada": "old-felucca",
+  "karma": "bluetooth",
+  "melodee": "bluetooth",
+  "mycelium": "old-felucca",
+  "nmsfm": "bluetooth",
+  "sloop": "old-felucca",
+  "sloopbanks": "bluetooth",
+  "spampy": "bluetooth",
+  "tessera": "bluetooth",
+  "vector37": "old-felucca",
+  "winampfm": "bluetooth"
+};
 
 // mutant.cloud entries the Hub, and so boards' shelves, know by another id.
 export const HUB_ID = {

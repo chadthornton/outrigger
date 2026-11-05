@@ -1,5 +1,5 @@
 {
-  "about": "How Outrigger treats each FM-1 firmware family, keyed by mutant.cloud firmware.json's `base`. Reviewed by hand: a listing's base is self-serve on mutant.cloud, so blocked_ids here override it. cleared_ids: Felucca 0.9 and SLOOP forks whose flash driver, read at the listed release tag, erases and writes only inside the clean slate (0x94000-0xE8FFF, 0xFC000-0xFEFFF); version is the release tag whose source was read; they beat a blocked base, and firmwares built on them are not blocked by them. The daily ecosystem check flags a newer release, whose map needs reading again (or the id moves back to blocked_ids). tools/gen_families.py turns this and tools/fm1_lineage.json into the loader's lib/fm1_loader/src/families_gen.h and the Add firmware page's site/installer/families_gen.js. hub_ids: mutant.cloud entries the Hub (and boards' shelves) know by another id, matched by repo. docs/firmware-catalog.md explains the groups.",
+  "about": "How Outrigger treats each FM-1 firmware family, keyed by mutant.cloud firmware.json's `base`. Reviewed by hand: a listing's base is self-serve on mutant.cloud, so blocked_ids here override it. cleared_ids: Felucca 0.9 and SLOOP forks whose flash driver, read at the listed release tag, erases and writes only inside the clean slate (0x94000-0xE8FFF, 0xFC000-0xFEFFF); version is the release tag whose source was read; they beat a blocked base, and firmwares built on them are not blocked by them. The daily ecosystem check flags a newer release, whose map needs reading again (or the id moves back to blocked_ids). tools/gen_families.py turns this and tools/fm1_lineage.json into the loader's lib/fm1_loader/src/families_gen.h and the Add firmware page's site/installer/families_gen.js. riskier_ids: firmwares that may overwrite 0xE9000, the FM-1's Bluetooth-address record whose hash is the unit ID, and write nothing else outside the clean slate (Chad, 2026-11-05: \"Riskier\"). The board installs them after a warning held through once per unit; firmwares built on them stay blocked until reviewed. hub_ids: mutant.cloud entries the Hub (and boards' shelves) know by another id, matched by repo. docs/firmware-catalog.md explains the groups.",
   "keep": [
     "felucca"
   ],
@@ -14,21 +14,23 @@
     "melodee": "bluetooth"
   },
   "blocked_ids": {
-    "melodee": "bluetooth",
-    "tessera": "bluetooth",
-    "sloop": "old-felucca",
-    "clipper": "old-felucca",
-    "spampy": "old-felucca",
-    "winampfm": "old-felucca",
-    "floyd": "old-felucca",
     "jangada": "old-felucca",
-    "nmsfm": "old-felucca",
-    "karma": "old-felucca",
-    "sloopbanks": "old-felucca",
-    "fm1quest": "old-felucca",
     "vector37": "old-felucca",
     "gator": "old-felucca",
     "mycelium": "old-felucca"
+  },
+  "riskier_ids": {
+    "melodee": {"why": "its preset-bank saves and user FM6 presets U33-U64 use 0xE9000", "source": "keremimo/melodee v1.6.1 storage.c:107,125 (unit-id-scope.md)"},
+    "tessera": {"why": "as Melodee: 0xE9000 is in its spare-sector pool", "source": "Tessera HEAD storage.c:90 (unit-id-scope.md)"},
+    "sloop": {"why": "its user sample slot USR4 (0xE7000-0xFAFFF) erases 0xE9000 when cleared or filled past 7,680 bytes", "source": "isod89/sloop-fm1 v2.8.4 eng_sample.c:45-47, editor.c:810 (sloop-unblock.md); SLOOP 2.4+ (Melodee docs/BLE-HW-FACTS.md 15)"},
+    "clipper": {"why": "as SLOOP: the same USR4 slot", "source": "docs/package-sources.md; fw-map-bench.md (SLOOP store, USR)"},
+    "spampy": {"why": "as SLOOP: the same USR4 slot", "source": "docs/package-sources.md; fw-map-bench.md (SLOOP store, USR)"},
+    "winampfm": {"why": "as SLOOP: the same USR4 slot", "source": "docs/package-sources.md; fw-map-bench.md (SLOOP store, USR)"},
+    "floyd": {"why": "as SLOOP: the same USR4 slot", "source": "docs/package-sources.md; fw-map-bench.md (SLOOP store, USR)"},
+    "nmsfm": {"why": "as SLOOP: the same USR4 slot", "source": "docs/package-sources.md; fw-map-bench.md (SLOOP store, USR)"},
+    "karma": {"why": "as SLOOP: the same USR4 slot", "source": "docs/package-sources.md; fw-map-bench.md (SLOOP store, USR)"},
+    "sloopbanks": {"why": "as SLOOP: the same USR4 slot", "source": "docs/package-sources.md; fw-map-bench.md (SLOOP store, USR)"},
+    "fm1quest": {"why": "as SLOOP: the same USR4 slot", "source": "docs/package-sources.md; fw-map-bench.md (SLOOP store, USR)"}
   },
   "cleared_ids": {
     "sloopdx": {"version": "v4.0.1", "why": "writes only 0x97000-0xDFFFF, 0xE0000-0xE4FFF, 0xFC000-0xFEFFF"},

@@ -6,38 +6,28 @@
 namespace fm1_loader {
 namespace families {
 
-// 9 projects.
+// 6 projects.
 constexpr const char *kBlockedBluetooth[] = {
     "dock",
     "double-rainbow",
-    "melodee",
     "melodee-waveloop-build",
     "orange-cat",
     "tamampe",
-    "tessera",
-    "tessera-fm-1-83773022",
     "vintages",
 };
 
-// 38 projects.
+// 27 projects.
 constexpr const char *kBlockedOldFelucca[] = {
-    "clipper",
-    "floyd",
-    "floyd-felucca",
-    "floyd-sloop",
     "fm-dub",
     "fm1-move",
-    "fm1quest",
     "fm80s",
     "gator",
     "hypno-1",
     "jangada",
-    "karma",
     "launchparty",
     "maqam",
     "merthsloop",
     "mycelium",
-    "nmsfm",
     "notesorcery",
     "optimist",
     "optimist-0-2-drum-machines",
@@ -45,19 +35,35 @@ constexpr const char *kBlockedOldFelucca[] = {
     "optimist-0-2-synths-usbaudio-btaudio-btmidi",
     "orbit",
     "shifl",
-    "sloop",
     "sloop-2-6-ja",
     "sloop-3-songs",
     "sloop-alg",
     "sloop-lab",
-    "sloopbanks",
-    "spampy",
     "spiralfm1",
     "synthesthetic",
     "synthesthetic-fm-1-953",
     "vector37",
     "vector37-fm1",
     "videodrome",
+};
+
+// Installable after the owner's OK, once per unit: they may overwrite 0xE9000,
+// the Bluetooth-address record whose hash is the unit ID (library.cpp
+// writes_unit_sector). 14 projects.
+constexpr const char *kRiskierIdentity[] = {
+    "clipper",
+    "floyd",
+    "floyd-felucca",
+    "floyd-sloop",
+    "fm1quest",
+    "karma",
+    "melodee",
+    "nmsfm",
+    "sloop",
+    "sloopbanks",
+    "spampy",
+    "tessera",
+    "tessera-fm-1-83773022",
     "winampfm",
 };
 
