@@ -61,6 +61,14 @@ make deploy-site FULL=1              # build it with make check on the Mac inste
   failures count every attempt. The box sits only beside the Install button (nothing is counted before that click); unticking it
   is remembered in that browser. The FAQ entry "Does this site send anything about me?" says the same, so change both together.
   `python3 -I tools/installs.py` prints totals by board, edition and week for beta and production.
+- **Daily install email:** a separate Worker, `workers/install-email/` (Pages Functions can't run on a schedule), wakes
+  at 15:00 UTC, reads both installs tables, and emails yesterday's counts to one address. It skips days production
+  had none. The address is the Worker's `TO` secret (`tools/deploy_email.py to ADDRESS`), never in the repo, and
+  Cloudflare Email Service delivers only to addresses confirmed in the account. `make deploy-email` uploads
+  origin/master's copy and logs it with channel `install-email`. The token needs Workers Scripts, Edit.
+- **Cloudflare plan:** Workers Free (Chad, 2026-11-05: Workers Paid, $5 a month, isn't needed). Everything here fits
+  the free limits, and the install email goes only to a confirmed address, which is free. Ask Chad before building on
+  a feature that needs Paid, such as email to any address.
 - **Credentials:** `~/.config/cloudflare/outrigger-pages.env` holds `CLOUDFLARE_API_TOKEN` (Account, Cloudflare Pages,
   Edit; Account, D1, Edit) and `CLOUDFLARE_ACCOUNT_ID`. wrangler is pinned in `tools/deploy_site.py` and runs through `npx`.
 - **Domains:** `outrigger.music` is the project's production custom domain. `beta.outrigger.music` is a custom domain
