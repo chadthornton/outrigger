@@ -30,8 +30,10 @@ page keeps those ids stable whichever list it reads:
 - A firmware with several FM-1 files (a Bluetooth build, a one-core build) keeps its id for its main file. Each
   other file is a project of its own, so two different files never share a shelf.
 
-The installer's own downloads don't use either catalog. A fresh install fetches only stock V15 from the Hub and
-JieLi's `wl82loader.bin` from GitHub, each pinned by SHA-256 in `tools/store_template.py`.
+The installer's own downloads don't use either catalog. A fresh install fetches only stock V15, from M-VAVE's own
+repo (`m-vave/fm1_open`) at a pinned commit, and JieLi's `wl82loader.bin`, from `jl-uboot-tool` at a pinned commit,
+both on GitHub and each pinned by SHA-256 in `tools/store_template.py`. Stock moved off the Hub on 2026-11-05: the
+Hub keeps only each project's newest file, and M-VAVE's current download is V16.
 
 ## Families and switching
 
@@ -81,7 +83,7 @@ list (`lib/fm1_loader/src/families_gen.h`, generated with the page's `site/insta
 Actions tab. It needs no Claude session and no Mac, and it uses only the default `GITHUB_TOKEN` (issues: write).
 
 1. **Installer links.** It downloads every file and list the live installer depends on: stock V15 and
-   `wl82loader.bin` (checked against their pinned SHA-256), and both catalogs. If any is broken, the run fails,
+   `wl82loader.bin` from their pinned GitHub commits (checked against their pinned SHA-256), and both catalogs. If any is broken, the run fails,
    and GitHub emails a red mark.
 2. **New FM-1 releases since the last run,** from mutant.cloud's
    [feed](https://mutant.cloud/feed.xml?device=fm1) and `firmware.json`, riskiest first:

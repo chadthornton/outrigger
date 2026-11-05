@@ -47,17 +47,17 @@ struct JobBoot {
   uint32_t magic;
   JobKind kind;
   uint8_t attempt;  // 2, 3: the board restarted after a key because no ROM device showed up
-  bool key_sent, fresh_ok, layout_ok, loader_running;
+  bool key_sent, fresh_ok, layout_ok, chip_ok, loader_running;
   char package[48], unit[40];
   // A switch that found the FM-1 changed: its backup, then its install
   // (switch_chain.h). Each stage is its own boot; the package, unit and the
-  // preview's consent (fresh_ok, layout_ok) carry through.
+  // preview's consent (fresh_ok, layout_ok, chip_ok) carry through.
   Chain chain;
   char stale_backup[12];  // the backup the FM-1 had changed since ("b50")
 };
 // Changed with JobBoot's layout: a record left by an older build is never
 // read as a job.
-constexpr uint32_t kJobMagic = 0x10B5EED3;
+constexpr uint32_t kJobMagic = 0x10B5EED4;
 constexpr uint8_t kKeyTries = 3;  // boots that look for ROM boot, each after a key
 RTC_NOINIT_ATTR JobBoot job_boot;
 
@@ -561,9 +561,10 @@ bool chain_goes_on(const Installer &inst, const JobBoot &job) {
 void finish(Installer &inst, const Host &host, const UsbScsi &scsi, const char *done_title, const JobBoot &job,
             const JobNames &names, bool wrote) {
   const JobKind kind = job.kind;
-  DLOG_LOADER("job end: %s; %s; %s; key %s, why '%s', danger %d",
+  // The flash ID goes in every job's log: the first UC25HQ80 owners' reports are our data on that chip.
+  DLOG_LOADER("job end: %s; %s; %s; key %s, why '%s', danger %d, flash %06x",
               inst.current() == Step::Done ? done_title : failure_text(inst.failure()), inst.failure_detail().c_str(),
-              scsi.last_failure, key_result_text(host.key), host.why, int(inst.danger()));
+              scsi.last_failure, key_result_text(host.key), host.why, int(inst.danger()), unsigned(inst.flash_id()));
   // The Web UI's /status keeps today's lines.
   char buf[40];
   if (inst.current() == Step::Done) {
@@ -707,6 +708,7 @@ void request_job(UiAct act, int index) {
     strlcpy(j.unit, library->last_unit().c_str(), sizeof j.unit);
     j.fresh_ok = needs_erase_ok(previewed);
     j.layout_ok = previewed.layout_warning;
+    j.chip_ok = previewed.chip_risk;  // the plan showed the UC25HQ80 warning: the hold took the risk
   }
   const JobNames names = job_names(j);
   show_job(j, Step::Idle, names.firmware.c_str(), names.backup, 0, 0, false);
@@ -767,6 +769,7 @@ void run_job() {
     o.unit_id = j.unit;  // the unit the preview was for
     o.fresh_start_ok = j.fresh_ok;
     o.layout_change_ok = j.layout_ok;
+    o.chip_risk_ok = j.chip_ok;
     inst.start_install(j.package, o);
     run(inst, j, names, wrote);
     char buf[40];

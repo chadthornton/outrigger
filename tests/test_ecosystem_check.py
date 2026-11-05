@@ -6,6 +6,7 @@ import hashlib
 import json
 import re
 import sys
+import tempfile
 import unittest
 import urllib.error
 from pathlib import Path
@@ -106,24 +107,66 @@ class LinkTest(unittest.TestCase):
         links = ec.installer_links()
         urls = [l["url"] for l in links]
         self.assertTrue(any(u.endswith("/wl82loader.bin") for u in urls))
-        self.assertIn("https://thefirmwarehub.com/fw/mvave/FM-1_015.fwsc", urls)
+        self.assertIn("https://raw.githubusercontent.com/m-vave/fm1_open/b178ac43c25f010c60a878056fb5331fe693fd62/sdk/firmware/FM-1_015.fwsc", urls)
         self.assertIn(ec.HUB_CATALOG, urls)
         self.assertIn(ec.MUTANT_CATALOG, urls)
         self.assertTrue(all(l["sha256"] for l in links if not l["json"]))
 
+    def test_fixtures_are_checked_without_cors(self):
+        # Fixtures are downloaded by Python (tools/fetch_fixtures.py), not a page,
+        # so a GitHub release link with no CORS header is fine for them.
+        blob, shared = b"fixture", b"stock"
+        links = [{"name": "f", "url": "release/f", "sha256": hashlib.sha256(blob).hexdigest(), "json": False},
+                 {"name": "s", "url": "raw/stock", "sha256": hashlib.sha256(shared).hexdigest(), "json": False}]
+        fetched = []
+        def fetch(u):
+            fetched.append(u)
+            return blob
+        self.assertEqual(ec.check_fixtures(links, {"raw/stock": shared}, fetch), [])
+        self.assertEqual(fetched, ["release/f"])  # the installer's copy is reused
+        bad = ec.check_fixtures(links, {"raw/stock": b"changed"}, fetch)
+        self.assertEqual([(n, why[:20]) for n, _, why in bad], [("s", "answered, but the fi")])
+
+    def test_the_fixture_links_are_fetch_fixtures_pins(self):
+        links = ec.fixture_links()
+        names = [l["name"] for l in links]
+        self.assertIn("FM-1_015.fwsc", names)
+        self.assertIn("wl82loader.bin", names)
+        for l in links:
+            self.assertTrue(l["url"].startswith("https://"), l)
+            self.assertRegex(l["sha256"], r"^[0-9a-f]{64}$")
+
+    def test_constants_follow_names_and_joined_strings(self):
+        with tempfile.TemporaryDirectory() as d:
+            src = Path(d) / "pins.py"
+            src.write_text('import os\nA = "https://x/"\nB = A + "rel/"\nC = os.getcwd()\n'
+                           'L = [("f", None, B + "f.bin", "ab")]\n')
+            self.assertEqual(ec._constants(src, {"L", "C"}), {"L": [("f", None, "https://x/rel/f.bin", "ab")]})
+
     def test_check_link(self):
+        cors = {"access-control-allow-origin": "*"}
+        ok = lambda body: (lambda u: (body, cors))  # noqa: E731
         blob = b"loader"
         link = {"name": "x", "url": "u", "sha256": hashlib.sha256(blob).hexdigest(), "json": False}
-        self.assertIsNone(ec.check_link(link, lambda u: blob))
-        self.assertIn("changed", ec.check_link(link, lambda u: b"other"))
+        self.assertIsNone(ec.check_link(link, ok(blob)))
+        self.assertIn("changed", ec.check_link(link, ok(b"other")))
 
         def gone(u):
             raise urllib.error.HTTPError(u, 404, "Not Found", {}, None)
         self.assertEqual(ec.check_link(link, gone), "answered 404")
         cat = {"name": "c", "url": "u", "sha256": None, "json": True}
-        self.assertIsNone(ec.check_link(cat, lambda u: b'{"firmwares": [1]}'))
-        self.assertIn("no firmwares", ec.check_link(cat, lambda u: b'{"firmwares": []}'))
-        self.assertIn("not with JSON", ec.check_link(cat, lambda u: b"<html>"))
+        self.assertIsNone(ec.check_link(cat, ok(b'{"firmwares": [1]}')))
+        self.assertIn("no firmwares", ec.check_link(cat, ok(b'{"firmwares": []}')))
+        self.assertIn("not with JSON", ec.check_link(cat, ok(b"<html>")))
+
+    def test_a_file_a_browser_cant_read_is_broken(self):
+        # The installer and Add firmware download in the visitor's browser: without
+        # CORS the page can't read the bytes, however right they are.
+        blob = b"stock"
+        link = {"name": "x", "url": "u", "sha256": hashlib.sha256(blob).hexdigest(), "json": False}
+        self.assertIn("CORS", ec.check_link(link, lambda u: (blob, {})))
+        self.assertIn("CORS", ec.check_link(link, lambda u: (blob, {"access-control-allow-origin": "https://elsewhere"})))
+        self.assertIsNone(ec.check_link(link, lambda u: (blob, {"Access-Control-Allow-Origin": "*"})))
 
 
 class RenameTest(unittest.TestCase):
@@ -148,6 +191,18 @@ class ReportTest(unittest.TestCase):
         order = [body.index(s) for s in ("BROKEN: Stock V15", "penumbra v1.2", "orbit v2", "fmel v1.2", "x0x v1.3")]
         self.assertEqual(order, sorted(order))
         self.assertTrue(attention)
+
+    def test_a_broken_fixture_has_its_own_section(self):
+        bad = [("felucca-1.8.0.fwsc", "https://g/felucca-1.8.0.fwsc", "answered 404")]
+        body, _, attention = ec.build_report([], [], {}, FAM, {"seen": ["z"]}, "2026-11-05", fixtures_bad=bad)
+        links, fixtures = body.split("## Test fixtures")[0], body.split("## Test fixtures")[1].split("## New")[0]
+        self.assertIn("All answer with the files the installer expects.", links)
+        self.assertIn("BROKEN: felucca-1.8.0.fwsc** answered 404", fixtures)
+        self.assertIn("make test", fixtures)
+        self.assertTrue(attention)
+        comment = ec.attention_comment([], "chadthornton", bad)
+        self.assertIn("test fixture link is broken", comment)
+        self.assertNotIn("Installer", comment)
 
     def test_only_what_the_last_run_didnt_see_is_new(self):
         feed = [item("x0x", "v1.3"), item("x0x", "v1.2")]

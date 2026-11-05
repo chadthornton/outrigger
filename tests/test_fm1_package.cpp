@@ -8,6 +8,7 @@
 #include "layout.h"
 #include "package.h"
 #include "support/check.h"
+#include "support/heads.h"
 
 using namespace fm1_loader;
 
@@ -261,8 +262,20 @@ static void test_guard_clean_slate() {
   }
 }
 
+// Boot heads by CRC-32 (zlib's), the figure FM-1 owners compare: stock V15's
+// head is the stock package's, as on Chad's units.
+static void test_heads() {
+  const uint8_t digits[] = "123456789";
+  CHECK_EQ(crc32(digits, 9), uint32_t(0xCBF43926));
+  CHECK_EQ(v15_head().size(), size_t(kHeadEnd));
+  CHECK_EQ(crc32(v15_head().data(), v15_head().size()), kHeadCrcV15);
+  std::vector<uint8_t> v16 = forged_head(kHeadCrcV16);
+  CHECK_EQ(crc32(v16.data(), v16.size()), kHeadCrcV16);
+}
+
 int main() {
   test_sha256();
+  test_heads();
   test_crc_and_ciphers();
   test_identities();
   test_real_packages();

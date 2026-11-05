@@ -25,7 +25,10 @@ JLUB_RAW = ("https://raw.githubusercontent.com/kagaimiq/jl-uboot-tool/"
 
 # (file name, catalog id or "stock" or None, URL, sha256)
 FIXTURES = [
-    ("FM-1_015.fwsc", "stock", HUB + "fw/mvave/FM-1_015.fwsc",
+    # M-VAVE's own repo at a pinned commit, as the installer's starter set
+    # (tools/store_template.py): the Hub keeps only the newest stock file.
+    ("FM-1_015.fwsc", "stock", "https://raw.githubusercontent.com/m-vave/fm1_open/"
+     "b178ac43c25f010c60a878056fb5331fe693fd62/sdk/firmware/FM-1_015.fwsc",
      "db1642b2b6fa5c2cccb11ffd13878068bb28601678d3644049f99dc40e7edb8a"),
     # From illuminus5/skiff's v1.4 release.
     ("skiff-1.4.fwsc", "skiff", MIRROR + "skiff-1.4.fwsc",

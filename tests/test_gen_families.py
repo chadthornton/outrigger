@@ -83,6 +83,22 @@ class BlockTest(unittest.TestCase):
         for i in bases:
             self.assertEqual(g.category(i, bases, FAM), "unknown")
 
+    def test_the_board_gets_the_uc25hq80_save_list(self):
+        src = g.header({}, {"uc25hq80_saves": {"stock": {"since": "", "source": "x"},
+                                               "skiff": {"since": "2.2", "source": "y"}}})
+        self.assertIn('{"skiff", "2.2"},', src)
+        self.assertIn('{"stock", ""},', src)
+        real = g.HEADER.read_text()
+        for project, since in (("felucca", "1.8.2-beta"), ("melodee", "1.6.0"), ("skiff", "2.2"),
+                               ("sloop", "2.8.5"), ("stock", "")):
+            self.assertIn(f'{{"{project}", "{since}"}},', real)
+
+    def test_every_save_entry_cites_a_source(self):
+        for project, entry in FAM["uc25hq80_saves"].items():
+            if project.startswith("_"):
+                continue
+            self.assertTrue(entry.get("source"), project)
+
     def test_the_committed_header_is_current(self):
         self.assertEqual(g.main(["--check"]), 0)
 

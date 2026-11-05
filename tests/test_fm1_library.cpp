@@ -4,6 +4,7 @@
 
 #include "library.h"
 #include "support/check.h"
+#include "support/heads.h"
 #include "support/temp_storage.h"
 
 using namespace fm1_loader;
@@ -42,7 +43,7 @@ static void apply(Library &lib, Image &img, const std::vector<SectorOp> &ops) {
 
 static Image unit_image(uint8_t seed) {
   Image img = blank_image();
-  fill(img, 0, kHeadEnd, 1);
+  memcpy(img.data(), v15_head().data(), kHeadEnd);  // the only head the board installs on
   fill(img, kUnitSector, kSector, seed);
   return img;
 }
@@ -700,6 +701,107 @@ static void test_install_preview() {
   CHECK(!lib.set_pinned("nope", true));
 }
 
+// The UC25HQ80 (0xB36014): the unit remembers its chip and the owner's OK to
+// take the risk; firmwares not known to save on it get a note, not a block.
+static void test_uc25hq80() {
+  // Known to save from these releases on (families_gen.h kUc25hq80Saves).
+  CHECK(saves_on_uc25hq80("stock", "V15") && saves_on_uc25hq80("stock", ""));
+  CHECK(!saves_on_uc25hq80("felucca", "1.8.0") && saves_on_uc25hq80("felucca", "1.8.2-beta"));
+  CHECK(saves_on_uc25hq80("felucca", "1.8.2") && saves_on_uc25hq80("felucca", "1.10.0"));
+  CHECK(!saves_on_uc25hq80("felucca", "1.8.2-alpha"));  // an earlier pre-release
+  CHECK(!saves_on_uc25hq80("skiff", "2.1.1") && saves_on_uc25hq80("skiff", "2.2") && saves_on_uc25hq80("skiff", "v2.2"));
+  CHECK(!saves_on_uc25hq80("sloop", "2.8.4") && saves_on_uc25hq80("sloop", "2.8.5"));
+  CHECK(!saves_on_uc25hq80("melodee", "1.6.0-rc.7") && saves_on_uc25hq80("melodee", "1.6.0"));
+  CHECK(!saves_on_uc25hq80("felucca", "") && !saves_on_uc25hq80("sha:0123456789abcdef", "1.0"));
+
+  TestStorage st;
+  Library lib(st);
+  PackageInfo skiff = load(lib, "skiff-1.4", "skiff-1.4.fwsc", "skiff");
+  std::vector<uint8_t> raw = read_file("tests/fixtures/sloop-2.8.1.fwsc");
+  CHECK(lib.add_package("felucca-1.8.2", raw.data(), raw.size(), nullptr, "Felucca", "1.8.2-beta", "felucca") ==
+        PackageError::None);
+  Image img = unit_image(11);
+  put_app(lib, img, skiff);
+  Unit u;
+  u.id = unit_id_of(img.data() + kUnitSector);
+  u.flash_id = kFlashIdUc25hq80;
+  std::string b;
+  CHECK(lib.add_backup(u, store_image(lib, img), b));
+  Unit back;
+  CHECK(lib.unit(u.id, back) && back.flash_id == kFlashIdUc25hq80 && !back.chip_risk_ok);
+
+  // Not confirmed yet: the plan carries the warning; it isn't a problem.
+  InstallPreview p = preview_install(lib, u.id, "felucca-1.8.2");
+  CHECK(p.ok && p.decision.chip_risk && !p.decision.chip_no_saves);
+  back.chip_risk_ok = true;
+  CHECK(lib.put_unit(back));
+  CHECK(lib.unit(u.id, back) && back.chip_risk_ok && back.flash_id == kFlashIdUc25hq80);
+  p = preview_install(lib, u.id, "felucca-1.8.2");
+  CHECK(p.ok && !p.decision.chip_risk && !p.decision.chip_no_saves);
+  // Skiff 1.4 runs on it but isn't known to save there: a note.
+  Image on_felucca = img;
+  PackageInfo fel;
+  CHECK(lib.package("felucca-1.8.2", fel));
+  put_app(lib, on_felucca, fel);
+  CHECK(lib.add_backup(back, store_image(lib, on_felucca), b));
+  p = preview_install(lib, u.id, "skiff-1.4");
+  CHECK(p.ok && !p.decision.chip_risk && p.decision.chip_no_saves);
+
+  // The FM-1's own flash: neither.
+  Image puya = unit_image(12);
+  put_app(lib, puya, skiff);
+  Unit up;
+  up.id = unit_id_of(puya.data() + kUnitSector);
+  up.flash_id = kFlashId;
+  CHECK(lib.add_backup(up, store_image(lib, puya), b));
+  p = preview_install(lib, up.id, "felucca-1.8.2");
+  CHECK(p.ok && !p.decision.chip_risk && !p.decision.chip_no_saves);
+}
+
+// Any head but stock V15's is backup-only (Chad, 2026-11-05): V15-based
+// firmwares and the clean slate are untested on it, and V16 keeps its
+// Bluetooth address where a clean slate erases.
+static void test_heads_backup_only() {
+  TestStorage st;
+  Library lib(st);
+  PackageInfo skiff = load(lib, "skiff-1.4", "skiff-1.4.fwsc");
+  load(lib, "sloop-2.8.1", "sloop-2.8.1.fwsc");
+  Image img = unit_image(9);
+  put_app(lib, img, skiff);
+  CHECK(head_of(lib, store_image(lib, img)) == Head::V15);
+  Unit v15;
+  v15.id = unit_id_of(img.data() + kUnitSector);
+  std::string b15;
+  CHECK(lib.add_backup(v15, store_image(lib, img), b15));
+  CHECK(preview_install(lib, v15.id, "sloop-2.8.1").ok);
+
+  const struct {
+    std::vector<uint8_t> head;
+    Head kind;
+    const char *says;
+  } cases[] = {
+      {forged_head(kHeadCrcV16), Head::V16, "This FM-1 has M-VAVE's V16 start-up code."},
+      {forged_head(0x12345678), Head::Other, "This FM-1 has unknown start-up code."},
+  };
+  for (const auto &c : cases) {
+    memcpy(img.data(), c.head.data(), kHeadEnd);
+    FlashHashes flash = store_image(lib, img);
+    CHECK(head_of(lib, flash) == c.kind);
+    Unit u;
+    u.id = unit_id_of(img.data() + kUnitSector);
+    std::string b;
+    CHECK(lib.add_backup(u, flash, b));  // backing it up still works
+    InstallPreview p = preview_install(lib, u.id, "sloop-2.8.1");
+    CHECK(!p.ok && strcmp(p.problem, c.says) == 0);
+    CHECK(strcmp(p.problem2, "Outrigger can back it up but not switch it yet.") == 0);
+    CHECK(!preview_install(lib, u.id, "skiff-1.4").ok);  // even what it runs now
+  }
+  // A head sector missing from the store can't be checked: not V15.
+  FlashHashes flash = store_image(lib, img);
+  flash[0] = Hash{};
+  CHECK(head_of(lib, flash) == Head::Other);
+}
+
 int main() {
   test_sector_store();
   test_manifest();
@@ -707,6 +809,8 @@ int main() {
   test_unit_ids();
   test_remove_package();
   test_install_preview();
+  test_uc25hq80();
+  test_heads_backup_only();
   test_backups();
   test_diff_planner();
   test_capture_save();
