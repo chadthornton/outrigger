@@ -176,7 +176,15 @@ static void test_router() {
   if (r.route(kLaunchkey, 0, 0x9, 0x90, 60, 100, p, &why) != 0 || why != 'n') {
     printf("FAIL router sends after the FM-1 left\n"); ++failures;
   }
+  // What /status reports per device: known, and in which role.
+  midi_core::Role role = midi_core::Role::Target;
+  if (!r.knows(kLaunchkey, role) || role != midi_core::Role::Controller) {
+    printf("FAIL router doesn't report the Launchkey as a known controller\n"); ++failures;
+  }
   r.device_disconnected(kLaunchkey);
+  if (r.knows(kLaunchkey, role) || r.knows(0, role) || r.knows(200, role)) {
+    printf("FAIL router reports a gone or invalid address as known\n"); ++failures;
+  }
   r.device_connected(kFm1, 0x1209, 0x0001);
   if (r.route(kLaunchkey, 0, 0x9, 0x90, 60, 100, p) != 0) {
     printf("FAIL departed controller still routed\n"); ++failures;
@@ -187,6 +195,35 @@ static void test_router() {
   edge.device_connected(4, 0x1235, 0x0142);
   if (edge.route(4, 0, 0x9, 0x90, 60, 100, p) != 0) {
     printf("FAIL out-of-range address became the target\n"); ++failures;
+  }
+}
+
+// The synth (Outrigger Synth builds) hears what a controller would send the
+// FM-1, by the same rules, with or without an FM-1 connected.
+static void test_router_to_synth() {
+  constexpr uint8_t kFm1 = 2, kLaunchkey = 3;
+  Router r;
+  r.device_connected(kLaunchkey, 0x1235, 0x0142);
+  if (!r.to_synth(kLaunchkey, 0, 0x9, 0x90, 60, 100)) {
+    printf("FAIL synth gets a controller's note with no FM-1\n"); ++failures;
+  }
+  r.device_connected(kFm1, 0x1209, 0x0001);
+  if (!r.to_synth(kLaunchkey, 0, 0xB, 0xB3, 74, 10)) {
+    printf("FAIL synth gets a controller's CC beside the FM-1\n"); ++failures;
+  }
+  struct { uint8_t src, cable, cin, status; } refused[] = {
+      {9, 0, 0x9, 0x90}, {kFm1, 0, 0x9, 0x90}, {kLaunchkey, 1, 0x9, 0x90},
+      {kLaunchkey, 0, 0x8, 0x90}, {kLaunchkey, 0, 0xF, 0xF8}, {kLaunchkey, 0, 0x4, 0xF0},
+  };
+  for (auto &k : refused) {
+    if (r.to_synth(k.src, k.cable, k.cin, k.status, 60, 100)) {
+      printf("FAIL synth got src %u cable %u cin %x status %02x\n", k.src, k.cable, k.cin, k.status);
+      ++failures;
+    }
+  }
+  r.device_disconnected(kLaunchkey);
+  if (r.to_synth(kLaunchkey, 0, 0x9, 0x90, 60, 100)) {
+    printf("FAIL departed controller still reaches the synth\n"); ++failures;
   }
 }
 
@@ -222,6 +259,7 @@ int main() {
   test_route_channel_voice();
   test_route_blocks_system_messages();
   test_route_drops_other_input();
+  test_router_to_synth();
   test_device_roles();
   test_router();
   test_note_names();

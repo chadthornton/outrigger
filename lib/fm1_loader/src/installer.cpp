@@ -60,7 +60,7 @@ const char *failure_text(Failure f) {
     case Failure::WriteVerifyFailed: return "a sector didn't verify twice";
     case Failure::MidiNotBack: return "installed, but the FM-1 didn't come back as MIDI";
     case Failure::WritesLocked: return "this build can't write the FM-1";
-    case Failure::Blocked: return "not yet supported: it writes the FM-1's Bluetooth sector";
+    case Failure::Blocked: return "not yet supported: Outrigger can't switch to this firmware yet";
   }
   return "?";
 }

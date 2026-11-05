@@ -31,7 +31,7 @@ can bring them back after that.
 
 ## Coming later
 
-Two things aren't in beta 1:
+Two things aren't here yet:
 
 - **copying a backup to your computer;**
 - **restoring a backup you choose** on the board.

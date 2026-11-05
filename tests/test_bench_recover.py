@@ -16,8 +16,7 @@ _spec = importlib.util.spec_from_file_location("bench_recover", ROOT / "tools" /
 br = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(br)
 
-FM_A_UNIT = "69bb070aaa87bd10"
-FM1_1_DUMP = br.RECOVERY / "backups" / "fm1-transporter-dump-20261025-103326.bin"
+FM_A_DUMP = br.RECOVERY / "backups" / "fm1-transporter-dump-20261025-103326.bin"
 SLOOP = br.RECOVERY / "firmware" / "sloop-2.8.1.fwsc"
 failures = 0
 
@@ -38,11 +37,12 @@ def run(argv):
 
 def main():
     expect(br.unit_id(b"\xff" * br.FLASH) == "", "a blank unit sector has no ID")
-    if not (FM1_1_DUMP.exists() and SLOOP.exists() and (br.RECOVERY / ".venv").exists()):
+    if not (FM_A_DUMP.exists() and SLOOP.exists() and (br.RECOVERY / ".venv").exists()):
         print("bench_recover: recovery project not found, mock runs skipped")
         return
-    main = FM1_1_DUMP.read_bytes()
-    expect(br.unit_id(main) == FM_A_UNIT, "FM-A's dump has FM-A's unit ID")
+    main = FM_A_DUMP.read_bytes()
+    fm_a_unit = br.unit_id(main)  # read from the dump, so no unit ID is in the repo
+    expect(len(fm_a_unit) == 16, "FM-A's dump has a unit ID")
     with tempfile.TemporaryDirectory() as t:
         t = pathlib.Path(t)
         bench = bytearray(main)
@@ -50,16 +50,16 @@ def main():
         (t / "bench.bin").write_bytes(bench)
         # A registry where FM-B is the doctored dump's unit, and FM-A the real one's.
         reg = t / "devices.json"
-        reg.write_text(json.dumps({"devices": [{"label": "FM-A", "kind": "fm1", "unit": FM_A_UNIT},
+        reg.write_text(json.dumps({"devices": [{"label": "FM-A", "kind": "fm1", "unit": fm_a_unit},
                                                {"label": "FM-B", "kind": "fm1", "unit": br.unit_id(bytes(bench))}]}))
         common = ["--devices", str(reg)]
 
-        code, text = run(["recover", str(SLOOP), "--write", "--mock", str(FM1_1_DUMP), "--out", str(t / "fm1-1"), *common])
+        code, text = run(["recover", str(SLOOP), "--write", "--mock", str(FM_A_DUMP), "--out", str(t / "fm-a"), *common])
         expect(code == 1 and "REFUSED" in text, "FM-A is refused when the run asked for FM-B")
         expect(not any(l.startswith("+") and " restore " in l for l in text.splitlines()), "no restore after the refusal")
-        expect(len(list((t / "fm1-1").glob("*.bin"))) == 1, "only the read-only dump ran")
+        expect(len(list((t / "fm-a").glob("*.bin"))) == 1, "only the read-only dump ran")
 
-        code, text = run(["recover", str(SLOOP), "--mock", str(FM1_1_DUMP), "--out", str(t / "a"), "--fm1", "FM-A", *common])
+        code, text = run(["recover", str(SLOOP), "--mock", str(FM_A_DUMP), "--out", str(t / "a"), "--fm1", "FM-A", *common])
         expect(code == 0, "FM-A is fine when the run asks for it (dry run)")
 
         code, text = run(["recover", str(SLOOP), "--mock", str(t / "bench.bin"), "--out", str(t / "dry"), *common])

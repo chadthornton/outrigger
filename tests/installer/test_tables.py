@@ -10,7 +10,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
-from build_site import BOARDS, check_build_tag, check_layout, check_table, make_manifest, read_build_tag  # noqa: E402
+from build_site import (BOARDS, check_build_tag, check_layout, check_table, mac_problem, make_manifest,  # noqa: E402
+                        read_build_tag, registry_macs)
 from check_partitions import read_csv  # noqa: E402
 
 CASES = json.loads((ROOT / "tests/installer/tables.json").read_text())
@@ -98,6 +99,23 @@ def check_tags():
     return failures
 
 
+def check_macs():
+    """A build that lists the registry's boards (a DIAG_WEB build) is never staged for the site."""
+    failures = []
+    macs = registry_macs(ROOT / "tools/devices.example.json")
+    if [label for label, _ in macs] != ["Small-V1", "Small-V2", "Big-S3"]:
+        failures.append(f"registry_macs reads the ESP32s only: {macs}")
+    app = bytearray(b"\xff" * 4096)
+    if mac_problem(bytes(app), macs) is not None:
+        failures.append("an app without a registry MAC is refused")
+    app[1000:1006] = bytes.fromhex("020000000003")
+    if "Big-S3" not in (mac_problem(bytes(app), macs) or ""):
+        failures.append("an app holding Big-S3's MAC isn't refused")
+    if registry_macs(ROOT / "no-such-registry.json") != []:
+        failures.append("no registry should mean nothing to look for")
+    return failures
+
+
 def check_manifest():
     """The page checks each download by SHA-256 and each write by the board's MD5."""
     parts = parts_for(CASES["cases"][0])
@@ -137,6 +155,7 @@ def main():
             failures.append(f"check_layout {'refused' if refused else 'accepted'}: {case['name']} ({refused})")
     failures += check_tags()
     failures += check_manifest()
+    failures += check_macs()
     for f in failures:
         print("tables: " + f)
     if failures:

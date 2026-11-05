@@ -3154,7 +3154,8 @@ public:
   // because ESP-IDF still held one of its transfers (its endpoints are freed
   // only after that). Nonzero shows the disconnect race happened and was waited out.
   uint32_t disconnectDeferrals() const;
-  bool getHubPortStatus(uint8_t hubAddress, uint8_t port, uint16_t &status, uint16_t &change);
+  // timeoutMs bounds how long the call blocks waiting for the hub to answer.
+  bool getHubPortStatus(uint8_t hubAddress, uint8_t port, uint16_t &status, uint16_t &change, uint32_t timeoutMs = 1000);
   bool networkOpen(uint8_t address = ESP_USB_HOST_ANY_ADDRESS);
   bool networkOpen(const EspUsbHostNetworkInterfaceInfo &network);
   void networkClose(uint8_t address = ESP_USB_HOST_ANY_ADDRESS);

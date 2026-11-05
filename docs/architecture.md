@@ -117,7 +117,7 @@ claim; `app.cpp` answers with `should_claim()`). The same hooks let the Recorder
 
 #### Storage tiers: progressive enhancement with a TF card (direction, 2026-10-27)
 
-More boards Chad is buying have a TF (microSD) slot. Capacity scales with what the board has. Apps ask the core
+More boards on the way have a TF (microSD) slot. Capacity scales with what the board has. Apps ask the core
 "how much room?" and adapt; they never assume a card.
 
 | Tier | When | Library | Backups and saves | Recordings |
@@ -307,7 +307,7 @@ App sets are chosen at build time. The Router is always built; the others are sw
 
 ## How an app lands on `master`
 
-The merge gate in `README.md`: green GitHub CI before anything lands, plus a hardware smoke check on the Waveshare
+The merge gate in `CONTRIBUTING.md`: green GitHub CI before anything lands, plus a hardware smoke check on the Waveshare
 (install, then the Launchkey plays the FM-1 through the hub) for PRs that touch the loader, the store, flash writes
 or the USB host stack. Every production ship gets the smoke check too. An app also lands with:
 

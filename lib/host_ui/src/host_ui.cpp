@@ -1272,8 +1272,13 @@ void ui_update_loader(const UiLoader &l) {
 
 // ---------- Setup and Computer mode ----------
 static lv_obj_t *size_buttons[3], *version_label, *computer_screen_confirm;
-static lv_obj_t *network_labels[2];  // Setup, the Computer mode screen
+static lv_obj_t *network_labels[3];  // Setup, the Computer mode screen, Remote diagnostics
 static char network_text[48] = "";
+// The setup hotspot as a QR code and a hint, under Setup's network line, only
+// while it's open (ui_set_join_qr): made then and deleted after, so it costs no
+// RAM the rest of the time.
+static lv_obj_t *join_qr;
+static char join_qr_text[64] = "";
 // Computer mode's line about a firmware the page is adding (ui_set_computer_status).
 static char computer_status[64] = "";
 static lv_obj_t *computer_status_label;
@@ -1294,15 +1299,64 @@ static lv_obj_t *network_label(lv_obj_t *parent) {
   return l;
 }
 
+// Black on white with a quiet zone, the way phone cameras read best: 37 modules
+// (the hotspot's text, version 3 or 4 by the board's name, and the quiet zone)
+// at 4 px, or 3 px on a narrow screen so all of it shows without scrolling.
+// Beside it, what to do when the phone doesn't open the setup page by itself
+// (iOS doesn't always): the hotspot's address, the ESP32 default.
+static void place_join_qr() {
+  if (join_qr) lv_obj_delete(join_qr);
+  join_qr = nullptr;
+  lv_obj_t *line = network_labels[0];
+  if (!join_qr_text[0] || !line) return;
+  join_qr = row(lv_obj_get_parent(line), 8);
+  lv_obj_t *qr = lv_qrcode_create(join_qr);
+  lv_qrcode_set_size(qr, board->width >= 320 ? 148 : 111);
+  lv_qrcode_set_dark_color(qr, c(0x000000));
+  lv_qrcode_set_light_color(qr, c(0xFFFFFF));
+  lv_qrcode_set_quiet_zone(qr, true);
+  lv_qrcode_update(qr, join_qr_text, strlen(join_qr_text));
+  lv_obj_t *hint = text(join_qr, "Scan to join. No setup page? Open 192.168.4.1", kMuted, Role::Detail);
+  lv_obj_set_width(hint, 1);
+  lv_obj_set_flex_grow(hint, 1);
+  lv_obj_move_to_index(join_qr, lv_obj_get_index(line) + 1);
+}
+
 static void computer_tapped(lv_event_t *) { push(computer_screen_confirm); }
 static void run_computer_hold(Hold &) {
   if (hooks.connect_computer) hooks.connect_computer();
+}
+
+// Remote diagnostics: its own page, one button, since turning it on or off restarts the board.
+static lv_obj_t *diag_screen;
+static void diag_tapped(lv_event_t *) { push(diag_screen); }
+static void diag_toggle_tapped(lv_event_t *) {
+  if (hooks.set_diagnostics) hooks.set_diagnostics(!settings.diagnostics);
+}
+
+static void build_diag_page() {
+  lv_obj_t *title;
+  Page p = sub_page(&title, nullptr, true);
+  diag_screen = p.scr;
+  lv_label_set_text(title, "Remote diagnostics");
+  if (settings.diagnostics) {
+    text(p.content, "On: this board's status, log and crashes are on a read-only page on your Wi-Fi.", kWhite,
+         Role::Body);
+    network_labels[2] = network_label(p.content);
+  } else {
+    text(p.content, "Off: no Wi-Fi. On, this board's status, log and crashes go on a read-only page on your Wi-Fi.",
+         kWhite, Role::Body);
+    text(p.content, "The first time, it starts a hotspot to join your Wi-Fi.", kGrey, Role::Detail);
+  }
+  plain_button(foot_box(p), settings.diagnostics ? "Turn off (restarts)" : "Turn on (restarts)", diag_toggle_tapped);
 }
 
 static void build_setup() {
   Page t = section_page(kSetup);
   version_label = text(t.content, firmware, kGrey, Role::Body);
   network_labels[0] = network_label(t.content);
+  join_qr = nullptr;  // went with the old Setup (rebuild)
+  place_join_qr();
   // Text size: three buttons sharing the width, each lettered in the size it
   // picks, so the letters are the preview.
   lv_obj_t *sizes = row(t.content, 6);
@@ -1327,6 +1381,11 @@ static void build_setup() {
   lv_obj_t *sub;
   nav_row(t.content, LV_SYMBOL_USB " Computer mode", &sub, computer_tapped);
   lv_label_set_text(sub, "For updates over USB");
+  if (hooks.set_diagnostics) {
+    nav_row(t.content, LV_SYMBOL_WIFI " Remote diagnostics", &sub, diag_tapped);
+    lv_label_set_text(sub, settings.diagnostics ? "On" : "Off");
+    build_diag_page();
+  }
 
   // Computer mode: its own page, and a hold, since it stops MIDI.
   lv_obj_t *title;
@@ -1388,8 +1447,10 @@ static void build_all() {
 // A new text size: every page again, at the new size, on the same section.
 static void rebuild(void *) {
   lv_obj_t *old[] = {section_screens[kPlay], section_screens[kFm1], section_screens[kSetup], plan_screen,
-                     backups_screen,        result_screen,        job_screen,             computer_screen_confirm};
-  plan_screen = backups_screen = result_screen = job_screen = nullptr;
+                     backups_screen,        result_screen,        job_screen,             computer_screen_confirm,
+                     diag_screen};
+  plan_screen = backups_screen = result_screen = job_screen = diag_screen = nullptr;
+  network_labels[2] = nullptr;  // it was on the diagnostics page
   const int was = section;
   const bool job = job_showing;
   build_all();
@@ -1486,6 +1547,12 @@ void ui_set_network(const char *line) {
     lv_label_set_text(l, network_text);
     show_if(l, network_text[0]);
   }
+}
+
+void ui_set_join_qr(const char *text) {
+  if (strcmp(text, join_qr_text) == 0) return;
+  strlcpy(join_qr_text, text, sizeof join_qr_text);
+  place_join_qr();
 }
 
 void ui_set_computer_status(const char *line) {

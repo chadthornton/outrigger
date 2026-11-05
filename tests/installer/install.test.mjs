@@ -291,7 +291,7 @@ test("install: refuses store writes that don't end with the store's superblock p
 // downloads served from the fixtures.
 const root = new URL("../../", import.meta.url);
 const templatePath = new URL("build/store-template.json", root);
-const haveTemplate = existsSync(templatePath) && existsSync(new URL("tests/fixtures/skiff-2.1.1.fwsc", root));
+const haveTemplate = existsSync(templatePath) && existsSync(new URL("tests/fixtures/FM-1_015.fwsc", root));
 const skip = !haveTemplate && "run test_store_template.py first";
 const TEMPLATE = haveTemplate ? JSON.parse(readFileSync(templatePath)) : null;
 const loaderBuild = () => ({ ...hubBuild(), template: TEMPLATE });
@@ -322,7 +322,7 @@ test("prepareStore: a blank region gets the starter store, in runs at the store'
   assert.equal(got.downloadProblem, null);
   assert.deepEqual(got.storeWrites.map((w) => [w.offset, w.data.length, w.md5]), TEMPLATE.runs.map((r) => [0x3d0000 + r.offset, r.size, r.md5]));
   assert.equal(got.storeWrites.at(-1).offset, 0x3d0000);
-  assert.deepEqual(got.starter, ["M-VAVE stock V15", "Felucca 1.8.0", "Skiff 2.1.1"]);
+  assert.deepEqual(got.starter, ["M-VAVE stock V15"]);
 });
 
 test("prepareStore: data with no readable store stops before anything is written", { skip }, async () => {
@@ -363,11 +363,14 @@ async function cutShort({ midRun = false } = {}) {
   const b = boardWithBlankStore();
   const first = await prepareStore({ loader: b, board: await readBoard(b), build: loaderBuild(), fetchFn: hub() });
   const runs = first.storeWrites.slice(0, -1);
-  const half = Math.floor(runs.length / 2);
+  // midRun stops inside the first run long enough to leave more erased blocks than PARTIAL_BLOCKS;
+  // otherwise stop halfway through the runs.
+  const big = runs.findIndex((r) => r.data.length >= 8 * 0x1000);
+  const half = midRun ? big : Math.floor(runs.length / 2);
   for (const w of runs.slice(0, half)) b.flash.set(w.data, w.offset);
   let partial = null;
   if (midRun) {
-    const w = runs.slice(half).find((r) => r.data.length >= 8 * 0x1000); // more erased blocks left than PARTIAL_BLOCKS
+    const w = runs[big];
     b.flash.set(w.data.subarray(0, 0x1000 + 0x800), w.offset); // one whole block, then half of the next
     partial = w.offset + 0x1000;
   }
@@ -421,14 +424,14 @@ test("prepareStore: a cut-short store with anything else in it stops as unreadab
 });
 
 test("prepareStore: if any download fails, nothing may be written and the page is told which", { skip }, async () => {
-  const skiff = TEMPLATE.packages.find((p) => p.id === "skiff-2.1.1").url;
-  for (const fetchFn of [hub({ [skiff]: async () => ({ ok: false, status: 404 }) }), hub({ [TEMPLATE.loader.url]: async () => ({ ok: false, status: 503 }) })]) {
+  const stock = TEMPLATE.packages.find((p) => p.id === "stock-V15").url;
+  for (const fetchFn of [hub({ [stock]: async () => ({ ok: false, status: 404 }) }), hub({ [TEMPLATE.loader.url]: async () => ({ ok: false, status: 503 }) })]) {
     const b = boardWithBlankStore();
     const got = await prepareStore({ loader: b, board: await readBoard(b), build: loaderBuild(), fetchFn });
     assert.equal(got.action, "create");
     assert.deepEqual(got.storeWrites, []);
     assert.equal(got.storeWritable, false);
-    assert.match(got.downloadProblem, /404 for Skiff 2\.1\.1|503/);
+    assert.match(got.downloadProblem, /404 for M-VAVE stock V15|503/);
   }
 });
 

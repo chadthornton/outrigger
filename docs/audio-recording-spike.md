@@ -43,11 +43,11 @@ Felucca, which Skiff is built on, has the same code.
   At 44.1 kHz each packet carries 44 or 45 frames (176 or 180 bytes), so the stream is 176.4 kB/s.
 - **Start-up:** alt 0 has no endpoint. After the host selects alt 1, Skiff sends silence packets until its ring is
   primed, so a short stretch of leading silence is expected, not a dropout.
-- **Interfaces** (with the serial console, as on Chad's unit, which shows a CDC port): IF0 audio control, IF1 MIDI
+- **Interfaces** (with the serial console, as on the test unit, which shows a CDC port): IF0 audio control, IF1 MIDI
   streaming, IF2 audio streaming, then the CDC pair. `bcdDevice` of that build should read `0x0329`.
 - **Level:** the USB feed follows the MASTER knob unless MENU › USB LEVEL is FIXED. SPEAKER EQ also shapes the USB
   feed, so record with it on FLAT.
-- Stock V15 firmware (`4C4A:C755`) also exposes USB audio, but Chad's unit runs Skiff, so only Skiff matters here.
+- Stock V15 firmware (`4C4A:C755`) also exposes USB audio, but the test unit runs Skiff, so only Skiff matters here.
 
 ## What the host library offers
 
@@ -67,8 +67,8 @@ The ESP32-S3 host controller has 8 channels. ESP-IDF allocates one per open pipe
 
 - **The audio endpoint costs a channel as soon as the FM-1 enumerates.** The library claims any audio streaming
   interface that has endpoints during enumeration, so on Skiff the FM-1 costs 4 (EP0 + MIDI bulk IN + MIDI bulk OUT
-  + iso IN), not the 3 the README counts.
-- **Open question:** the README measured hub + FM-1 + Launchkey working at 8/8. With the audio pipe that should be
+  + iso IN), not the 3 the hardware notes count (`docs/hardware-notes.md`).
+- **Open question:** the hardware notes measured hub + FM-1 + Launchkey working at 8/8. With the audio pipe that should be
   9, so either the audio claim failed silently in that rig (Launchkey enumerated first), or the unit's build has no
   audio. The spike firmware shows each interface's claim result to settle this.
 
@@ -174,7 +174,7 @@ F = screen frozen during the window, L = redrawn at 20 fps. Pk and rms in dBFS.
   nothing came close.
 - **Screen load:** the live window is no worse than the frozen ones.
 - **Data rate:** 176.5 kB/s. PSRAM (8 MB) holds about 45 s; a 10 s window uses 1.76 MB.
-- **Level:** -10 to -12 dBFS peaks while Chad played, so the audio is real, not silence packets.
+- **Level:** -10 to -12 dBFS peaks while the FM-1 was played, so the audio is real, not silence packets.
 
 ## Wi-Fi streaming to a laptop (tested 2026-10-26)
 
@@ -197,7 +197,7 @@ Wi-Fi sidesteps both storage problems: it uses no USB host channels (unlike a st
 
 `firmware/audio_spike/stream.cpp`: a 4 MB PSRAM ring fed by the USB callback, and `GET /take.wav?s=N` serving a
 WAV header for N seconds followed by the audio from the moment of the request. The Mac records with
-`curl http://<board>/take.wav?s=30 -o take.wav`. Board on the hub with the FM-1, on Chad's home Wi-Fi.
+`curl http://<board>/take.wav?s=30 -o take.wav`. Board on the hub with the FM-1, on the lab Wi-Fi.
 
 | Build | Ping (idle / under load) | Throughput | Needed |
 |---|---|---|---|
@@ -205,7 +205,7 @@ WAV header for N seconds followed by the audio from the moment of the request. T
 | modem sleep off, 16 KB sends | avg 25 / avg 49, max 128 ms | 20–92 kB/s; a 30 s take in 85 s (62 kB/s) | 176.4 kB/s |
 
 - **The stream works end to end:** valid 16-bit stereo 44.1 kHz WAVs, the first byte in 77–116 ms, a 30 s take
-  with -11.9 dBFS peaks while Chad played, no clicks and no zero runs inside the sound (`check_wav.py`, second
+  with -11.9 dBFS peaks while the FM-1 was played, no clicks and no zero runs inside the sound (`check_wav.py`, second
   differences and zero runs).
 - **It can't keep up.** TCP delivers a third to a half of real time. The PSRAM ring hides that for short takes,
   but a 30 s take at 62 kB/s ends about 55 s behind, past the 23 s ring, so the reader must have skipped ahead
@@ -228,9 +228,9 @@ WAV header for N seconds followed by the audio from the moment of the request. T
   as window-limited), then the board rebooted into the new build.
 - **Take 2:** 30 s requested, 5,292,044 bytes in 82.8 s (64 kB/s). `/stats`: `ovr 0`, longest stall 6.5 s
   (absorbed by the buffer). `check_wav.py`: 1,323,000 frames (30.00 s), peak -9.7 dBFS, rms -26.7 dBFS, 1 silent
-  10 ms block of 2,999, no second-difference spikes, no zero runs inside the sound. Chad played throughout.
+  10 ms block of 2,999, no second-difference spikes, no zero runs inside the sound. The FM-1 was played throughout.
 - Take 1 (old build) had `ovr 2`: spliced twice, as predicted.
-- Chad listened to take 2 and released the board, which ended the spike. The board was left running `12c52c4`; the
+- Take 2 was listened to and released the board, which ended the spike. The board was left running `12c52c4`; the
   platform-architecture smoke check reflashes master.
 
 ### Open questions

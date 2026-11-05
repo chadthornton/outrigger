@@ -29,7 +29,7 @@ CHAT_INVITE = None
 
 # FM-1 screenshots the Firmware Hub hosts. They belong to each firmware's author: credit them, and ask before launch.
 SCREENS = [
-    ("sloop", "SLOOP", "a live groovebox"),
+    ("loom", "LOOM-8", "a groovebox inspired by the OP-XY"),
     ("x0x", "X0X", "909, 808 and two 303s"),
     ("zp12", "zp12", "a 12-bit sampler"),
     ("winampfm", "winampFM", "a synth that looks like Winamp"),
@@ -99,10 +99,10 @@ INSTALL_BTN = """<button class="btn" type="button" data-install="{out}">Install 
 <p class="install-out" id="{out}" role="status" hidden></p>"""
 
 SETUP = f"""<ol class="steps3">
-  <li><div><b>Install Outrigger on your ESP32</b><p>Plug your ESP32 into a computer and click Install. About two
-    minutes, free.</p>
+  <li><div><b>Install Outrigger on your ESP32</b><p>Plug it into this computer.</p>
     {INSTALL_BTN.format(out="out-b")}</div></li>
-  <li><div><b>Plug everything into the hub</b><p>From then on, everything happens on Outrigger's screen.</p></div></li>
+  <li><div><b>Add firmwares</b><p>Stock V15 comes with it. Add Felucca, Skiff and more with the <a href="#add">firmware installer</a> below.</p></div></li>
+  <li><div><b>Plug everything into the hub</b><p>From then on, it all happens on Outrigger's screen.</p></div></li>
 </ol>
 <details class="overview"><summary>Installation overview</summary>
   <dl>
@@ -137,7 +137,7 @@ NEED = f"""<div class="need-items">
       <p>This runs Outrigger. Most ESP32-S3 boards with a screen should work; we're still testing.</p>
       <ul class="picks">
         {pick("Tested", BUY_BOARD, "Waveshare ESP32-S3 Touch LCD 1.69 ↗")}
-        {pick("Testing", BUY_35, "Waveshare ESP32-S3 Touch LCD 3.5 ↗")}
+        {pick("Tested", BUY_35, "Waveshare ESP32-S3 Touch LCD 3.5 ↗")}
         {pick("Likely", BUY_AMOLED, "Waveshare ESP32-S3 1.8-inch AMOLED ↗")}
         {pick("Likely", BUY_43B, "Waveshare ESP32-S3 4.3-inch Touch, Board B ↗")}
       </ul>
@@ -235,20 +235,24 @@ COMING_HTML = "".join(
 TROUBLE = """<div class="faq">
   <details><summary>How do I update Outrigger?</summary><div class="answer">
     <p>Outrigger's USB port is busy running your MIDI gear, so first hand it to your computer: in Settings, open
-      Computer mode and hold the button. Then plug Outrigger into your computer and click Check my board, then Install. It goes back to
+      Computer mode and hold the button. Then plug Outrigger into your computer and click Check my ESP32, then Install. It goes back to
       MIDI by itself afterwards, and your backups stay.</p>
     <div class="shots-sm">
       <figure><img src="shots/M_setup.png" alt="Outrigger's Settings, with Computer mode: for updates over USB"><figcaption>Settings</figcaption></figure>
       <figure><img src="shots/M_computer_confirm.png" alt="Computer mode screen: hold to restart in Computer mode"><figcaption>Hold to restart</figcaption></figure>
     </div></div></details>
   <details id="no-port"><summary>Why can't the installer find my ESP32?</summary><p>Try another cable: charge-only cables never show up. Or
-    hold BOOT, tap RST, let go of BOOT, and click Check my board again.</p></details>
+    hold BOOT, tap RST, let go of BOOT, and click Check my ESP32 again.</p></details>
   <details><summary>My FM-1 won't start. Is it broken?</summary><p>It's almost certainly not dead: its install mode lives in ROM.
     <a href="https://thefirmwarehub.com/#rescue" target="_blank" rel="noopener">The Firmware Hub's Rescue</a> or
     <a href="https://github.com/Quixotic7/MvaveFM1Unbricker" target="_blank" rel="noopener">the Unbricker</a> brings it back
     from a computer.</p></details>
   <details><summary>Why doesn't my second MIDI controller play?</summary><p>For now, Outrigger has room
     for one MIDI controller next to the FM-1. Unplug the other one. More than one is coming.</p></details>
+  <details id="counts"><summary>Does the installer send anything about me?</summary><p>One anonymous install count, unless you
+    untick the box under the install button: which board profile, which edition, the installer's version, whether it
+    finished or where it stopped, and the day. No MAC address, chip serial, IP address, browser details or cookies. A
+    finished install counts once per board in each browser.</p></details>
   <details><summary>Where do my backups live?</summary><p>On Outrigger itself, never online. Copying them to a computer is
     coming.</p></details>
 </div>"""
@@ -261,7 +265,7 @@ STYLE = """
   .topnav .link { font-size: .9375rem; color: var(--muted); text-decoration: none; }
   .topnav .link:hover { color: var(--fg); }
   @media (max-width: 560px) { .topnav .wide { display: none; } }
-  .eyebrow { font-size: .75rem; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+  .eyebrow { font: 500 .6875rem/1.5 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
 
   .layout { display: grid; grid-template-columns: minmax(0, 1fr) 312px; gap: 64px; padding-block: 48px 32px; align-items: start; }
   @media (max-width: 920px) { .layout { grid-template-columns: 1fr; gap: 48px; padding-top: 32px; } }
@@ -281,7 +285,7 @@ STYLE = """
   .fwshots figure { margin: 0; display: grid; gap: 8px; align-content: start; }
   .fwshots img { width: 100%; aspect-ratio: 1; border-radius: 8px; background: #000; box-shadow: 0 0 0 1px var(--line), 0 1px 2px rgb(0 0 0 / .12); }
   .fwshots figcaption { font-size: .8125rem; color: var(--muted); line-height: 1.35; }
-  .fwshots figcaption b { color: var(--fg); display: block; font-weight: 600; }
+  .fwshots figcaption b { color: var(--fg); display: block; font: 500 .75rem/1.35 var(--mono); letter-spacing: .01em; margin-bottom: 1px; }
   .fwmore { display: grid; place-content: center; text-align: center; gap: 2px; aspect-ratio: 1; border-radius: 8px; background: var(--soft);
             text-decoration: none; font-size: .8125rem; line-height: 1.3; color: var(--muted); padding: 8px; }
   .fwmore b { font-size: 1.375rem; font-weight: 650; color: var(--fg); }
@@ -290,16 +294,13 @@ STYLE = """
   aside.rail { position: sticky; top: 24px; display: grid; gap: 16px; max-height: calc(100vh - 48px); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: none; }
   @media (max-width: 920px) { aside.rail { position: static; max-height: none; overflow: visible; } }
   .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 24px; display: grid; gap: 16px; }
-  .steps3 { list-style: none; margin: 0; padding: 0; counter-reset: s; display: grid; gap: 20px; }
-  .steps3 li { counter-increment: s; display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 12px; align-items: start; }
-  .steps3 li::before { content: counter(s); width: 24px; height: 24px; margin-top: 1px; border-radius: 50%; background: var(--accent);
-                       color: var(--accent-fg); display: grid; place-items: center; font-weight: 650; font-size: .75rem; }
+  .steps3 { list-style: none; margin: 0; padding: 0; display: grid; gap: 24px; }
   .steps3 b { display: block; font-weight: 600; line-height: 1.35; margin-bottom: 4px; text-wrap: balance; }
   .steps3 p { font-size: .9375rem; line-height: 1.5; color: var(--muted); }
   .steps3 .btn { margin-top: 14px; width: 100%; justify-content: center; }
   .steps3 .install-out { margin-top: 10px; font-size: .875rem; line-height: 1.45; }
   .shopping { list-style: none; margin: 0; padding: 0; display: grid; }
-  .shopping a { display: grid; grid-template-columns: 36px 1fr auto; gap: 14px; align-items: center; padding: 12px 0; text-decoration: none; border-bottom: 1px solid var(--line); }
+  .shopping a { display: grid; grid-template-columns: 36px 1fr auto; gap: 14px; align-items: center; padding: 12px 0; text-decoration: none; color: inherit; border-bottom: 1px solid var(--line); }
   .shopping li:first-child a { padding-top: 0; }
   .shopping li:last-child a { border-bottom: 0; padding-bottom: 0; }
   .shopping svg { width: 36px; color: var(--fg); }
@@ -360,7 +361,7 @@ STYLE = """
   .coming .tip { display: block; margin-top: 10px; padding: 10px 12px; border-radius: 8px; background: color-mix(in srgb, var(--accent) 10%, transparent); color: var(--fg); font-size: .875rem; line-height: 1.45; }
   .coming .tip b { font-weight: 650; }
   /* The real install area (site/installer/area.js, from PR #14): buttons, then the board readout, progress and result. */
-  .install { display: grid; gap: 10px; margin-top: 14px; }
+  .install { display: grid; gap: 12px; margin-top: 12px; }
   .install button { background: var(--accent); color: var(--accent-fg); border: 0; border-radius: 10px; padding: 13px 22px;
                     font: inherit; font-weight: 600; line-height: 1.2; cursor: pointer; width: 100%; }
   .install button.alt { background: transparent; color: var(--fg); box-shadow: inset 0 0 0 2px var(--line); }
@@ -380,6 +381,12 @@ STYLE = """
   .install-boards legend { padding: 0; margin-bottom: 6px; font-weight: 600; font-size: .875rem; }
   .install-boards label { display: flex; gap: 6px; align-items: center; cursor: pointer; }
   .install-boards input { accent-color: var(--accent); margin: 0; }
+  .install-links { display: grid; gap: 6px; font-size: .875rem; }
+  .install-count { display: flex; gap: 8px; align-items: baseline; font-size: .8125rem; color: var(--muted); cursor: pointer; }
+  .install-count input { accent-color: var(--accent); margin: 0; }
+  .install-links a { text-decoration: none; }
+  .install-links a:hover, .install-links a:focus-visible { text-decoration: underline; }
+  .report-choice { display: grid; gap: 14px; }
   .install-log { border: 0; padding: 0; font-size: .8125rem; color: var(--muted); }
   .install-log pre { margin: 6px 0 0; max-height: 14em; overflow: auto; white-space: pre-wrap; font: .75rem ui-monospace, "SF Mono", Menlo, monospace; }
   .install .check { display: flex; gap: 8px; align-items: baseline; }
@@ -388,8 +395,9 @@ STYLE = """
   .nerd { --bg: #0e1622; --fg: #e4eaf3; --muted: #9aa7ba; --line: #263246; --panel: #152033; --soft: #1a2639;
     --accent: #6fb8ff; --accent-fg: #07121f; background: var(--bg); color: var(--fg); margin-top: 64px; padding-block: 64px; }
   .nerd h2 { margin-bottom: 24px; }
-  .nerd .eyebrow { margin-bottom: 8px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .nerd .eyebrow { margin-bottom: 8px; }
   .nerd a { color: var(--accent); }
+  .nerd { --link: var(--accent); }
   .nerd:not(footer) { padding-bottom: 24px; }
   footer.nerd { margin-top: 0; padding-block: 0 48px; }
   .nerd .fine { margin-top: 24px; max-width: 760px; }
@@ -447,8 +455,8 @@ BODY = f"""<nav class="wrap topnav">
   <div class="layout">
     <main>
       <section class="hero">
-        <h1>FM&#8209;1&rsquo;s new best friend</h1>
-        <p class="sub"><span>Plug in your keys.</span> <span>Pop in a new instrument.</span></p>
+        <h1>A little companion for your FM&#8209;1</h1>
+        <p class="sub">Any MIDI controller in, any firmware on</p>
         {RIG}
       </section>
       <div class="features">
@@ -521,7 +529,7 @@ def install_area(label, app_set):
     chip check's "you need an ESP32-S3 such as ..." line."""
     table = boards.checked(boards.load())
     builds = [{"label": label, "manifest": f"firmware/{b['site_id']}/{app_set}/manifest.json",
-               "board": b["short_name"], "tag_id": b["tag_id"], "flash_mb": b["flash_mb"], "psram_mb": b["psram_mb"],
+               "board": b["short_name"], "profile": b["site_id"], "edition": app_set, "tag_id": b["tag_id"], "flash_mb": b["flash_mb"], "psram_mb": b["psram_mb"],
                "tested": b["tested"]} for b in (table["boards"][bid] for bid in boards.ids(table))]
     builds.append({"label": label, "manifest": None, "board": "Another ESP32-S3 board", "tag_id": None})
     suggest = [b["short_name"] for b in table["boards"].values()]
@@ -529,10 +537,6 @@ def install_area(label, app_set):
             f'data-suggest="{html.escape(json.dumps(suggest))}" data-help="#no-port">\n'
             '      <p class="install-note">Installing needs Chrome or Edge on a computer, with JavaScript on.</p>\n    </div>')
 
-
-REAL_STEP2 = """<li><div><b>Add firmwares</b><p>Stock V15, Felucca and Skiff come with it. Add more from the Firmware
-    Hub's list, right on this page: <a href="#add">Add custom firmwares</a>.</p></div></li>
-  <li><div><b>Plug everything into the hub</b>"""
 
 # Adding a Firmware Hub firmware to a set-up Outrigger (site/installer/add_area.js), its own section under the hero.
 # Under "Pop in a new instrument": closed until clicked, and opened by a finished install (site/installer/area.js).
@@ -550,7 +554,7 @@ ADD_BLOCK = """<details class="addfw" id="add">
     document.addEventListener("outrigger-installed", open);
     document.addEventListener("click", function (e) {
       var a = e.target.closest && e.target.closest('a[href="#add"]');
-      if (a) { open(); d.scrollIntoView(); }
+      if (a) { e.preventDefault(); open(); d.scrollIntoView({ behavior: "smooth" }); }
     });
     if (location.hash === "#add") open();
   })();
@@ -559,8 +563,8 @@ ADD_BLOCK = """<details class="addfw" id="add">
 
 BUILDERS = [
     ("Many boards, one firmware",
-     "Each ESP32 board gets a profile, so the screens, installer checks and tests adapt to it. Round and square "
-     "screens from 1.69 to 4.3 inches, on ESP32-S3 and P4, are in testing. "
+     "Each ESP32 board gets a profile, so the screens, installer checks and tests adapt to it. Two boards "
+     "today, the 1.69\" and 3.5\", with more coming. "
      '<a href="https://github.com/chadthornton/outrigger/blob/master/docs/boards.md">See the board list.</a>'),
     ("Only the parts you need",
      "One shared base with apps on top, built into editions. Today that's Hub or Hub + Loader."
@@ -574,18 +578,14 @@ BUILDERS_HTML = '<div class="coming">' + "".join(f"<article><h4>{t}</h4><p>{d}</
 
 real = MOCK
 for a, b in [
-    (INSTALL_BTN.format(out="out-b"), install_area("Check my board", "hub-loader")),
-    ("""Plug your ESP32 into a computer and click Install. About two
-    minutes, free.</p>""", """Plug your ESP32 into a computer and click Check my board: it
-    says what's on the board and changes nothing. Then click Install. About two minutes, free.</p>"""),
-    ('<li><div><b>Plug everything into the hub</b>', REAL_STEP2),
+    (INSTALL_BTN.format(out="out-b"), install_area("Check my ESP32", "hub-loader")),
     ("""<dd>Switching needs a 24 KB file from the FM-1's chip maker that we can't host ourselves. The installer fetches it
       from the open-source tool that already publishes it, checks it, and stores it on your ESP32.</dd>""",
      """<dd>Switching needs a 24 KB file from the FM-1's chip maker that we can't host ourselves. On a new ESP32 the
       installer downloads it straight from GitHub into your browser, and the three starter firmwares from the Firmware
       Hub, checks every one, and puts them on Outrigger. If a download fails, nothing is written.</dd>"""),
     ('more at the Firmware Hub ↗</a></div>', 'more at the Firmware Hub ↗</a></div>\n  ' + ADD_BLOCK),
-    ('<title>Outrigger: B3</title>', '<title>Outrigger: FM-1\u2019s new best friend</title>\n'
+    ('<title>Outrigger: B3</title>', '<title>Outrigger: a little companion for your FM-1</title>\n'
      '<meta name="description" content="Play the M-VAVE FM-1 from any MIDI controller with a USB connection, and switch between 100+ firmwares without a laptop.">\n'
      '<script type="module" src="installer/area.js"></script>\n<script type="module" src="installer/add_area.js"></script>'),
     ('<link rel="stylesheet" href="shared.css">', '<link rel="stylesheet" href="style.css">'),
@@ -610,6 +610,7 @@ for a, b in [
     <a href="https://github.com/pfkellogg/fm1-mirror">fm1-mirror</a> by Patrick Kellogg, and, a related project,
     <a href="https://github.com/konsumer/fm1buddy">fm1buddy</a> by David Konsumer.</p>
   <p>Firmware screenshots by their authors, via the Firmware Hub. Not affiliated with M-VAVE or Waveshare.</p>
+  <p id="installer-version" hidden></p>
 </div></footer>"""),
 ]:
     assert a in real, a[:70]

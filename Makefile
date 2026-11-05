@@ -15,15 +15,22 @@ ifeq ($(BOARDS),)
 $(error firmware/boards.json has a problem: python3 -I tools/boards.py check says what)
 endif
 APP_SETS := hub hub-loader everything
+# Development app sets: CI builds them (its synth job), make site never stages
+# them, so testers never get them. synth is Big-S3 only (the ES8311 speaker).
+DEV_APP_SETS := synth
 # littlefs-python for the store image and the installer's store template (rule below).
 TOOLS_PY := build/tools-venv/bin/python
 BOARD ?= waveshare_169
 # Recursive (=): only build and flash read it, so other targets don't run python for it.
 FQBN = $(shell python3 -I tools/boards.py fqbn $(BOARD))
 APPS ?= hub
-APP_FLAGS_hub :=
-APP_FLAGS_hub-loader := -DAPP_LOADER=1
+# Every app set carries the Web UI's read-only diagnostics (Wi-Fi, GET /status,
+# /log, /crash, /coredump, /store), off until Setup's Remote diagnostics turns
+# them on (web.h). `everything` starts with them on.
+APP_FLAGS_hub := -DAPP_WEB_UI=1
+APP_FLAGS_hub-loader := -DAPP_LOADER=1 -DAPP_WEB_UI=1
 APP_FLAGS_everything := -DAPP_LOADER=1 -DAPP_RECORDER=1 -DAPP_WEB_UI=1
+APP_FLAGS_synth = -DAPP_SYNTH=1 $(SYNTH_C_FLAGS)
 # WRITES=1 lets the Loader write the FM-1's flash (FM1_LOADER_WRITES, rom.h).
 # hub-loader ships with writes on (checkpoints 2 and 3 passed, and the USB host
 # crash at the FM-1's disconnect is fixed); WRITES=0 builds it read-only.
@@ -42,24 +49,22 @@ WRITE_FLAGS += $(if $(filter 1,$(WIFI_BOOTLOOP)),-DWIFI_BOOTLOOP=1)
 # sizing screens on a board whose USB port is busy hosting. Never a release.
 WRITE_FLAGS += $(if $(filter 1,$(HEAP_ON_SCREEN)),-DHEAP_ON_SCREEN=1)
 # BENCH=1 (with DIAG_WEB=1, APPS=hub-loader): the test bench's control API at
-# fm1bench.local (lib/web_core/src/bench.h), answered only on Chad's Waveshares.
+# the board's own address (small-v2.local ...; lib/web_core/src/bench.h), answered only on the boards in
+# the local device registry (tools/devices.py), which a bench build needs.
 # tools/bench.py drives it. Never a release: make site checks no shipped build has it.
 ifeq ($(BENCH),1)
 $(if $(filter 1,$(DIAG_WEB)),,$(error BENCH=1 needs DIAG_WEB=1))
 WRITE_FLAGS += -DBENCH=1
 endif
-APP_LIBS_hub :=
-APP_LIBS_hub-loader := --library lib/fm1_loader
+APP_LIBS_hub := --library lib/web_core
+APP_LIBS_hub-loader := --library lib/fm1_loader --library lib/web_core
 APP_LIBS_everything := --library lib/fm1_loader --library lib/web_core
-# DIAG_WEB=1 adds the Web UI's read-only diagnostics (Wi-Fi, GET /status, /log,
-# /crash, /coredump, /store) to hub-loader, which the board runs for loader
-# checkpoints. `everything` always has them.
+APP_LIBS_synth := --library lib/synth
+# DIAG_WEB=1: a build that starts with Remote diagnostics on, for Chad's lab
+# boards and loader checkpoints (Setup still turns it off).
 ifeq ($(DIAG_WEB),1)
-ifneq ($(APPS),everything)
-APP_FLAGS_$(APPS) += -DAPP_WEB_UI=1
-APP_LIBS_$(APPS) += --library lib/web_core
+WRITE_FLAGS += -DDIAG_DEFAULT_ON=1
 BUILD_SUFFIX := -web
-endif
 endif
 ifeq ($(SOAK),1)
 BUILD_SUFFIX := $(BUILD_SUFFIX)-soak
@@ -77,6 +82,11 @@ endif
 # it waits for the branches editing it to land.
 SKETCH := firmware/waveshare_169
 BUILD := build/$(BOARD)/$(APPS)$(BUILD_SUFFIX)
+# The board table (bench_boards.h, lib/web_core/src/bench.cpp): the registry's
+# names and MACs for DIAG_WEB builds (required for BENCH=1), empty otherwise, so
+# release builds carry no MACs. One per build, outside the repo.
+BENCH_GEN = $(CACHE_ROOT)/bench-boards/$(APPS)$(BUILD_SUFFIX)
+BENCH_HEADER_ARGS := $(if $(filter 1,$(DIAG_WEB)),--registry $(if $(filter 1,$(BENCH)),,--optional))
 # arduino-cli's build paths and ui-shots' LVGL objects. make check points it
 # outside its clone, so a check recompiles only what the commit changed.
 CACHE_ROOT ?= $(CURDIR)/build/cache
@@ -99,7 +109,7 @@ VERSION_DIR := $(CACHE_ROOT)/version
 # screens ui-shots renders. Rewritten only when they change, like fw_version.h.
 BOARD_GEN := $(CACHE_ROOT)/boards
 
-.PHONY: check test ui-shots ui-mocks build build-all flash probe site serve clean fixtures golden store-image flash-store store-add check-latest deploy-site rollback-site
+.PHONY: check test ui-shots ui-mocks build build-all flash probe synth-bench flash-synth-bench site serve clean fixtures golden store-image flash-store store-add check-latest deploy-site rollback-site
 
 FM1_SRC := $(wildcard lib/fm1_loader/src/*.cpp)
 FM1_HDR := $(wildcard lib/fm1_loader/src/*.h) $(wildcard tests/support/*.h)
@@ -136,7 +146,10 @@ test: build/check_package build/test_fm1_interop build/test_touch_map build/test
 	node --test tests/functions/*.test.mjs
 	python3 -I tests/test_deploy_site.py
 	python3 -I tests/test_reports.py
+	python3 -I tests/test_installs.py
 	python3 -I tests/test_check.py
+	python3 -I tests/test_ecosystem_check.py
+	python3 -I tests/test_gen_families.py
 	python3 -I tests/test_bench.py
 	python3 -I tests/test_bench_recover.py
 	python3 -I tests/test_guide.py
@@ -241,13 +254,17 @@ build/test_describe: tests/test_describe.cpp lib/platform/src/describe.cpp lib/p
 	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -Ilib/platform/src -Ilib/midi_core/src -o $@ tests/test_describe.cpp lib/platform/src/describe.cpp lib/platform/src/broker.cpp lib/midi_core/src/midi_core.cpp
 
 WEB_CORE_SRC := $(wildcard lib/web_core/src/*.cpp)
-build/test_web_core: tests/test_web_core.cpp $(WEB_CORE_SRC) $(wildcard lib/web_core/src/*.h)
+# The Mac tests' board table: tools/devices.example.json's made-up MACs.
+EXAMPLE_BOARDS := build/example-boards/bench_boards.h
+$(EXAMPLE_BOARDS): tools/devices.example.json tools/devices.py
+	python3 -I tools/devices.py header $@ --registry tools/devices.example.json
+build/test_web_core: tests/test_web_core.cpp $(WEB_CORE_SRC) $(wildcard lib/web_core/src/*.h) $(EXAMPLE_BOARDS)
 	mkdir -p build
-	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -pthread -Ilib/web_core/src -o $@ tests/test_web_core.cpp $(WEB_CORE_SRC)
+	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -pthread -Ilib/web_core/src -I$(dir $(EXAMPLE_BOARDS)) -o $@ tests/test_web_core.cpp $(WEB_CORE_SRC)
 
-build/test_store_json: tests/test_store_json.cpp firmware/waveshare_169/store_json.cpp firmware/waveshare_169/store_json.h $(FM1_TEST_SRC) $(FM1_HDR) $(WEB_CORE_SRC)
+build/test_store_json: tests/test_store_json.cpp firmware/waveshare_169/store_json.cpp firmware/waveshare_169/store_json.h $(FM1_TEST_SRC) $(FM1_HDR) $(WEB_CORE_SRC) $(EXAMPLE_BOARDS)
 	mkdir -p build
-	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -DAPP_LOADER=1 -DAPP_WEB_UI=1 -Ilib/fm1_loader/src -Ilib/web_core/src \
+	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -DAPP_LOADER=1 -DAPP_WEB_UI=1 -Ilib/fm1_loader/src -Ilib/web_core/src -I$(dir $(EXAMPLE_BOARDS)) \
 		-Ilib/platform/src -Ifirmware/waveshare_169 -Itests -o $@ $< firmware/waveshare_169/store_json.cpp $(FM1_TEST_SRC) $(WEB_CORE_SRC)
 
 # The FM-1 pages' wording (firmware/waveshare_169/loader_messages.cpp): pure C++
@@ -302,17 +319,19 @@ ui-mocks: build/ui_mocks
 	./build/ui_mocks build/ui-mocks
 
 build:
-	$(if $(filter $(APPS),$(APP_SETS)),,$(error APPS=$(APPS); known: $(APP_SETS)))
+	$(if $(filter $(APPS),$(APP_SETS) $(DEV_APP_SETS)),,$(error APPS=$(APPS); known: $(APP_SETS) $(DEV_APP_SETS)))
 	$(if $(filter $(BOARD),$(ALL_BOARDS)),,$(error BOARD=$(BOARD); known: $(ALL_BOARDS)))
+	$(if $(filter synth,$(APPS)),$(if $(filter $(SYNTH_BOARD),$(BOARD)),,$(error APPS=synth builds for BOARD=$(SYNTH_BOARD) only)))
 	python3 -I tools/boards.py header $(BOARD) $(BOARD_GEN)/$(BOARD)/board_config.h
+	python3 -I tools/devices.py header $(BENCH_GEN)/bench_boards.h $(BENCH_HEADER_ARGS)
 	mkdir -p $(VERSION_DIR)
 	printf '#define FW_VERSION %s\n#define FW_DIRTY %s\n' $(FW_VERSION) $(FW_DIRTY) > $(VERSION_DIR)/fw_version.h.$$$$ \
 		&& { cmp -s $(VERSION_DIR)/fw_version.h.$$$$ $(VERSION_DIR)/fw_version.h \
 			&& rm $(VERSION_DIR)/fw_version.h.$$$$ || mv $(VERSION_DIR)/fw_version.h.$$$$ $(VERSION_DIR)/fw_version.h; }
 	arduino-cli compile --fqbn $(FQBN) --build-property "tools.ctags.path=$(CTAGS_DIR)" \
 		--build-property "upload.maximum_size=$(APP_SLOT)" \
-		--build-property "compiler.cpp.extra_flags=-I$(VERSION_DIR) -I$(BOARD_GEN)/$(BOARD) -DESP_USB_HOST_MAX_SERIAL_PORTS=0 $(APP_FLAGS_$(APPS)) $(WRITE_FLAGS) -DLV_CONF_INCLUDE_SIMPLE -I$(CURDIR)/firmware/config" \
-		--build-property "compiler.c.extra_flags=-DLV_CONF_INCLUDE_SIMPLE -I$(CURDIR)/firmware/config" \
+		--build-property "compiler.cpp.extra_flags=-I$(VERSION_DIR) -I$(BOARD_GEN)/$(BOARD) -I$(BENCH_GEN) -DESP_USB_HOST_MAX_SERIAL_PORTS=0 $(APP_FLAGS_$(APPS)) $(WRITE_FLAGS) -DLV_CONF_INCLUDE_SIMPLE -I$(CURDIR)/firmware/config" \
+		--build-property "compiler.c.extra_flags=-DLV_CONF_INCLUDE_SIMPLE -I$(CURDIR)/firmware/config $(if $(filter synth,$(APPS)),$(SYNTH_C_FLAGS))" \
 		--library lib/midi_core --library lib/EspUsbHost --library lib/host_ui --library lib/board --library lib/platform $(APP_LIBS_$(APPS)) \
 		--build-path $(CACHE_ROOT)/$(BOARD)/$(APPS)$(BUILD_SUFFIX) --output-dir $(BUILD) $(SKETCH)
 
@@ -333,6 +352,24 @@ probe:
 		--build-property "compiler.cpp.extra_flags=-I$(BOARD_GEN)/$(BOARD) -I$(CURDIR)/firmware/waveshare_169 -I$(CURDIR)/lib/board/src -I$(CURDIR)/lib/host_ui/src" \
 		--library lib/board --build-path $(CACHE_ROOT)/$(BOARD)/probe --output-dir $(PROBE_BUILD) firmware/board_probe
 	arduino-cli upload --fqbn $(subst USBMode=default,USBMode=hwcdc,$(FQBN)),CDCOnBoot=cdc --input-dir $(PROBE_BUILD) --port $(PORT) firmware/board_probe
+
+# Outrigger Synth's bench for Big-S3 (firmware/synth_bench/bench.cpp): the board's
+# drivers and lib/synth's audio out, with the USB port left a serial device so
+# the Mac reads the numbers. Never staged into the site. `make synth-bench` builds;
+# `make flash-synth-bench` also uploads (board in download mode).
+SYNTH_BOARD := waveshare_35
+# Felucca's generated tables, which its sources include by bare name.
+SYNTH_C_FLAGS := -I$(CURDIR)/lib/synth/third_party/fm1-cartridge/third_party/felucca/generated
+SYNTH_BENCH_BUILD := build/$(SYNTH_BOARD)/synth-bench
+SYNTH_BENCH_FQBN = $(subst USBMode=default,USBMode=hwcdc,$(shell python3 -I tools/boards.py fqbn $(SYNTH_BOARD))),CDCOnBoot=cdc
+synth-bench:
+	python3 -I tools/boards.py header $(SYNTH_BOARD) $(BOARD_GEN)/$(SYNTH_BOARD)/board_config.h
+	arduino-cli compile --fqbn $(SYNTH_BENCH_FQBN) --build-property "tools.ctags.path=$(CTAGS_DIR)" \
+		--build-property "compiler.cpp.extra_flags=-DAPP_SYNTH=1 $(SYNTH_C_FLAGS) -I$(BOARD_GEN)/$(SYNTH_BOARD) -I$(CURDIR)/firmware/waveshare_169 -I$(CURDIR)/lib/board/src -I$(CURDIR)/lib/host_ui/src" \
+		--build-property "compiler.c.extra_flags=$(SYNTH_C_FLAGS)" \
+		--library lib/board --library lib/synth --build-path $(CACHE_ROOT)/$(SYNTH_BOARD)/synth-bench --output-dir $(SYNTH_BENCH_BUILD) firmware/synth_bench
+flash-synth-bench: synth-bench
+	arduino-cli upload --fqbn $(SYNTH_BENCH_FQBN) --input-dir $(SYNTH_BENCH_BUILD) --port $(PORT) firmware/synth_bench
 
 # The store partition's first setup: a LittleFS image holding JieLi's loader
 # (from tests/fixtures). JieLi's code, so it stays in build/ and is never staged
@@ -355,7 +392,7 @@ store-add: $(TOOLS_PY)
 	$(if $(PKGS)$(LIST),,$(error PKGS="file.fwsc ..." names the packages to add; LIST=1 only lists))
 	$(TOOLS_PY) tools/store_add.py $(SKETCH)/partitions.csv $(PORT) $(if $(PIN),--pin) $(if $(LIST),--list) $(PKGS)
 
-# The production deploy's check (README.md): the worktree's last commit, checked out
+# The production deploy's check (docs/publishing.md): the worktree's last commit, checked out
 # clean in one clone every worktree shares (~/Library/Caches/outrigger-check),
 # one check at a time, then make test, make ui-shots and make site (every board
 # x app set built and staged, with build_site.py's wl82loader.bin scan). Run it
@@ -388,11 +425,12 @@ serve: site
 # pushed commit) or CHANNEL=production (outrigger.music, origin/master only).
 # Uploads CI's build of this commit (its push run's site-firmware), or, for FULL=1, a
 # batch touching the critical list since production's commit, or a commit CI never built itself,
-# the site make check builds here (build/checked/site). README, "Publishing the site".
+# the site make check builds here (build/checked/site). docs/publishing.md.
 CHANNEL ?= beta
 deploy-site:
 	@src=$$(python3 -I tools/deploy_site.py source $(CHANNEL) $(FULL)) || exit 1; \
 	if [ "$$src" = ci ]; then python3 -I tools/deploy_site.py deploy-ci $(CHANNEL); \
+	elif [ "$$src" = beta ]; then python3 -I tools/deploy_site.py deploy-beta $(CHANNEL); \
 	else $(MAKE) check && python3 -I tools/deploy_site.py deploy $(CHANNEL) build/checked/site; fi
 
 # Put the deploy before the live one back on CHANNEL (or COMMIT=<sha>'s), in seconds,

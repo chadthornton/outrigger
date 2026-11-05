@@ -433,7 +433,7 @@ static void describe_stage(const JobOutcome &in, UiResult &out) {
       }
       break;
     case Failure::Blocked:
-      PUT(out.why, "Not yet supported: it writes the FM-1's Bluetooth sector.");
+      PUT(out.why, "Not yet supported: Outrigger can't switch to this firmware yet.");
       PUT(out.todo, "Pick another firmware.");
       out.fix = UiAct::None;
       break;

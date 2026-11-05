@@ -12,6 +12,7 @@
 
 struct UiSettings {
   uint8_t text_size;  // 0 small, 1 medium, 2 large
+  bool diagnostics = false;  // Remote diagnostics is on (shown on Setup; set_diagnostics changes it)
 };
 
 // One device's line in the controller group.
@@ -127,6 +128,9 @@ struct UiHooks {
   void (*loader_select)(int index);  // a firmware's plan was opened
   // A 2-second hold completed: what its label named, and for a switch the row.
   void (*loader_act)(UiAct act, int index);
+  // Setup's Remote diagnostics: turn it on or off; the app saves it and restarts.
+  // Null in builds without the Web UI: no row then.
+  void (*set_diagnostics)(bool on);
 };
 
 // Sets up LVGL, the display and the input, and builds the screens.
@@ -147,6 +151,9 @@ void ui_update_loader(const UiLoader &loader);
 // The network line on Setup and Computer mode (the Web UI's address, or how to
 // reach its setup hotspot). Empty hides it.
 void ui_set_network(const char *line);
+// The setup hotspot as a Wi-Fi QR code's text (WIFI:T:WPA;S:...;;), drawn under
+// Setup's network line so a phone joins with one scan. Empty removes it.
+void ui_set_join_qr(const char *text);
 // The Computer mode screen's line about a firmware being added from the
 // browser ("Adding Felucca 1.8.0: 40%"). Empty hides it.
 void ui_set_computer_status(const char *line);

@@ -1,0 +1,44 @@
+# The daily ecosystem check (tools/ecosystem_check.py, docs/firmware-catalog.md):
+# test-fetches every file and list the live installer depends on, lists new
+# FM-1 releases by family, and rewrites the "Ecosystem check" issue's body. It
+# comments on that issue only when something needs a look, and the run fails
+# (red mark, GitHub's email) when an installer link is broken. No secrets: the
+# default GITHUB_TOKEN, allowed to write issues and nothing else. On a pull
+# request that touches the check, it runs as a dry run and writes nothing.
+#
+# GitHub runs schedules from the default branch only, and turns them off on a
+# public repo after 60 days without a commit (it emails a warning first).
+name: Ecosystem check
+
+on:
+  schedule:
+    - cron: "17 14 * * *"  # daily, 14:17 UTC (morning in California)
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/ecosystem-check.yml
+      - tools/ecosystem_check.py
+      - tools/fm1_families.json
+      - tests/test_ecosystem_check.py
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: ecosystem-check
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tests
+        run: python3 -I tests/test_ecosystem_check.py
+      - name: Check
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DRY_RUN: ${{ github.event_name == 'pull_request' && '--dry-run' || '' }}
+        run: python3 -I tools/ecosystem_check.py $DRY_RUN

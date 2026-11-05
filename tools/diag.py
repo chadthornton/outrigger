@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Reads the hub's web diagnostics (firmware/waveshare_169/web.cpp) from the Mac.
 
-usage: diag.py [--host fm1hub.local] status|log|crash|store|coredump|all [--follow]
+usage: diag.py [--device Small-V1 | --host fm1hub.local] status|log|crash|store|coredump|all [--follow]
+
+  --device  a board from the device registry (tools/devices.py), at its host: Small-V1, Small-V2, Big-S3
 
   status    build, heap, tasks' stack, USB devices and refusals, the Firmware page
   log       the log lines; --follow keeps polling every second
@@ -131,10 +133,18 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("what", choices=["status", "log", "crash", "store", "coredump", "all"])
     ap.add_argument("--host", default="fm1hub.local")
+    ap.add_argument("--device", help="a registry label (Small-V1 ...): reads its host instead of --host")
     ap.add_argument("--follow", action="store_true", help="log: keep polling")
     ap.add_argument("--json", action="store_true", help="print the raw JSON")
     ap.add_argument("--board", default="waveshare_169", help="coredump: the Makefile BOARD= the board runs (its ELF)")
     a = ap.parse_args()
+    if a.device:
+        sys.path.insert(0, str(ROOT / "tools"))
+        import devices
+        try:
+            a.host = devices.load().find(a.device).get("host") or sys.exit(f"diag: {a.device} has no host in the registry")
+        except devices.DeviceError as e:
+            sys.exit(f"diag: {e}")
 
     if a.what == "log":
         print_log(a.host, a.follow)

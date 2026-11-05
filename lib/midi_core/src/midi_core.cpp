@@ -106,21 +106,37 @@ bool Router::is_target(uint8_t address) const {
   return target_ != 0 && address == target_;
 }
 
+bool Router::knows(uint8_t address, Role &role) const {
+  if (address == 0 || address > kMaxAddress || !known_[address]) return false;
+  role = role_[address];
+  return true;
+}
+
 uint8_t Router::route(uint8_t source, uint8_t cable, uint8_t code_index, uint8_t status,
                       uint8_t data1, uint8_t data2, uint8_t packet[4], char *why) const {
-  char reason = 0;
-  if (target_ == 0) reason = 'n';
-  else if (source == 0 || source > kMaxAddress || !known_[source]) reason = 'u';
-  else if (role_[source] != Role::Controller) reason = 't';
-  else if (cable != 0) reason = 'c';
-  else if (status < 0x80 || status >= 0xF0) reason = 's';
-  else if (code_index != status >> 4) reason = 'k';
-  else if (!route_to_target(cable, code_index, status, data1, data2, packet)) reason = 's';
+  const char reason = target_ == 0 ? 'n' : refuse(source, cable, code_index, status, data1, data2, packet);
   if (reason) {
     if (why) *why = reason;
     return 0;
   }
   return target_;
+}
+
+bool Router::to_synth(uint8_t source, uint8_t cable, uint8_t code_index, uint8_t status,
+                      uint8_t data1, uint8_t data2) const {
+  uint8_t packet[4];
+  return refuse(source, cable, code_index, status, data1, data2, packet) == 0;
+}
+
+char Router::refuse(uint8_t source, uint8_t cable, uint8_t code_index, uint8_t status,
+                    uint8_t data1, uint8_t data2, uint8_t packet[4]) const {
+  if (source == 0 || source > kMaxAddress || !known_[source]) return 'u';
+  if (role_[source] != Role::Controller) return 't';
+  if (cable != 0) return 'c';
+  if (status < 0x80 || status >= 0xF0) return 's';
+  if (code_index != status >> 4) return 'k';
+  if (!route_to_target(cable, code_index, status, data1, data2, packet)) return 's';
+  return 0;
 }
 
 }  // namespace midi_core
