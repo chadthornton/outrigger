@@ -102,7 +102,6 @@ SETUP = f"""<ol class="steps3">
   <li><div><b>Install Outrigger on your ESP32</b><p>Plug it into this computer.</p>
     {INSTALL_BTN.format(out="out-b")}</div></li>
   <li><div><b>Add firmwares</b><p>Add Felucca, Skiff and more <a href="#add">from this page</a>.</p></div></li>
-  <li><div><b>Plug everything into the hub</b><p>From then on, it all happens on Outrigger's screen.</p></div></li>
 </ol>
 <details class="overview"><summary>Installation overview</summary>
   <dl>
