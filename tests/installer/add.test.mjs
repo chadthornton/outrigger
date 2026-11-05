@@ -57,12 +57,29 @@ test("hello and list on an empty store", async () => {
   try {
     const link = new BoardLink(b);
     const h = await link.hello();
-    assert.equal(h.protocol, 1);
+    assert.equal(h.protocol, 2);
     assert.equal(h.packages, 0);
     assert.equal(h.maxPackages, 10);
     assert.equal(h.free, 8 << 20);
     assert.equal(h.build, "test 1234567");
     assert.deepEqual(await link.list(), []);
+  } finally { b.close(); }
+});
+
+test("remove and info (protocol 2): a stored package goes; stock stays; no FM-1 seen yet", async () => {
+  const b = board();
+  try {
+    const link = new BoardLink(b);
+    const skiff = fixture("skiff-2.1.1.fwsc");
+    assert.equal(await link.add(entry("Skiff", "2.1.1", "skiff", skiff), skiff), "added");
+    const stock = fixture("FM-1_015.fwsc");
+    assert.equal(await link.add(entry("M-VAVE stock", "V15", "stock", stock), stock), "added");
+    await link.remove("skiff-2.1.1");
+    assert.deepEqual((await link.list()).map((p) => p.id), ["stock-V15"]);
+    await assert.rejects(link.remove("stock-V15"), (e) => e.code === 14);
+    await assert.rejects(link.remove("nope"), (e) => e.code === 15);
+    assert.deepEqual(await link.info(),
+      { known: false, backup: false, pending: false, head: null, flashId: 0, installed: "", name: "" });
   } finally { b.close(); }
 });
 

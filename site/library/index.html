@@ -62,6 +62,7 @@
   .c-installed { background: var(--accent); }
   .c-cart { background: var(--cart); }
   .c-free { border: 1px dashed var(--muted); }
+  .c-removing { background: repeating-linear-gradient(45deg, var(--warn-soft) 0 4px, var(--panel) 4px 8px); border: 1px solid var(--warn); }
   .c-full { background: repeating-linear-gradient(45deg, var(--soft) 0 4px, transparent 4px 8px); border: 1px solid var(--line); }
 
   .tabs { display: flex; gap: 4px; flex-wrap: wrap; border-bottom: 1px solid var(--line); }
@@ -80,6 +81,7 @@
   .list details { border-bottom: 1px solid var(--hairline); }
   .list details:last-child { border-bottom: 0; }
   .list details.queued > summary { background: var(--cart-soft); }
+  .list details.removing > summary { background: var(--warn-soft); }
   .list summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 12px; padding: 8px 12px 8px 16px; min-height: 48px; }
   .list summary::-webkit-details-marker { display: none; }
   .list summary:hover, .list details[open] > summary { background: var(--bg); }
@@ -114,8 +116,11 @@
   .kept h3 { margin: 4px 0 6px; font-size: .875rem; color: var(--muted); }
   .kept .box { padding: 10px 16px; gap: 2px; }
   .kept .box > span:first-child b { font-weight: 650; }
-  .kept .box .note { font-size: .8125rem; }
+  .kept .box .note, .fm1head .note { font-size: .8125rem; white-space: normal; }
 
+  .fm1head { display: grid; gap: 2px; }
+  .fm1head > span { font-size: .9375rem; }
+  .fm1head b { font-weight: 650; }
   .facts { margin: 0; display: grid; grid-template-columns: auto 1fr; column-gap: 16px; row-gap: 6px; font-size: .8125rem; line-height: 1.4; }
   .facts dt { color: var(--muted); }
   .facts dd { margin: 0; }

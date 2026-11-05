@@ -6,7 +6,8 @@
 //
 // What the board can say comes from lib/fm1_loader/src/receive.h: 'H' (how
 // many packages, the most it takes, free bytes) and 'L' (each package's id and
-// file SHA-256). It only adds: nothing on this page removes a package yet.
+// file SHA-256); on protocol 2, 'R' removes a package and 'I' says what the
+// loader knows about the FM-1 it saw last.
 
 // The board's limits (receive.h): kMaxPackages; an add needs
 // kBackupReserve + kPackageRoom free before it starts. Sectors: layout.h
@@ -34,9 +35,10 @@ const isStock = (id) => id === "stock" || id.startsWith("stock-");
 
 // rows for the tabs. lists: addableFirmwares(catalog) ({addable, held});
 // catalog: the catalog it came from, for authors and descriptions; stored: the
-// board's [{id, sha256}], or null when no board is connected.
+// board's [{id, sha256}], or null when no board is connected; running: the
+// package id the FM-1 runs ('I'), or "" when unknown.
 // Returns {board, available, riskier, kept}: kept is the stock packages.
-export function libraryRows(lists, catalog, stored) {
+export function libraryRows(lists, catalog, stored, running = "") {
   const info = new Map((catalog.firmwares || []).map((e) => [e.id, e]));
   const more = (project) => {
     const e = info.get(project) || {};
@@ -63,7 +65,8 @@ export function libraryRows(lists, catalog, stored) {
     const held = lists.held.find((f) => f.project === project);
     const latest = fw && boardId(fw.project, fw.version);
     const version = project && p.id !== project ? p.id.slice(project.length + 1) : fw && latest === p.id ? fw.version : "";
-    const row = { key: p.id, project: project || p.id, name: fw?.name || held?.name || p.id, version, ...more(project) };
+    const row = { key: p.id, project: project || p.id, name: fw?.name || held?.name || p.id, version, ...more(project),
+      running: p.id === running };
     if (fw && latest === p.id) board.push({ ...row, state: "current", fw });
     // An update only for the newest stored copy: never twice for one project.
     else if (fw && !ids.has(latest) && !board.some((r) => r.state === "update" && r.project === project)) {
@@ -114,36 +117,44 @@ export function toggle(list, key) {
 
 // How many more packages the board takes: its count limit, and the bytes each
 // add needs before it starts (one PACKAGE_ROOM per add, the most a package
-// uses, so the page never offers one the board will refuse).
-export function room(hello) {
-  const byCount = hello.maxPackages - hello.packages;
+// uses, so the page never offers one the board will refuse). removes: how many
+// queued removes go first. Each frees a place in the count; the bytes it frees
+// aren't counted, since its sectors may be shared with a backup or a save.
+export function room(hello, removes = 0) {
+  const byCount = hello.maxPackages - hello.packages + removes;
   const byBytes = Math.floor((hello.free - BACKUP_RESERVE) / PACKAGE_ROOM);
   return Math.max(0, Math.min(byCount, byBytes));
 }
 
 // The adds still possible with the cart as it is.
-export const canAdd = (hello, cart) => cart.length < room(hello);
+export const canAdd = (hello, cart, removes = []) => cart.length < room(hello, removes.length);
 
-// One cell per package the board can hold: stock, the others stored, the cart,
-// free, and slots the count allows but memory doesn't ("full").
-export function meter(hello, stockCount, cart) {
-  const total = hello.maxPackages;
-  const open = room(hello);
-  const cells = [];
-  for (let i = 0; i < total; i++) {
-    const kind = i < stockCount ? "kept"
-      : i < hello.packages ? "installed"
-        : i < hello.packages + Math.min(cart.length, open) ? "cart"
-          : i < hello.packages + open ? "free" : "full";
-    cells.push(kind);
-  }
-  return cells;
+// A row the page offers to remove: on the board, not stock, not what the FM-1 runs.
+export const removable = (row) => !!row && !row.running && ["current", "update", "old", "unknown"].includes(row.state);
+
+// Apply's order: removes first, so the adds have their room.
+export const steps = (removes, adds) => [...removes.map((id) => ({ remove: id })), ...adds.map((fw) => ({ add: fw }))];
+
+// One cell per package the board can hold: stock, the others stored, those
+// queued to go ("removing"), the cart, free, and slots the count allows but
+// memory doesn't ("full"). When the cart fills places a remove frees, those
+// removing cells show as cart.
+export function meter(hello, stockCount, cart, removes = []) {
+  const gone = removes.length;
+  const open = room(hello, gone);
+  const adds = Math.min(cart.length, open);
+  const reuse = Math.max(0, hello.packages + adds - hello.maxPackages);  // removing places the cart fills
+  const run = (kind, n) => Array(Math.max(0, n)).fill(kind);
+  const cells = [...run("kept", stockCount), ...run("installed", hello.packages - stockCount - gone),
+    ...run("removing", gone - reuse), ...run("cart", adds)];
+  const free = Math.min(hello.maxPackages - cells.length, open - adds - (gone - reuse));
+  return [...cells, ...run("free", free), ...run("full", hello.maxPackages - cells.length - Math.max(0, free))];
 }
 
 const mb = (bytes) => (bytes / 1048576).toFixed(1);
 
-export function storageLine(hello, cart) {
-  const left = room(hello) - cart.length;
+export function storageLine(hello, cart, removes = []) {
+  const left = room(hello, removes.length) - cart.length;
   const after = Math.max(0, hello.free - cart.length * PACKAGE_ROOM);
   return `${hello.packages} of ${hello.maxPackages} firmwares · about ${mb(after)} MB free · room for ${Math.max(0, left)} more`;
 }
@@ -158,10 +169,36 @@ export function applyOutcome(cart, results) {
   return { landed: cart.slice(0, done), left: cart.slice(done), error: at < 0 ? null : results[at] };
 }
 
+// "Your FM-1" from 'I' (BoardLink.info) and the board's rows: what it runs, and
+// [label, words] facts. The board has no clock, so a backup has no time.
+const HEADS = { V15: "M-VAVE V15", V16: "M-VAVE V16", other: "Not M-VAVE's" };
+// JEDEC ids (layout.h): 0x85 is Puya's manufacturer byte; the UC25HQ80 newer FM-1s ship with.
+const CHIPS = { 0x856014: "Puya P25Q80H", 0xb36014: "UC25HQ80" };
+export function fm1Facts(info, boardRows) {
+  if (!info.known) return null;
+  const row = boardRows.find((r) => r.key === info.installed);
+  const running = info.installed ? { name: row?.name || info.installed, version: row?.version || "" } : null;
+  return {
+    name: info.name,
+    running,
+    facts: [
+      ["Last backup", info.backup ? "Kept on Outrigger, from its last switch" : "None yet: Outrigger takes one at the first switch"],
+      ["Start-up code", info.head ? HEADS[info.head] : "Not read yet"],
+      ["Flash chip", CHIPS[info.flashId] || (info.flashId ? `0x${info.flashId.toString(16)}` : "Not read yet")],
+      ...(info.pending ? [["Install", "Unfinished: switch the FM-1 on with it plugged in, and Outrigger finishes it"]] : []),
+    ],
+  };
+}
+
 // The board's refusals (receive.h ReceiveError) in the page's words, when its
 // own words don't say what to do.
 export function addError(e, label) {
   if (e.code === 4) return `${label} wasn't added: this Outrigger doesn't take it yet. Update Outrigger from the home page, then try again.`;
-  if (e.code === 5) return `${label} wasn't added: Outrigger has a different file under this version. It may have been re-released; removing the old one isn't possible from this page yet.`;
+  if (e.code === 5) return `${label} wasn't added: Outrigger has a different file under this version. It may have been re-released: remove the one on your board, apply, then add it again.`;
   return `${label} wasn't added. ${e.message}`;
+}
+
+export function removeError(e, label) {
+  if (e.code === 13) return `${label} wasn't removed: your FM-1 runs it, or an install of it isn't finished. Switch the FM-1 to another firmware first.`;
+  return `${label} wasn't removed. ${e.message}`;
 }

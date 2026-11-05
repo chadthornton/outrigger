@@ -311,6 +311,21 @@ export class BoardLink {
     return out;
   }
 
+  // Protocol 2: removes one stored package; the board refuses stock, the one
+  // an FM-1 runs and one an unfinished install needs (e.code, receive.h).
+  async remove(id) {
+    await this.ask(0x52 /* 'R' */, new TextEncoder().encode(id), (r) => r.type === 0x72);
+  }
+
+  // Protocol 2: what the loader knows about the FM-1 it saw last. head: "V15",
+  // "V16", "other", or null with no backup; flashId 0 when unknown.
+  async info() {
+    const p = (await this.ask(0x49 /* 'I' */, undefined, (r) => r.type === 0x69)).payload;
+    const [pkg, name] = text(p.subarray(6)).split("\0");
+    return { known: !!(p[0] & 1), backup: !!(p[0] & 2), pending: !!(p[0] & 4),
+      head: ({ 0: "V15", 1: "V16", 2: "other" })[p[1]] || null, flashId: u32(p, 2), installed: pkg || "", name: name || "" };
+  }
+
   // Sends one checked file; "added", or "already" when the store has it.
   async add(fw, data, onProgress = () => {}) {
     const enc = new TextEncoder();

@@ -3,8 +3,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { addableFirmwares } from "../../site/installer/add.js";
-import { BACKUP_RESERVE, PACKAGE_ROOM, applyOutcome, addError, boardId, canAdd, countLine, libraryRows, meter, room,
-  shownRows, storageLine, toggle } from "../../site/installer/library.js";
+import { BACKUP_RESERVE, PACKAGE_ROOM, applyOutcome, addError, boardId, canAdd, countLine, fm1Facts, libraryRows, meter,
+  removable, removeError, room, shownRows, steps, storageLine, toggle } from "../../site/installer/library.js";
 
 const catalog = {
   stock: { pkg: "fw/mvave/FM-1_015.fwsc", sha256: "aa", size: 699956, product: "FM-1_015" },
@@ -131,4 +131,56 @@ test("addError: the board's refusals in words that say what to do", () => {
   assert.match(addError(Object.assign(new Error("Blocked"), { code: 4 }), "SLOOP 2.8.4"), /Update Outrigger/);
   assert.match(addError(Object.assign(new Error("x"), { code: 5 }), "Felucca"), /re-released/);
   assert.equal(addError(new Error("Cable out."), "X0X 1.2.0"), "X0X 1.2.0 wasn't added. Cable out.");
+});
+
+test("removable: board rows the FM-1 doesn't run; never stock, never a catalog row", () => {
+  const { board, available, kept } = libraryRows(lists, catalog, stored, "skiff-2.2");
+  const by = Object.fromEntries(board.map((r) => [r.key, r]));
+  assert.equal(by["skiff-2.2"].running, true);
+  assert.equal(removable(by["skiff-2.2"]), false);
+  assert.equal(removable(by["felucca-1.8.0"]), true);
+  assert.equal(removable(by["my-own-thing"]), true);
+  assert.equal(removable(kept[0]), false);
+  assert.equal(removable(available[0]), false);
+});
+
+test("removes: each frees a place in the count, not bytes; Apply removes first", () => {
+  const full = { packages: 10, maxPackages: 10, free: 12 * 1048576 };
+  assert.equal(room(full), 0);
+  assert.equal(room(full, 2), 2);
+  assert.equal(canAdd(full, ["a"], ["x"]), false);
+  assert.equal(canAdd(full, [], ["x"]), true);
+  const tight = { packages: 4, maxPackages: 10, free: BACKUP_RESERVE + PACKAGE_ROOM };
+  assert.equal(room(tight, 3), 1);  // the bytes still decide
+  assert.deepEqual(steps(["x"], [{ project: "a" }]), [{ remove: "x" }, { add: { project: "a" } }]);
+});
+
+test("meter: removes show until Apply, and the cart fills the places they free", () => {
+  const full = { packages: 10, maxPackages: 10, free: 12 * 1048576 };
+  assert.deepEqual(meter(full, 1, [], ["x", "y"]),
+    ["kept", ...Array(7).fill("installed"), "removing", "removing"]);
+  assert.deepEqual(meter(full, 1, ["a"], ["x", "y"]),
+    ["kept", ...Array(7).fill("installed"), "removing", "cart"]);
+  const some = { packages: 4, maxPackages: 10, free: 12 * 1048576 };
+  assert.deepEqual(meter(some, 1, ["a"], ["x"]),
+    ["kept", "installed", "installed", "removing", "cart", ...Array(5).fill("free")]);
+  assert.match(storageLine(full, ["a"], ["x", "y"]), /room for 1 more$/);
+});
+
+test("fm1Facts: what 'I' says, in words; none before Outrigger has seen an FM-1", () => {
+  const { board } = libraryRows(lists, catalog, stored, "skiff-2.2");
+  assert.equal(fm1Facts({ known: false }, board), null);
+  const f = fm1Facts({ known: true, backup: true, pending: false, head: "V15", flashId: 0x856014, installed: "skiff-2.2", name: "Studio" }, board);
+  assert.deepEqual(f.running, { name: "Skiff", version: "2.2" });
+  assert.equal(f.name, "Studio");
+  assert.deepEqual(Object.fromEntries(f.facts), { "Last backup": "Kept on Outrigger, from its last switch",
+    "Start-up code": "M-VAVE V15", "Flash chip": "Puya P25Q80H" });
+  const g = fm1Facts({ known: true, backup: false, pending: true, head: null, flashId: 0xb36014, installed: "", name: "" }, board);
+  assert.equal(g.running, null);
+  const facts = Object.fromEntries(g.facts);
+  assert.match(facts["Last backup"], /None yet/);
+  assert.equal(facts["Start-up code"], "Not read yet");
+  assert.equal(facts["Flash chip"], "UC25HQ80");
+  assert.match(facts.Install, /Unfinished/);
+  assert.match(removeError(Object.assign(new Error("x"), { code: 13 }), "Skiff 2.2"), /Switch the FM-1/);
 });

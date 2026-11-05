@@ -52,4 +52,5 @@ The same as switching to the three it came with: see [Switching FM-1 firmware](0
 switches to an added firmware haven't been tested on a real FM-1, so Outrigger clears the old firmware's data first
 and keeps a copy on its shelf. Switch back and it comes back.
 
-There's no way to remove a firmware from Outrigger yet.
+To remove one, update Outrigger from the home page first, then use **Remove** on the library's **On your board** tab
+and **Apply**. Its saved songs stay on Outrigger. Stock V15 and the firmware your FM-1 runs can't be removed.
