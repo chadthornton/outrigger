@@ -36,6 +36,8 @@ constexpr uint32_t kHeadCrcV16 = 0x08316064;
 
 constexpr uint32_t kChipKey = 0x980F;
 constexpr uint32_t kFlashId = 0x856014;
+// The UC25HQ80 some FM-1s ship with: named on screen, never read or written yet.
+constexpr uint32_t kFlashIdUc25hq80 = 0xB36014;
 
 struct Range {
   uint32_t start, end;

@@ -106,24 +106,35 @@ class LinkTest(unittest.TestCase):
         links = ec.installer_links()
         urls = [l["url"] for l in links]
         self.assertTrue(any(u.endswith("/wl82loader.bin") for u in urls))
-        self.assertIn("https://thefirmwarehub.com/fw/mvave/FM-1_015.fwsc", urls)
+        self.assertIn("https://raw.githubusercontent.com/m-vave/fm1_open/b178ac43c25f010c60a878056fb5331fe693fd62/sdk/firmware/FM-1_015.fwsc", urls)
         self.assertIn(ec.HUB_CATALOG, urls)
         self.assertIn(ec.MUTANT_CATALOG, urls)
         self.assertTrue(all(l["sha256"] for l in links if not l["json"]))
 
     def test_check_link(self):
+        cors = {"access-control-allow-origin": "*"}
+        ok = lambda body: (lambda u: (body, cors))  # noqa: E731
         blob = b"loader"
         link = {"name": "x", "url": "u", "sha256": hashlib.sha256(blob).hexdigest(), "json": False}
-        self.assertIsNone(ec.check_link(link, lambda u: blob))
-        self.assertIn("changed", ec.check_link(link, lambda u: b"other"))
+        self.assertIsNone(ec.check_link(link, ok(blob)))
+        self.assertIn("changed", ec.check_link(link, ok(b"other")))
 
         def gone(u):
             raise urllib.error.HTTPError(u, 404, "Not Found", {}, None)
         self.assertEqual(ec.check_link(link, gone), "answered 404")
         cat = {"name": "c", "url": "u", "sha256": None, "json": True}
-        self.assertIsNone(ec.check_link(cat, lambda u: b'{"firmwares": [1]}'))
-        self.assertIn("no firmwares", ec.check_link(cat, lambda u: b'{"firmwares": []}'))
-        self.assertIn("not with JSON", ec.check_link(cat, lambda u: b"<html>"))
+        self.assertIsNone(ec.check_link(cat, ok(b'{"firmwares": [1]}')))
+        self.assertIn("no firmwares", ec.check_link(cat, ok(b'{"firmwares": []}')))
+        self.assertIn("not with JSON", ec.check_link(cat, ok(b"<html>")))
+
+    def test_a_file_a_browser_cant_read_is_broken(self):
+        # The installer and Add firmware download in the visitor's browser: without
+        # CORS the page can't read the bytes, however right they are.
+        blob = b"stock"
+        link = {"name": "x", "url": "u", "sha256": hashlib.sha256(blob).hexdigest(), "json": False}
+        self.assertIn("CORS", ec.check_link(link, lambda u: (blob, {})))
+        self.assertIn("CORS", ec.check_link(link, lambda u: (blob, {"access-control-allow-origin": "https://elsewhere"})))
+        self.assertIsNone(ec.check_link(link, lambda u: (blob, {"Access-Control-Allow-Origin": "*"})))
 
 
 class RenameTest(unittest.TestCase):

@@ -45,6 +45,7 @@ const char *failure_text(Failure f) {
     case Failure::IdentityMismatch: return "chip key or flash ID isn't an FM-1's";
     case Failure::V16Head: return "this FM-1 has M-VAVE's V16 start-up code: backup only";
     case Failure::UnknownHead: return "this FM-1 has unknown start-up code: backup only";
+    case Failure::UnsupportedFlash: return "this FM-1's flash chip (UC25HQ80) isn't supported yet";
     case Failure::DeviceLost: return "the FM-1 stopped answering";
     case Failure::BackupMismatch: return "the two backup reads differ";
     case Failure::NoBackupForInstall: return "back up this FM-1 first";
@@ -253,6 +254,7 @@ void Installer::do_read_ids() {
     detail_ = "read chip key / flash ID";
     return fail(Failure::DeviceLost);
   }
+  if (key == kChipKey && id == kFlashIdUc25hq80) return fail(Failure::UnsupportedFlash, true);
   if (key != kChipKey || id != kFlashId) return fail(Failure::IdentityMismatch, true);
   index_ = 0;
   pass_ = 1;

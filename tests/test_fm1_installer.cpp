@@ -215,6 +215,33 @@ static void test_golden_identity() {
     CHECK(r.inst.failure() == Failure::IdentityMismatch);
     check_golden("wrong_flash_id", r, "identity");
   }
+  {
+    // The UC25HQ80 (0xB36014) some FM-1s ship with: named, and nothing touched,
+    // for an install and for a backup alike.
+    Rig r(base_flash(sloop()));
+    r.back_up();
+    r.rom.id = 0xB36014;
+    r.install("skiff-1.4");
+    CHECK(r.inst.failure() == Failure::UnsupportedFlash);
+    CHECK(r.rom.was_reset && !r.inst.danger() && r.rom.lowest_touched < 0 && r.rom.writes == 0);
+    r.fresh_rom();
+    InstallOptions o;
+    o.confirmed = true;
+    r.inst.start_backup(o);
+    r.inst.run();
+    CHECK(r.inst.failure() == Failure::UnsupportedFlash);
+    CHECK(r.rom.was_reset && r.rom.reads == 0);
+    CHECK(strstr(failure_text(Failure::UnsupportedFlash), "UC25HQ80"));
+  }
+  {
+    // A chip key that isn't the FM-1's stays a plain mismatch, whatever the flash.
+    Rig r(base_flash(sloop()));
+    r.back_up();
+    r.rom.key = 0x1234;
+    r.rom.id = 0xB36014;
+    r.install("skiff-1.4");
+    CHECK(r.inst.failure() == Failure::IdentityMismatch);
+  }
 }
 
 // Any head but stock V15's: the backup works, every install stops before the
