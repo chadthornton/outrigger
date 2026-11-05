@@ -360,6 +360,9 @@ bool update_receive_begin(bool recovery_slot, uint32_t size, const uint8_t sha25
 
 bool update_receive_write(const uint8_t *data, size_t len, const char **why) {
   if (!rx.active || rx.got + len > rx.size) return *why = "more bytes than announced", false;
+  // An ESP32 app image starts with 0xE9 (esp_image_header_t): anything else
+  // would only be found out after the copy, three trial boots later.
+  if (rx.got == 0 && len && data[0] != 0xE9) return *why = "not an ESP32 app image", false;
   const bool ok = rx.recovery ? esp_partition_write(rx.slot, rx.got, data, len) == ESP_OK
                               : fwrite(data, 1, len, rx.file) == len;
   if (!ok) return *why = rx.recovery ? "couldn't write the recovery slot" : "couldn't write the store", false;
