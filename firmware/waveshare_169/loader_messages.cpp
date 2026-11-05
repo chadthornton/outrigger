@@ -269,6 +269,8 @@ void describe_result(const JobOutcome &in, UiResult &out) {
     snprintf(why, sizeof why, "%s", out.why);
     if (why[0] >= 'A' && why[0] <= 'Z') why[0] = char(why[0] - 'A' + 'a');
     PUT(out.headline, "Switch didn't start");
+    // No backup can help an unsupported flash chip: the stage's own words, in full.
+    if (in.failure == Failure::UnsupportedFlash) return;
     if (in.stale_backup && in.stale_backup[0])
       PUT(out.why, "It changed since %s, and the backup stopped: %s", in.stale_backup, why);
     else
@@ -430,6 +432,11 @@ static void describe_stage(const JobOutcome &in, UiResult &out) {
     case Failure::Blocked:
       PUT(out.why, "Not yet supported: Outrigger can't switch to this firmware yet.");
       PUT(out.todo, "Pick another firmware.");
+      out.fix = UiAct::None;
+      break;
+    case Failure::UnsupportedFlash:
+      PUT(out.why, "This FM-1 has a different flash chip (UC25HQ80).");
+      PUT(out.todo, "Outrigger doesn't support it yet.");
       out.fix = UiAct::None;
       break;
     case Failure::WritesLocked:

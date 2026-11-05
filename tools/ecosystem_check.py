@@ -82,11 +82,11 @@ def _constants(path, names):
 def installer_links(root=ROOT):
     """[{name, url, sha256 or None, json}]: the files the live installer downloads, from the
     pins the site build uses (tools/store_template.py), and the catalogs Add firmware reads."""
-    t = _constants(root / "tools/store_template.py", {"LOADER_URL", "HUB", "STARTER"})
+    t = _constants(root / "tools/store_template.py", {"LOADER_URL", "STARTER"})
     blob = _constants(root / "tools/store_image.py", {"BLOB_SHA256"})["BLOB_SHA256"]
     links = [{"name": "JieLi's wl82loader.bin (GitHub)", "url": t["LOADER_URL"], "sha256": blob, "json": False}]
-    for _id, name, version, _project, _fixture, path, sha in t["STARTER"]:
-        links.append({"name": f"{name} {version} (Firmware Hub)", "url": t["HUB"] + path, "sha256": sha, "json": False})
+    for _id, name, version, _project, _fixture, url, sha, source in t["STARTER"]:
+        links.append({"name": f"{name} {version} ({source})", "url": url, "sha256": sha, "json": False})
     links.append({"name": "Firmware Hub catalog", "url": HUB_CATALOG, "sha256": None, "json": True})
     links.append({"name": "mutant.cloud catalog", "url": MUTANT_CATALOG, "sha256": None, "json": True})
     return links
@@ -105,17 +105,28 @@ def get(url):
         return r.read()
 
 
-def check_link(link, fetch=get, keep=None):
+def get_for_browser(url):
+    """(bytes, headers) as a page on outrigger.music would ask for them."""
+    req = urllib.request.Request(url, headers={"User-Agent": UA, "Origin": "https://outrigger.music"})
+    with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+        return r.read(), dict(r.headers.items())
+
+
+def check_link(link, fetch=get_for_browser, keep=None):
     """None when the link answers with what the installer expects, else why not.
+    Every link is read by the visitor's browser, so it must allow any origin.
     keep (a dict), when given, gets the downloaded bytes by URL."""
     try:
-        data = fetch(link["url"])
+        data, headers = fetch(link["url"])
         if keep is not None:
             keep[link["url"]] = data
     except urllib.error.HTTPError as e:
         return f"answered {e.code}"
     except Exception as e:  # noqa: BLE001 - any failure to fetch is the finding
         return f"couldn't be reached ({e})"
+    allow = {k.lower(): v for k, v in headers.items()}.get("access-control-allow-origin", "")
+    if allow.strip() not in ("*", "https://outrigger.music"):
+        return "answered, but a web page can't read it (no CORS header for outrigger.music)"
     if link["sha256"] and hashlib.sha256(data).hexdigest() != link["sha256"]:
         return "answered, but the file changed (SHA-256 differs from the installer's pin)"
     if link["json"]:

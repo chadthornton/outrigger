@@ -291,7 +291,7 @@ class InstallArea {
     }
     const storeWords = store.action !== "create" ? null
       : `${noStore} Installing also sets up a fresh one with ${listOf(store.starter)}; add Felucca, Skiff and others after. ` +
-        "It downloads from thefirmwarehub.com, and the file the loader needs from the FM-1's chip maker from GitHub, straight into this browser.";
+        "It downloads both from GitHub, straight into this browser: M-VAVE's stock firmware, and the file the loader needs from the FM-1's chip maker.";
     this.show(
       h("p", { class: "install-read" }, words.board),
       words.warning ? h("p", { class: "install-error", role: "alert" }, words.warning) : null,

@@ -60,6 +60,7 @@ enum class Failure {
   LoaderBlobBad,       // wl82loader.bin doesn't match its SHA-256
   LoaderFailed,        // the upload or the jump failed
   IdentityMismatch,    // chip key or flash ID isn't the FM-1's
+  UnsupportedFlash,    // an FM-1 with the UC25HQ80 flash (kFlashIdUc25hq80): not supported yet
   DeviceLost,          // a command failed: unplugged, or the device stopped answering
   BackupMismatch,      // the two backup reads differ
   NoBackupForInstall,  // install: no stored backup of this FM-1 to plan from

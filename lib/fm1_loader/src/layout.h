@@ -30,6 +30,8 @@ constexpr uint32_t kKeyMacStart = 0xFF000;     // erased at the factory, never w
 
 constexpr uint32_t kChipKey = 0x980F;
 constexpr uint32_t kFlashId = 0x856014;
+// The UC25HQ80 some FM-1s ship with: named on screen, never read or written yet.
+constexpr uint32_t kFlashIdUc25hq80 = 0xB36014;
 
 struct Range {
   uint32_t start, end;
