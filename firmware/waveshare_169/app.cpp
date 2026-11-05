@@ -484,9 +484,16 @@ static void device_refusal(uint8_t address, char *out, size_t len) {
 static void publish_diag(const UiFrame *frame) {
   if (!web_running()) return;  // Remote diagnostics off: nobody reads it
   static uint32_t last = 0;
-  if (frame && millis() - last < 250) return;  // /status is polled once a second
+  // /status is polled once a second, so once a second is enough. On a
+  // first-revision 1.69" the buzzer sits on an octal-PSRAM line (GPIO33), and
+  // every PSRAM write ticks it: four 4 KB copies a second clicked audibly
+  // (Small-V1, 2026-11-05).
+  if (frame && millis() - last < 1000) return;
   last = millis();
-  static DiagState *copy = static_cast<DiagState *>(heap_caps_calloc(1, sizeof(DiagState), MALLOC_CAP_SPIRAM));
+  // In internal RAM for the same reason; PSRAM only if internal is short.
+  static DiagState *copy = static_cast<DiagState *>(
+      heap_caps_calloc(1, sizeof(DiagState), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT)
+          ?: heap_caps_calloc(1, sizeof(DiagState), MALLOC_CAP_SPIRAM));
   if (!copy) return;
   DiagState &d = *copy;
   d.host_running = host_running;
