@@ -134,10 +134,20 @@ void Receiver::remove(const std::vector<uint8_t> &p, std::vector<uint8_t> &out) 
   PackageInfo info;
   if (!key_safe(id) || !lib_.package(id, info)) return refuse(out, ReceiveError::NoSuchPackage, "Outrigger doesn't have that firmware");
   if (info.project == "stock") return refuse(out, ReceiveError::Kept, "Stock V15 always stays on Outrigger");
-  if (lib_.package_in_use(id)) return refuse(out, ReceiveError::InUse, "Your FM-1 runs it, or an install of it isn't finished");
-  if (!lib_.remove_package(id)) return refuse(out, ReceiveError::StoreFailed, "Outrigger's store refused the change");
+  // package_in_use is also true when a unit's record can't be read: then nothing is removed.
+  if (lib_.package_in_use(id))
+    return refuse(out, ReceiveError::InUse, "An FM-1 runs it, an install of it isn't finished, or a record of your FM-1s can't be read");
+  // On the screen while the store frees its sectors, which can take a few seconds.
+  status_ = ReceiveStatus();
+  status_.label = info.version.empty() ? (info.name.empty() ? id : info.name) : info.name + " " + info.version;
+  set_state(ReceiveStatus::State::Removing);
+  if (!lib_.remove_package(id)) {
+    set_state(ReceiveStatus::State::Idle);
+    return refuse(out, ReceiveError::StoreFailed, "Outrigger's store refused the change");
+  }
   lib_.collect_garbage();
   last_removed_ = id;
+  set_state(ReceiveStatus::State::Removed);
   reply(out, 'r', {});
 }
 

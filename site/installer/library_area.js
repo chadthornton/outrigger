@@ -6,7 +6,7 @@
 // its running program, and the FM-1 isn't touched: switching happens on the
 // board, which backs up first.
 import { addableFirmwares, fetchHubPackage, loadCatalog, BoardLink } from "./add.js";
-import { applyOutcome, addError, canAdd, countLine, fm1Facts, libraryRows, meter, removable, removeError, shownRows, steps,
+import { applyOutcome, addError, canAdd, countLine, fm1Facts, libraryRows, meter, removable, removeError, room, shownRows, steps,
   storageLine, toggle } from "./library.js";
 import { PORT_FILTER, SERIAL_OPTIONS, port as lock, h } from "./ui.js";
 
@@ -330,7 +330,11 @@ class Library {
     const canRemove = connected && s.info !== null && removable(r);
     const removing = s.removes.includes(r.key);
     const rm = canRemove ? h("button", { class: "undo", disabled: !!s.applying, on: { click: stop(() => this.queueRemove(r.key)) } }, "Remove") : null;
-    const keep = h("button", { class: "undo", disabled: !!s.applying, on: { click: stop(() => this.unqueueRemove(r.key)) } }, "Undo");
+    // Undoing a remove whose place the cart has taken would leave an add the board refuses.
+    const taken = connected && s.cart.length > room(s.hello, s.removes.length - 1);
+    const keep = h("button", { class: "undo", disabled: !!s.applying || taken,
+      title: taken ? "An add in your changes uses its place: undo that first" : null,
+      on: { click: stop(() => this.unqueueRemove(r.key)) } }, "Undo");
     let note = "", tone = "", acts = [];
     if (removing) {
       note = "Will be removed. Its songs stay saved on the board.";

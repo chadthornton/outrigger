@@ -374,8 +374,13 @@ static void test_remove_deletes_only_the_package() {
   CHECK_EQ(send_package(b, fixture("skiff-2.1.1.fwsc"), "skiff", "2.1.1", "Skiff").type, uint8_t('d'));
   Unit u = backed_up_unit(b, "felucca-1.8.0");
   const size_t sectors_before = b.lib.sectors().count();
+  b.statuses.clear();
   Reply r = b.ask('R', id_payload("skiff-2.1.1"));
   CHECK_EQ(r.type, uint8_t('r'));
+  // The screen says what's happening while the store frees sectors, then that it's done.
+  CHECK_EQ(b.statuses.size(), size_t(2));
+  CHECK(b.statuses.size() == 2 && b.statuses[0].state == ReceiveStatus::State::Removing &&
+        b.statuses[1].state == ReceiveStatus::State::Removed && b.statuses[1].label == "Skiff 2.1.1");
   CHECK(b.lib.package_ids() == std::vector<std::string>{"felucca-1.8.0"});
   // Its sectors are freed, so the store has room again ...
   CHECK(b.lib.sectors().count() < sectors_before);

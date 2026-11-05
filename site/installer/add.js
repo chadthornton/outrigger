@@ -312,9 +312,11 @@ export class BoardLink {
   }
 
   // Protocol 2: removes one stored package; the board refuses stock, the one
-  // an FM-1 runs and one an unfinished install needs (e.code, receive.h).
+  // an FM-1 runs and one an unfinished install needs (e.code, receive.h). It
+  // answers once the store has freed the package's sectors, so it gets as long
+  // as a store.
   async remove(id) {
-    await this.ask(0x52 /* 'R' */, new TextEncoder().encode(id), (r) => r.type === 0x72);
+    await this.ask(0x52 /* 'R' */, new TextEncoder().encode(id), (r) => r.type === 0x72, this.storeMs);
   }
 
   // Protocol 2: what the loader knows about the FM-1 it saw last. head: "V15",

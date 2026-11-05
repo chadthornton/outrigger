@@ -95,8 +95,8 @@ class FrameReader {
 
 // What the Computer mode screen says about adding.
 struct ReceiveStatus {
-  enum class State { Idle, Receiving, Adding, Added, Failed } state = State::Idle;
-  std::string label;  // "Felucca 1.8.0"
+  enum class State { Idle, Receiving, Adding, Added, Failed, Removing, Removed } state = State::Idle;
+  std::string label;  // "Felucca 1.8.0": the package added, or removed
   std::string why;    // Failed: the reason
   uint32_t got = 0, total = 0;
 };
