@@ -269,6 +269,8 @@ void describe_result(const JobOutcome &in, UiResult &out) {
     snprintf(why, sizeof why, "%s", out.why);
     if (why[0] >= 'A' && why[0] <= 'Z') why[0] = char(why[0] - 'A' + 'a');
     PUT(out.headline, "Switch didn't start");
+    // No backup can help an unsupported flash chip: the stage's own words, in full.
+    if (in.failure == Failure::UnsupportedFlash) return;
     if (in.stale_backup && in.stale_backup[0])
       PUT(out.why, "It changed since %s, and the backup stopped: %s", in.stale_backup, why);
     else

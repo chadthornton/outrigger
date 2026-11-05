@@ -130,6 +130,12 @@ static void test_nothing_written_rows() {
   r = result(uc);
   EXPECT(strcmp(r.headline, "Backup didn't finish") == 0 && has(r.why, "UC25HQ80") && r.fix == UiAct::None,
          "UC25HQ80: a backup says the same");
+  uc.chain = Chain::Backup;  // a first switch backs up first: the path every UC25HQ80 unit takes
+  uc.firmware = "Felucca 1.6.1";
+  r = result(uc);
+  EXPECT(strcmp(r.headline, "Switch didn't start") == 0, "UC25HQ80 in a switch's backup: the switch didn't start");
+  EXPECT(strcmp(r.why, "This FM-1 has a different flash chip (UC25HQ80).") == 0 && r.fix == UiAct::None,
+         "UC25HQ80 in a switch's backup: the chip named in full, no retry");
 
   r = result(switch_failed(Failure::IdentityMismatch));
   EXPECT(has(r.why, "Chip key") && strcmp(r.todo, "Try again.") == 0, "anything else: failure_text, try again");
