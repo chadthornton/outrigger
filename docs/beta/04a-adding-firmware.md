@@ -1,21 +1,22 @@
 # Adding a firmware
 
 Outrigger comes with M-VAVE stock V15. Add Felucca, Skiff or any other firmware from the community
-catalog at [mutant.cloud](https://mutant.cloud), up to ten in all, from the homepage. No Mac tools, and nothing on Outrigger is erased.
+catalog at [mutant.cloud](https://mutant.cloud), up to ten in all, from the [Firmware library](https://outrigger.music/library/). No Mac tools, and nothing on Outrigger is erased.
 
 ## How
 
 1. On Outrigger, open **Settings** (the gear), then **Computer mode**, and hold the button. Outrigger restarts with
    MIDI off.
-2. Plug it into your computer with a data cable, and open [outrigger.music](https://outrigger.music/#add) in Chrome or
+2. Plug it into your computer with a data cable, and open the [Firmware library](https://outrigger.music/library/) in Chrome or
    Edge.
 3. If you haven't updated Outrigger since this feature came out, click **Check my board**, then **Install**, first.
    Outrigger restarts into MIDI after an install, so go back to **Computer mode** (step 1) before going on.
-4. Under **Add custom FM-1 firmwares**, click **Connect to my Outrigger** and pick the port Chrome offers. The page lists
-   mutant.cloud's FM-1 firmwares, with each one's family and license, and marks the ones Outrigger already has. If
+4. Click **Connect**, then **Choose my Outrigger**, and pick the port Chrome offers. **On your board** shows what
+   Outrigger has, with an **Update** where the list has a newer version; **Available** lists mutant.cloud's FM-1
+   firmwares. If
    mutant.cloud doesn't answer within a few seconds, the page uses the Firmware Hub's list instead and says so.
-5. Click **Add** next to one. Your browser downloads it from the same site as the list and checks it against the list's
-   SHA-256.
+5. Click **Add** next to one or more, then **Apply** under **Your changes**. Your browser downloads each from the same
+   site as the list and checks it against the list's SHA-256.
    Then it sends it to Outrigger, which checks it again before storing it. Outrigger's screen shows how far it's got.
    About a minute.
 6. Add more if you like. When you're done, tap **Back to MIDI** on Outrigger, then plug it back into the hub. The new
@@ -34,7 +35,7 @@ Outrigger refuses an add, and says why, when:
 
 ## What isn't on the list yet
 
-The page lists these under **Not on the list yet**, with the reason:
+The library lists these under **Riskier**, with the reason:
 
 - **Melodee, Tessera and the firmwares built on Melodee.** They write the part of the FM-1's memory Outrigger uses to tell FM-1s apart.
 - **SLOOP and most firmwares built on it or on Felucca 0.9** (Clipper and others). SLOOP's fourth sample slot

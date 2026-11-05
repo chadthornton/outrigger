@@ -6,7 +6,6 @@
 <title>Outrigger: a little companion for your FM-1</title>
 <meta name="description" content="Play the M-VAVE FM-1 from any MIDI controller with a USB connection, and switch between 100+ firmwares without a laptop.">
 <script type="module" src="installer/area.js"></script>
-<script type="module" src="installer/add_area.js"></script>
 <link rel="stylesheet" href="style.css">
 <style>
   /* Spacing steps: 4 8 12 16 24 32 48 64 96. Type: 13 / 15 / 17 / 20 / 28 / clamp(36-52). */
@@ -157,6 +156,9 @@
   .addfw summary span { color: var(--muted); }
   .addfw summary b { color: var(--accent); font-weight: 650; }
   .addfw-body { padding: 0 18px 18px; }
+  .addfw-link { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; padding: 14px 18px; font-size: .9375rem; text-decoration: none; }
+  .addfw-link span { color: var(--muted); }
+  .addfw-link b { color: var(--accent); font-weight: 650; }
   .addfw-body p { margin-top: 0; max-width: none; }
   footer .install { margin: 8px 0 12px; max-width: 320px; }
   footer .install button { padding: 8px 14px; font-size: .875rem; width: auto; }
@@ -202,7 +204,7 @@
 <nav class="wrap topnav">
   <a class="wordmark" href="#"><i></i>Outrigger</a><span class="beta">Beta</span>
   <span class="sp"></span>
-  <a class="link wide" href="#need">What you need</a><a class="link wide" href="#coming">What's coming</a><a class="link" href="#trouble">Help</a><a class="link" href="beta/">Beta testers</a>
+  <a class="link wide" href="#need">What you need</a><a class="link wide" href="#coming">What's coming</a><a class="link" href="library/">Firmware library</a><a class="link" href="#trouble">Help</a><a class="link" href="beta/">Beta testers</a>
 </nav>
 <div class="wrap">
   <div class="layout">
@@ -264,25 +266,7 @@
 <p>A groovebox tonight, a sampler tomorrow: switch between more than a hundred community firmwares in about a minute,
   right on Outrigger. It backs up before every switch, so your songs are waiting when you come back.</p>
 <div class="fwshots"><figure><img src="shots/fw/loom.png" alt="LOOM-8 on the FM-1's screen"><figcaption><b>LOOM-8</b> a groovebox inspired by the OP-XY</figcaption></figure><figure><img src="shots/fw/x0x.png" alt="X0X on the FM-1's screen"><figcaption><b>X0X</b> 909, 808 and two 303s</figcaption></figure><figure><img src="shots/fw/zp12.png" alt="zp12 on the FM-1's screen"><figcaption><b>zp12</b> a 12-bit sampler</figcaption></figure><figure><img src="shots/fw/winampfm.png" alt="winampFM on the FM-1's screen"><figcaption><b>winampFM</b> a synth that looks like Winamp</figcaption></figure><a class="fwmore" href="https://thefirmwarehub.com/" target="_blank" rel="noopener"><b>100+</b> more at the Firmware Hub ↗</a></div>
-  <details class="addfw" id="add">
-    <summary><span>Got Outrigger installed?</span> <b>Add custom FM-1 firmwares</b></summary>
-    <div class="addfw-body">
-      <div class="install add-firmware"><p class="install-note">Adding a firmware needs Chrome or Edge on a computer, with JavaScript on.</p></div>
-    </div>
-  </details>
-  <script>
-  (function () {
-    var d = document.getElementById("add");
-    if (!d) return;
-    function open() { d.open = true; }
-    document.addEventListener("outrigger-installed", open);
-    document.addEventListener("click", function (e) {
-      var a = e.target.closest && e.target.closest('a[href="#add"]');
-      if (a) { e.preventDefault(); open(); d.scrollIntoView({ behavior: "smooth" }); }
-    });
-    if (location.hash === "#add") open();
-  })();
-  </script></div>
+  <a class="addfw addfw-link" id="add" href="library/"><span>Got Outrigger installed?</span> <b>Add custom FM-1 firmwares in the library</b></a></div>
         </section>
       </div>
     </main>
@@ -293,7 +277,7 @@
     <div class="install" data-builds="[{&quot;label&quot;: &quot;Check my ESP32&quot;, &quot;manifest&quot;: &quot;firmware/waveshare-esp32-s3-touch-lcd-1.69/hub-loader/manifest.json&quot;, &quot;board&quot;: &quot;Waveshare 1.69\&quot;&quot;, &quot;profile&quot;: &quot;waveshare-esp32-s3-touch-lcd-1.69&quot;, &quot;edition&quot;: &quot;hub-loader&quot;, &quot;tag_id&quot;: 0, &quot;flash_mb&quot;: 16, &quot;psram_mb&quot;: 8, &quot;tested&quot;: true}, {&quot;label&quot;: &quot;Check my ESP32&quot;, &quot;manifest&quot;: &quot;firmware/waveshare-esp32-s3-touch-lcd-3.5/hub-loader/manifest.json&quot;, &quot;board&quot;: &quot;Waveshare 3.5\&quot;&quot;, &quot;profile&quot;: &quot;waveshare-esp32-s3-touch-lcd-3.5&quot;, &quot;edition&quot;: &quot;hub-loader&quot;, &quot;tag_id&quot;: 1, &quot;flash_mb&quot;: 16, &quot;psram_mb&quot;: 8, &quot;tested&quot;: true}, {&quot;label&quot;: &quot;Check my ESP32&quot;, &quot;manifest&quot;: null, &quot;board&quot;: &quot;Another ESP32-S3 board&quot;, &quot;tag_id&quot;: null}]" data-suggest="[&quot;Waveshare 1.69\&quot;&quot;, &quot;Waveshare 3.5\&quot;&quot;, &quot;Freenove 2.8\&quot;&quot;]" data-help="#no-port">
       <p class="install-note">Installing needs Chrome or Edge on a computer, with JavaScript on.</p>
     </div></div></li>
-  <li><div><b>Add firmwares</b><p>Add Felucca, Skiff and more <a href="#add">from this page</a>.</p></div></li>
+  <li><div><b>Add firmwares</b><p>Add Felucca, Skiff and more <a href="library/">from the firmware library</a>.</p></div></li>
 </ol>
 <details class="overview"><summary>Installation overview</summary>
   <dl>
