@@ -12,6 +12,11 @@
 // (status 0, waiting on DHCP): a forced disconnect over the library's own join
 // left the board associated but unreachable (branch boot-probe, 2026-10-30).
 //
+// After the network worked, a drop is the library's own reconnect, which fails
+// the same two ways. So a station stalled 20 s after a drop is nudged every
+// 20 s until it rejoins (Small-V1 and Small-V2 stayed off Wi-Fi 25-45 min after
+// a job, 2026-11-05). It never gets the hotspot then.
+//
 // The hotspot opens 60 s after the boot join, and only if the network never
 // worked since boot: its scan blocks the loop ~2 s, which mustn't land mid-job
 // after a mere router hiccup. With the hotspot up, the saved network is retried
@@ -33,6 +38,7 @@ class WifiFallback {
   static constexpr uint32_t kRetryGiveUpMs = 15000;
   static constexpr uint32_t kNudgeRefusedRetryMs = 5000;
   static constexpr uint32_t kNudgeSpacingMs = 20000;
+  static constexpr uint32_t kDropNudgeAfterMs = 20000;
 
   enum class Do { Nothing, Nudge, OpenHotspot, Join, StopJoin };
 
@@ -56,7 +62,8 @@ class WifiFallback {
  private:
   uint32_t boot_at_ = 0, next_retry_at_ = 0, retry_started_ = 0, next_nudge_at_ = 0;
   uint8_t nudges_ = 0;
-  bool booted_ = false, ever_online_ = false, retrying_ = false;
+  uint32_t stalled_since_ = 0;  // when a drop's station stalled, while drop_stalled_
+  bool booted_ = false, ever_online_ = false, retrying_ = false, drop_stalled_ = false;
 };
 
 }  // namespace web_core
