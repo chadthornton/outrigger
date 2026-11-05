@@ -7,6 +7,8 @@ usage:
   bench.py state                      what the board and its Firmware page say
   bench.py switch "Skiff 2.1.1"       switch firmware, watch the FM-1 come back, back it up
   bench.py backup                     back up the FM-1
+  bench.py update [--image app.bin] [--recovery recovery.bin]
+                                      put a build on the board over Wi-Fi (docs/ota-updates.md)
   [--board Small-V2] [--fm1 FM-B] [--host small-v2.local] [--runs build/bench/runs.jsonl] [--dry-run]
 
 A switch presses what the screen would: it opens the row's plan, checks the
@@ -30,10 +32,17 @@ re-enumerated within 60 s), fm1_steady (no USB changes for the next 60 s),
 backup_ok (the follow-up backup passed) and running (the board identifies the
 backed-up app as the firmware asked for, by its hash). ok is all of them.
 --dry-run talks to an in-process fake board and never opens a socket.
+An update sends the image (default: make build APPS=hub-loader DIAG_WEB=1
+BENCH=1's) to POST /bench/update. The board saves it in its store, restarts
+through the recovery app, and the new build confirms itself; the run waits
+for /status to show the image's commit, confirmed. A board without the
+recovery app, or with another one than --recovery, gets that first (slot=recovery).
+
 Standard library only. One JSON line per run goes to --runs.
 """
 import argparse
 import fcntl
+import hashlib
 import json
 import pathlib
 import sys
@@ -44,12 +53,26 @@ import urllib.request
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tools"))
 import devices  # noqa: E402
+from build_site import read_build_tag  # noqa: E402
 # Beside the device registry, outside every worktree's build/.
 LOCK = devices.DEFAULT.parent / "bench.lock"
 JOB_TIMEOUT_S = 20 * 60          # a switch chain is a backup, then an install: minutes each
 REFUSED_S = 15                   # a hold the Loader accepts restarts the board within a second or two
 COME_BACK_S = 60                 # the FM-1 must re-enumerate as MIDI within this
 WATCH_S = 60                     # then stay put this long: a boot loop shows as disconnects
+# Upload, the copy (about 20 s), and up to 3 trial boots of 120 s each before a rollback.
+UPDATE_S = 10 * 60
+UPLOAD_TIMEOUT_S = 180
+
+
+def default_parts(board_tag):
+    """make build APPS=hub-loader DIAG_WEB=1 BENCH=1's image and make recovery's, for the board profile with this tag_id."""
+    import boards
+    bid = next((b for b, p in boards.load()["boards"].items() if p.get("tag_id") == board_tag), None)
+    if bid is None:
+        raise BenchError(f"no board profile has tag_id {board_tag}: pass --image")
+    return (ROOT / "build" / bid / "hub-loader-web-bench" / "waveshare_169.ino.bin",
+            ROOT / "build" / bid / "recovery" / "recovery.ino.bin")
 
 
 class BenchError(Exception):
@@ -78,6 +101,19 @@ class Board:
             return self._req(path, "POST")
         except urllib.error.HTTPError as e:
             raise BenchError(f"POST {path}: {e.code} {e.read().decode(errors='replace')}")
+        except (urllib.error.URLError, OSError, ValueError) as e:
+            raise BenchError(f"POST {path}: {e}")
+
+    def upload(self, path, data):
+        req = urllib.request.Request(f"http://{self.host}{path}", method="POST", data=data,
+                                     headers={"Content-Type": "application/octet-stream"})
+        try:
+            with urllib.request.urlopen(req, timeout=UPLOAD_TIMEOUT_S) as r:
+                return json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            raise BenchError(f"POST {path.split('?')[0]}: {e.code} {e.read().decode(errors='replace')}")
+        except (urllib.error.URLError, OSError) as e:
+            raise BenchError(f"POST {path.split('?')[0]}: {e}")
         except (urllib.error.URLError, OSError, ValueError) as e:
             raise BenchError(f"POST {path}: {e}")
 
@@ -263,6 +299,83 @@ def fm1_report(board, want, reg):
             "latest_backup": unit.get("latest"), "ok": True}
 
 
+def update_info(status):
+    return status.get("update") or {}
+
+
+def send_image(board, data, label, slot):
+    sha = hashlib.sha256(data).hexdigest()
+    ans = board.upload(f"/bench/update?sha256={sha}&label={label}&slot={slot}", data)
+    if not ans.get("accepted"):
+        raise BenchError(f"the board didn't accept the {slot} image: {ans}")
+    return sha
+
+
+def do_update(board, want, reg, image=None, recovery=None):
+    """Sends a build (and, when the board needs it, the recovery app), then waits
+    for the board to run it, confirmed. The record says what happened either way.
+    image and recovery default to this worktree's builds for the board's profile;
+    the recovery app is sent only when the board's differs."""
+    check_board(board, want, reg)
+    s0 = wait_status(board, lambda s: True, "the board's /status", 30)
+    board_tag = s0.get("build", {}).get("board_tag")
+    if image is None or recovery is None:
+        if board_tag is None:
+            raise BenchError("the board's build doesn't say its board profile: pass --image and --recovery")
+        d_image, d_recovery = default_parts(board_tag)
+        image = image or d_image
+        if recovery is None and d_recovery.exists():
+            recovery = d_recovery
+    if not image.exists():
+        raise BenchError(f"{image} doesn't exist: make build APPS=hub-loader DIAG_WEB=1 BENCH=1 (BOARD=...)")
+    data = image.read_bytes()
+    tag = read_build_tag(data)
+    if tag is None:
+        raise BenchError(f"{image} has no build tag: not an Outrigger app image")
+    label = tag["commit"] + ("+" if tag["dirty"] else "")
+    if board_tag is not None and tag["board"] != board_tag:
+        raise BenchError(f"{image} is built for board profile {tag['board']}; the board runs profile {board_tag}")
+    rec = {"kind": "update", "board": want, "from": s0.get("build", {}).get("commit"), "to": tag["commit"],
+           "image": str(image), "image_sha256": hashlib.sha256(data).hexdigest()}
+    if update_info(s0).get("pending_verify"):
+        raise BenchError("the board's own image hasn't confirmed itself yet: wait for it")
+    on_board = update_info(s0).get("recovery", "none")
+    if recovery is not None:
+        rdata = recovery.read_bytes()
+        rsha = hashlib.sha256(rdata).hexdigest()
+        rec["recovery_sha256"] = rsha
+        if on_board != rsha[:16]:
+            send_image(board, rdata, "recovery", "recovery")
+            on_board = update_info(wait_status(board, lambda s: True, "/status after the recovery app", 30)).get("recovery")
+            if on_board != rsha[:16]:
+                raise BenchError(f"the recovery slot reads {on_board} after writing {rsha[:16]}")
+            rec["recovery_sent"] = True
+    if on_board in (None, "none"):
+        raise BenchError("the board has no recovery app: pass --recovery (make recovery builds it)")
+    t0 = board.now()
+    send_image(board, data, label, "app")
+    rec["uploaded_s"] = round(board.now() - t0, 1)
+
+    def settled(s):
+        # Answers from the boot that took the upload don't count: a later boot is younger than the upload.
+        if s.get("uptime_ms", 0) >= (board.now() - t0) * 1000:
+            return False
+        if "update" not in s:  # rolled back to a build from before updates
+            return True
+        u = update_info(s)
+        return not u.get("pending_verify") and u.get("state") == "idle"
+
+    s = wait_status(board, settled, f"the board to settle on {label} or roll back", UPDATE_S)
+    u = update_info(s)
+    rec.update({"result": u.get("result"), "attempts": u.get("attempts"), "running": s.get("build", {}).get("commit"),
+                "took_s": round(board.now() - t0, 1)})
+    rec["ok"] = u.get("result") == "updated" and rec["running"] == tag["commit"]
+    if not rec["ok"]:
+        crash = board.get("/crash") or {}
+        rec["recovery_log"] = crash.get("recovery_log", [])
+    return rec
+
+
 def bench_lock(path):
     """One driver at a time on this Mac: a second switch or backup fails at once."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -277,7 +390,7 @@ def bench_lock(path):
 
 def main(argv=None, board=None, reg=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("command", choices=["fm1", "state", "switch", "backup"])
+    ap.add_argument("command", choices=["fm1", "state", "switch", "backup", "update"])
     ap.add_argument("firmware", nargs="?", help="the library row to switch to, as the screen labels it")
     ap.add_argument("--board", default="Small-V2", help="the board the run expects, by its registry label")
     ap.add_argument("--fm1", default="FM-B", help="the FM-1 the run expects, by its registry label")
@@ -285,6 +398,9 @@ def main(argv=None, board=None, reg=None):
     ap.add_argument("--host", help="the board's address (default: --board's host in the registry)")
     ap.add_argument("--runs", default=str(ROOT / "build" / "bench" / "runs.jsonl"))
     ap.add_argument("--lock", default=str(LOCK), help="one driver at a time; the default is shared by every worktree")
+    ap.add_argument("--image", help="update: the app image (default: the bench build for the board's profile)")
+    ap.add_argument("--recovery", help="update: the recovery app, sent when the board's differs "
+                                       "(default: make recovery's for the board's profile, if built)")
     ap.add_argument("--dry-run", action="store_true", help="a fake board in-process; no network")
     a = ap.parse_args(argv)
     try:
@@ -301,6 +417,7 @@ def main(argv=None, board=None, reg=None):
             sys.path.insert(0, str(ROOT / "tests"))
             from bench_fake import FakeBoard
             board = FakeBoard()
+            board.refused = BenchError
         else:
             try:
                 host = a.host or reg.find(a.board).get("host")
@@ -326,6 +443,9 @@ def main(argv=None, board=None, reg=None):
             lock = bench_lock(pathlib.Path(a.lock))
         if a.command == "switch":
             rec = do_switch(board, a.firmware, a.board, a.fm1, reg)
+        elif a.command == "update":
+            rec = do_update(board, a.board, reg, pathlib.Path(a.image) if a.image else None,
+                            pathlib.Path(a.recovery) if a.recovery else None)
         else:
             rec = do_backup(board, a.board, a.fm1, reg)
     except BenchError as e:

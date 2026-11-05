@@ -63,12 +63,25 @@ follow-up backup passed), and `running` (the board identifies the backed-up app 
 hash: `loader_app.cpp`, `known_unit`). The run passes when all five do. A factory-installed stock V15 may not be
 recognised as running (issue #39); a stock V15 the loader installed is.
 
+**Updates go over Wi-Fi** (`docs/ota-updates.md`), on boards with a build from phase 2 on. Book the board, as for a
+switch:
+
+```bash
+make build APPS=hub-loader DIAG_WEB=1 BENCH=1 && make recovery
+python3 tools/bench.py update --board Small-V1   # sends build/<board>/hub-loader-web-bench, and the recovery app if the board's differs
+```
+
+The run waits for `/status` to show the image's commit, confirmed, and records `result` (`updated`, `rolled-back`,
+`abandoned`) and `attempts`; a failed run carries the recovery app's log. `--image` and `--recovery` send other
+files. It refuses an image built for another board profile, and a board whose own image hasn't confirmed itself yet.
+
 **What still needs a person at the bench** (no relays or soldering on these benches, by choice):
-- **Reflashing.** The build has no over-the-air update and no remote Computer mode, so a new build means someone taps
-  Computer mode and moves the board's cable to the Mac. A board's build lags `master`: check `/status`'s commit
-  (`bench.py fm1`'s `build`) before trusting a result for a recent change. Wi-Fi survives a reflash: `make flash`
-  writes the bootloader, partition table and app but leaves NVS (0x9000) alone; erasing the whole flash or NVS loses
-  it, and the board has to join again.
+- **Reflashing a board from before updates.** No remote Computer mode, so the first build with `/bench/update`
+  means someone taps Computer mode and moves the board's cable to the Mac (`make flash` and `make flash-recovery`).
+  After that, `bench.py update`. A board's build lags `master`: check `/status`'s commit (`bench.py fm1`'s `build`)
+  before trusting a result for a recent change. Wi-Fi survives a reflash: `make flash` writes the bootloader,
+  partition table and app but leaves NVS (0x9000) alone; erasing the whole flash or NVS loses it, and the board has to
+  join again.
 - **A dark FM-1.** If a switch leaves it in ROM boot (`unfinished` in the record), recovery is the Transporter, and the
   cable move is a person's.
 - **Switching an FM-1 off and on.** It runs from its own battery (2000 mAh), so cutting USB power doesn't restart it.
@@ -84,6 +97,7 @@ make build APPS=hub-loader DIAG_WEB=1 BENCH=1                      # Small-V1, S
 make build BOARD=waveshare_35 APPS=hub-loader DIAG_WEB=1 BENCH=1   # Big-S3
 tools/wait_for_board.sh Small-V2                                   # its port, once it's on the Mac in Computer mode (MAC checked)
 make flash APPS=hub-loader DIAG_WEB=1 BENCH=1 PORT=/dev/cu.usbmodemXXXX
+make flash-recovery PORT=/dev/cu.usbmodemXXXX                      # the recovery slot only; then updates go over Wi-Fi
 ```
 
 Always pass `PORT=` from `wait_for_board.sh`: the Transporter's XIAO is also a `/dev/cu.usbmodem*`. `make site`

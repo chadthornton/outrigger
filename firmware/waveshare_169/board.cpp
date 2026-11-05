@@ -204,6 +204,17 @@ static void pin_write(int16_t pin, bool high) {
 void board_pin_write(int16_t pin, bool high) { pin_write(pin, high); }
 #endif
 
+void board_update_pins(int8_t high[4], int8_t low[4]) {
+  int nh = 0, nl = 0;
+  for (int i = 0; i < 4; ++i) high[i] = low[i] = -1;
+  auto add = [](int8_t *to, int &n, int16_t pin) {
+    if (pin >= 0 && pin < kExio && n < 4) to[n++] = int8_t(pin);
+  };
+  add(high, nh, cfg.lcd_bl);
+  for (int16_t pin : cfg.hold_high) add(high, nh, pin);
+  for (int16_t pin : cfg.hold_low) add(low, nl, pin);
+}
+
 bool board_display_begin() {
   const bool expander = cfg.expander != ExpanderDriver::None;
   if (expander) Wire.begin(cfg.tp_sda, cfg.tp_scl, 400000);

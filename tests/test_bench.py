@@ -178,9 +178,107 @@ def test_main_dry_run():
     expect(bench.main(["switch", "Nope", "--dry-run"], reg=REG) == 1, "dry run fails an unknown firmware")
 
 
+
+# ---------- bench.py update ----------
+
+def app_image(commit=0x1234567, dirty=False):
+    """Bytes with a build tag at 0x120 (lib/platform/src/build_tag.h), as make build writes it."""
+    import struct
+    data = bytearray(b"\xe9" + bytes(0x11F))
+    data += struct.pack("<IHBBI", 0x54484D55, 1, int(dirty), 0, commit) + b"hub+LW\0\0"
+    data += bytes(4000)
+    return bytes(data)
+
+
+def write(tmp, name, data):
+    p = pathlib.Path(tmp) / name
+    p.write_bytes(data)
+    return p
+
+
+# This worktree's own builds must not leak into the tests as defaults.
+bench.default_parts = lambda tag: (pathlib.Path("/nonexistent/app.bin"), pathlib.Path("/nonexistent/recovery.bin"))
+
+
+def updater(**knobs):
+    b = FakeBoard()
+    b.refused = bench.BenchError
+    b.recovery = "0011223344556677"
+    for k, v in knobs.items():
+        setattr(b, k, v)
+    return b
+
+
+def test_update():
+    b = updater()
+    with tempfile.TemporaryDirectory() as tmp:
+        rec = bench.do_update(b, "Small-V2", REG, write(tmp, "app.bin", app_image()), None)
+    expect(rec["ok"], f"update ok: {rec}")
+    expect(rec["from"] == "abc1234" and rec["to"] == "1234567" and rec["running"] == "1234567", "from and to")
+    expect(rec["result"] == "updated" and rec["attempts"] == 1, "the board's own account")
+    expect(b.uploads == [("app", len(app_image()))], "one upload, the app")
+
+
+def test_update_sends_recovery_first():
+    b = updater(recovery="none")
+    with tempfile.TemporaryDirectory() as tmp:
+        r = write(tmp, "recovery.bin", b"\xe9" + bytes(5000))
+        rec = bench.do_update(b, "Small-V2", REG, write(tmp, "app.bin", app_image()), r)
+        expect(rec["ok"] and rec.get("recovery_sent"), "recovery sent, then the app")
+        expect([u[0] for u in b.uploads] == ["recovery", "app"], "in that order")
+        # The same recovery app again: not resent.
+        b.uploads.clear()
+        rec = bench.do_update(b, "Small-V2", REG, write(tmp, "app2.bin", app_image(0x7654321)), r)
+        expect(rec["ok"] and not rec.get("recovery_sent") and [u[0] for u in b.uploads] == ["app"], "not resent")
+
+
+def test_update_without_recovery():
+    b = updater(recovery="none")
+    with tempfile.TemporaryDirectory() as tmp:
+        img = write(tmp, "app.bin", app_image())
+        expect(raises(lambda: bench.do_update(b, "Small-V2", REG, img, None), "no recovery app"), "refused up front")
+    expect(not b.uploads, "nothing sent")
+
+
+def test_update_rolls_back():
+    b = updater(update_ends="rolled-back")
+    with tempfile.TemporaryDirectory() as tmp:
+        rec = bench.do_update(b, "Small-V2", REG, write(tmp, "app.bin", app_image()), None)
+    expect(not rec["ok"] and rec["result"] == "rolled-back" and rec["running"] == "abc1234", f"rolled back: {rec}")
+    expect(rec["recovery_log"], "the recovery app's log comes with a failed run")
+
+
+def test_update_refuses_untagged_image():
+    b = updater()
+    with tempfile.TemporaryDirectory() as tmp:
+        img = write(tmp, "app.bin", bytes(5000))
+        expect(raises(lambda: bench.do_update(b, "Small-V2", REG, img, None), "no build tag"), "untagged refused")
+    expect(not b.uploads, "nothing sent")
+
+
+def test_update_refuses_another_boards_image():
+    b = updater()
+    with tempfile.TemporaryDirectory() as tmp:
+        data = bytearray(app_image())
+        data[0x120 + 7] = 1  # the build tag's board: the 3.5
+        img = write(tmp, "app.bin", bytes(data))
+        expect(raises(lambda: bench.do_update(b, "Small-V2", REG, img, None), "board profile 1"), "wrong board refused")
+    expect(not b.uploads, "nothing sent")
+
+
+def test_update_dry_run():
+    with tempfile.TemporaryDirectory() as tmp:
+        img = write(tmp, "app.bin", app_image())
+        rcv = write(tmp, "recovery.bin", b"\xe9" + bytes(5000))
+        rc = bench.main(["update", "--dry-run", "--image", str(img), "--recovery", str(rcv)])
+    expect(rc == 0, "dry-run update exits 0")
+
+
 for t in [test_switch_ok, test_switch_refuses_other_board, test_switch_checks_the_fm1, test_switch_unknown_label, test_plan_blocked,
           test_install_stops, test_boot_loop, test_main_dry_run, test_refused_hold_fails_fast, test_post_offline,
-          test_stale_unit_is_reread, test_wrong_firmware_running, test_fm1_report, test_lock]:
+          test_stale_unit_is_reread, test_wrong_firmware_running, test_fm1_report, test_lock,
+          test_update, test_update_sends_recovery_first, test_update_without_recovery, test_update_rolls_back,
+          test_update_refuses_untagged_image, test_update_refuses_another_boards_image, test_update_dry_run]:
     t()
 if failures:
     print(f"bench: {failures} failure(s)")

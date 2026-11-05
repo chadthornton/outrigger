@@ -68,8 +68,24 @@ record says which one.
   (16 hex digits), or `none`.
 - **What it did:** `/crash` → `recovery_log`.
 
+## Bench push (BENCH=1 builds)
+
+`POST /bench/update?sha256=<64 hex>&label=<commit>[&slot=recovery]`, the image as the body. It's answered only on
+the boards in the device registry (the same gate as `/bench/act`), never on the setup hotspot. It's refused while
+the Loader is busy, while the board's own image is unconfirmed, while another update is under way, and when the store
+lacks room for both images.
+
+- **App images** stream into `u/next.tmp` on the web task, 4 KB at a time, so MIDI keeps running. A wrong SHA-256
+  discards the file. The loop then saves `u/prev.bin`, writes the record, points otadata at the recovery app, shows
+  "Updating Outrigger. Don't unplug." and restarts.
+- **`slot=recovery`** writes the recovery slot in place, then validates it as an app image. Outrigger never runs from
+  that slot, so a failed write only means sending it again.
+- **The client:** `tools/bench.py update` (`docs/test-bench.md`).
+
+There's no signature on this path: it's bench-only, on the LAN, and driven from the Mac.
+
 ## Phases
 
-1. The recovery app and the confirm (this doc).
+1. The recovery app and the confirm.
 2. Bench push: `POST /bench/update` and `tools/bench.py update`.
 3. End-user updates from the site's signed manifest, behind Setup.
