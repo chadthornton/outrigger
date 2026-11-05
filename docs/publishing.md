@@ -11,6 +11,7 @@ The site is on Cloudflare Pages (project `outrigger`, a Direct Upload project in
 make deploy-site                     # beta
 make deploy-site CHANNEL=production  # outrigger.music
 make deploy-site FULL=1              # build it with make check on the Mac instead of taking CI's
+make deploy-site PIN=1               # keep production's firmware even though firmware changed since it
 ```
 
 - **What gets uploaded:** usually CI's build of that exact commit, in about a minute. A push to `master` makes CI build
@@ -45,6 +46,17 @@ make deploy-site FULL=1              # build it with make check on the Mac inste
     commit (the critical-list check here, CONTRIBUTING's ship rules): firmware a pinned deploy left out still counts
     as unshipped, and pages or server code it shipped don't count again.
   - `FULL=1` always builds everything.
+- **`PIN=1` keeps production's firmware on purpose** (Chad, 2026-11-05, for freezing firmware while pages ship): the
+  pinned path even when firmware changed since production's firmware commit. The firmware changes it leaves out stay
+  unshipped, by the same counting, and it says so: "PIN=1: keeping production firmware abc1234; N firmware changes on
+  master NOT shipped". The deploy log records `"pin": true` and the count (`"held"`); `version.json` names both
+  commits as for any pinned deploy.
+  - The `FIRMWARE_READERS` come from the kept copy, not the commit, so the code that reads the firmware is the
+    version that shipped with it. Every other page and installer module is the commit's, so new modules that read
+    the board must speak the live firmware's protocol: `check_pinned.mjs` only loads the builds.
+  - It needs what any pinned deploy needs (CI's green run of the commit, a kept copy matching what outrigger.music
+    serves), and refuses without them rather than building. Production reuses only beta's pinned copy under it,
+    never a build that carries new firmware. `PIN=1` with `FULL=1` is refused.
 - **Production doesn't build again:** it uploads beta's kept copy of the same commit (the exact bytes checked on beta,
   verified against their SHA-256 sums), so a firmware ship runs `make check` once, for beta. It builds afresh only for
   `FULL=1`, when beta's copy is missing or changed, or when beta took CI's build of a batch that needs the Mac's.

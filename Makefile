@@ -455,12 +455,13 @@ serve: site
 # pushed commit) or CHANNEL=production (outrigger.music, origin/master only).
 # Uploads CI's build of this commit (its push run's site-firmware), or, for FULL=1, a
 # batch touching the critical list since production's commit, or a commit CI never built itself,
-# the site make check builds here (build/checked/site). docs/publishing.md.
+# the site make check builds here (build/checked/site). PIN=1 keeps production's firmware
+# even when firmware changed since it (pages only). docs/publishing.md.
 CHANNEL ?= beta
 deploy-site:
-	@src=$$(python3 -I tools/deploy_site.py source $(CHANNEL) $(FULL)) || exit 1; \
-	if [ "$$src" = ci ]; then python3 -I tools/deploy_site.py deploy-ci $(CHANNEL); \
-	elif [ "$$src" = beta ]; then python3 -I tools/deploy_site.py deploy-beta $(CHANNEL); \
+	@src=$$(python3 -I tools/deploy_site.py source $(CHANNEL) "$(FULL)" "$(PIN)") || exit 1; \
+	if [ "$$src" = ci ]; then python3 -I tools/deploy_site.py deploy-ci $(CHANNEL) "$(PIN)"; \
+	elif [ "$$src" = beta ]; then python3 -I tools/deploy_site.py deploy-beta $(CHANNEL) "$(PIN)"; \
 	else $(MAKE) check && python3 -I tools/deploy_site.py deploy $(CHANNEL) build/checked/site; fi
 
 # The daily install email Worker (workers/install-email/): origin/master only, like production.
