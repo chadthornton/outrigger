@@ -9,6 +9,7 @@
 #include "library.h"
 #include "receive.h"
 #include "support/check.h"
+#include "support/heads.h"
 
 using namespace fm1_loader;
 
@@ -333,6 +334,137 @@ static void test_transport() {
   }
 }
 
+// ---------- Remove and Info (protocol 2) ----------
+
+// A unit whose latest backup holds head (V15's by default) and app's sectors,
+// with one save of its data; stored in b.lib.
+static Unit backed_up_unit(Board &b, const std::string &installed, const std::vector<uint8_t> &head = v15_head()) {
+  Bytes img(kFlashSize, 0xFF);
+  memcpy(img.data(), head.data(), kHeadEnd);
+  for (size_t i = 0; i < kAppLen; ++i) img[kAppStart + i] = uint8_t(i * 7);
+  for (size_t i = 0; i < kSector; ++i) img[kUnitSector + i] = uint8_t(i + 3);
+  for (size_t i = 0; i < kSector; ++i) img[0xEA000 + i] = uint8_t(i * 3 + 1);  // a save's data
+  FlashHashes flash(kSectors);
+  for (uint32_t i = 0; i < kSectors; ++i) CHECK(b.lib.sectors().put(img.data() + i * kSector, flash[i]));
+  Unit u;
+  u.id = unit_id_of(img.data() + kUnitSector);
+  u.installed_package = installed;
+  u.flash_id = kFlashIdUc25hq80;
+  u.name = "Studio";
+  std::string backup_id;
+  CHECK(b.lib.add_backup(u, flash, backup_id));
+  SaveState sv;
+  sv.unit = u.id;
+  sv.project = "felucca";
+  sv.sectors.emplace_back(0xEA000, flash[0xEA000 / kSector]);
+  CHECK(b.lib.add_save(u, sv));
+  return u;
+}
+
+static Bytes id_payload(const std::string &id) { return Bytes(id.begin(), id.end()); }
+
+static void test_hello_says_protocol_2() {
+  Board b;
+  CHECK_EQ(b.ask('H').payload[0], uint8_t(2));
+}
+
+static void test_remove_deletes_only_the_package() {
+  Board b;
+  CHECK_EQ(send_package(b, fixture("felucca-1.8.0.fwsc"), "felucca", "1.8.0", "Felucca").type, uint8_t('d'));
+  CHECK_EQ(send_package(b, fixture("skiff-2.1.1.fwsc"), "skiff", "2.1.1", "Skiff").type, uint8_t('d'));
+  Unit u = backed_up_unit(b, "felucca-1.8.0");
+  const size_t sectors_before = b.lib.sectors().count();
+  Reply r = b.ask('R', id_payload("skiff-2.1.1"));
+  CHECK_EQ(r.type, uint8_t('r'));
+  CHECK(b.lib.package_ids() == std::vector<std::string>{"felucca-1.8.0"});
+  // Its sectors are freed, so the store has room again ...
+  CHECK(b.lib.sectors().count() < sectors_before);
+  // ... and every backup, save and other package still reads whole.
+  FlashHashes flash;
+  const std::string uid = u.id;
+  CHECK(b.lib.unit(uid, u));
+  CHECK(b.lib.backup(u.latest_backup, flash));
+  for (const Hash &h : flash) CHECK(b.lib.sectors().has(h));
+  std::vector<SaveState> saves = b.lib.saves_of(uid);
+  CHECK_EQ(saves.size(), size_t(1));
+  for (const SaveState &sv : saves)
+    for (const auto &sec : sv.sectors) CHECK(b.lib.sectors().has(sec.second));
+  PackageInfo p;
+  CHECK(b.lib.package("felucca-1.8.0", p));
+  for (const Hash &h : p.app) CHECK(b.lib.sectors().has(h));
+  // 'H' counts one package fewer.
+  CHECK_EQ(b.ask('H').payload[1], uint8_t(1));
+  // The page asks again when a reply is lost: the same remove answers the same.
+  CHECK_EQ(b.ask('R', id_payload("skiff-2.1.1")).type, uint8_t('r'));
+  // Only the last one: an add since starts afresh.
+  CHECK_EQ(send_package(b, fixture("skiff-2.1.1.fwsc"), "skiff", "2.1.1", "Skiff").type, uint8_t('d'));
+  CHECK_EQ(b.ask('R', id_payload("skiff-2.1.1")).type, uint8_t('r'));
+  CHECK(b.lib.package_ids() == std::vector<std::string>{"felucca-1.8.0"});
+}
+
+static void test_remove_refusals_change_nothing() {
+  Board b;
+  CHECK_EQ(send_package(b, fixture("felucca-1.8.0.fwsc"), "felucca", "1.8.0", "Felucca").type, uint8_t('d'));
+  CHECK_EQ(send_package(b, fixture("skiff-2.1.1.fwsc"), "skiff", "2.1.1", "Skiff").type, uint8_t('d'));
+  CHECK_EQ(send_package(b, fixture("FM-1_015.fwsc"), "stock", "V15", "M-VAVE stock").type, uint8_t('d'));
+  Unit u = backed_up_unit(b, "felucca-1.8.0");
+  u.has_pending = true;
+  u.pending.package_id = "skiff-2.1.1";
+  CHECK(b.lib.put_unit(u));
+  const auto before = snapshot(b.storage);
+  CHECK(error_of(b.ask('R', id_payload("felucca-1.8.0"))) == ReceiveError::InUse);  // the FM-1 runs it
+  CHECK(error_of(b.ask('R', id_payload("skiff-2.1.1"))) == ReceiveError::InUse);    // an unfinished install needs it
+  CHECK(error_of(b.ask('R', id_payload("stock-V15"))) == ReceiveError::Kept);  // by its project, whatever its id
+  CHECK(error_of(b.ask('R', id_payload("nope-1"))) == ReceiveError::NoSuchPackage);
+  CHECK(error_of(b.ask('R', id_payload("../m/last"))) == ReceiveError::NoSuchPackage);
+  CHECK(error_of(b.ask('R')) == ReceiveError::BadRequest);
+  // Not while a transfer is open.
+  const Bytes other = fixture("felucca-1.6.1.fwsc");
+  CHECK_EQ(b.ask('A', begin_payload(other, "felucca", "1.6.1", "Felucca")).type, uint8_t('k'));
+  CHECK(error_of(b.ask('R', id_payload("skiff-2.1.1"))) == ReceiveError::Busy);
+  CHECK_EQ(b.ask('X').type, uint8_t('k'));
+  CHECK(snapshot(b.storage) == before);
+}
+
+static void test_info_with_no_fm1_yet() {
+  Board b;
+  Reply r = b.ask('I');
+  CHECK_EQ(r.type, uint8_t('i'));
+  CHECK_EQ(r.payload.size(), size_t(8));
+  CHECK_EQ(r.payload[0], uint8_t(0));    // no unit
+  CHECK_EQ(r.payload[1], uint8_t(255));  // head unknown
+  CHECK_EQ(u32(r.payload, 2), uint32_t(0));
+  CHECK_EQ(r.payload[6], uint8_t(0));
+  CHECK_EQ(r.payload[7], uint8_t(0));
+}
+
+static void test_info_reads_the_last_fm1_and_writes_nothing() {
+  Board b;
+  CHECK_EQ(send_package(b, fixture("felucca-1.8.0.fwsc"), "felucca", "1.8.0", "Felucca").type, uint8_t('d'));
+  backed_up_unit(b, "felucca-1.8.0");
+  const size_t writes = b.storage.writes, syncs = b.storage.syncs;
+  Reply r = b.ask('I');
+  CHECK_EQ(r.type, uint8_t('i'));
+  CHECK_EQ(r.payload[0], uint8_t(1 | 2));  // a unit, with a backup
+  CHECK_EQ(r.payload[1], uint8_t(0));      // V15
+  CHECK_EQ(u32(r.payload, 2), kFlashIdUc25hq80);
+  CHECK_EQ(text(r.payload, 6), std::string("felucca-1.8.0\0Studio\0", 21));
+  CHECK_EQ(b.storage.writes, writes);
+  CHECK_EQ(b.storage.syncs, syncs);
+}
+
+static void test_info_says_v16_and_a_pending_install() {
+  Board b;
+  Unit u = backed_up_unit(b, "", forged_head(kHeadCrcV16));
+  u.has_pending = true;
+  u.pending.package_id = "felucca-1.8.0";
+  CHECK(b.lib.put_unit(u));
+  Reply r = b.ask('I');
+  CHECK_EQ(r.payload[0], uint8_t(1 | 2 | 4));
+  CHECK_EQ(r.payload[1], uint8_t(1));  // V16
+  CHECK_EQ(text(r.payload, 6), std::string("\0Studio\0", 8));
+}
+
 int main() {
   test_hello_on_an_empty_store();
   test_adds_a_hub_package();
@@ -343,6 +475,12 @@ int main() {
   test_only_adds();
   test_store_failure_mid_add();
   test_transport();
+  test_hello_says_protocol_2();
+  test_remove_deletes_only_the_package();
+  test_remove_refusals_change_nothing();
+  test_info_with_no_fm1_yet();
+  test_info_reads_the_last_fm1_and_writes_nothing();
+  test_info_says_v16_and_a_pending_install();
   if (failures) {
     printf("%d failure(s)\n", failures);
     return 1;
