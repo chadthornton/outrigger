@@ -13,9 +13,12 @@ be in there.
 
 Then put it on the hub:
 
-1. The charger goes into the hub's charging port, first.
-2. Outrigger goes on the hub's host cable or port, the one a laptop would use.
-3. The FM-1 and your MIDI controller go into the hub's data ports.
+1. **Power first:** the charger goes into the hub's charging port. The hub needs its own power: Outrigger runs on it.
+2. **Outrigger goes on the hub's upstream (host) cable or port**, the one a laptop would plug into.
+3. **The FM-1 and your MIDI controller go into the hub's USB-C data ports.** On the hub we tested, its USB-A ports
+   didn't work (see [Known issues](07-known-issues.md)).
+
+The homepage's [What you need](https://outrigger.music/#hub) has a picture of the wiring.
 
 Outrigger's **Play** screen shows a line each for the hub, your controller, the router and the FM-1. All green means
 notes are getting through.
