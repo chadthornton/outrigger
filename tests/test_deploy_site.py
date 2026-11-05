@@ -907,6 +907,31 @@ class SourceCommandTest(unittest.TestCase):
             self.assertEqual(self.source(kind), kind)
 
 
+class PinArgumentsTest(unittest.TestCase):
+    """make deploy-site passes FULL and PIN, quoted, so an empty FULL doesn't shift PIN into its place."""
+    def call(self, *args):
+        seen = []
+        real, argv = deploy_site.plan, sys.argv
+        deploy_site.plan = lambda *a: seen.append(a) or ("check", HEAD, None, HEAD, None, None)
+        sys.argv = ["deploy_site.py", *args]
+        try:
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                try:
+                    deploy_site.main()
+                except SystemExit:
+                    pass
+        finally:
+            deploy_site.plan, sys.argv = real, argv
+        return seen[0]
+
+    def test_source_passes_full_and_pin(self):
+        self.assertEqual(self.call("source", "production", "", "1"), ("production", "", "1"))
+
+    def test_deploy_ci_and_deploy_beta_pass_pin(self):
+        self.assertEqual(self.call("deploy-ci", "beta", "1"), ("beta", "", "1"))
+        self.assertEqual(self.call("deploy-beta", "production", "1"), ("production", "", "1"))
+
+
 class AssembleTest(unittest.TestCase):
     """CI's firmware plus the commit's own files, laid out as make check leaves build/checked."""
     def test_layout_matches_make_checks(self):
@@ -977,6 +1002,28 @@ class PinnedReadersTest(unittest.TestCase):
         self.assertIn("install.js", " ".join(problems))
 
 
+class ImportCheckTest(unittest.TestCase):
+    """reader_import_problems: every named import's target exports it, in each form a page or bundle uses."""
+    def problems(self, files):
+        with tempfile.TemporaryDirectory() as tmp:
+            for name, text in files.items():
+                Path(tmp, name).write_text(text)
+            return deploy_site.reader_import_problems(Path(tmp))
+
+    def test_default_and_named_import(self):
+        self.assertEqual(len(self.problems({"a.js": 'import S, { crc } from "./s.js";', "s.js": "export default 1;"})), 1)
+
+    def test_re_export(self):
+        self.assertEqual(len(self.problems({"a.js": 'export { crc } from "./s.js";', "s.js": ""})), 1)
+
+    def test_a_minified_export_list_with_dollar_names(self):
+        self.assertEqual(self.problems({"a.js": 'import { Transport } from "./b.js";', "b.js": "export{$e as Transport,x as y};"}), [])
+
+    def test_an_inline_module_in_a_page(self):
+        page = '<script type="module">import { crc } from "./s.js";</script>'
+        self.assertEqual(len(self.problems({"index.html": page, "s.js": ""})), 1)
+
+
 class PinNoticeTest(unittest.TestCase):
     """PIN=1 says plainly what stays behind."""
     def test_names_the_firmware_kept_and_counts_whats_held_back(self):
@@ -985,6 +1032,13 @@ class PinNoticeTest(unittest.TestCase):
 
     def test_one_change(self):
         self.assertIn("1 firmware change on master NOT shipped", deploy_site.pin_notice(OTHER, ["lib/x.cpp"]))
+
+    def test_the_deploy_log_records_pin_1_even_with_nothing_held(self):
+        self.assertEqual(deploy_site.pin_fields(["lib/x.cpp", "Makefile"]), {"pin": True, "held": 2})
+        self.assertEqual(deploy_site.pin_fields([]), {"pin": True, "held": 0})
+
+    def test_no_pin_adds_nothing(self):
+        self.assertEqual(deploy_site.pin_fields(None), {})
 
 
 class VersionFileTest(unittest.TestCase):

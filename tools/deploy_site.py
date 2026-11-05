@@ -526,6 +526,11 @@ def pin_notice(firmware, fw):
             "on master NOT shipped")
 
 
+def pin_fields(held):
+    """The deploy log's record of PIN=1: held, the firmware changes it left out, or None without PIN=1."""
+    return {} if held is None else {"pin": True, "held": len(held)}
+
+
 def batch(since_firmware, since_pages):
     """(critical-list files, files that need new firmware) a deploy ships. since_firmware: the files changed
     since production's firmware commit; since_pages: since its pages' commit. Firmware a pinned deploy left
@@ -553,22 +558,24 @@ def assemble(commit, fw, dst):
     (dst / "commit").write_text(commit + "\n")
 
 
-IMPORT = re.compile(r"""import\s*\{([^}]*)\}\s*from\s*["']([^"']+)["']""")
+# Named imports and re-exports: import { a } / import d, { a } / export { a } from "./x.js".
+IMPORT = re.compile(r"""(?:\bimport\s*(?:[\w$]+\s*,\s*)?|\bexport\s*)\{([^}]*)\}\s*from\s*["']([^"']+)["']""")
 
 
 def exports(js, name):
     """Whether the module source js exports name (the forms the installer uses)."""
-    return bool(re.search(rf"export\s+(?:async\s+)?(?:function\*?|const|let|var|class)\s+{re.escape(name)}\b", js)
-                or any(re.search(rf"(?:^|,)\s*(?:\w+\s+as\s+)?{re.escape(name)}\s*(?:,|$)", group)
+    return bool(re.search(rf"export\s+(?:async\s+)?(?:function\*?|const|let|var|class)\s+{re.escape(name)}(?![\w$])", js)
+                or any(re.search(rf"(?:^|,)\s*(?:[\w$]+\s+as\s+)?{re.escape(name)}\s*(?:,|$)", group)
                        for group in re.findall(r"export\s*\{([^}]*)\}", js)))
 
 
 def reader_import_problems(site):
-    """Every name a module in site imports from another that it doesn't export. A pinned deploy's
-    FIRMWARE_READERS are older than its other modules, and a missing export breaks the page as it loads."""
+    """Every name a module in site (or a page's inline module) imports from another that it doesn't export.
+    A pinned deploy's FIRMWARE_READERS are older than its other modules, and a missing export breaks the page
+    as it loads."""
     root = site.resolve()
     problems = []
-    for js in sorted(root.rglob("*.js")):
+    for js in sorted(p for p in root.rglob("*") if p.suffix in (".js", ".mjs", ".html")):
         if "firmware" in js.relative_to(root).parts:
             continue
         for names, spec in IMPORT.findall(js.read_text(errors="replace")):
@@ -764,7 +771,7 @@ def plan(channel, full="", pin=""):
     if kind is None:
         fail(why)
     print(why, file=sys.stderr)
-    return kind, head, run, firmware, pinned, fw if kind in ("pinned", "beta") and pin == "1" else []
+    return kind, head, run, firmware, pinned, fw if pin == "1" else None
 
 
 def deploy_ci(channel, pin=""):
@@ -791,9 +798,9 @@ def deploy_ci(channel, pin=""):
     publish(channel, head, CI_CHECKED, "ci")
 
 
-def deploy_pinned(channel, head, firmware, pinned, held=()):
+def deploy_pinned(channel, head, firmware, pinned, held=None):
     """HEAD's pages over the kept copy of production's live firmware, once HEAD's installer loads every build.
-    held: the firmware changes PIN=1 leaves out (the deploy log records them)."""
+    held: the firmware changes PIN=1 leaves out, or None without PIN=1."""
     missing = assemble_pinned(head, pinned, PINNED)
     if missing:
         fail("refusing to pin:\n  " + "\n  ".join(missing))
@@ -801,9 +808,7 @@ def deploy_pinned(channel, head, firmware, pinned, held=()):
     if check.returncode:
         fail(f"this commit's installer can't use production's firmware {firmware[:7]} (above); deploy with FULL=1")
     print(f"{head[:7]}'s pages over production's firmware {firmware[:7]} ({pinned}) check out", file=sys.stderr)
-    publish(channel, head, PINNED, "pinned", firmware, **({"pin": True, "held": len(held)} if held else {}))
-    if held:
-        print(pin_notice(firmware, held))
+    publish(channel, head, PINNED, "pinned", firmware, held)
 
 
 def deploy_beta(channel, pin=""):
@@ -816,9 +821,7 @@ def deploy_beta(channel, pin=""):
     if problems:  # beta's copy changed since plan() looked
         fail("beta's build changed:\n  " + "\n  ".join(problems))
     publish(channel, head, DEPLOYS / "beta" / head, built, firmware_of(live_history(entries, "beta")[-1]),
-            reused="beta", **({"pin": True, "held": len(held)} if held else {}))
-    if held:
-        print(pin_notice(firmware, held))
+            held, reused="beta")
 
 
 def deploy(channel, site):
@@ -829,9 +832,10 @@ def deploy(channel, site):
     publish(channel, head, site.parent, "check")
 
 
-def publish(channel, head, checked, built, firmware=None, **extra):
+def publish(channel, head, checked, built, firmware=None, held=None, **extra):
     """Stage checked (site/, functions/, wrangler.toml), scan it, upload it and log it. built: "ci", "check"
-    or "pinned"; firmware: the commit its firmware was built from (head's own unless pinned)."""
+    or "pinned"; firmware: the commit its firmware was built from (head's own unless pinned); held: the
+    firmware changes PIN=1 left out, or None without PIN=1."""
     firmware = firmware or head
     problems = stage_root(checked, STAGE, head, firmware) + site_problems(STAGE / "site", load_wl82_blob())
     if problems:
@@ -844,11 +848,13 @@ def publish(channel, head, checked, built, firmware=None, **extra):
         append_log(log, log_entry("baseline", channel, before))
     message = git("log", "-1", "--format=%s", head) + (f" (firmware {firmware[:7]})" if firmware != head else "")
     live = upload(env, STAGE, channel, head, message)
-    append_log(log, log_entry("deploy", channel, live, built=built, firmware=firmware, **extra))
+    append_log(log, log_entry("deploy", channel, live, built=built, firmware=firmware, **pin_fields(held), **extra))
     # Beta rolls back from its copies (Cloudflare can't roll back a preview); production's are for pinning.
     keep(STAGE, DEPLOYS / channel, head)
     print(f"deployed {head[:7]} (firmware {firmware[:7]}) to {channel}: {URLS[channel]} "
           f"(deployment {live['id']}; logged in {log})")
+    if held is not None:
+        print(pin_notice(firmware, held))
 
 
 def rollback(channel, commit=None):
