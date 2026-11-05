@@ -234,8 +234,21 @@ static void test_device_roles() {
   if (device_role(0x1209, 0x0001) != Role::Target) {
     printf("FAIL Felucca/Skiff FM-1 is the target\n"); ++failures;
   }
+  if (device_role(0x3654, 0x7756) != Role::Target) {
+    printf("FAIL M-VAVE Open firmware FM-1 is the target\n"); ++failures;
+  }
   if (device_role(0x1235, 0x0142) != Role::Controller) {
     printf("FAIL Launchkey is a controller\n"); ++failures;
+  }
+  // The Loader switches only from firmwares whose ROM-boot key has been tried.
+  if (!can_switch_firmware(0x4C4A, 0xC755) || !can_switch_firmware(0x1209, 0x0001)) {
+    printf("FAIL stock and Felucca/Skiff FM-1s can switch firmware\n"); ++failures;
+  }
+  if (can_switch_firmware(0x3654, 0x7756)) {
+    printf("FAIL M-VAVE Open firmware can't switch yet (key untested)\n"); ++failures;
+  }
+  if (can_switch_firmware(0x1235, 0x0142)) {
+    printf("FAIL a controller can't switch firmware\n"); ++failures;
   }
   if (device_role(0x05E3, 0x0610) != Role::Controller) {
     printf("FAIL unknown devices default to controller\n"); ++failures;
