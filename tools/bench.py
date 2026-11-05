@@ -84,6 +84,12 @@ class BenchError(Exception):
     pass
 
 
+class ReplyLost(BenchError):
+    """The request went out and no reply came: the board may have taken it. A hold
+    restarts the board 400 ms after the loop takes it (loader_app.cpp restart_for),
+    and one lost Wi-Fi frame can't be resent in that time (Small-V1, 2026-11-05)."""
+
+
 class Board:
     """The bench board over HTTP. get() returns parsed JSON, or None while it's off Wi-Fi."""
 
@@ -104,6 +110,8 @@ class Board:
     def post(self, path):
         try:
             return self._req(path, "POST")
+        except TimeoutError as e:  # the read timed out; a connect that fails is a URLError, below
+            raise ReplyLost(f"POST {path}: {e}")
         except urllib.error.HTTPError as e:
             raise BenchError(f"POST {path}: {e.code} {e.read().decode(errors='replace')}")
         except (urllib.error.URLError, OSError, ValueError) as e:
@@ -188,7 +196,11 @@ def run_job(board, act_path, started_uptime, started_seq):
     A hold the Loader refuses never restarts the board: its result shows on the
     same boot, and that ends the wait at once."""
     t0 = board.now()
-    board.post(act_path)
+    lost = False
+    try:
+        board.post(act_path)
+    except ReplyLost:
+        lost = True  # watch as if it had answered: the restart, or no restart, tells
 
     def refused(s):
         same_boot = s.get("uptime_ms", 0) / 1000 >= board.now() - t0
@@ -201,6 +213,10 @@ def run_job(board, act_path, started_uptime, started_seq):
         if s is not None and refused(s):
             raise BenchError("the Loader refused the hold: " + json.dumps(fw(s).get("result")))
         board.sleep(2)
+    if lost:
+        s = board.get("/status")
+        if s is not None and s.get("uptime_ms", 0) / 1000 >= board.now() - t0 and not fw(s).get("busy"):
+            raise BenchError(f"POST {act_path}: no reply, and the board didn't restart: it didn't take it")
 
     def ended(s):
         f = fw(s)
@@ -210,7 +226,7 @@ def run_job(board, act_path, started_uptime, started_seq):
         return (idle_play(s) and (f.get("result") or {}).get("headline")) or f.get("unfinished")
 
     s = wait_status(board, ended, "the job to finish", JOB_TIMEOUT_S)
-    return s, round(board.now() - t0)
+    return s, round(board.now() - t0), lost
 
 
 def watch_fm1(board):
@@ -255,9 +271,10 @@ def do_backup(board, want, fm1, reg):
     s = wait_status(board, idle_play, "an idle Play boot", 60)
     if not fw(s).get("can_back_up"):
         raise BenchError("the Firmware page can't back up now: " + json.dumps(fw(s).get("blocked")))
-    s, secs = run_job(board, "/bench/act?kind=backup", s.get("uptime_ms"), (fw(s).get("result") or {}).get("seq"))
+    s, secs, lost = run_job(board, "/bench/act?kind=backup", s.get("uptime_ms"),
+                            (fw(s).get("result") or {}).get("seq"))
     unit = check_fm1(board, fm1, reg)
-    return {"kind": "backup", "seconds": secs, "unit": unit, "result": fw(s).get("result"), "lines": fw(s).get("lines"),
+    return {"kind": "backup", "seconds": secs, "unit": unit, "reply_lost": lost, "result": fw(s).get("result"), "lines": fw(s).get("lines"),
             "running": running_label(s), "ok": bool((fw(s).get("result") or {}).get("ok")) and not fw(s).get("unfinished")}
 
 
@@ -278,9 +295,9 @@ def do_switch(board, label, want, fm1, reg):
         raise BenchError(f"the plan for {label} can't be held: {plan.get('lines')}")
     if label not in plan.get("hold", ""):
         raise BenchError(f"the plan's hold says '{plan.get('hold')}', not {label}")
-    s, secs = run_job(board, f"/bench/act?kind=switch&index={index}", s.get("uptime_ms"),
-                      (fw(s).get("result") or {}).get("seq"))
-    rec = {"kind": "switch", "to": label, "before": before, "plan": plan["lines"], "seconds": secs,
+    s, secs, lost = run_job(board, f"/bench/act?kind=switch&index={index}", s.get("uptime_ms"),
+                            (fw(s).get("result") or {}).get("seq"))
+    rec = {"kind": "switch", "to": label, "before": before, "plan": plan["lines"], "seconds": secs, "reply_lost": lost,
            "result": fw(s).get("result"), "unfinished": fw(s).get("unfinished"), "title": fw(s).get("title")}
     checks = rec["checks"] = {"result_ok": bool((rec["result"] or {}).get("ok")) and not fw(s).get("unfinished"),
                               "fm1_back": False, "fm1_steady": False, "backup_ok": False, "running": False}

@@ -95,6 +95,32 @@ def test_post_offline():
     expect(raises(lambda: switch(Gone(), "Skiff 2.1.1"), "POST"), "an unreachable board")
 
 
+class LosesReplies(FakeBoard):
+    """Takes every hold but loses the reply, as Small-V1 did on Wi-Fi (2026-11-05); take=False drops the request."""
+    take = True
+
+    def post(self, path):
+        if self.take or not path.startswith("/bench/act"):
+            super().post(path)
+        if path.startswith("/bench/act"):
+            raise bench.ReplyLost(f"POST {path}: timed out")
+        return {"seq": len(self.posts)}
+
+
+def test_lost_reply_is_watched_through():
+    b = LosesReplies()
+    rec = switch(b, "Skiff 2.1.1")
+    expect(rec["ok"], "a hold the board took passes though its reply was lost: " + repr(rec.get("checks")))
+    expect(rec["reply_lost"] and rec["after_backup"]["reply_lost"], "the lost replies are recorded")
+
+
+def test_lost_request_fails_fast():
+    b = LosesReplies()
+    b.take = False
+    expect(raises(lambda: switch(b, "Skiff 2.1.1"), "didn't take it"), "a hold the board never got")
+    expect(b.t < 60, "fails within a minute, not the job timeout")
+
+
 def test_switch_unknown_label():
     b = FakeBoard()
     expect(raises(lambda: switch(b, "Melodee 1.6"), "isn't in the board's library"), "unknown firmware")
@@ -346,7 +372,7 @@ def test_update_dry_run():
     expect(rc == 0, "dry-run update exits 0")
 
 
-for t in [test_switch_ok, test_switch_refuses_other_board, test_switch_checks_the_fm1, test_switch_unknown_label, test_plan_blocked,
+for t in [test_switch_ok, test_lost_reply_is_watched_through, test_lost_request_fails_fast, test_switch_refuses_other_board, test_switch_checks_the_fm1, test_switch_unknown_label, test_plan_blocked,
           test_install_stops, test_boot_loop, test_main_dry_run, test_refused_hold_fails_fast, test_post_offline,
           test_stale_unit_is_reread, test_wrong_firmware_running, test_fm1_report, test_lock,
           test_controller_on_the_hub, test_controller_alone_isnt_the_fm1, test_lock_per_board,
