@@ -121,12 +121,7 @@ std::string unit_id_of(const uint8_t *sector) {
 bool unit_record_ok(const uint8_t *sector) {
   // Header: check byte, id [7:0], id [11:8] | length [3:0] << 4, length [11:4].
   if (sector[1] != 102 || sector[2] != 0x60 || sector[3] != 0) return false;
-  uint16_t crc = 0;  // CRC-16/XMODEM: poly 0x1021, init 0
-  for (uint32_t i = 4; i < 10; ++i) {
-    crc ^= uint16_t(sector[i] << 8);
-    for (int k = 0; k < 8; ++k) crc = crc & 0x8000 ? uint16_t((crc << 1) ^ 0x1021) : uint16_t(crc << 1);
-  }
-  if (sector[0] != uint8_t(crc)) return false;
+  if (sector[0] != uint8_t(crc16(sector + 4, 6))) return false;
   for (uint32_t i = 10; i < kSector; ++i)
     if (sector[i] != 0xFF) return false;
   return true;
@@ -185,16 +180,23 @@ std::string fallback_candidate(Library &lib, size_t *count) {
   return n == 1 ? found : std::string();
 }
 
-UnitLookup resolve_unit(Library &lib, const uint8_t *sector, const std::string &confirmed) {
-  UnitLookup out;
-  const std::string id = unit_id_of(sector);
+namespace {
+// The unit a sector names: its own ID, or an alias it was given. "" when none.
+std::string named_unit(Library &lib, const std::string &id) {
   Unit u;
-  if (!id.empty()) {
-    if (lib.unit(id, u)) return {UnitMatch::Known, id};
-    const std::string owner = lib.alias_owner(id);
-    if (!owner.empty()) return {UnitMatch::Known, owner};
-  }
-  const std::string candidate = fallback_candidate(lib);
+  if (id.empty()) return std::string();
+  if (lib.unit(id, u)) return id;
+  return lib.alias_owner(id);
+}
+}  // namespace
+
+UnitLookup resolve_unit(Library &lib, const uint8_t *sector, const std::string &confirmed) {
+  const std::string id = unit_id_of(sector);
+  const std::string named = named_unit(lib, id);
+  if (!named.empty()) return {UnitMatch::Known, named};
+  Unit u;
+  size_t suspects = 0;
+  const std::string candidate = fallback_candidate(lib, &suspects);
   const bool ok = !candidate.empty() && confirmed == candidate;
   if (unit_record_ok(sector)) {
     // A valid record nobody has: a new FM-1, unless the owner confirmed the
@@ -207,21 +209,15 @@ UnitLookup resolve_unit(Library &lib, const uint8_t *sector, const std::string &
     return {UnitMatch::New, id};
   }
   if (ok) return {UnitMatch::Fallback, candidate};
-  size_t suspects = 0;
-  fallback_candidate(lib, &suspects);
   if (suspects) return {UnitMatch::Unsure, ""};
   if (id.empty()) return {UnitMatch::Blank, ""};
   return {UnitMatch::New, id};
 }
 
 std::string resume_unit(Library &lib, const uint8_t *sector) {
-  const std::string id = unit_id_of(sector);
+  const std::string named = named_unit(lib, unit_id_of(sector));
+  if (!named.empty()) return named;
   Unit u;
-  if (!id.empty()) {
-    if (lib.unit(id, u)) return id;
-    const std::string owner = lib.alias_owner(id);
-    if (!owner.empty()) return owner;
-  }
   const Hash h = sha256(sector, kSector);
   std::string found;
   size_t n = 0;

@@ -553,8 +553,10 @@ void refresh_preview() {
     in.writes_enabled = kWritesEnabled;
     in.unfinished = previewed_retry;
     in.preview = preview_install(*library, library->last_unit(), item_ids[sel]);
+    // The plan is the last unit's: its line names a fallback only when that's the unit.
     char fallback[12];
-    if (fallback_backup(fallback, sizeof fallback)) in.fallback_backup = fallback;
+    if (fallback_backup(fallback, sizeof fallback) && shown_fallback == library->last_unit())
+      in.fallback_backup = fallback;
     previewed = in.preview.decision;
     previewed_id = item_ids[sel];
     plan.item = int8_t(sel);
@@ -748,9 +750,13 @@ void request_job(UiAct act, int index) {
   j.kind = loader_messages::job_for_hold(
       {act, index, sel, sel >= 0 && item_ids[sel] == previewed_id, resume_pending(), previewed_retry}, &why);
   if (j.kind == JobKind::None) return refuse(why);
-  // The plan's line or the Backups row named this unit: the hold confirms it,
-  // for the backup the job (or the switch's chain) runs.
-  if (j.kind != JobKind::Resume) strlcpy(j.fallback, shown_fallback.c_str(), sizeof j.fallback);
+  // The Backups row, or for a switch the plan's line, named this unit: the hold
+  // confirms it, for the backup the job (or the switch's chain) runs. A switch
+  // plans from the last unit's backup, so only that unit is named there, and the
+  // chain's install plans from the same unit (j.unit).
+  if (j.kind == JobKind::Backup ||
+      (j.kind == JobKind::Install && shown_fallback == library->last_unit()))
+    strlcpy(j.fallback, shown_fallback.c_str(), sizeof j.fallback);
   if (j.kind == JobKind::Resume) {
     j.loader_running = loader_left_running;
   } else if (j.kind == JobKind::Install) {

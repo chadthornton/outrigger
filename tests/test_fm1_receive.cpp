@@ -149,11 +149,16 @@ static std::map<std::string, Bytes> snapshot(MemoryStorage &st) {
 
 static void test_refuses_before_any_data() {
   const Bytes file = fixture("felucca-1.8.0.fwsc");
-  {  // Melodee and Tessera write the unit-ID sector (decide_data blocks them too).
+  {  // Built on Melodee, unreviewed: it may write the unit-ID sector (decide_data blocks it too).
     Board b;
-    CHECK(error_of(b.ask('A', begin_payload(file, "melodee", "1.6.0", "Melodee"))) == ReceiveError::Blocked);
+    CHECK(error_of(b.ask('A', begin_payload(file, "orange-cat", "1", "Orange Cat"))) == ReceiveError::Blocked);
     CHECK(error_of(b.ask('D', {0, 0, 0, 0, 1})) == ReceiveError::NotReceiving);
     CHECK(b.lib.package_ids().empty());
+  }
+  {  // Melodee itself is riskier, not blocked: the board takes it (and warns at install).
+    Board b;
+    const Reply r = b.ask('A', begin_payload(file, "melodee", "1.6.0", "Melodee"));
+    CHECK(r.type != uint8_t('e'));
   }
   {  // Files of the tester's own aren't taken yet: only catalog packages.
     Board b;

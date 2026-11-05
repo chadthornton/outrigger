@@ -39,7 +39,6 @@ const DOWNLOAD_TIMEOUT_MS = 30000;
 const FAILS_CHECKS = ["amenity"];
 
 const WHY_BLOCKED = "Not yet: it's built on a firmware that writes the FM-1's Bluetooth sector, and nobody has checked it yet.";
-const WHY_MELODEE = "Not yet: it's built on Melodee, which writes the FM-1's Bluetooth sector Outrigger uses to tell FM-1s apart.";
 const WHY_OLD = "Not yet: it's built on SLOOP or an older Felucca, and can write parts of the FM-1 Outrigger can't clear or restore.";
 // The Riskier group's one line (the board's warning says the same).
 export const RISKIER_LINE = "This firmware may change your FM-1's Bluetooth identity. Your songs are safe, but phone " +
@@ -64,7 +63,7 @@ export function addableFirmwares(catalog) {
     const cleared = [e.id, e.entry].some((i) => CLEARED.includes(i));
     const riskier = [e.id, e.entry].some((i) => RISKIER.includes(i));
     const block = own || (cleared || riskier ? null : base.map((b) => BLOCKED[b] || HELD_BASES[b]).find(Boolean));
-    const why = block === "bluetooth" ? (own ? WHY_BLOCKED : WHY_MELODEE)
+    const why = block === "bluetooth" ? WHY_BLOCKED
       : block ? WHY_OLD
         : [e.id, e.entry].some((i) => FAILS_CHECKS.includes(i)) ? WHY_CHECKS : !e.lic ? WHY_LICENSE : null;
     if (why) held.push({ project: e.id, name: e.name, why });
