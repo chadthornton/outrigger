@@ -44,7 +44,8 @@ export function buildEmail({ prod, beta, day }) {
   if (stopped) lines.push(`Where failures stopped: ${stopped}`, "");
   lines.push(`Since the start: ${pair(tally(prod))}`, ...byBoard(prod), "");
   if (betaToday.length) lines.push(`Beta (testing): ${pair(tally(betaToday))}`, "");
-  lines.push("A finished install counts once per board per browser; a failure counts every attempt, so failures read high.",
+  lines.push("Days are UTC days: an install after 4pm in California counts on the next date.",
+    "A finished install counts once per board per browser; a failure counts every attempt, so failures read high.",
     "Sent by the outrigger-install-email Worker (workers/install-email/ in the repo).");
   return { subject: `Outrigger installs on ${day}: ${pair(tally(today))}`, text: lines.join("\n") };
 }

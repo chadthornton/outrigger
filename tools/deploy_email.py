@@ -36,7 +36,7 @@ def deploy():
     problem = refusal("production", head, git("rev-parse", "origin/master"), bool(git("branch", "-r", "--contains", head)),
                       bool(git("status", "--porcelain", "--untracked-files=no")))
     if problem:
-        fail(problem)
+        fail(problem.replace(", or deploy to beta", "").replace("production deploys", "the install email deploys"))
     env = load_credentials()
     if wrangler(env, "deploy", "--message", f"commit {head}"):
         fail("wrangler deploy failed; nothing logged")

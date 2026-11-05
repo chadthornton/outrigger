@@ -44,6 +44,7 @@ test("the email leads with yesterday, by board, then where failures stopped, the
   assert.match(text, /Where failures stopped: read 2, write 1/);
   assert.match(text, /Since the start: 3 finished, 3 failed/);
   assert.match(text, /once per board per browser/);
+  assert.match(text, /UTC days/);
   assert.ok(text.indexOf("1.69") < text.indexOf("Since the start"));
 });
 
