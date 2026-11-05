@@ -120,6 +120,16 @@ static void test_nothing_written_rows() {
   r = result(retry);
   EXPECT(!has(r.why, "key") && !has(r.todo, "off and on") && r.fix == UiAct::Retry, "a retry sends no key");
 
+  // Heads other than stock V15's: the same pair of lines as the UC25HQ80.
+  r = result(switch_failed(Failure::V16Head));
+  EXPECT(strcmp(r.why, "This FM-1 has M-VAVE's V16 start-up code.") == 0, "V16: names it");
+  EXPECT(strcmp(r.todo, "Outrigger can back it up but not switch it yet.") == 0, "V16: backup only");
+  EXPECT(r.safety == UiSafety::NothingWritten && r.fix == UiAct::None, "V16: nothing written, no retry");
+  r = result(switch_failed(Failure::UnknownHead));
+  EXPECT(strcmp(r.why, "This FM-1 has unknown start-up code.") == 0, "unknown head: says so");
+  EXPECT(strcmp(r.todo, "Outrigger can back it up but not switch it yet.") == 0, "unknown head: backup only");
+  EXPECT(r.fix == UiAct::None, "unknown head: no retry");
+
   r = result(switch_failed(Failure::UnsupportedFlash));
   EXPECT(strcmp(r.why, "This FM-1 has a different flash chip (UC25HQ80).") == 0, "UC25HQ80: names the chip");
   EXPECT(strcmp(r.todo, "Outrigger doesn't support it yet.") == 0, "UC25HQ80: not yet");
@@ -348,6 +358,13 @@ static void test_plan() {
   in.preview.problem = "package missing or damaged in the library";
   describe_plan(in, p);
   EXPECT(!p.can_act && p.warn_from == 0 && has(p.lines[0], "Package missing"), "a preview problem disables the hold");
+  EXPECT(p.line_count == 1, "a one-line problem stays one line");
+  in.preview.problem = "This FM-1 has M-VAVE's V16 start-up code.";
+  in.preview.problem2 = "Outrigger can back it up but not switch it yet.";
+  describe_plan(in, p);
+  EXPECT(!p.can_act && p.line_count == 2 && strcmp(p.lines[0], in.preview.problem) == 0 &&
+             strcmp(p.lines[1], in.preview.problem2) == 0,
+         "a head problem: both lines, in full, no hold");
 
   in = plan_input();
   in.ready = false;

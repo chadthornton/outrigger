@@ -6,6 +6,7 @@
 #include "switch_chain.h"
 #include "installer.h"
 #include "support/check.h"
+#include "support/heads.h"
 #include "support/mock_rom.h"
 
 using namespace fm1_loader;
@@ -48,6 +49,7 @@ static const Image &sloop() { return pkg("sloop-2.8.1.fwsc").app; }
 static Image base_flash(const Image &app, const char *unit = "unit-A") {
   Image f = synth("fm1-mock", kAppEnd);
   f.resize(kFlashSize, 0xFF);
+  memcpy(f.data(), v15_head().data(), kHeadEnd);  // stock V15's: the only head the board installs on
   memcpy(f.data() + kAppStart, app.data(), kAppLen);
   Image u = synth(unit, kSector);
   memcpy(f.data() + kUnitSector, u.data(), kSector);
@@ -240,6 +242,32 @@ static void test_golden_identity() {
     r.install("skiff-1.4");
     CHECK(r.inst.failure() == Failure::IdentityMismatch);
   }
+}
+
+// Any head but stock V15's: the backup works, every install stops before the
+// key, so the FM-1 never leaves its firmware.
+static void test_heads_backup_only() {
+  const struct {
+    uint32_t crc;
+    Failure failure;
+  } cases[] = {{kHeadCrcV16, Failure::V16Head}, {0x12345678, Failure::UnknownHead}};
+  for (const auto &c : cases) {
+    Image f = base_flash(sloop());
+    Image h = forged_head(c.crc);
+    memcpy(f.data(), h.data(), kHeadEnd);
+    Rig r(f);
+    r.back_up();
+    CHECK(r.unit().latest_backup.size() > 0);
+    r.install("skiff-1.4");
+    CHECK(r.inst.failure() == c.failure);
+    CHECK(r.host.keys == 0 && r.rom.commands == 0 && !r.inst.danger());
+    Unit u = r.unit();
+    CHECK(!u.has_pending);
+    r.install("sloop-2.8.1");  // even what it runs now
+    CHECK(r.inst.failure() == c.failure);
+  }
+  CHECK(strstr(failure_text(Failure::V16Head), "V16"));
+  CHECK(strstr(failure_text(Failure::UnknownHead), "unknown start-up code"));
 }
 
 static void test_golden_backup_mismatch() {
@@ -1053,6 +1081,7 @@ int main() {
   test_golden_retry_once();
   test_golden_retry_fails();
   test_golden_identity();
+  test_heads_backup_only();
   test_golden_backup_mismatch();
   test_golden_stale_backup();
   test_switch_unchanged_backs_up_nothing();

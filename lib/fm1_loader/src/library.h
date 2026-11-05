@@ -101,6 +101,17 @@ struct SectorOp {
   Family family;  // for Right::SaveRestore
 };
 
+// Which boot head a backup holds, by CRC-32 (layout.h). Only V15 takes
+// installs: V15-based firmwares and the clean slate are untested on any other,
+// and V16 keeps its Bluetooth address where a clean slate erases. A head sector
+// missing from the store counts as Other.
+enum class Head { V15, V16, Other };
+class Library;
+Head head_of(Library &lib, const FlashHashes &flash);
+// What the screen says about a head that isn't V15: two lines.
+const char *head_problem(Head h);
+extern const char *const kHeadProblem2;
+
 // Unit ID from the 0xE9000 sector. Empty if the sector is blank (all 0xFF or
 // 0x00): such units would all collide, so they can't be identified.
 std::string unit_id_of(const uint8_t *sector);
@@ -193,7 +204,8 @@ DataDecision decide_data(const std::string &unit_id, const Firmware &current,
 // shown before the hold. The install itself plans again from a fresh backup.
 struct InstallPreview {
   bool ok = false;
-  const char *problem = "";  // when !ok
+  const char *problem = "";   // when !ok
+  const char *problem2 = "";  // its second line, when it has one
   Firmware current;          // what the unit ran at its latest backup
   DataDecision decision;
   uint32_t app_sectors = 0, data_sectors = 0;

@@ -37,6 +37,10 @@ bool parse_hash(const std::string &text, Hash &out);
 // CRC-16/XMODEM (poly 0x1021, init 0): jl-uboot-tool's jl_crc16 and Felucca's ota_crc16.
 uint16_t crc16(const uint8_t *data, size_t len, uint16_t crc = 0);
 
+// CRC-32 (zlib's: reflected poly 0xEDB88320, init and final XOR 0xFFFFFFFF): the
+// boot-head checksum FM-1 owners compare (layout.h kHeadCrcV15).
+uint32_t crc32(const uint8_t *data, size_t len, uint32_t crc = 0);
+
 // JieLi "ENC" cipher, key 0xFFFF: the UFW header and entry scramble (its own inverse).
 void jl_enc(uint8_t *buf, size_t len, uint16_t key = 0xFFFF);
 

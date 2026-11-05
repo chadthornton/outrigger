@@ -189,8 +189,12 @@ def resume(jl, scsi, target_app, stored):
     return "done"
 
 
+V15_HEAD = None  # stock V15's boot head, from its package: the only head the board installs on
+
+
 def base_flash(app):
     flash = bytearray(fu.synthetic_flash())
+    flash[:len(V15_HEAD)] = V15_HEAD
     flash[fu.FW_START:fu.FW_END] = app
     flash[UNIT_SECTOR:UNIT_SECTOR + SECTOR] = synth(b"unit-A", SECTOR)
     return flash
@@ -239,6 +243,8 @@ def main():
                      % (name, p.identity, p.kind, p.file_sha256, p.fl_off, p.fl_len,
                         p.firmware_sha256, p.head_sha256))
     (out / "packages.txt").write_text("\n".join(lines) + "\n")
+    global V15_HEAD
+    V15_HEAD = bytes(pkgs["FM-1_015.fwsc"].flash[:0x4000])
 
     for name, flash, kw, entry, target, product in scenarios(pkgs):
         m = fu.MockUboot(image=bytes(flash), **kw)

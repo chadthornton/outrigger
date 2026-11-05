@@ -69,6 +69,7 @@ void describe_plan(const PlanInput &in, UiPlan &out) {
     snprintf(buf, sizeof buf, "%s", p.problem);
     if (buf[0] >= 'a' && buf[0] <= 'z') buf[0] = char(buf[0] - 'a' + 'A');
     line(buf);
+    if (p.problem2 && p.problem2[0]) line(p.problem2);
   } else if (p.app_sectors == 0) {
     line("It's already running.");
     line("Nothing to write.");
@@ -432,6 +433,12 @@ static void describe_stage(const JobOutcome &in, UiResult &out) {
     case Failure::Blocked:
       PUT(out.why, "Not yet supported: Outrigger can't switch to this firmware yet.");
       PUT(out.todo, "Pick another firmware.");
+      out.fix = UiAct::None;
+      break;
+    case Failure::V16Head:
+    case Failure::UnknownHead:
+      PUT(out.why, "%s", head_problem(in.failure == Failure::V16Head ? Head::V16 : Head::Other));
+      PUT(out.todo, "%s", kHeadProblem2);
       out.fix = UiAct::None;
       break;
     case Failure::UnsupportedFlash:

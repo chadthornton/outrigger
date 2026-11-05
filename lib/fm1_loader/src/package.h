@@ -44,8 +44,10 @@ struct Package {
 
 // Parses and checks a .fwsc file. expected_sha256, when given, must match the
 // whole file (the hash recorded when the package was added to the library).
+// head (optional) gets the package's boot head, 0x0-0x3FFF: the tests take
+// stock V15's from its package.
 PackageError parse_package(const uint8_t *data, size_t len, Package &out,
-                           const Hash *expected_sha256 = nullptr);
+                           const Hash *expected_sha256 = nullptr, std::vector<uint8_t> *head = nullptr);
 
 // FM-1_ and 3 to 15 digits. The family comes from the catalog project
 // (family_of_project, library.h), never from the identity's digits.
