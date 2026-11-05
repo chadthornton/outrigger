@@ -111,8 +111,8 @@ static void press(int ms) {
 }
 
 // ---------- Results, shared with the parent across fork() ----------
-constexpr int kMaxShots = 400;
-constexpr size_t kArena = size_t(160) << 20;  // the pictures, for the contact sheets
+constexpr int kMaxShots = 512;
+constexpr size_t kArena = size_t(256) << 20;  // the pictures, for the contact sheets
 struct Shot {
   int board;
   char build[12], size, page[20];
@@ -432,6 +432,12 @@ static UiAct last_act;
 static int act_calls, act_index;
 static void on_settings(const UiSettings &s) { saved_size = s.text_size; }
 static void on_computer() { ++computer_calls; }
+static int diag_calls = 0;
+static bool diag_asked = false;
+static void on_diagnostics(bool on) {
+  ++diag_calls;
+  diag_asked = on;
+}
 static void on_select(int i) {
   ++select_calls;
   last_select = i;
@@ -523,6 +529,18 @@ static void setup_pages(int size) {
   if (computer_calls != 1) fail("a 2 s hold gave %d restarts, not 1", computer_calls);
   tap_on("Computer mode", 80, 8);  // the back row
   if (lv_screen_active() != setup) fail("the back row didn't return to Setup");
+  // Remote diagnostics: its page, and one button that asks to turn it on.
+  tap_on("Remote diagnostics");
+  if (lv_screen_active() == setup) {
+    fail("Remote diagnostics didn't open its page");
+  } else {
+    shoot("diagnostics");
+    diag_calls = 0;
+    tap_on("Turn on", 80, 8);
+    if (diag_calls != 1 || !diag_asked) fail("Turn on asked %d times (on=%d)", diag_calls, int(diag_asked));
+    tap_on("Remote diagnostics", 80, 8);  // the back row
+    if (lv_screen_active() != setup) fail("the back row didn't return to Setup from Remote diagnostics");
+  }
   const char next[2] = {"SML"[(size + 1) % 3], 0};
   saved_size = -1;
   tap_on(next, 80, 8);
@@ -652,7 +670,7 @@ static void run_pass(const SimBoard &b, bool fm1, int size) {
                          uint16_t(b.radius), b.boost};
   profile.input = b.input;
   if (b.input == InputKind::Encoder) profile.read_encoder = read_encoder;
-  UiHooks hooks = {on_settings, on_computer, nullptr, fm1 ? on_select : nullptr, fm1 ? on_act : nullptr};
+  UiHooks hooks = {on_settings, on_computer, nullptr, fm1 ? on_select : nullptr, fm1 ? on_act : nullptr, on_diagnostics};
   ui_begin(profile, {uint8_t(size)}, hooks, kFirmware);
   ui_set_network("Web: 192.168.1.40");
 
@@ -730,7 +748,7 @@ static void run_computer(const SimBoard &b) {
   size_char = 'M';
   BoardProfile profile{b.id, uint16_t(b.w), uint16_t(b.h), b.radius ? ScreenShape::Rounded : ScreenShape::Rect,
                        uint16_t(b.radius), b.boost};
-  ui_begin(profile, {1}, {on_settings, on_computer, nullptr, nullptr, nullptr}, kFirmware);
+  ui_begin(profile, {1}, {on_settings, on_computer, nullptr, nullptr, nullptr, nullptr}, kFirmware);
   ui_set_network("Web: 192.168.1.40");
   // A job's boot opens on this (app.cpp); it shares this pass: neither needs the loader.
   ui_show_switching("Switching firmware");
@@ -752,6 +770,7 @@ static const char *const kColumns[] = {
     "play",       "play_hub",  "play5",      "play5_open",  "play_fm1",   "problem",  "nav_focus", "play_focus",
     "fm1_list",   "fm1_list_focus", "plan_wait", "plan",    "plan_fresh", "backups",  "job_switch", "job_backup", "job_chain_backup", "job_chain_write",
     "switched",   "err_retry", "err_norom",  "err_stale",   "not_ready",  "unfinished", "setup",   "setup_hotspot", "computer_confirm",
+    "diagnostics",
     "switching",  "computer", "computer_adding"};
 constexpr int kCols = sizeof kColumns / sizeof *kColumns, kGap = 8, kCaption = 18;
 static uint8_t caption_rgb[480 * kCaption * 3];

@@ -53,7 +53,7 @@ make fixtures  # FM-1 packages and wl82loader.bin for the tests, pinned by SHA-2
 make golden    # regenerate tests/golden/ from the Unbricker and jl-uboot-tool (Python venv in build/)
 make build     # compile one board x app set: BOARD=waveshare_169 (default)|waveshare_35 APPS=hub|hub-loader|everything
 make build-all # every board x app set, into build/<board>/<app set>/
-make build APPS=hub-loader DIAG_WEB=1  # hub-loader plus the read-only web diagnostics (build/<board>/hub-loader-web/)
+make build APPS=hub-loader DIAG_WEB=1  # hub-loader with Remote diagnostics on from the start (build/<board>/hub-loader-web/)
 python3 tools/diag.py all              # status, log, crash and store into build/diag/<time>/, plus the core dump
 make flash     # flash BOARD/APPS; PORT=/dev/cu.usbmodemXXXX to pick the port
 make serve     # web installer on http://localhost:8088
@@ -83,13 +83,17 @@ Once the firmware runs, the board's only USB port is a host, so the Mac can't re
 
 ### Web diagnostics
 
-Builds with the Web UI (`everything`, or `hub-loader` with `DIAG_WEB=1`) join Wi-Fi and serve a read-only page at
-`http://fm1hub.local` (Setup shows the address). With no network saved they open the `fm1hub-setup`
+Every build carries the Web UI, off until **Setup > Remote diagnostics** turns it on (`everything` and `DIAG_WEB=1`
+builds start with it on; turning it on or off restarts the board). Off, nothing starts, Wi-Fi included. On, the board
+joins Wi-Fi and serves a read-only page at `http://fm1hub.local` (Setup shows the address). With no network saved they open the `fm1hub-setup`
 hotspot (password on Setup); its page saves a network to NVS `wifi`, the only thing any route writes.
 Everything else is GET: `/status` (build, heap, each task's unused stack, USB devices with their channels and
 refusals, the FM-1 pages), `/log?since=N` (lines from the USB task, the loader task and the loop), `/crash` (the
 last abnormal reset), `/coredump` (the raw partition) and `/store`. After a crash, safe mode starts Wi-Fi too, so the
-crash can be read without the screen. `tools/diag.py` fetches them from the Mac.
+crash can be read without the screen, when Remote diagnostics is on. `tools/diag.py` fetches them from the Mac.
+
+Compiled in, the Web UI costs about 27 KB of internal RAM even when off (20 KB of it the Wi-Fi driver's own data),
+so a board with it off has the fixed cost of `everything` without Wi-Fi running.
 
 The browser installer and how it stages firmware: [docs/web-installer.md](docs/web-installer.md).
 

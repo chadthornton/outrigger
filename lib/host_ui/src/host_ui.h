@@ -12,6 +12,7 @@
 
 struct UiSettings {
   uint8_t text_size;  // 0 small, 1 medium, 2 large
+  bool diagnostics = false;  // Remote diagnostics is on (shown on Setup; set_diagnostics changes it)
 };
 
 // One device's line in the controller group.
@@ -127,6 +128,9 @@ struct UiHooks {
   void (*loader_select)(int index);  // a firmware's plan was opened
   // A 2-second hold completed: what its label named, and for a switch the row.
   void (*loader_act)(UiAct act, int index);
+  // Setup's Remote diagnostics: turn it on or off; the app saves it and restarts.
+  // Null in builds without the Web UI: no row then.
+  void (*set_diagnostics)(bool on);
 };
 
 // Sets up LVGL, the display and the input, and builds the screens.
