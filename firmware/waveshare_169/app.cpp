@@ -558,6 +558,7 @@ static void connect_computer() {
   boot.begin("boot", false);
   boot.putString("computer", this_build());
   boot.end();
+  update_confirm_now(booted_ok);
   esp_restart();
 }
 
@@ -575,6 +576,7 @@ static void set_diagnostics(bool on) {
   if (loader_busy()) return;  // a restart mid-install leaves the FM-1's app half-written
 #endif
   prefs.putBool("diag", on);
+  update_confirm_now(booted_ok);
   esp_restart();
 }
 #endif
@@ -584,6 +586,7 @@ static void back_to_host() {
   boot.begin("boot", false);
   boot.remove("computer");
   boot.end();
+  update_confirm_now(booted_ok);
   esp_restart();
 }
 

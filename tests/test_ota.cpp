@@ -43,12 +43,17 @@ static bool settled_in(Board &s, const Build &b) {
 static void test_record_round_trip() {
   ota::Record r = ota::staged(make_build("n", 5000).image(), make_build("p", 7000).image(), "abc1234");
   r.attempts = 2;
+  r.pins_high[0] = 15;
+  r.pins_low[1] = 45;
   uint8_t blob[ota::kRecordBytes];
   ota::encode(r, blob);
   ota::Record back;
   CHECK(ota::decode(blob, sizeof blob, back));
   CHECK(back.state == ota::State::Staged);
   CHECK_EQ(int(back.attempts), 2);
+  CHECK_EQ(int(back.pins_high[0]), 15);
+  CHECK_EQ(int(back.pins_high[1]), -1);
+  CHECK_EQ(int(back.pins_low[1]), 45);
   CHECK(ota::same_image(back.next, r.next));
   CHECK(ota::same_image(back.prev, r.prev));
   CHECK_EQ(std::string(back.label), std::string("abc1234"));
@@ -299,6 +304,16 @@ static void cut_twice(bool next_confirms) {
           (!next_confirms && settled_in(s, next))) {
         printf("FAIL cuts at %ld and %ld (confirms=%d): ended %d in %s\n", first, second, next_confirms, int(e),
                running(s) ? running(s)->name.c_str() : "nothing valid");
+        ++failures;
+        continue;
+      }
+      // The record names what runs, and nothing is left in the store.
+      const ota::Record r = s.record();
+      const bool says = settled_in(s, next) ? r.state == ota::State::Idle && r.result == ota::Result::Updated
+                                            : r.state == ota::State::Idle && r.result != ota::Result::Updated;
+      if (!says || !s.files.empty()) {
+        printf("FAIL cuts at %ld and %ld: record %s/%s, %zu files left\n", first, second, ota::state_name(r.state),
+               ota::result_name(r.result), s.files.size());
         ++failures;
       }
     }

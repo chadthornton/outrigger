@@ -59,12 +59,17 @@ struct Record {
   State state = State::Idle;
   Result result = Result::None;  // the last update's outcome, kept while Idle
   uint8_t attempts = 0;          // boots of next so far
+  // GPIOs the recovery app drives while it works, from Outrigger's board
+  // profile (it has none of its own): the backlight on, so the screen keeps
+  // "Updating..." lit, and pins wired to a speaker amplifier off. -1: unused.
+  int8_t pins_high[4] = {-1, -1, -1, -1};
+  int8_t pins_low[4] = {-1, -1, -1, -1};
   Image next, prev;
   char label[16] = {};  // the new build's commit, for /status
 };
 
 // NVS holds the record as one blob, so it changes all at once.
-constexpr size_t kRecordBytes = 4 + 4 + 2 * 36 + 16 + 4;
+constexpr size_t kRecordBytes = 4 + 4 + 8 + 2 * 36 + 16 + 4;
 void encode(const Record &r, uint8_t out[kRecordBytes]);
 // False for anything but an intact record of this format.
 bool decode(const uint8_t *data, size_t len, Record &out);

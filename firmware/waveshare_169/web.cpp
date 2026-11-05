@@ -407,11 +407,12 @@ static esp_err_t on_status(httpd_req_t *req) {
         safe ? "true" : "false");
   o.raw(",\"uptime_ms\":%lu,\"published_ms_ago\":%lu", (unsigned long)millis(), (unsigned long)(millis() - at));
   {
-    const UpdateStatus &u = update_status();
+    const UpdateStatus u = update_status();
     o.raw(",\"update\":{\"state\":\"%s\",\"result\":\"%s\",\"attempts\":%u,\"label\":", u.state, u.result,
           unsigned(u.attempts));
     o.str(u.label);
-    o.raw(",\"pending_verify\":%s,\"recovery\":\"%s\"}", u.pending_verify ? "true" : "false", u.recovery);
+    o.raw(",\"pending_verify\":%s,\"recovery\":\"%s\"}", u.pending_verify ? "true" : "false",
+          update_recovery_sha());
   }
   o.raw(",\"heap\":{\"internal_free\":%u,\"internal_min\":%u,\"internal_largest\":%u,\"dma_free\":%u,"
         "\"dma_largest\":%u,\"dma_min\":%u,\"psram_free\":%u,\"psram_min\":%u}",

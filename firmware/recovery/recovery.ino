@@ -19,17 +19,19 @@
 #include <stdio.h>
 
 #include "ota.h"
+#include "ota_nvs.h"
 
 namespace {
 
 constexpr const char *kMount = "/store";
-constexpr size_t kLogBytes = 640;  // the newest lines; NVS blob "ota"/"log"
+using ota::kLogBytes;
+using ota::kNvsLog;
 
 class BoardPorts : public ota::Ports {
  public:
   bool begin() {
     app0_ = esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_OTA_0, nullptr);
-    nvs_ok_ = prefs_.begin("ota", false);
+    nvs_ok_ = prefs_.begin(ota::kNvsNamespace, false);
     // Never formats: the store holds every FM-1 backup.
     store_ok_ = LittleFS.begin(false, kMount, 5, "store");
     char line[64];
@@ -39,16 +41,8 @@ class BoardPorts : public ota::Ports {
     return app0_ != nullptr;
   }
 
-  bool load(ota::Record &out) override {
-    uint8_t blob[ota::kRecordBytes];
-    if (!nvs_ok_ || prefs_.getBytesLength("rec") != sizeof blob) return false;
-    return prefs_.getBytes("rec", blob, sizeof blob) == sizeof blob && ota::decode(blob, sizeof blob, out);
-  }
-  bool save(const ota::Record &r) override {
-    uint8_t blob[ota::kRecordBytes];
-    ota::encode(r, blob);
-    return nvs_ok_ && prefs_.putBytes("rec", blob, sizeof blob) == sizeof blob;
-  }
+  bool load(ota::Record &out) override { return nvs_ok_ && ota::nvs_load(prefs_, out); }
+  bool save(const ota::Record &r) override { return nvs_ok_ && ota::nvs_save(prefs_, r); }
 
   int64_t file_size(const char *name) override {
     if (!open(name)) return -1;
@@ -85,9 +79,9 @@ class BoardPorts : public ota::Ports {
   void log(const char *line) override {
     if (!nvs_ok_) return;
     char buf[kLogBytes + 1] = {};
-    size_t n = prefs_.getBytesLength("log");
+    size_t n = prefs_.getBytesLength(kNvsLog);
     if (n > kLogBytes) n = 0;
-    if (n) prefs_.getBytes("log", buf, n);
+    if (n) prefs_.getBytes(kNvsLog, buf, n);
     const size_t add = strlen(line) + 1;
     if (n + add > kLogBytes) {  // drop the oldest whole lines
       size_t cut = n + add - kLogBytes;
@@ -97,7 +91,7 @@ class BoardPorts : public ota::Ports {
     }
     memcpy(buf + n, line, add - 1);
     buf[n + add - 1] = '\n';
-    prefs_.putBytes("log", buf, n + add);
+    prefs_.putBytes(kNvsLog, buf, n + add);
   }
 
  private:

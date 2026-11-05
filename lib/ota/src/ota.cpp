@@ -9,6 +9,8 @@ namespace {
 
 constexpr uint32_t kMagic = 0x3141544F;  // "OTA1"
 constexpr uint8_t kFormat = 1;
+constexpr size_t kCrcAt = kRecordBytes - 4;
+constexpr size_t kLabelEnd = kCrcAt - 1;
 
 uint32_t crc32(const uint8_t *data, size_t len) {
   uint32_t crc = 0xFFFFFFFF;
@@ -92,24 +94,28 @@ void encode(const Record &r, uint8_t out[kRecordBytes]) {
   out[5] = uint8_t(r.state);
   out[6] = uint8_t(r.result);
   out[7] = r.attempts;
-  put_image(out + 8, r.next);
-  put_image(out + 44, r.prev);
-  memcpy(out + 80, r.label, sizeof r.label);
-  out[95] = 0;
-  put32(out + 96, crc32(out, 96));
+  memcpy(out + 8, r.pins_high, 4);
+  memcpy(out + 12, r.pins_low, 4);
+  put_image(out + 16, r.next);
+  put_image(out + 52, r.prev);
+  memcpy(out + 88, r.label, sizeof r.label);
+  out[kLabelEnd] = 0;
+  put32(out + kCrcAt, crc32(out, kCrcAt));
 }
 
 bool decode(const uint8_t *data, size_t len, Record &out) {
   if (len != kRecordBytes || get32(data) != kMagic || data[4] != kFormat) return false;
-  if (get32(data + 96) != crc32(data, 96)) return false;
-  if (data[5] > uint8_t(State::RolledBack) || data[6] > uint8_t(Result::Abandoned) || data[95]) return false;
+  if (get32(data + kCrcAt) != crc32(data, kCrcAt)) return false;
+  if (data[5] > uint8_t(State::RolledBack) || data[6] > uint8_t(Result::Abandoned) || data[kLabelEnd]) return false;
   Record r;
   r.state = State(data[5]);
   r.result = Result(data[6]);
   r.attempts = data[7];
-  get_image(data + 8, r.next);
-  get_image(data + 44, r.prev);
-  memcpy(r.label, data + 80, sizeof r.label);
+  memcpy(r.pins_high, data + 8, 4);
+  memcpy(r.pins_low, data + 12, 4);
+  get_image(data + 16, r.next);
+  get_image(data + 52, r.prev);
+  memcpy(r.label, data + 88, sizeof r.label);
   out = r;
   return true;
 }

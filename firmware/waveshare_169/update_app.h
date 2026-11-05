@@ -13,17 +13,24 @@ struct UpdateStatus {
   uint8_t attempts = 0;         // boots the last update took
   char label[16] = {};          // its commit
   bool pending_verify = false;  // this image hasn't confirmed itself yet
-  char recovery[17] = "none";   // the recovery app's image SHA-256, 16 hex digits
 };
 
 // Early in setup(): reads the record and settles what it says about this boot.
+// An unconfirmed image also gets a timer that restarts the board
+// kConfirmDeadlineMs after boot, whatever the loop is doing, so one that hangs
+// goes back to the recovery app like one that crashes.
 void update_boot();
 // Every loop(). healthy: setup() reached Play or Computer mode (not safe mode).
-// A new image confirms itself kConfirmAfterMs into a healthy boot; one that
-// can't by kConfirmDeadlineMs restarts, and the bootloader goes back to the
-// recovery app.
+// A new image confirms itself kConfirmAfterMs into a healthy boot.
 void update_loop(uint32_t now_ms, bool healthy);
-// For GET /status. Set by update_boot and update_loop on the loop task.
-const UpdateStatus &update_status();
+// Before a restart the user asked for (Connect to computer, Back to MIDI,
+// Remote diagnostics): a healthy unconfirmed image confirms itself first, so
+// the restart doesn't count as a failed boot of it.
+void update_confirm_now(bool healthy);
+// For GET /status, from any task: a copy taken under a lock.
+UpdateStatus update_status();
+// The recovery app's image SHA-256 (16 hex digits), or "none": hashed the
+// first time it's asked for, not at every boot.
+const char *update_recovery_sha();
 // The recovery app's NVS log, newest last (empty if none): for GET /crash.
 const char *update_recovery_log();
