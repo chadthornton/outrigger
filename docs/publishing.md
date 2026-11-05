@@ -41,8 +41,9 @@ make deploy-site FULL=1              # build it with make check on the Mac inste
     and checks every manifest a page names exists and every board folder is named.
   - Beta pins to production's firmware too, so beta carries what production will; production reuses beta's pinned
     copy only while production's firmware is still the one beta pinned.
-  - "Since production" counts from production's firmware commit everywhere (the critical-list check here,
-    CONTRIBUTING's ship rules), so firmware a pinned deploy left out still counts as unshipped.
+  - "Since production" counts firmware from production's firmware commit and everything else from its pages'
+    commit (the critical-list check here, CONTRIBUTING's ship rules): firmware a pinned deploy left out still counts
+    as unshipped, and pages or server code it shipped don't count again.
   - `FULL=1` always builds everything.
 - **Production doesn't build again:** it uploads beta's kept copy of the same commit (the exact bytes checked on beta,
   verified against their SHA-256 sums), so a firmware ship runs `make check` once, for beta. It builds afresh only for

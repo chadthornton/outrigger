@@ -30,7 +30,7 @@ checkout of a committed, pushed HEAD goes live, built one of these ways:
   The wl82loader.bin scan and the Pages limits run here, as for make check.
   Either way, a red or running CI run of HEAD refuses, and production needs one.
 - make check on the Mac: for FULL=1, for a batch (since the commit production
-  serves, counted from its firmware commit, on either channel, so beta carries the build production will) that
+  serves, firmware counted from its firmware commit, on either channel, so beta carries the build production will) that
   touches the critical list's code or any firmware (CRITICAL; CONTRIBUTING.md, "Shipping to
   production"), and for a
   commit CI has no build of (a branch commit: CI builds a PR merged into master;
@@ -60,6 +60,7 @@ CLOUDFLARE_ACCOUNT_ID). Never printed.
 """
 import fnmatch
 import hashlib
+import http.client
 import io
 import json
 import os
@@ -500,6 +501,14 @@ def firmware_paths(files):
     return [f for f in files if f in FIRMWARE_READERS or not any(fnmatch.fnmatch(f, p) for p in SITE_ONLY)]
 
 
+def batch(since_firmware, since_pages):
+    """(critical-list files, files that need new firmware) a deploy ships. since_firmware: the files changed
+    since production's firmware commit; since_pages: since its pages' commit. Firmware a pinned deploy left
+    out still counts; server code and pages it shipped don't count again."""
+    fw = firmware_paths(since_firmware)
+    return critical_paths(fw + [f for f in since_pages if f not in fw and not firmware_paths([f])]), fw
+
+
 def assemble(commit, fw, dst):
     """CI's firmware plus the commit's own site/, functions/, wrangler.toml, NOTICE and LICENSE,
     laid out as make check leaves build/checked (make site copies NOTICE and LICENSE into site/)."""
@@ -647,7 +656,7 @@ def live_firmware_file(name, cache={}):
         try:
             with urllib.request.urlopen(req, timeout=60) as resp:
                 cache[name] = resp.read()
-        except (urllib.error.URLError, TimeoutError):
+        except (OSError, http.client.HTTPException):  # URLError, timeouts, a connection dropped mid-read
             cache[name] = None
     return cache[name]
 
@@ -658,10 +667,11 @@ def plan(channel, full=""):
     head = guard(channel)
     run = ci_build(head)
     entries = read_log(DEPLOYS / "deploys.jsonl")
-    # Changes count from production's firmware, not its pages: firmware a pinned deploy left out is unshipped.
-    firmware = live_firmware(entries, "production", commit_of(live_deployment(load_credentials(), "production")))
-    changed = git("diff", "--name-only", firmware, head).splitlines()
-    crit, fw = critical_paths(changed), firmware_paths(changed)
+    # Firmware counts from production's firmware commit, the rest from its pages' (batch).
+    pages = commit_of(live_deployment(load_credentials(), "production"))
+    firmware = live_firmware(entries, "production", pages)
+    crit, fw = batch(git("diff", "--name-only", firmware, head).splitlines(),
+                     git("diff", "--name-only", pages, head).splitlines())
     pinned = None
     if fw:
         more = ", ..." if len(fw) > 5 else ""
@@ -780,8 +790,7 @@ def rollback(channel, commit=None):
     else:
         kept = DEPLOYS / channel / target["commit"]
         problems = kept_problems(kept)
-        if not problems and kept_firmware_problem(kept, firmware_of(target)):
-            problems = [kept_firmware_problem(kept, firmware_of(target))]
+        problems = problems or [p for p in [kept_firmware_problem(kept, firmware_of(target))] if p]
         if problems:
             fail(f"can't roll {channel} back to {target['commit'][:7]}:\n  " + "\n  ".join(problems))
         now = upload(env, kept, channel, target["commit"], f"Rollback to {target['commit'][:7]}")

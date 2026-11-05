@@ -2,7 +2,9 @@
 
     python3 -I tests/test_deploy_site.py
 """
+import contextlib
 import hashlib
+import io
 import json
 import shutil
 import subprocess
@@ -820,6 +822,43 @@ class FirmwarePathsTest(unittest.TestCase):
     def test_a_path_nobody_listed_needs_new_firmware(self):
         self.assertEqual(deploy_site.firmware_paths(["sdkconfig.defaults", "newdir/x.c"]),
                          ["sdkconfig.defaults", "newdir/x.c"])
+
+
+class BatchTest(unittest.TestCase):
+    """What a deploy ships: firmware since production's firmware commit, everything else since its pages'."""
+    def test_firmware_a_pinned_deploy_left_out_is_still_unshipped(self):
+        crit, fw = deploy_site.batch(["lib/x.cpp", "site/index.html"], ["site/index.html"])
+        self.assertEqual((crit, fw), (["lib/x.cpp"], ["lib/x.cpp"]))
+
+    def test_server_code_a_pinned_deploy_shipped_is_no_longer_in_the_batch(self):
+        crit, fw = deploy_site.batch(["functions/api/report.js", "tools/fm1_families.json"],
+                                     ["tools/fm1_families.json"])
+        self.assertEqual((crit, fw), ([], ["tools/fm1_families.json"]))
+
+    def test_unshipped_server_code_is_critical(self):
+        self.assertEqual(deploy_site.batch(["functions/api/report.js"], ["functions/api/report.js"]),
+                         (["functions/api/report.js"], []))
+
+
+class SourceCommandTest(unittest.TestCase):
+    """make deploy-site runs deploy-ci for "ci": a pinned deploy goes that way, without make check."""
+    def source(self, kind):
+        real, argv, out = deploy_site.plan, sys.argv, io.StringIO()
+        deploy_site.plan = lambda *a: (kind, HEAD, None, HEAD, None)
+        sys.argv = ["deploy_site.py", "source", "beta"]
+        try:
+            with contextlib.redirect_stdout(out):
+                deploy_site.main()
+        finally:
+            deploy_site.plan, sys.argv = real, argv
+        return out.getvalue().strip()
+
+    def test_pinned_goes_to_deploy_ci(self):
+        self.assertEqual(self.source("pinned"), "ci")
+
+    def test_the_others_say_themselves(self):
+        for kind in ("ci", "check", "beta"):
+            self.assertEqual(self.source(kind), kind)
 
 
 class AssembleTest(unittest.TestCase):
