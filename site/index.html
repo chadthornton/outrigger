@@ -160,6 +160,9 @@
   .addfw summary span { color: var(--muted); }
   .addfw summary b { color: var(--accent); font-weight: 650; }
   .addfw-body { padding: 0 18px 18px; }
+  .hubsteps { margin: 12px 0 0; padding-left: 20px; display: grid; gap: 6px; font-size: .9375rem; color: var(--muted); }
+  .hubsteps b { color: var(--fg); font-weight: 600; }
+  .hubfig { margin-top: 12px; max-width: 420px; color: var(--fg); }
   .addfw-link { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; padding: 14px 18px; font-size: .9375rem; text-decoration: none; }
   .addfw-link span { color: var(--muted); }
   .addfw-link b { color: var(--accent); font-weight: 650; }
@@ -278,7 +281,7 @@
     <aside class="rail" id="install">
       <div class="card"><p class="eyebrow">Set up once</p><ol class="steps3">
   <li><div><b>Install Outrigger on your ESP32</b><p>Plug it into this computer.</p>
-    <div class="install" data-builds="[{&quot;label&quot;: &quot;Check my ESP32&quot;, &quot;manifest&quot;: &quot;firmware/waveshare-esp32-s3-touch-lcd-1.69/hub-loader/manifest.json&quot;, &quot;board&quot;: &quot;Waveshare 1.69\&quot;&quot;, &quot;profile&quot;: &quot;waveshare-esp32-s3-touch-lcd-1.69&quot;, &quot;edition&quot;: &quot;hub-loader&quot;, &quot;tag_id&quot;: 0, &quot;flash_mb&quot;: 16, &quot;psram_mb&quot;: 8, &quot;tested&quot;: true}, {&quot;label&quot;: &quot;Check my ESP32&quot;, &quot;manifest&quot;: &quot;firmware/waveshare-esp32-s3-touch-lcd-3.5/hub-loader/manifest.json&quot;, &quot;board&quot;: &quot;Waveshare 3.5\&quot;&quot;, &quot;profile&quot;: &quot;waveshare-esp32-s3-touch-lcd-3.5&quot;, &quot;edition&quot;: &quot;hub-loader&quot;, &quot;tag_id&quot;: 1, &quot;flash_mb&quot;: 16, &quot;psram_mb&quot;: 8, &quot;tested&quot;: true}, {&quot;label&quot;: &quot;Check my ESP32&quot;, &quot;manifest&quot;: null, &quot;board&quot;: &quot;Another ESP32-S3 board&quot;, &quot;tag_id&quot;: null}]" data-suggest="[&quot;Waveshare 1.69\&quot;&quot;, &quot;Waveshare 3.5\&quot;&quot;, &quot;Freenove 2.8\&quot;&quot;]" data-help="#no-port">
+    <div class="install" data-builds="[{&quot;label&quot;: &quot;Check my ESP32&quot;, &quot;manifest&quot;: &quot;firmware/waveshare-esp32-s3-touch-lcd-1.69/hub-loader/manifest.json&quot;, &quot;board&quot;: &quot;Waveshare 1.69\&quot;&quot;, &quot;profile&quot;: &quot;waveshare-esp32-s3-touch-lcd-1.69&quot;, &quot;edition&quot;: &quot;hub-loader&quot;, &quot;tag_id&quot;: 0, &quot;flash_mb&quot;: 16, &quot;psram_mb&quot;: 8, &quot;tested&quot;: true}, {&quot;label&quot;: &quot;Check my ESP32&quot;, &quot;manifest&quot;: &quot;firmware/waveshare-esp32-s3-touch-lcd-3.5/hub-loader/manifest.json&quot;, &quot;board&quot;: &quot;Waveshare 3.5\&quot;&quot;, &quot;profile&quot;: &quot;waveshare-esp32-s3-touch-lcd-3.5&quot;, &quot;edition&quot;: &quot;hub-loader&quot;, &quot;tag_id&quot;: 1, &quot;flash_mb&quot;: 16, &quot;psram_mb&quot;: 8, &quot;tested&quot;: true}, {&quot;label&quot;: &quot;Check my ESP32&quot;, &quot;manifest&quot;: null, &quot;board&quot;: &quot;Another ESP32-S3 board&quot;, &quot;tag_id&quot;: null}]" data-suggest="[&quot;Waveshare 1.69\&quot;&quot;, &quot;Waveshare 3.5\&quot;&quot;]" data-help="#no-port">
       <p class="install-note">Installing needs Chrome or Edge on a computer, with JavaScript on.</p>
     </div></div></li>
   <li><div><b>Add firmwares</b><p>Add Felucca, Skiff and more <a href="library/">from the firmware library</a>.</p></div></li>
@@ -322,7 +325,9 @@
     <svg class="ico" viewBox="0 0 120 140" aria-hidden="true"><use href="art.svg#board"/></svg>
     <div>
       <h3>ESP32-S3 board with a screen</h3>
-      <p>This runs Outrigger. Most ESP32-S3 boards with a screen should work; we're still testing.</p>
+      <p>This runs Outrigger, on the boards below. Other ESP32-S3 boards with native USB need a board profile first:
+        <a href="mailto:feedback@outrigger.music">tell us which board</a>, or pick "Another ESP32-S3 board" in the installer and send
+        <b>Report this board</b>.</p>
       <ul class="picks">
         <li><span class="tag">Tested</span><a class="" href="https://www.amazon.com/s?k=Waveshare+ESP32-S3-Touch-LCD-1.69" target="_blank" rel="noopener">Waveshare ESP32-S3 Touch LCD 1.69 ↗</a></li>
         <li><span class="tag">Tested</span><a class="" href="https://www.amazon.com/dp/B0F3WS2W5R" target="_blank" rel="noopener">Waveshare ESP32-S3 Touch LCD 3.5 ↗</a></li>
@@ -346,6 +351,13 @@
     <div>
       <h3>Powered USB-C hub</h3>
       <p>Most hubs that can charge a laptop through them work. Outrigger plugs in where the laptop would.</p>
+      <ol class="hubsteps">
+        <li><b>Power first:</b> the charger into the hub's charging input. The hub needs its own power.</li>
+        <li><b>Outrigger on the hub's host cable</b> (or host port): the one a laptop would plug into.</li>
+        <li><b>The FM-1 and your controller in the hub's USB-C data ports.</b> On the hub we tested, its USB-A ports
+          didn't work.</li>
+      </ol>
+      <svg class="hubfig" viewBox="0 0 500 190" role="img" aria-label="Hub wiring: charger into the power input, Outrigger on the host cable, FM-1 and controller on USB-C data ports"><use href="art.svg#hub-wiring"/></svg>
       <ul class="picks">
         <li><span class="tag">Likely</span><a class="" href="https://www.amazon.com/Aceele-Delivery-Multiport-Splitter-MacBook/dp/B0CQJYM5L6" target="_blank" rel="noopener">Aceele 4-Port USB-C Hub with 100W PD ↗</a></li>
       </ul>
