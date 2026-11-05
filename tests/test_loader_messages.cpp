@@ -120,6 +120,17 @@ static void test_nothing_written_rows() {
   r = result(retry);
   EXPECT(!has(r.why, "key") && !has(r.todo, "off and on") && r.fix == UiAct::Retry, "a retry sends no key");
 
+  r = result(switch_failed(Failure::UnsupportedFlash));
+  EXPECT(strcmp(r.why, "This FM-1 has a different flash chip (UC25HQ80).") == 0, "UC25HQ80: names the chip");
+  EXPECT(strcmp(r.todo, "Outrigger doesn't support it yet.") == 0, "UC25HQ80: not yet");
+  EXPECT(r.safety == UiSafety::NothingWritten && r.fix == UiAct::None, "UC25HQ80: nothing written, no retry");
+  JobOutcome uc{};
+  uc.kind = JobKind::Backup;
+  uc.failure = Failure::UnsupportedFlash;
+  r = result(uc);
+  EXPECT(strcmp(r.headline, "Backup didn't finish") == 0 && has(r.why, "UC25HQ80") && r.fix == UiAct::None,
+         "UC25HQ80: a backup says the same");
+
   r = result(switch_failed(Failure::IdentityMismatch));
   EXPECT(has(r.why, "Chip key") && strcmp(r.todo, "Try again.") == 0, "anything else: failure_text, try again");
   EXPECT(r.safety == UiSafety::NothingWritten && r.fix == UiAct::Switch, "anything else: the same job");

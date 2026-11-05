@@ -432,6 +432,11 @@ static void describe_stage(const JobOutcome &in, UiResult &out) {
       PUT(out.todo, "Pick another firmware.");
       out.fix = UiAct::None;
       break;
+    case Failure::UnsupportedFlash:
+      PUT(out.why, "This FM-1 has a different flash chip (UC25HQ80).");
+      PUT(out.todo, "Outrigger doesn't support it yet.");
+      out.fix = UiAct::None;
+      break;
     case Failure::WritesLocked:
       PUT(out.why, "This build can't write to the FM-1.");
       PUT(out.todo, "Install a build with writes on.");
