@@ -308,7 +308,7 @@ class Library {
       tone = "warn";
       acts = [h("span", { class: "soon" }, "Coming soon")];
     } else if (r.state === "held") {
-      note = "Held back: effects unknown";
+      note = /Bluetooth/.test(r.why) ? "Held back: changes the FM-1's Bluetooth record" : "Held back: effects unknown";
       tone = "warn";
     }
     const fav = s.favs.includes(r.key);

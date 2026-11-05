@@ -65,17 +65,24 @@ test("libraryRows: no board, everything addable is available", () => {
 });
 
 test("libraryRows: riskier firmwares are coming soon while held, Add… once add.js marks them; other held stay held", () => {
-  const now = libraryRows(lists, catalog, null).riskier;
-  const by = Object.fromEntries(now.map((r) => [r.key, r.state]));
-  assert.equal(by.sloop, "soon");
-  assert.equal(by.jangada, "held");
+  // By hand, so the test holds whichever add.js is on master (the riskier-firmwares change moves SLOOP to addable).
+  const why = { old: "Not yet: it's built on SLOOP or an older Felucca, and can write parts of the FM-1 Outrigger can't clear or restore.",
+    bt: "Not yet: it's built on Melodee, which writes the FM-1's Bluetooth sector Outrigger uses to tell FM-1s apart.",
+    lic: "Not from the list: it has no license, so add it yourself once files of your own are allowed." };
+  const x0x = { project: "x0x", name: "X0X", version: "1.2.0" };
+  const before = { addable: [x0x], held: [{ project: "sloop", name: "SLOOP", why: why.old },
+    { project: "jangada", name: "Jangada", why: why.old }, { project: "orange-cat", name: "Orange Cat", why: why.bt },
+    { project: "emb", name: "emb", why: why.lic }] };
+  const by = Object.fromEntries(libraryRows(before, catalog, null).riskier.map((r) => [r.key, r]));
+  assert.equal(by.sloop.state, "soon");
+  assert.equal(by.sloop.version, "2.8.4");  // from the catalog: held entries carry none
+  assert.equal(by.jangada.state, "held");
+  assert.equal(by["orange-cat"].state, "held");
   assert.equal(by.emb, undefined);  // held for its license, not for what it writes
-  // As the riskier-firmwares change has addableFirmwares return SLOOP.
-  const later = { addable: [...lists.addable, { project: "sloop", name: "SLOOP", version: "2.8.4", riskier: true }],
-    held: lists.held.filter((f) => f.project !== "sloop") };
-  const after = libraryRows(later, catalog, null);
+  const after = libraryRows({ addable: [x0x, { project: "sloop", name: "SLOOP", version: "2.8.4", riskier: true }],
+    held: before.held.filter((f) => f.project !== "sloop") }, catalog, null);
   assert.equal(after.riskier.find((r) => r.key === "sloop").state, "riskier");
-  assert.ok(!after.available.some((r) => r.key === "sloop"));
+  assert.deepEqual(after.available.map((r) => r.key), ["x0x"]);
 });
 
 test("shownRows: search on name, author and description; favorites first", () => {
