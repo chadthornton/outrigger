@@ -277,8 +277,8 @@
         <section class="feature">
           <svg class="ico" viewBox="0 0 162 97" aria-hidden="true"><use href="art.svg#fm1"/></svg>
           <div><h2>Pop in a new instrument</h2>
-<p>FM-1 players have written more than a hundred firmwares for it. Switching between them should be easy and safe: on
-  Outrigger it takes about a minute, and it backs up first, so your songs are waiting when you come back.</p>
+<p>Over a hundred community firmwares, and switching should be easy and safe. Outrigger does it in about a minute and
+  backs up first.</p>
 <div class="fwshots"><figure><img src="shots/fw/loom.png" alt="LOOM-8 on the FM-1's screen"><figcaption><b>LOOM-8</b> a groovebox inspired by the OP-XY</figcaption></figure><figure><img src="shots/fw/x0x.png" alt="X0X on the FM-1's screen"><figcaption><b>X0X</b> 909, 808 and two 303s</figcaption></figure><figure><img src="shots/fw/zp12.png" alt="zp12 on the FM-1's screen"><figcaption><b>zp12</b> a 12-bit sampler</figcaption></figure><figure><img src="shots/fw/winampfm.png" alt="winampFM on the FM-1's screen"><figcaption><b>winampFM</b> a synth that looks like Winamp</figcaption></figure><a class="fwmore" href="https://thefirmwarehub.com/" target="_blank" rel="noopener"><b>100+</b> more at the Firmware Hub ↗</a></div>
   <a class="addfw addfw-link" id="add" href="library/"><span>Got Outrigger installed?</span> <b>Add custom FM-1 firmwares in the library</b></a></div>
         </section>
@@ -334,9 +334,8 @@
         <li><span class="tag">Tested</span><a class="" href="https://www.amazon.com/dp/B0F3WS2W5R" target="_blank" rel="noopener">Waveshare ESP32-S3 Touch LCD 3.5 ↗</a></li>
       </ul>
       <p><b>Other ESP32-S3 touchscreen boards should work</b> if their USB-C goes straight to the chip, with no USB-serial
-        converter in between. Adding one is usually a short board profile, not new code. Click
-        <a href="#install">Request support for my ESP32 board</a> under the installer's button and tell us which board
-        you have.</p>
+        converter in between. Adding one is usually a short board profile, not new code. Got one?
+        <a href="#install" data-request>Request support here</a>.</p>
       <details class="nitpick"><summary>The nitpicky part: will my board work?</summary>
         <ul>
           <li><b>An ESP32-S3.</b> A plain ESP32, C3 or C6 can't connect USB devices. The S2 and P4 can, but Outrigger
@@ -502,5 +501,12 @@
   <p id="installer-version" hidden></p>
 </div></div></footer>
 <script src="rig.js"></script>
+<script>
+  // "Request support here" opens the installer's own request dialog; without one (no Chrome/Edge) it scrolls to the installer.
+  for (const a of document.querySelectorAll("[data-request]")) a.addEventListener("click", (e) => {
+    const req = [...document.querySelectorAll("#install .install-links a")].find((l) => l.textContent.startsWith("Request support"));
+    if (req) { e.preventDefault(); req.click(); }
+  });
+</script>
 </body>
 </html>
