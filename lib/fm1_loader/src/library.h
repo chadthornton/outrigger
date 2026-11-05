@@ -79,6 +79,11 @@ struct Unit {
   uint32_t next_seq = 1;
   bool has_pending = false;
   PendingInstall pending;
+  // The flash chip its last backup read (layout.h kFlashId or kFlashIdUc25hq80;
+  // 0: recorded before the board read it, so the FM-1's own flash).
+  uint32_t flash_id = 0;
+  // A UC25HQ80 unit: the owner held through the risk warning once.
+  bool chip_risk_ok = false;
 };
 
 struct SaveState {
@@ -101,6 +106,10 @@ struct SectorOp {
   Family family;  // for Right::SaveRestore
 };
 
+// Whether this release of a project is known to save on the UC25HQ80 flash
+// (families_gen.h kUc25hq80Saves): from the listed release on, versions
+// compared as numbers, a pre-release before its release ("v" ignored).
+bool saves_on_uc25hq80(const std::string &project, const std::string &version);
 // Which boot head a backup holds, by CRC-32 (layout.h). Only V15 takes
 // installs: V15-based firmwares and the clean slate are untested on any other,
 // and V16 keeps its Bluetooth address where a clean slate erases. A head sector
@@ -178,6 +187,11 @@ struct DataDecision {
   bool stock_resources_warning = false;
   // Why this firmware can't be installed yet, for the screen; null when it can.
   const char *blocked = nullptr;
+  // A UC25HQ80 unit (preview_install): its owner hasn't taken the risk yet, so
+  // the plan warns and the hold is the OK (InstallOptions::chip_risk_ok).
+  bool chip_risk = false;
+  // A UC25HQ80 unit, and the target isn't known to save on that chip.
+  bool chip_no_saves = false;
 };
 
 // Why a project can't be installed yet, for the screen; null when it can. The

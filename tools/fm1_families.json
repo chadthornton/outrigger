@@ -45,6 +45,14 @@
     "gator": "mutant.cloud says its own code",
     "mycelium": "the Hub says Felucca and SLOOP; mutant.cloud says Felucca"
   },
+  "uc25hq80_saves": {
+    "_about": "Firmwares known to save on FM-1s with the UC25HQ80 flash (0xB36014), from `since` on (\"\": every release). Older releases run on it RAM-only: they refuse to save on a flash ID they don't know. The board doesn't block them; the plan says so. The daily ecosystem check can add a project when its release notes or source accept 0xB36014.",
+    "stock": {"since": "", "source": "M-VAVE's own firmware: new units ship with this chip"},
+    "melodee": {"since": "1.6.0", "source": "keremimo/melodee b8f9f9f (in v1.6.0), project.c persist_boot"},
+    "felucca": {"since": "1.8.2-beta", "source": "hugelton/Felucca v1.8.2-beta project.c:1196; v1.7.0 lacks it"},
+    "skiff": {"since": "2.2", "source": "illuminus5/skiff v2.2 hal/fm1_flash_map.h:15-19 (#96); v2.1.1 lacks it"},
+    "sloop": {"since": "2.8.5", "source": "isod89/sloop-fm1 v2.8.5 hal/fm1_flash_id.h; v2.8.4 lacks it"}
+  },
   "hub_ids": {
     "b1-drawbar-organ": "b1",
     "demake-synth": "demake",

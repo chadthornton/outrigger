@@ -74,18 +74,22 @@ void describe_plan(const PlanInput &in, UiPlan &out) {
     line("It's already running.");
     line("Nothing to write.");
   } else {
-    if (in.running[0]) snprintf(buf, sizeof buf, "Switches from %s.", in.running);
-    else snprintf(buf, sizeof buf, "Switches from a firmware this board doesn't know.");
-    line(buf);
-    // One read must match the latest backup; if the FM-1 changed, the switch
-    // backs up first (switch_chain.h). Only the ROM-boot read can tell, so the
-    // plan doesn't say: the job page shows the backup when it runs.
-    if (p.current.known() && family_info(p.current.family).saves_enabled) {
-      snprintf(buf, sizeof buf, "Saves %s's songs.", running);
+    // A UC25HQ80 unit's first switch: the data line, then the risk, in 6 lines.
+    const bool risk = p.decision.chip_risk;
+    if (!risk) {
+      if (in.running[0]) snprintf(buf, sizeof buf, "Switches from %s.", in.running);
+      else snprintf(buf, sizeof buf, "Switches from a firmware this board doesn't know.");
+      line(buf);
+      // One read must match the latest backup; if the FM-1 changed, the switch
+      // backs up first (switch_chain.h). Only the ROM-boot read can tell, so the
+      // plan doesn't say: the job page shows the backup when it runs.
+      if (p.current.known() && family_info(p.current.family).saves_enabled) {
+        snprintf(buf, sizeof buf, "Saves %s's songs.", running);
+        line(buf);
+      }
+      snprintf(buf, sizeof buf, "Writes %s: %u sectors.", in.target, unsigned(p.app_sectors));
       line(buf);
     }
-    snprintf(buf, sizeof buf, "Writes %s: %u sectors.", in.target, unsigned(p.app_sectors));
-    line(buf);
     char target[28];
     name_of(in.target, target, sizeof target);
     // A clean slate (an untested switch) clears the old firmware's data first.
@@ -111,13 +115,28 @@ void describe_plan(const PlanInput &in, UiPlan &out) {
         }
         break;
     }
-    // Skiff 2.x writes stock's resources: the warning takes the last line (the
-    // job screen says MIDI stops too).
-    if (p.decision.stock_resources_warning && warn < 0) {
-      warn = n;
-      line("Returning to stock may lose stock resources.");
+    char no_saves[48];
+    snprintf(no_saves, sizeof no_saves, "%s may not save on this FM-1.", in.target);
+    if (risk) {
+      if (warn < 0) warn = n;
+      line("This FM-1 has a newer flash chip (UC25HQ80).");
+      line("Installs may fail or not save your songs.");
+      if (p.decision.chip_no_saves) line(no_saves);
+      if (p.decision.stock_resources_warning) line("Returning to stock may lose stock resources.");
+      line("Untested by Outrigger: you're taking a risk.");
     } else {
-      line("MIDI stops until it's done.");
+      // Skiff 2.x writes stock's resources: the warning takes the last line (the
+      // job screen says MIDI stops too).
+      if (p.decision.stock_resources_warning && warn < 0) {
+        warn = n;
+        line("Returning to stock may lose stock resources.");
+      } else {
+        line("MIDI stops until it's done.");
+      }
+      if (p.decision.chip_no_saves) {
+        if (warn < 0) warn = n;
+        line(no_saves);
+      }
     }
   }
   out.line_count = uint8_t(n);
@@ -270,8 +289,6 @@ void describe_result(const JobOutcome &in, UiResult &out) {
     snprintf(why, sizeof why, "%s", out.why);
     if (why[0] >= 'A' && why[0] <= 'Z') why[0] = char(why[0] - 'A' + 'a');
     PUT(out.headline, "Switch didn't start");
-    // No backup can help an unsupported flash chip: the stage's own words, in full.
-    if (in.failure == Failure::UnsupportedFlash) return;
     if (in.stale_backup && in.stale_backup[0])
       PUT(out.why, "It changed since %s, and the backup stopped: %s", in.stale_backup, why);
     else
@@ -441,9 +458,11 @@ static void describe_stage(const JobOutcome &in, UiResult &out) {
       PUT(out.todo, "%s", kHeadProblem2);
       out.fix = UiAct::None;
       break;
-    case Failure::UnsupportedFlash:
-      PUT(out.why, "This FM-1 has a different flash chip (UC25HQ80).");
-      PUT(out.todo, "Outrigger doesn't support it yet.");
+    case Failure::NeedsChipRiskOk:
+      // The warning is on the plan: the hold that agrees to it starts the switch.
+      if (in.chain == Chain::Install) PUT(out.why, "It's backed up now, and the switch needs your OK first.");
+      else PUT(out.why, "This FM-1 has a newer flash chip (UC25HQ80).");
+      PUT(out.todo, "Open %s again to read the warning, then hold.", fw);
       out.fix = UiAct::None;
       break;
     case Failure::WritesLocked:

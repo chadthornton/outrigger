@@ -47,6 +47,7 @@ import fm1_unbrick as fu  # noqa: E402
 from tests.test_unbrick import MockScsi, _load_jl_or_skip  # noqa: E402
 
 SECTOR = fu.SECTOR_SIZE
+UC25HQ80 = 0xB36014  # layout.h kFlashIdUc25hq80
 UNIT_SECTOR = fu.BTIF_START
 RESET_ARG = 1
 
@@ -222,6 +223,10 @@ def scenarios(pkgs):
         ("stale", base_flash(sloop), {"flaky_read": 7}, install, skiff, "UBOOT1.00"),
         ("resume", base_flash(bytes(half)), {}, resume, skiff, "UBOOT1.00"),
         ("backup", base_flash(skiff), {}, backup, None, "UBOOT1.00"),
+        # The UC25HQ80 newer FM-1s ship with: the same commands. The Unbricker
+        # refuses its ID, so main() widens check_identity for these two.
+        ("install_uc25hq80", base_flash(sloop), {"flash_id": UC25HQ80}, install, skiff, "UBOOT1.00"),
+        ("backup_uc25hq80", base_flash(skiff), {"flash_id": UC25HQ80}, backup, None, "UBOOT1.00"),
     ]
 
 
@@ -246,7 +251,9 @@ def main():
     global V15_HEAD
     V15_HEAD = bytes(pkgs["FM-1_015.fwsc"].flash[:0x4000])
 
+    expected_id = fu.EXPECTED_FLASH_ID
     for name, flash, kw, entry, target, product in scenarios(pkgs):
+        fu.EXPECTED_FLASH_ID = UC25HQ80 if kw.get("flash_id") == UC25HQ80 else expected_id
         m = fu.MockUboot(image=bytes(flash), **kw)
         scsi = GoldenScsi(jl, m, blob, product)
         result = entry(jl, scsi, target, bytes(flash))  # the stored backup: the flash as it was

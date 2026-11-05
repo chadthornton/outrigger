@@ -74,6 +74,19 @@ asks for the user's OK, like a fresh start.
 | Felucca 1.8.0 (`FM-1_918`) ↔ Skiff 2.1.1 (`FM-1_721`) | Owed: bench test 2. Clean slate until it passes |
 | Stock V15 (`FM-1_015`) ↔ Felucca 1.8.0 | Owed: bench test 2. Clean slate until it passes |
 
+**The UC25HQ80 flash** (Chad, 2026-11-05: "Let's do C but make sure folks know that this is a newer chip and
+they're taking risks"). Newer FM-1s report flash ID `0xB36014`, not `0x856014`. The two chips take the same commands
+(their datasheets; notes `uc25hq80-scope.md`), but nobody has run Outrigger on one. The board backs such a unit up as
+usual and records the chip on the unit. The first switch on it shows the risk in place of the usual plan lines:
+
+> Brings back Felucca's songs. / This FM-1 has a newer flash chip (UC25HQ80). / Installs may fail or not save your
+> songs. / Untested by Outrigger: you're taking a risk.
+
+The hold is the owner's OK, kept on the unit (`chip_ok`), so later switches show the normal plan. A firmware not known
+to save on the chip adds "<firmware> may not save on this FM-1." to either plan, and isn't blocked. Older releases run
+on it but keep nothing: they refuse to save on a flash ID they don't know. The list of releases known to save is
+`uc25hq80_saves` in `tools/fm1_families.json`, each with its source. Every job's log line ends with the flash ID.
+
 **Backup-only, by boot head** (Chad, 2026-11-05). The board installs only on stock V15's boot head, CRC-32
 `3A04AD23` over `0x0000–0x3FFF`, read from the unit's latest backup. That's the head on FM-A and FM-B, and the
 one in the V15 package. Any other head can be backed up, but every install is refused before the key:

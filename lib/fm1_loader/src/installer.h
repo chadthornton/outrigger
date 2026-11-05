@@ -62,7 +62,6 @@ enum class Failure {
   IdentityMismatch,    // chip key or flash ID isn't the FM-1's
   V16Head,             // the backup's boot head is M-VAVE's V16: backup only
   UnknownHead,         // the backup's boot head is neither V15's nor V16's: backup only
-  UnsupportedFlash,    // an FM-1 with the UC25HQ80 flash (kFlashIdUc25hq80): not supported yet
   DeviceLost,          // a command failed: unplugged, or the device stopped answering
   BackupMismatch,      // the two backup reads differ
   NoBackupForInstall,  // install: no stored backup of this FM-1 to plan from
@@ -73,6 +72,7 @@ enum class Failure {
   PackageMissing,      // the package isn't in the library, or a sector of it is gone
   NeedsFreshStartOk,   // the new firmware starts fresh and the user hasn't agreed
   NeedsLayoutChangeOk, // the family changes but the data stays (stock): not agreed
+  NeedsChipRiskOk,     // a UC25HQ80 unit whose owner hasn't held through the risk warning
   RestoreRefused,      // the chosen save doesn't belong to this unit and firmware
   GuardRefused,        // a planned erase/write is outside what its right allows
   NoBackupForResume,   // resume: this unit has no stored verified backup
@@ -88,6 +88,7 @@ struct InstallOptions {
   bool confirmed = false;       // the 2-second hold on the confirm screen
   bool fresh_start_ok = false;  // the user agreed to erase data: a fresh start or a clean slate
   bool layout_change_ok = false;  // the user saw the data-layout warning and went on
+  bool chip_risk_ok = false;    // the user held through the UC25HQ80 risk warning (DataDecision::chip_risk)
   std::string unit_name;        // for a unit seen for the first time
   // Install: the unit the preview was for (empty: the unit backed up last).
   std::string unit_id;
@@ -122,6 +123,7 @@ class Installer {
   bool danger() const { return danger_; }
   const Unit &unit() const { return unit_; }
   const std::string &backup_id() const { return backup_id_; }  // the backup this run recorded
+  uint32_t flash_id() const { return flash_id_; }  // what the loader reported; 0 before ReadIds
   // Where a failure happened, for the screen and the log: the command, the
   // flash address and how far it got ("erase 0x5A000 try 1, sector 3 of 140").
   // Empty unless the last run failed.
@@ -169,6 +171,7 @@ class Installer {
   bool pending_set_ = false;  // this run recorded the unit's pending install
   uint32_t loader_ms_ = 0;   // when the loader started (host clock)
   uint32_t chunk_ = 512;
+  uint32_t flash_id_ = 0;
   uint32_t index_ = 0;  // sector being worked on in Backup/ResumeRead/Write*
   int pass_ = 1;
   bool mismatch_ = false;
