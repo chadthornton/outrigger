@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Firmware library · Outrigger</title>
+<meta name="description" content="Pick the FM-1 firmwares your Outrigger keeps: add, update and browse the community catalog.">
+<script type="module" src="../installer/library_area.js"></script>
+<link rel="stylesheet" href="../style.css">
+<style>
+  /* The library page (site/installer/library_area.js draws its parts). Spacing and type as site/index.html. */
+  :root { --cart: #c47f12; --cart-soft: #fdf5e6; --warn-soft: #fbe9de; --heart: #c2410c; --hairline: #eceee6; --ok-soft: #e3f2e8; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --cart: #e0a23c; --cart-soft: #2a2216; --warn-soft: #2e1f16; --heart: #ff8a5c; --hairline: #22261f; --ok-soft: #15261b; }
+  }
+  .wrap { max-width: 1120px; margin: 0 auto; padding-inline: max(24px, env(safe-area-inset-left)); }
+  .topnav { display: flex; align-items: center; gap: 24px; padding-block: 20px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  .topnav .sp { flex: 1; }
+  .topnav .link { font-size: .9375rem; color: var(--muted); text-decoration: none; }
+  .topnav .link:hover { color: var(--fg); }
+  .topnav .link[aria-current] { color: var(--fg); font-weight: 600; }
+  @media (max-width: 560px) { .topnav .wide { display: none; } }
+
+  .titlerow { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding-top: 24px; }
+  .titlerow h1 { font-size: 1.6rem; }
+  .pill { display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px; border-radius: 999px; background: var(--ok-soft);
+          color: var(--link); font-size: .8125rem; font-weight: 600; }
+  .pill i { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+  .plug { display: inline-flex; align-items: center; gap: 12px; }
+  .plug span { font-size: .8125rem; font-weight: 600; color: var(--muted); }
+  .plug .btn { min-height: 44px; padding: 0 18px; }
+
+  .lib { display: flex; flex-wrap: wrap; gap: 28px; padding-block: 20px 48px; }
+  .lib main { flex: 999 1 640px; min-width: 0; display: flex; flex-direction: column; gap: 18px; }
+  .lib aside { flex: 1 1 280px; display: flex; flex-direction: column; gap: 18px; }
+  .box { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px 20px; display: flex; flex-direction: column; gap: 10px; }
+  aside .box { padding: 20px; }
+  .box h2 { font-size: 1.05rem; }
+  .box p, .box li { font-size: .875rem; color: var(--muted); }
+  .box p b { color: var(--fg); }
+  .box .lead { color: var(--fg); font-weight: 600; }
+  .box.banner { flex-direction: row; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .box.banner > div { flex: 1 1 320px; display: grid; gap: 2px; }
+  .box .btn { min-height: 44px; padding: 0 18px; justify-content: center; }
+  .box .error { color: var(--warn); font-weight: 600; }
+  .box .done { color: var(--link); font-weight: 600; }
+
+  .steps { margin: 0; padding-left: 20px; display: grid; gap: 4px; }
+  .steps li { color: var(--fg); font-size: .9375rem; }
+  .shots { display: flex; gap: 12px; flex-wrap: wrap; }
+  .shots figure { margin: 0; display: grid; gap: 4px; width: 120px; }
+  .shots img { border-radius: 8px; background: #000; }
+  .shots figcaption { font-size: .8125rem; color: var(--muted); }
+
+  .meterhead { display: flex; justify-content: space-between; align-items: baseline; flex-wrap: wrap; gap: 8px; }
+  .meterhead span { color: var(--muted); font-size: .875rem; }
+  .cells { display: flex; gap: 4px; flex-wrap: wrap; }
+  .cells i { width: 30px; height: 30px; border-radius: 6px; }
+  .key { display: flex; gap: 18px; flex-wrap: wrap; font-size: .8125rem; color: var(--muted); }
+  .key i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+  .c-kept { background: var(--muted); }
+  .c-installed { background: var(--accent); }
+  .c-cart { background: var(--cart); }
+  .c-free { border: 1px dashed var(--muted); }
+  .c-full { background: repeating-linear-gradient(45deg, var(--soft) 0 4px, transparent 4px 8px); border: 1px solid var(--line); }
+
+  .tabs { display: flex; gap: 4px; flex-wrap: wrap; border-bottom: 1px solid var(--line); }
+  .tabs button { min-height: 44px; padding: 0 14px; background: transparent; border: 0; border-bottom: 2px solid transparent;
+                 color: var(--muted); font: inherit; font-size: .9375rem; font-weight: 500; cursor: pointer; }
+  .tabs button[aria-selected="true"] { border-bottom-color: var(--accent); color: var(--fg); font-weight: 650; }
+  .tabs .about { margin-left: auto; }
+
+  .search { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .search input { flex: 1 1 280px; min-height: 44px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--line);
+                  background: var(--panel); font: inherit; font-size: .9375rem; color: var(--fg); }
+  .search span { font-size: .8125rem; color: var(--muted); }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+  .list { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+  .list details { border-bottom: 1px solid var(--hairline); }
+  .list details:last-child { border-bottom: 0; }
+  .list details.queued > summary { background: var(--cart-soft); }
+  .list summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 12px; padding: 8px 12px 8px 16px; min-height: 48px; }
+  .list summary::-webkit-details-marker { display: none; }
+  .list summary:hover, .list details[open] > summary { background: var(--bg); }
+  .list summary::after { content: ""; flex: 0 0 auto; width: 8px; height: 8px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted);
+                         transform: rotate(45deg); margin: 0 4px 4px; }
+  .list details[open] > summary::after { transform: rotate(225deg); margin-top: 6px; }
+  .heart { flex: 0 0 auto; width: 36px; height: 36px; margin-left: -8px; display: inline-flex; align-items: center; justify-content: center;
+           background: transparent; border: 0; border-radius: 8px; cursor: pointer; color: var(--muted); }
+  .heart svg { width: 18px; height: 18px; }
+  .heart path { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linejoin: round; }
+  .heart[aria-pressed="true"] { color: var(--heart); }
+  .heart[aria-pressed="true"] path { fill: currentColor; }
+  .who { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; line-height: 1.4; }
+  .who b { font-weight: 650; }
+  .ver { font: 500 .8125rem/1.4 var(--mono); color: var(--muted); }
+  .note { font-size: .8125rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .note.warn { color: var(--warn); font-weight: 400; font-size: .8125rem; }
+  .note.ok { color: var(--link); }
+  .acts { flex: 0 0 auto; display: flex; gap: 6px; align-items: center; }
+  .acts button { min-height: 36px; padding: 0 14px; border-radius: 10px; border: 0; font: inherit; font-weight: 600; font-size: .875rem; cursor: pointer; }
+  .acts .go { min-width: 84px; background: var(--accent); color: var(--accent-fg); }
+  .acts .undo { background: transparent; color: var(--muted); padding: 0 8px; }
+  .acts button:disabled { opacity: .45; cursor: not-allowed; }
+  .acts .soon { font-size: .8125rem; font-weight: 600; color: var(--muted); }
+  .more { padding: 4px 16px 16px; display: flex; flex-direction: column; gap: 12px; background: var(--bg); }
+  .more p { font-size: .9375rem; line-height: 1.5; max-width: 40em; }
+  .more dl { margin: 0; display: grid; grid-template-columns: 110px minmax(0, 1fr); column-gap: 16px; row-gap: 8px; font-size: .875rem; line-height: 1.5; }
+  .more dt { color: var(--muted); }
+  .more dd { margin: 0; max-width: 40em; }
+  .empty { padding: 20px; font-size: .9375rem; color: var(--muted); }
+
+  .kept h3 { margin: 4px 0 6px; font-size: .875rem; color: var(--muted); }
+  .kept .box { padding: 10px 16px; gap: 2px; }
+  .kept .box > span:first-child b { font-weight: 650; }
+  .kept .box .note { font-size: .8125rem; }
+
+  .facts { margin: 0; display: grid; grid-template-columns: auto 1fr; column-gap: 16px; row-gap: 6px; font-size: .8125rem; line-height: 1.4; }
+  .facts dt { color: var(--muted); }
+  .facts dd { margin: 0; }
+  .cart { display: grid; gap: 6px; }
+  .cart div { display: flex; justify-content: space-between; gap: 8px; font-size: .875rem; }
+  .cart span:last-child { color: var(--muted); }
+  progress { width: 100%; accent-color: var(--accent); }
+</style>
+</head>
+<body>
+<nav class="wrap topnav">
+  <a class="wordmark" href="../"><i></i>Outrigger</a><span class="beta">Beta</span>
+  <span class="sp"></span>
+  <a class="link wide" href="../#need">What you need</a><a class="link" href="./" aria-current="page">Firmware library</a><a class="link" href="../#trouble">Help</a><a class="link" href="../beta/">Beta testers</a>
+</nav>
+<div class="wrap">
+  <div class="titlerow">
+    <h1>Firmware library</h1>
+    <div id="status"></div>
+  </div>
+  <div class="lib">
+    <main id="main"><p class="fine">The library needs JavaScript on. Adding a firmware needs Chrome or Edge on a computer.</p></main>
+    <aside id="side"></aside>
+  </div>
+</div>
+</body>
+</html>
