@@ -13,6 +13,7 @@
 
 #include "installer.h"
 #include "support/check.h"
+#include "support/heads.h"
 #include "support/mock_rom.h"
 
 using namespace fm1_loader;
@@ -30,6 +31,7 @@ struct Host : LoaderHost {
 static std::vector<uint8_t> stock_flash(const Package &stock) {
   std::vector<uint8_t> f = synth("fm1-mock", kAppEnd);
   f.resize(kFlashSize, 0xFF);
+  memcpy(f.data(), v15_head().data(), kHeadEnd);  // stock V15's: the only head the board installs on
   memcpy(f.data() + kAppStart, stock.app.data(), kAppLen);
   std::vector<uint8_t> u = synth("unit-A", kSector);
   memcpy(f.data() + kUnitSector, u.data(), kSector);

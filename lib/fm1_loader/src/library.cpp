@@ -43,6 +43,28 @@ bool key_safe(const std::string &id) {
   return true;
 }
 
+const char *const kHeadProblem2 = "Outrigger can back it up but not switch it yet.";
+
+const char *head_problem(Head h) {
+  switch (h) {
+    case Head::V15: return "";
+    case Head::V16: return "This FM-1 has M-VAVE's V16 start-up code.";
+    case Head::Other: break;
+  }
+  return "This FM-1 has unknown start-up code.";
+}
+
+Head head_of(Library &lib, const FlashHashes &flash) {
+  if (flash.size() != kSectors) return Head::Other;
+  std::vector<uint8_t> sector(kSector);
+  uint32_t crc = 0;
+  for (uint32_t i = 0; i < kHeadEnd / kSector; ++i) {
+    if (!lib.sectors().get(flash[i], sector.data())) return Head::Other;
+    crc = crc32(sector.data(), kSector, crc);
+  }
+  return crc == kHeadCrcV15 ? Head::V15 : crc == kHeadCrcV16 ? Head::V16 : Head::Other;
+}
+
 std::string unit_id_of(const uint8_t *sector) {
   bool all_ff = true, all_00 = true;
   for (uint32_t i = 0; i < kSector; ++i) {
@@ -348,6 +370,12 @@ InstallPreview preview_install(Library &lib, const std::string &unit_id, const s
   PackageInfo target;
   if (unit_id.empty() || !lib.unit(unit_id, u) || !lib.backup(u.latest_backup, flash)) {
     p.problem = "back up this FM-1 first";
+    return p;
+  }
+  const Head head = head_of(lib, flash);
+  if (head != Head::V15) {
+    p.problem = head_problem(head);
+    p.problem2 = kHeadProblem2;
     return p;
   }
   if (!lib.package(package_id, target)) {

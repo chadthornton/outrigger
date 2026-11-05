@@ -60,6 +60,8 @@ enum class Failure {
   LoaderBlobBad,       // wl82loader.bin doesn't match its SHA-256
   LoaderFailed,        // the upload or the jump failed
   IdentityMismatch,    // chip key or flash ID isn't the FM-1's
+  V16Head,             // the backup's boot head is M-VAVE's V16: backup only
+  UnknownHead,         // the backup's boot head is neither V15's nor V16's: backup only
   DeviceLost,          // a command failed: unplugged, or the device stopped answering
   BackupMismatch,      // the two backup reads differ
   NoBackupForInstall,  // install: no stored backup of this FM-1 to plan from

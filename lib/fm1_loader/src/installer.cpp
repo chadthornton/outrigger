@@ -43,6 +43,8 @@ const char *failure_text(Failure f) {
     case Failure::LoaderBlobBad: return "wl82loader.bin doesn't match its SHA-256";
     case Failure::LoaderFailed: return "loader upload failed";
     case Failure::IdentityMismatch: return "chip key or flash ID isn't an FM-1's";
+    case Failure::V16Head: return "this FM-1 has M-VAVE's V16 start-up code: backup only";
+    case Failure::UnknownHead: return "this FM-1 has unknown start-up code: backup only";
     case Failure::DeviceLost: return "the FM-1 stopped answering";
     case Failure::BackupMismatch: return "the two backup reads differ";
     case Failure::NoBackupForInstall: return "back up this FM-1 first";
@@ -331,6 +333,11 @@ bool Installer::prepare_install() {
   if (id.empty() || !lib_.unit(id, unit_) || !lib_.backup(unit_.latest_backup, flash_) ||
       flash_.size() != kSectors)
     return fail(Failure::NoBackupForInstall), false;
+  switch (head_of(lib_, flash_)) {  // the backup's head is the FM-1's: installs never write it
+    case Head::V15: break;
+    case Head::V16: return fail(Failure::V16Head), false;
+    case Head::Other: return fail(Failure::UnknownHead), false;
+  }
   if (!autosave() || !plan_ops()) return false;
   if (total_ == 0) return true;
   unit_.has_pending = true;

@@ -47,7 +47,7 @@ bool valid_identity(const std::string &id) {
 }
 
 PackageError parse_package(const uint8_t *data, size_t len, Package &out,
-                           const Hash *expected_sha256) {
+                           const Hash *expected_sha256, std::vector<uint8_t> *head) {
   out = Package();
   out.file_sha256 = sha256(data, len);
   if (expected_sha256 && *expected_sha256 != out.file_sha256) return PackageError::HashMismatch;
@@ -95,6 +95,7 @@ PackageError parse_package(const uint8_t *data, size_t len, Package &out,
   out.app.assign(flash + kAppStart, flash + kAppEnd);
   out.app_sha256 = sha256(out.app.data(), out.app.size());
   out.head_sha256 = sha256(flash, kHeadEnd);
+  if (head) head->assign(flash, flash + kHeadEnd);
   bool all_ff = true, all_00 = true;
   for (uint8_t b : out.app) {
     all_ff &= b == 0xFF;
