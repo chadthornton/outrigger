@@ -7,7 +7,7 @@
 // today's random salt and their address. The salt lives in D1 for the day it
 // was made and is deleted with the day's records, after which a hash can't be
 // tied to an address, or to the same visitor's hash the next day.
-import { validateReport } from "../../site/installer/report.js";
+import { validateReport, scrubLog } from "../../site/installer/report.js";
 
 export const MAX_BODY = 16 * 1024;
 export const PER_HOUR = 5;
@@ -71,10 +71,11 @@ export async function handleReport(request, db, now) {
   }
 
   const row = await db.prepare(
-    "INSERT INTO reports (created_at, chip, flash_mb, psram_mb, usb_vid, picked, verdict, installer, board, note, email) " +
-    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    "INSERT INTO reports (created_at, chip, flash_mb, psram_mb, usb_vid, picked, verdict, installer, board, note, email, log) " +
+    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
   ).bind(new Date(now).toISOString(), r.chip || null, r.flash_mb ?? null, r.psram_mb ?? null, r.usb_vid ?? null,
-    r.picked || null, r.verdict || null, r.installer || null, r.board.trim(), r.note || null, r.email || null).run();
+    r.picked || null, r.verdict ? scrubLog(r.verdict) : null, r.installer || null, r.board.trim(), r.note ? scrubLog(r.note) : null,
+    r.email || null, r.log ? scrubLog(r.log) : null).run(); // scrubbed again: the page's scrub is the first line, not the only one
   return reply(200, { ok: true, id: row.meta.last_row_id });
 }
 

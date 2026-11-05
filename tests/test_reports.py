@@ -52,6 +52,13 @@ class DescribeTest(unittest.TestCase):
         text = reports.describe({**ROW, "flash_mb": None, "psram_mb": None, "usb_vid": None, "chip": None})
         self.assertIn("chip: ?, flash ?, PSRAM ?, USB vendor ?", text)
 
+    def test_a_failure_log_reads_indented_under_the_report(self):
+        text = reports.describe({**ROW, "log": "1.2 s  Chip is ESP32-S3\n88.0 s  Writing at 0x00120000"})
+        self.assertIn("  log:\n    1.2 s  Chip is ESP32-S3\n    88.0 s  Writing at 0x00120000", text)
+
+    def test_no_log_no_log_line(self):
+        self.assertNotIn("log:", reports.describe(ROW))
+
     def test_flash_under_1_mb(self):
         self.assertIn("flash 0.25 MB", reports.describe({**ROW, "flash_mb": 0.25}))
 

@@ -54,6 +54,10 @@ make deploy-site FULL=1              # build it with make check on the Mac inste
   for beta and previews (`wrangler.toml`, schema in `migrations/`). The function and `wrangler.toml` go up with the
   site, from the same checked commit (`build/checked/`). Read new reports with `python3 -I tools/reports.py new`
   (add `beta` for beta's); `forget <id>` deletes a report's email when someone asks.
+- **Failure logs:** a failed install offers "Send this log to Outrigger" (`site/installer/report_form.js` openLogForm).
+  It's a report with a `log` field: esptool's progress lines only, never the serial trace, shown to the visitor in
+  full before sending. Every MAC spelling is replaced by the page (`report.js` scrubLog) and again by
+  `functions/api/report.js`. `tools/reports.py new` prints the log under the report.
 - **Install counts:** when an install finishes or fails after the visitor pressed Install, `site/installer/area.js` posts an
   anonymous event (`site/installer/install_event.js`: board profile, edition, installer version, result and where it
   stopped) to `functions/api/install.js`, which stores it with the day only, in the same databases' `installs` table.
