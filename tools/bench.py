@@ -137,8 +137,15 @@ class Board:
         return time.monotonic()
 
 
+BOARD_BACK_S = 60  # a job's last boot ends with a restart to Play: the board is off Wi-Fi for ~10 s
+
+
 def check_board(board, want, reg):
+    end = board.now() + BOARD_BACK_S
     st = board.get("/bench/state")
+    while st is None and board.now() < end:
+        board.sleep(2)
+        st = board.get("/bench/state")
     if st is None:
         raise BenchError(f"{board.host} doesn't answer /bench/state: not a bench build, or off Wi-Fi")
     try:

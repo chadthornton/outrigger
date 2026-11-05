@@ -121,6 +121,13 @@ def test_lost_request_fails_fast():
     expect(b.t < 60, "fails within a minute, not the job timeout")
 
 
+def test_board_restarting_at_the_start():
+    b = FakeBoard()
+    b.offline_until = b.t + 20  # the last job's restart to Play, as Small-V1 between switches (2026-11-05)
+    rec = switch(b, "Skiff 2.1.1")
+    expect(rec["ok"], "a run waits out the board's restart before checking it")
+
+
 def test_switch_unknown_label():
     b = FakeBoard()
     expect(raises(lambda: switch(b, "Melodee 1.6"), "isn't in the board's library"), "unknown firmware")
@@ -372,7 +379,7 @@ def test_update_dry_run():
     expect(rc == 0, "dry-run update exits 0")
 
 
-for t in [test_switch_ok, test_lost_reply_is_watched_through, test_lost_request_fails_fast, test_switch_refuses_other_board, test_switch_checks_the_fm1, test_switch_unknown_label, test_plan_blocked,
+for t in [test_switch_ok, test_board_restarting_at_the_start, test_lost_reply_is_watched_through, test_lost_request_fails_fast, test_switch_refuses_other_board, test_switch_checks_the_fm1, test_switch_unknown_label, test_plan_blocked,
           test_install_stops, test_boot_loop, test_main_dry_run, test_refused_hold_fails_fast, test_post_offline,
           test_stale_unit_is_reread, test_wrong_firmware_running, test_fm1_report, test_lock,
           test_controller_on_the_hub, test_controller_alone_isnt_the_fm1, test_lock_per_board,
