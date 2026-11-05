@@ -2,6 +2,7 @@
 // the sector planners.
 #include <string.h>
 
+#include "app_scan.h"
 #include "library.h"
 #include "support/check.h"
 #include "support/temp_storage.h"
@@ -406,6 +407,95 @@ static void test_family_blocks() {
   CHECK(d.blocked && strstr(d.blocked, "older Felucca"));
 }
 
+// The app area of a package's flash.bin, as the installer writes it.
+static Image app_of(Library &lib, const PackageInfo &p) {
+  Image app(kAppLen);
+  for (uint32_t i = 0; i < kAppSectors; ++i) CHECK(lib.sectors().get(p.app[i], app.data() + i * kSector));
+  return app;
+}
+
+static std::vector<Hash> hashes_of(Library &lib, const Image &app) {
+  std::vector<Hash> out(kAppSectors);
+  for (uint32_t i = 0; i < kAppSectors; ++i) CHECK(lib.sectors().put(app.data() + i * kSector, out[i]));
+  return out;
+}
+
+static std::string scan(const Image &app, size_t chunk) {
+  StockScan s;
+  for (size_t at = 0; at < app.size(); at += chunk) s.feed(app.data() + at, chunk);
+  return s.identity();
+}
+
+// A synthetic app area: a file table whose first entry ends its files at
+// table_end, then the plaintext given, then encrypted as flash holds it.
+static Image synthetic_app(uint32_t table_end, const std::vector<std::pair<uint32_t, std::string>> &text) {
+  Image app(kAppLen, 0);
+  memcpy(app.data() + 16, "app_area_head", 13);
+  const uint32_t off = 0x2000120, len = table_end - 0x120;
+  for (int i = 0; i < 4; ++i) app[8 + i] = uint8_t(off >> (8 * i)), app[12 + i] = uint8_t(len >> (8 * i));
+  for (const auto &t : text) memcpy(app.data() + t.first, t.second.data(), t.second.size());
+  decrypt_app(app.data(), app.size(), 0);
+  return app;
+}
+
+static void test_stock_scan_edges() {
+  // A FELUCCA marker that ends on a block's last byte still counts.
+  CHECK_EQ(scan(synthetic_app(0x8e000, {{0x1000, "FM-1_015"}, {0x2000 - 7, "FELUCCA"}}), kSector), std::string());
+  CHECK_EQ(scan(synthetic_app(0x8e000, {{0x1000, "FM-1_015"}, {0x2000 - 7, "FELUCCA"}}), 32), std::string());
+  CHECK_EQ(scan(synthetic_app(0x8e000, {{0x1000, "FM-1_015"}}), kSector), std::string("FM-1_015"));
+  // Past the file table's last file is build data, not the firmware's names.
+  CHECK_EQ(scan(synthetic_app(0x8e000, {{0x1000, "FM-1_015"}, {0x8e010, "FM-1_013"}, {0x8e100, "FELUCCA"}}), kSector),
+           std::string("FM-1_015"));
+  // An id that straddles the table's end belongs to neither side: ignored.
+  CHECK_EQ(scan(synthetic_app(0x8e004, {{0x1000, "FM-1_015"}, {0x8e000, "FM-1_013"}}), kSector),
+           std::string("FM-1_015"));
+}
+
+// Issue #39: a factory-stock FM-1 whose app area isn't byte-identical to the V15
+// package is still stock V15, and only stock reads as stock.
+static void test_recognise_stock() {
+  TestStorage st;
+  Library lib(st);
+  PackageInfo v15 = load(lib, "stock-v15", "FM-1_015.fwsc", "stock");
+  PackageInfo felucca = load(lib, "felucca-1.8.0", "felucca-1.8.0.fwsc", "felucca");
+  PackageInfo skiff = load(lib, "skiff-2.1.1", "skiff-2.1.1.fwsc", "skiff");
+  PackageInfo sloop = load(lib, "sloop-2.8.1", "sloop-2.8.1.fwsc", "sloop");
+
+  // The plaintext names the build, whatever the chunking.
+  Image stock = app_of(lib, v15);
+  CHECK_EQ(scan(stock, kSector), std::string("FM-1_015"));
+  CHECK_EQ(scan(stock, 32), std::string("FM-1_015"));
+  for (const PackageInfo *p : {&felucca, &skiff, &sloop}) CHECK_EQ(scan(app_of(lib, *p), kSector), std::string());
+  CHECK_EQ(scan(Image(kAppLen, 0xFF), kSector), std::string());
+
+  // Factory V15: the same build, a different byte past its file table (0x9237b).
+  Image factory = stock;
+  factory[0x92400 - kAppStart] ^= 0x5A;
+  const std::vector<Hash> factory_app = hashes_of(lib, factory);
+  CHECK(!lib.identify_app(factory_app).known());  // no package holds these bytes: the backup stays
+  std::string identity, package_id;
+  CHECK(lib.recognise_stock(factory_app, identity, package_id));
+  CHECK_EQ(identity, std::string("FM-1_015"));
+  CHECK_EQ(package_id, std::string("stock-v15"));
+
+  // An older factory build: stock, but no package to mark running.
+  Image older = stock;
+  const uint32_t at = 0x4eb84, block = at & ~31u;  // V15's identity, plaintext offset
+  decrypt_app(older.data() + block, 64, block);
+  CHECK(memcmp(older.data() + at, "FM-1_015", 8) == 0);
+  older[at + 7] = '3';
+  decrypt_app(older.data() + block, 64, block);  // its own inverse
+  CHECK(lib.recognise_stock(hashes_of(lib, older), identity, package_id));
+  CHECK_EQ(identity, std::string("FM-1_013"));
+  CHECK(package_id.empty());
+
+  // Felucca-lineage builds, and what no package knows, aren't stock.
+  for (const PackageInfo *p : {&felucca, &skiff, &sloop}) CHECK(!lib.recognise_stock(p->app, identity, package_id));
+  Image random(kAppLen);
+  fill(random, 0, kAppLen, 9);
+  CHECK(!lib.recognise_stock(hashes_of(lib, random), identity, package_id));
+}
+
 // Projects of packages and saves recorded before projects existed.
 static void test_projects() {
   CHECK(family_of_project("stock", "FM-1_015") == Family::Stock);
@@ -714,6 +804,8 @@ int main() {
   test_clean_slate();
   test_restore_old_save();
   test_family_blocks();
+  test_stock_scan_edges();
+  test_recognise_stock();
   test_projects();
   test_save_restore_round_trip();
   test_fresh_start();
