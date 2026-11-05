@@ -45,6 +45,7 @@ Lookups follow "built on" through firmwares that are themselves bases: Tribe →
 | stock, felucca | Known (tested on hardware) | Yes |
 | fm1base, dinghy, original, foma | Clean slate | Yes |
 | sloop, melodee; ids melodee, tessera; the Felucca 0.9 survey | Blocked | No, held with the reason |
+| ids the survey cleared (`cleared_ids`): sloopdx, salt, hortator, mnm1, nauclerus, hawkchua | Clean slate, whatever their base | Yes |
 | anything else, or none listed | Unknown | Yes |
 
 **What "data kept per firmware" means.** Every firmware's data is saved on its own shelf before a switch and comes
@@ -59,15 +60,20 @@ Today every switch between two different firmwares is a clean slate unless that 
 **The Felucca family keeps the clean slate too** (orchestrator, 2026-11-04): trusting it would only skip the
 staging erase and the prompt, and a stale update record must not survive a switch.
 
-**Who holds what.** The Add firmware page holds every blocked firmware off its list. The board itself refuses
-Melodee and Tessera (`kBlocked` in `lib/fm1_loader/src/library.cpp`). For the rest of the blocked list, the page is
-the only gate today.
+**Who holds what.** The Add firmware page holds every blocked firmware off its list, and the board refuses the same
+list (`lib/fm1_loader/src/families_gen.h`, generated with the page's `site/installer/families_gen.js` by
+`tools/gen_families.py`).
 
 **Blocked, and why:**
 
 - **Melodee, Tessera and the firmwares built on Melodee** write `0xE9000`, the sector whose hash is how Outrigger
   tells FM-1s apart.
-- **SLOOP and the firmwares built on it or on Felucca 0.9** can leave data that crashes Felucca or Skiff.
+- **SLOOP and the firmwares built on it or on Felucca 0.9** could leave data that crashes Felucca or Skiff. The
+  clean slate answers that now; SLOOP 2.4+ and the forks with its fourth sample slot (`0xE7000–0xFAFFF`) stay blocked
+  because the slot erases `0xE9000`, Melodee's problem.
+- **Cleared by id:** six of that family write only inside the clean slate (read at their release tags, 2026-11-04),
+  so `cleared_ids` lets them through whatever their base says. Each is cleared for the release tag we read; the daily
+  check flags a newer one.
 
 ## The daily ecosystem check
 
@@ -91,7 +97,8 @@ Actions tab. It needs no Claude session and no Mac, and it uses only the default
    - a broken link;
    - a newly missing file;
    - a family the table doesn't know;
-   - a listing renamed on mutant.cloud.
+   - a listing renamed on mutant.cloud;
+   - a new release of a firmware in `cleared_ids` (read its flash map again, or move it back to `blocked_ids`).
 
 What to do with what it reports:
 

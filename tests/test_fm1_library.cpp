@@ -383,13 +383,17 @@ static void test_family_blocks() {
     CHECK(why && strstr(why, "Bluetooth"));
   }
   // SLOOP, built on SLOOP, and our Felucca 0.9 survey, including the ones
-  // mutant.cloud lists as built on Felucca (hortator, jangada, salt, mnm1)
-  // or on its own code (vector37, gator).
-  for (const char *proj : {"sloop", "clipper", "orbit", "floyd-sloop", "hortator", "jangada", "salt", "mnm1",
-                           "nauclerus", "vector37", "gator", "hawkchua"}) {
+  // mutant.cloud lists as built on Felucca (jangada) or on its own code
+  // (vector37, gator).
+  for (const char *proj : {"sloop", "clipper", "orbit", "floyd-sloop", "sloopbanks", "fm1quest", "jangada",
+                           "vector37", "gator"}) {
     const char *why = blocked_reason(proj);
     CHECK(why && strstr(why, "older Felucca"));
   }
+  // Cleared by our survey (cleared_ids): built on SLOOP or Felucca 0.9, but
+  // they write only inside the clean slate, so they switch like any other.
+  for (const char *proj : {"sloopdx", "salt", "hortator", "hortator-fm-1-900", "mnm1", "nauclerus", "hawkchua"})
+    CHECK(!blocked_reason(proj));
   // Both reasons fit one line of the switch preview (PlanView lines, 47 characters).
   CHECK(strlen(blocked_reason("sloop")) < 48 && strlen(blocked_reason("melodee")) < 48);
   // Felucca, its family, stock, the clean-slate families, unknowns and sideloads go through.

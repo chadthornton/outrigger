@@ -61,9 +61,14 @@ class FamilyTest(unittest.TestCase):
 
     def test_our_ids_beat_what_mutant_cloud_says(self):
         # Melodee and the Felucca 0.9 survey are listed as built on Felucca.
-        self.assertEqual(ec.group_of("melodee", ENTRIES, FAM), "blocked")
-        self.assertEqual(ec.group_of("hortator", ENTRIES, FAM), "blocked")
-        self.assertEqual(ec.group_of("mnm1", ENTRIES, FAM), "blocked")
+        entries = dict(ENTRIES, jangada={"id": "jangada", "base": "felucca"},
+                       sloopdx={"id": "sloopdx", "base": "sloop"})
+        self.assertEqual(ec.group_of("melodee", entries, FAM), "blocked")
+        self.assertEqual(ec.group_of("jangada", entries, FAM), "blocked")
+        # Cleared by the survey: a clean slate, whatever their base, and so are firmwares built on them.
+        self.assertEqual(ec.group_of("hortator", entries, FAM), "clean")
+        self.assertEqual(ec.group_of("mnm1", entries, FAM), "clean")
+        self.assertEqual(ec.group_of("sloopdx", entries, FAM), "clean")
 
     def test_a_block_from_the_hubs_base_counts_too(self):
         hub = {"firmwares": [{"id": "mycelium", "base": ["felucca", "sloop"]}]}
@@ -78,6 +83,21 @@ class FamilyTest(unittest.TestCase):
         self.assertTrue(attention)
         self.assertIn("Not blocked on the board yet:** newfork", body)
         _, _, attention = ec.build_report([], [], {}, FAM, state, "2026-11-05", stale=stale)
+        self.assertFalse(attention)  # said once
+
+    def test_a_cleared_firmwares_new_release_is_flagged(self):
+        # cleared_ids holds for the release whose flash map we read: a newer one
+        # (sloopbanks 2.3 -> 2.5 took SLOOP's USR4 slot) needs reading again.
+        read = FAM["cleared_ids"]["sloopdx"]["version"]
+        entries = {"sloopdx": {"id": "sloopdx", "base": "sloop", "release": {"version": "v9.9"}},
+                   "hortator": {"id": "hortator", "release": {"version": FAM["cleared_ids"]["hortator"]["version"]}},
+                   "salt": {"id": "salt"}}  # no release listed: nothing to compare
+        moved = ec.cleared_moved(FAM, entries)
+        self.assertEqual(moved, [f"sloopdx {read} -> v9.9"])
+        body, state, attention = ec.build_report([], [], {}, FAM, {"seen": ["z"]}, "2026-11-04", moved=moved)
+        self.assertTrue(attention)
+        self.assertIn("New release of a cleared firmware:** sloopdx", body)
+        _, _, attention = ec.build_report([], [], {}, FAM, state, "2026-11-05", moved=moved)
         self.assertFalse(attention)  # said once
 
 
