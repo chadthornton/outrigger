@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Read the installer's anonymous install counts (functions/api/install.js) from D1.
 
-    tools/installs.py            beta, then production
-    tools/installs.py beta       only beta's and the Pages previews' (outrigger-reports-beta)
+    tools/installs.py            preview, then production
+    tools/installs.py preview    only preview's and the Pages previews' (outrigger-reports-beta; `beta` works too)
     tools/installs.py production only outrigger.music's (outrigger-reports)
 
 Prints finished and failed installs, by board, edition and week (weeks start on
@@ -56,15 +56,22 @@ def describe(name, s):
     return "\n".join(lines)
 
 
+def channels(args):
+    """The databases to read, by channel ("beta" for preview's, named for its old name), or None if args is wrong."""
+    if len(args) > 1 or args and args[0] not in ("preview", "beta", "production"):
+        return None
+    return [{"preview": "beta"}.get(args[0], args[0])] if args else ["beta", "production"]
+
+
 def main():
-    args = sys.argv[1:]
-    if args and args[0] not in ("beta", "production") or len(args) > 1:
+    todo = channels(sys.argv[1:])
+    if todo is None:
         sys.exit(f"installs: {__doc__.strip().splitlines()[2].strip()}")
     env = load_credentials()
-    for channel in args or ["beta", "production"]:
+    for channel in todo:
         name, db_id = database(channel)
         if not query(env, db_id, "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'installs'")["results"]:
-            print(f"{name}: no installs table yet (tools/reports.py migrate{'' if channel == 'production' else ' beta'})")
+            print(f"{name}: no installs table yet (tools/reports.py migrate{'' if channel == 'production' else ' preview'})")
             continue
         rows = query(env, db_id, "SELECT day, board, edition, installer, result, failure FROM installs")["results"]
         print(describe(name, summarise(rows)))

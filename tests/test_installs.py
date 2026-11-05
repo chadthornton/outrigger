@@ -57,5 +57,18 @@ class DescribeTest(unittest.TestCase):
         self.assertIn("no installs counted yet", installs.describe("db", installs.summarise([])))
 
 
+class ChannelArgTest(unittest.TestCase):
+    def test_preview_and_beta_both_name_the_preview_database(self):
+        self.assertEqual(installs.channels(["preview"]), ["beta"])
+        self.assertEqual(installs.channels(["beta"]), ["beta"])
+
+    def test_both_by_default(self):
+        self.assertEqual(installs.channels([]), ["beta", "production"])
+
+    def test_anything_else_refused(self):
+        self.assertIsNone(installs.channels(["staging"]))
+        self.assertIsNone(installs.channels(["beta", "production"]))
+
+
 if __name__ == "__main__":
     unittest.main()

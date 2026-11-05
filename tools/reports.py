@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 """Read the installer's "Report this board" reports (functions/api/report.js) from D1.
 
-    tools/reports.py new [beta]       reports since the last `new`, then remember where it stopped (each morning)
-    tools/reports.py list [beta] [N]  the last N reports (default 20), remembering nothing
-    tools/reports.py forget <id> [beta]   delete one report's email (someone asked us to)
-    tools/reports.py delete <id> [beta]   delete one report
-    tools/reports.py migrate [beta]   apply migrations/ to the database (wrangler, once per new migration)
+    tools/reports.py new [preview]       reports since the last `new`, then remember where it stopped (each morning)
+    tools/reports.py list [preview] [N]  the last N reports (default 20), remembering nothing
+    tools/reports.py forget <id> [preview]   delete one report's email (someone asked us to)
+    tools/reports.py delete <id> [preview]   delete one report
+    tools/reports.py migrate [preview]   apply migrations/ to the database (wrangler, once per new migration)
 
-Without `beta` it reads outrigger.music's database (outrigger-reports); with it,
-beta's and the Pages previews' (outrigger-reports-beta). Database ids come from
+Without `beta` it reads outrigger.music's database (outrigger-reports); with it
+(or `preview`, the channel's name), preview.outrigger.music's and the other Pages
+previews' (outrigger-reports-beta, named for the channel's old name). Database ids come from
 wrangler.toml. Credentials: ~/.config/cloudflare/outrigger-pages.env, as
 tools/deploy_site.py (the token needs Account > D1 > Edit). Never printed.
 Where `new` stopped: ~/.config/outrigger/reports-seen.json.
@@ -92,10 +93,18 @@ def remember(channel, last_id, path=SEEN):
     path.write_text(json.dumps(data, indent=2) + "\n")
 
 
+# The preview channel's database is called beta (outrigger-reports-beta); either word picks it.
+PREVIEW_WORDS = ("preview", "beta")
+
+
+def channel_args(args):
+    """(the database's channel, the arguments without the channel word)."""
+    channel = "beta" if any(a in PREVIEW_WORDS for a in args) else "production"
+    return channel, [a for a in args if a not in PREVIEW_WORDS]
+
+
 def main():
-    args = sys.argv[1:]
-    channel = "beta" if "beta" in args else "production"
-    args = [a for a in args if a != "beta"]
+    channel, args = channel_args(sys.argv[1:])
     if not args or args[0] not in ("new", "list", "forget", "delete", "migrate"):
         fail(__doc__.strip().splitlines()[2].strip())
     cmd, rest = args[0], args[1:]

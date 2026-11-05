@@ -16,8 +16,9 @@ make deploy-site PIN=1               # keep production's firmware even though fi
 
 The preview channel was called beta until 2026-11-05 ("beta" means the product stage: the beta guide, beta testers).
 `CHANNEL=beta` still deploys to preview, with a note; deploy log lines with `"channel": "beta"` and copies kept under
-`deploys/beta/` count as preview's, read that way rather than rewritten. https://beta.outrigger.music redirects to
-https://preview.outrigger.music (a Redirect Rule in the zone's dashboard), so old links keep working.
+`deploys/beta/` count as preview's, read that way rather than rewritten. Once Chad adds the zone's Redirect Rule
+(dashboard only; the API tokens can't write rules), https://beta.outrigger.music redirects to
+https://preview.outrigger.music, so old links keep working; until then it serves the same preview branch directly.
 
 - **What gets uploaded:** usually CI's build of that exact commit, in about a minute. A push to `master` makes CI build
   every board × app set and keep it as the `site-firmware` artifact (14 days) with a `SHA256SUMS` list.
@@ -92,7 +93,7 @@ https://preview.outrigger.music (a Redirect Rule in the zone's dashboard), so ol
   Function, `functions/api/report.js`, which writes to D1: `outrigger-reports` for production, `outrigger-reports-beta`
   for the preview channel and other previews (`wrangler.toml`, schema in `migrations/`). The function and `wrangler.toml` go up with the
   site, from the same checked commit (`build/checked/`). Read new reports with `python3 -I tools/reports.py new`
-  (add `beta` for the preview database's: the argument kept the database's name); `forget <id>` deletes a report's email when someone asks.
+  (add `preview` for the preview channel's; `beta` works too); `forget <id>` deletes a report's email when someone asks.
 - **Failure logs:** a failed install offers "Send this log to Outrigger" (`site/installer/report_form.js` openLogForm).
   It's a report with a `log` field: esptool's progress lines only, never the serial trace, shown to the visitor in
   full before sending. Every MAC spelling is replaced by the page (`report.js` scrubLog) and again by
@@ -103,7 +104,7 @@ https://preview.outrigger.music (a Redirect Rule in the zone's dashboard), so ol
   No MAC, serial, IP, user agent or cookie. A finish counts once per board per browser (a localStorage flag);
   failures count every attempt. The box sits only beside the Install button (nothing is counted before that click); unticking it
   is remembered in that browser. The FAQ entry "Does this site send anything about me?" says the same, so change both together.
-  `python3 -I tools/installs.py` prints totals by board, edition and week for preview (`beta`, its database's name) and production.
+  `python3 -I tools/installs.py` prints totals by board, edition and week for preview and production.
 - **Daily install email:** a separate Worker, `workers/install-email/` (Pages Functions can't run on a schedule), wakes
   at 15:00 UTC, reads both installs tables, and emails yesterday's counts to one address. It skips days production
   had none. The address is the Worker's `TO` secret (`tools/deploy_email.py to ADDRESS`), never in the repo, and
