@@ -68,11 +68,13 @@ enum class Failure {
   BackupStale,         // install: the FM-1 differs from the backup the install planned from
   LoaderTooSlow,       // install: the first erase would come too late after the loader started
   BlankUnitSector,     // 0xE9000 is blank: can't tell this FM-1 apart
+  UnitNotSure,         // 0xE9000 changed and the owner didn't confirm which FM-1 (resolve_unit Unsure)
   StorageFailed,       // the Waveshare's storage couldn't record the backup or plan
   PackageMissing,      // the package isn't in the library, or a sector of it is gone
   NeedsFreshStartOk,   // the new firmware starts fresh and the user hasn't agreed
   NeedsLayoutChangeOk, // the family changes but the data stays (stock): not agreed
   NeedsChipRiskOk,     // a UC25HQ80 unit whose owner hasn't held through the risk warning
+  NeedsIdRiskOk,       // a riskier family (writes_unit_sector) whose warning the owner hasn't held through
   RestoreRefused,      // the chosen save doesn't belong to this unit and firmware
   GuardRefused,        // a planned erase/write is outside what its right allows
   NoBackupForResume,   // resume: this unit has no stored verified backup
@@ -89,6 +91,10 @@ struct InstallOptions {
   bool fresh_start_ok = false;  // the user agreed to erase data: a fresh start or a clean slate
   bool layout_change_ok = false;  // the user saw the data-layout warning and went on
   bool chip_risk_ok = false;    // the user held through the UC25HQ80 risk warning (DataDecision::chip_risk)
+  bool id_risk_ok = false;      // the user held through the riskier-family warning (DataDecision::id_risk)
+  // Backup: the unit the screen named as this FM-1 should its 0xE9000 no
+  // longer name it (fallback_candidate), confirmed by the hold. Empty: none.
+  std::string fallback_unit;
   std::string unit_name;        // for a unit seen for the first time
   // Install: the unit the preview was for (empty: the unit backed up last).
   std::string unit_id;

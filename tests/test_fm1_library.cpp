@@ -365,39 +365,57 @@ static void test_decide_data() {
   d = decide_data("A", running(skiff211), felucca, none);
   CHECK(!d.stock_resources_warning);  // only a return to stock
   CHECK(!d.blocked);
-  // Melodee and Tessera write the unit-ID sector 0xE9000: blocked, with the reason.
+  // Melodee and Tessera write the unit-ID sector 0xE9000: riskier, not blocked
+  // (the warning is preview_install's, per unit).
   for (const char *proj : {"melodee", "tessera"}) {
     d = decide_data("A", running(felucca), info(proj, "FM-1_91060", 14), none);
-    CHECK(d.blocked && strstr(d.blocked, "Bluetooth"));
+    CHECK(!d.blocked && d.clean_slate && d.action == DataAction::FreshStart);
   }
   // Switching away from Melodee is how a unit gets back: never blocked.
   d = decide_data("A", running(info("melodee", "FM-1_91060", 14)), felucca, none);
   CHECK(!d.blocked && d.clean_slate);
+  // They write stock's resources too (SLOOP's USR4 0xEA000-0xFAFFF, Melodee's
+  // projects 0xEA000-0xF9FFF): returning to stock warns, now or after.
+  d = decide_data("A", running(sloop), stock, none);
+  CHECK(d.stock_resources_warning);
+  d = decide_data("A", running(felucca), stock, {save_of("A", info("melodee", "FM-1_91060", 14), 2)});
+  CHECK(d.stock_resources_warning);
+  d = decide_data("A", running(felucca), stock, {save_of("B", sloop, 2)});
+  CHECK(!d.stock_resources_warning);
 }
 
 // The family table (tools/fm1_families.json, generated into families_gen.h):
 // the board refuses firmwares built on SLOOP, Melodee or Felucca 0.9, by our
 // own survey where mutant.cloud's self-serve "built on" disagrees.
 static void test_family_blocks() {
-  // Built on Melodee, and Melodee and Tessera themselves: the Bluetooth sector.
-  for (const char *proj : {"melodee", "tessera", "orange-cat", "tessera-fm-1-83773022"}) {
+  // Built on Melodee, unreviewed: the Bluetooth sector.
+  for (const char *proj : {"orange-cat", "dock", "melodee-waveloop-build"}) {
     const char *why = blocked_reason(proj);
     CHECK(why && strstr(why, "Bluetooth"));
   }
-  // SLOOP, built on SLOOP, and our Felucca 0.9 survey, including the ones
+  // Built on SLOOP, unreviewed, and our Felucca 0.9 survey's firmwares that
+  // write outside the clean slate or have no source, including the ones
   // mutant.cloud lists as built on Felucca (jangada) or on its own code
   // (vector37, gator).
-  for (const char *proj : {"sloop", "clipper", "orbit", "floyd-sloop", "sloopbanks", "fm1quest", "jangada",
-                           "vector37", "gator"}) {
+  for (const char *proj : {"orbit", "sloop-lab", "jangada", "vector37", "gator", "mycelium"}) {
     const char *why = blocked_reason(proj);
     CHECK(why && strstr(why, "older Felucca"));
   }
+  // Riskier (Chad, 2026-11-05): they may overwrite 0xE9000 and nothing else
+  // outside the clean slate, so they install after the owner's OK.
+  for (const char *proj : {"sloop", "clipper", "spampy", "winampfm", "floyd", "floyd-sloop", "nmsfm", "karma",
+                           "sloopbanks", "fm1quest", "melodee", "tessera", "tessera-fm-1-83773022"}) {
+    CHECK(!blocked_reason(proj));
+    CHECK(writes_unit_sector(proj));
+  }
+  for (const char *proj : {"felucca", "skiff", "stock", "orbit", "sloopdx", "", "sha:0123456789abcdef"})
+    CHECK(!writes_unit_sector(proj));
   // Cleared by our survey (cleared_ids): built on SLOOP or Felucca 0.9, but
   // they write only inside the clean slate, so they switch like any other.
   for (const char *proj : {"sloopdx", "salt", "hortator", "hortator-fm-1-900", "mnm1", "nauclerus", "hawkchua"})
     CHECK(!blocked_reason(proj));
   // Both reasons fit one line of the switch preview (PlanView lines, 47 characters).
-  CHECK(strlen(blocked_reason("sloop")) < 48 && strlen(blocked_reason("melodee")) < 48);
+  CHECK(strlen(blocked_reason("orbit")) < 48 && strlen(blocked_reason("dock")) < 48);
   // Felucca, its family, stock, the clean-slate families, unknowns and sideloads go through.
   for (const char *proj : {"felucca", "skiff", "x0x", "tribe", "stock", "fmel", "ravel", "penumbra", "sha:0123456789abcdef", ""})
     CHECK(!blocked_reason(proj));
@@ -707,6 +725,199 @@ static void test_restore_old_save() {
   CHECK(img[0x9F000] == 0xFF && img[0xE8000] == 0xFF);
 }
 
+// 0xE9000 as stock V15 writes it: JieLi VM record 102 (the Bluetooth
+// address), check byte = low byte of CRC-16/XMODEM of the 6 bytes, then 0xFF
+// (Melodee docs/BLE-HW-FACTS.md 14.2; hand-test-readback.md).
+static Image record_sector(const char *record_hex) {
+  Image s(kSector, 0xFF);
+  for (size_t i = 0; record_hex[2 * i]; ++i) {
+    unsigned v;
+    sscanf(record_hex + 2 * i, "%2x", &v);
+    s[i] = uint8_t(v);
+  }
+  return s;
+}
+static const char *const kFmA = "cb666000" "20421dde4be4";  // Chad's FM-A
+static const char *const kFmB = "a7666000" "5cac831c4fe5";  // Chad's FM-B
+
+static void test_unit_record() {
+  CHECK(unit_record_ok(record_sector(kFmA).data()));
+  CHECK(unit_record_ok(record_sector(kFmB).data()));
+  CHECK(!unit_record_ok(record_sector("cc666000" "20421dde4be4").data()));  // check byte
+  CHECK(!unit_record_ok(record_sector("cb676000" "20421dde4be4").data()));  // another record id
+  CHECK(!unit_record_ok(record_sector("cb665000" "20421dde4be4").data()));  // length 5
+  CHECK(!unit_record_ok(record_sector("cb666000" "20421dde4be5").data()));  // the address changed
+  Image tail = record_sector(kFmA);
+  tail[kSector - 1] = 0x00;  // anything after the record
+  CHECK(!unit_record_ok(tail.data()));
+  CHECK(!unit_record_ok(Image(kSector, 0xFF).data()) && !unit_record_ok(Image(kSector, 0x00).data()));
+  Image img = unit_image(3);  // the tests' synthetic sectors don't parse
+  CHECK(!unit_record_ok(img.data() + kUnitSector));
+  // The unit ID stays the hash of the whole sector: every existing ID is unchanged.
+  CHECK_EQ(unit_id_of(record_sector(kFmA).data()), hex(sha256(record_sector(kFmA).data(), kSector).data(), 8));
+}
+
+static Image record_image(const char *record_hex) {
+  Image img = blank_image();
+  memcpy(img.data(), v15_head().data(), kHeadEnd);
+  Image s = record_sector(record_hex);
+  memcpy(img.data() + kUnitSector, s.data(), kSector);
+  return img;
+}
+
+// A riskier family: installable, with a warning held through once per unit.
+static void test_riskier_preview() {
+  TestStorage st;
+  Library lib(st);
+  PackageInfo skiff = load(lib, "skiff-1.4", "skiff-1.4.fwsc", "skiff");
+  load(lib, "sloop-2.8.1", "sloop-2.8.1.fwsc", "sloop");
+  Image img = record_image(kFmA);
+  put_app(lib, img, skiff);
+  Unit u;
+  u.id = unit_id_of(img.data() + kUnitSector);
+  std::string b;
+  CHECK(lib.add_backup(u, store_image(lib, img), b));
+  InstallPreview p = preview_install(lib, u.id, "sloop-2.8.1");
+  CHECK(p.ok && p.decision.id_risk && !p.decision.blocked && p.app_sectors > 100);
+  CHECK(!preview_install(lib, u.id, "skiff-1.4").decision.id_risk);
+  Unit back;
+  CHECK(lib.unit(u.id, back) && !back.id_risk_ok);
+  back.id_risk_ok = true;
+  CHECK(lib.put_unit(back));
+  CHECK(lib.unit(u.id, back) && back.id_risk_ok);
+  p = preview_install(lib, u.id, "sloop-2.8.1");
+  CHECK(p.ok && !p.decision.id_risk);
+}
+
+// When 0xE9000 stops naming its FM-1 (a riskier firmware wrote it): the unit
+// Outrigger last put such a firmware on, or whose sector it saw change, is the
+// only fallback, and only with the owner's OK on screen.
+static void test_unit_fallback() {
+  TestStorage st;
+  Library lib(st);
+  PackageInfo skiff = load(lib, "skiff-1.4", "skiff-1.4.fwsc", "skiff");
+  load(lib, "sloop-2.8.1", "sloop-2.8.1.fwsc", "sloop");
+  load(lib, "stock-v15", "FM-1_015.fwsc", "stock");
+  Image a = record_image(kFmA);
+  put_app(lib, a, skiff);
+  Unit ua;
+  ua.id = unit_id_of(a.data() + kUnitSector);
+  std::string b;
+  CHECK(lib.add_backup(ua, store_image(lib, a), b));
+  const Image blank(kSector, 0xFF), garbage = [] {
+    Image g(kSector);
+    fill(g, 0, kSector, 77);
+    return g;
+  }();
+  const std::string garbage_id = unit_id_of(garbage.data());
+
+  // Its own sector: the unit, as always. Nothing suspect yet.
+  UnitLookup l = resolve_unit(lib, a.data() + kUnitSector, "");
+  CHECK(l.how == UnitMatch::Known && l.id == ua.id);
+  size_t n = 9;
+  CHECK(fallback_candidate(lib, &n).empty() && n == 0);
+  // With no unit to fall back to: a blank sector stops, any other is a new FM-1 (as before).
+  CHECK(resolve_unit(lib, blank.data(), "").how == UnitMatch::Blank);
+  l = resolve_unit(lib, garbage.data(), ua.id);
+  CHECK(l.how == UnitMatch::New && l.id == garbage_id);
+
+  // Outrigger put SLOOP on it: now its sector may change.
+  const std::string a_id = ua.id;  // lib.unit() clears its out-parameter first
+  CHECK(lib.unit(a_id, ua));
+  ua.installed_package = "sloop-2.8.1";
+  CHECK(lib.put_unit(ua));
+  CHECK(unit_sector_suspect(lib, ua));
+  CHECK_EQ(fallback_candidate(lib, &n), ua.id);
+  CHECK_EQ(n, size_t(1));
+  for (const Image *s : {&blank, &garbage}) {
+    CHECK(resolve_unit(lib, s->data(), "").how == UnitMatch::Unsure);  // not confirmed: stop, don't guess
+    CHECK(resolve_unit(lib, s->data(), "0123456789abcdef").how == UnitMatch::Unsure);
+    l = resolve_unit(lib, s->data(), ua.id);
+    CHECK(l.how == UnitMatch::Fallback && l.id == ua.id);
+  }
+  // Its own record still wins, and a new FM-1 with a valid record is new, OK or not.
+  CHECK(resolve_unit(lib, a.data() + kUnitSector, "").how == UnitMatch::Known);
+  Image fmb = record_sector(kFmB);
+  l = resolve_unit(lib, fmb.data(), ua.id);
+  CHECK(l.how == UnitMatch::New && l.id == unit_id_of(fmb.data()));
+
+  // A confirmed sector is remembered: no question next time. Blank never is
+  // (every blank FM-1 would match).
+  CHECK(!lib.add_alias(ua, unit_id_of(blank.data())));
+  CHECK(lib.add_alias(ua, garbage_id) && lib.add_alias(ua, garbage_id));
+  CHECK(lib.unit(a_id, ua) && ua.aliases.size() == 1 && ua.aliases[0] == garbage_id);
+  l = resolve_unit(lib, garbage.data(), "");
+  CHECK(l.how == UnitMatch::Known && l.id == ua.id);
+  CHECK(!lib.add_alias(ua, ua.id));  // its own ID isn't an alias
+
+  // Seen changed: the baseline's record parsed, the latest's doesn't. Suspect
+  // on any firmware; and once back on stock, the new record stock wrote (a
+  // valid one Outrigger has never seen) falls back too, with the OK.
+  Image changed = a;
+  memcpy(changed.data() + kUnitSector, blank.data(), kSector);
+  PackageInfo stock;
+  CHECK(lib.package("stock-v15", stock));
+  put_app(lib, changed, stock);
+  CHECK(lib.add_backup(ua, store_image(lib, changed), b));
+  ua.installed_package = "stock-v15";
+  CHECK(lib.put_unit(ua));
+  CHECK(unit_sector_suspect(lib, ua));
+  Image regenerated = record_sector("00666000" "112233445566");
+  regenerated[0] = uint8_t(0);  // fixed below to a valid check byte
+  {
+    uint16_t crc = 0;
+    for (int i = 4; i < 10; ++i) {
+      crc ^= uint16_t(regenerated[i] << 8);
+      for (int k = 0; k < 8; ++k) crc = crc & 0x8000 ? uint16_t((crc << 1) ^ 0x1021) : uint16_t(crc << 1);
+    }
+    regenerated[0] = uint8_t(crc);
+  }
+  CHECK(unit_record_ok(regenerated.data()));
+  CHECK(resolve_unit(lib, regenerated.data(), "").how == UnitMatch::New);
+  l = resolve_unit(lib, regenerated.data(), ua.id);
+  CHECK(l.how == UnitMatch::Fallback && l.id == ua.id);
+
+  // Two such FM-1s: the board can't tell which, so it asks for neither.
+  Image c = record_image(kFmB);
+  put_app(lib, c, skiff);
+  Unit uc;
+  uc.id = unit_id_of(c.data() + kUnitSector);
+  CHECK(lib.add_backup(uc, store_image(lib, c), b));
+  uc.installed_package = "sloop-2.8.1";
+  CHECK(lib.put_unit(uc));
+  CHECK(fallback_candidate(lib, &n).empty() && n == 2);
+  CHECK(resolve_unit(lib, blank.data(), ua.id).how == UnitMatch::Unsure);
+  CHECK(resolve_unit(lib, blank.data(), uc.id).how == UnitMatch::Unsure);
+}
+
+// A resume finds its unit with no one to ask (the FM-1 is stuck in ROM boot):
+// the unfinished install's before-backup holds this exact sector.
+static void test_resume_unit() {
+  TestStorage st;
+  Library lib(st);
+  PackageInfo skiff = load(lib, "skiff-1.4", "skiff-1.4.fwsc", "skiff");
+  Image a = record_image(kFmA);
+  put_app(lib, a, skiff);
+  Unit u;
+  u.id = unit_id_of(a.data() + kUnitSector);
+  std::string b;
+  CHECK(lib.add_backup(u, store_image(lib, a), b));
+  CHECK_EQ(resume_unit(lib, a.data() + kUnitSector), u.id);  // its own sector, as always
+  Image blank(kSector, 0xFF);
+  CHECK(resume_unit(lib, blank.data()).empty());
+  Image changed = a;
+  memcpy(changed.data() + kUnitSector, blank.data(), kSector);
+  CHECK(lib.add_backup(u, store_image(lib, changed), b));
+  CHECK(resume_unit(lib, blank.data()).empty());  // no unfinished install
+  u.has_pending = true;
+  u.pending.package_id = "skiff-1.4";
+  u.pending.before_backup = b;
+  CHECK(lib.put_unit(u));
+  CHECK_EQ(resume_unit(lib, blank.data()), u.id);
+  Image other(kSector, 0x5A);
+  CHECK(resume_unit(lib, other.data()).empty());
+}
+
 static void test_two_units() {
   TestStorage st;
   Library lib(st);
@@ -775,10 +986,10 @@ static void test_install_preview() {
   p = preview_install(lib, u.id, "skiff-1.4");
   CHECK(p.ok && p.decision.action == DataAction::Restore && p.data_sectors == 1);
 
-  // Melodee: not offered, and the screen says why.
+  // Built on Melodee: not offered, and the screen says why.
   std::vector<uint8_t> raw = read_file("tests/fixtures/skiff-1.4.fwsc");
-  CHECK(lib.add_package("melodee-1.6", raw.data(), raw.size(), nullptr, "", "", "melodee") == PackageError::None);
-  p = preview_install(lib, u.id, "melodee-1.6");
+  CHECK(lib.add_package("orange-cat-1", raw.data(), raw.size(), nullptr, "", "", "orange-cat") == PackageError::None);
+  p = preview_install(lib, u.id, "orange-cat-1");
   CHECK(!p.ok && strstr(p.problem, "Bluetooth"));
 
   CHECK(!preview_install(lib, u.id, "nope").ok);
@@ -914,6 +1125,10 @@ int main() {
   test_save_restore_round_trip();
   test_fresh_start();
   test_two_units();
+  test_unit_record();
+  test_riskier_preview();
+  test_unit_fallback();
+  test_resume_unit();
   if (failures) {
     printf("%d failure(s)\n", failures);
     return 1;

@@ -84,6 +84,11 @@ struct Unit {
   uint32_t flash_id = 0;
   // A UC25HQ80 unit: the owner held through the risk warning once.
   bool chip_risk_ok = false;
+  // The owner held through the riskier-family warning (writes_unit_sector) once.
+  bool id_risk_ok = false;
+  // Unit IDs of 0xE9000 sectors the owner confirmed as this FM-1's after a
+  // firmware changed it (resolve_unit): looked up like its own ID.
+  std::vector<std::string> aliases;
 };
 
 struct SaveState {
@@ -124,6 +129,45 @@ extern const char *const kHeadProblem2;
 // Unit ID from the 0xE9000 sector. Empty if the sector is blank (all 0xFF or
 // 0x00): such units would all collide, so they can't be identified.
 std::string unit_id_of(const uint8_t *sector);
+// Whether a 0xE9000 sector holds just what stock V15 writes there: JieLi VM
+// record 102 (the Bluetooth address), length 6, its check byte the low byte of
+// CRC-16/XMODEM of the address, then 0xFF (Melodee docs/BLE-HW-FACTS.md 14.2;
+// FM-A and FM-B both). The unit ID stays the hash of the whole sector.
+bool unit_record_ok(const uint8_t *sector);
+// Riskier firmwares (families_gen.h kRiskierIdentity, Chad 2026-11-05): they
+// may overwrite 0xE9000 and write nothing else outside the clean slate, so they
+// install after the owner holds through a warning once per unit.
+bool writes_unit_sector(const std::string &project);
+
+class Library;
+// A unit whose 0xE9000 may no longer name it: it runs (or Outrigger put on it)
+// a riskier firmware, or its baseline backup's record parsed and its latest's
+// doesn't.
+bool unit_sector_suspect(Library &lib, const Unit &u);
+// The one suspect unit a backup may fall back to; "" when there's none or more
+// than one (count, when given, says how many).
+std::string fallback_candidate(Library &lib, size_t *count = nullptr);
+
+// Which FM-1 a backup read, from its 0xE9000 sector:
+// - Known: a unit's own ID or an alias it was given;
+// - New: a sector no unit has, with a Bluetooth record, or (no suspect unit
+//   to fall back to) any non-blank one, as before;
+// - Fallback: confirmed is fallback_candidate() (the owner held through the
+//   screen that named it) and the sector doesn't parse, or it's a valid record
+//   Outrigger never saw on a unit that went back to stock with its sector changed
+//   (stock writes a new address);
+// - Unsure: it doesn't parse, a suspect unit exists, and it wasn't confirmed;
+// - Blank: all 0xFF or 0x00, and nothing to fall back to.
+enum class UnitMatch { Known, New, Fallback, Unsure, Blank };
+struct UnitLookup {
+  UnitMatch how = UnitMatch::Blank;
+  std::string id;
+};
+UnitLookup resolve_unit(Library &lib, const uint8_t *sector, const std::string &confirmed);
+// A resume's unit, with no one to ask (the FM-1 is in ROM boot): its own ID or
+// an alias, else the one unit with an unfinished install whose before-backup
+// holds exactly this sector. "" when none.
+std::string resume_unit(Library &lib, const uint8_t *sector);
 
 class Library {
  public:
@@ -149,6 +193,11 @@ class Library {
 
   bool unit(const std::string &id, Unit &out);
   bool put_unit(const Unit &u);  // writes and syncs
+  // Records a confirmed 0xE9000 sector's ID as one of u's (resolve_unit
+  // Fallback). Refused: empty (blank), u's own, or another unit's ID or alias.
+  bool add_alias(Unit &u, const std::string &sector_id);
+  // The unit with this alias, or "".
+  std::string alias_owner(const std::string &sector_id);
   std::vector<std::string> unit_ids();
 
   // Records a verified whole-flash backup (sectors already in the store) and
@@ -197,6 +246,10 @@ struct DataDecision {
   bool chip_risk = false;
   // A UC25HQ80 unit, and the target isn't known to save on that chip.
   bool chip_no_saves = false;
+  // A riskier target (writes_unit_sector) on a unit whose owner hasn't held
+  // through its warning yet (preview_install): the hold is the OK
+  // (InstallOptions::id_risk_ok).
+  bool id_risk = false;
 };
 
 // Why a project can't be installed yet, for the screen; null when it can. The
