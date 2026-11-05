@@ -112,18 +112,29 @@ class LinkTest(unittest.TestCase):
         self.assertTrue(all(l["sha256"] for l in links if not l["json"]))
 
     def test_check_link(self):
+        cors = {"access-control-allow-origin": "*"}
+        ok = lambda body: (lambda u: (body, cors))  # noqa: E731
         blob = b"loader"
         link = {"name": "x", "url": "u", "sha256": hashlib.sha256(blob).hexdigest(), "json": False}
-        self.assertIsNone(ec.check_link(link, lambda u: blob))
-        self.assertIn("changed", ec.check_link(link, lambda u: b"other"))
+        self.assertIsNone(ec.check_link(link, ok(blob)))
+        self.assertIn("changed", ec.check_link(link, ok(b"other")))
 
         def gone(u):
             raise urllib.error.HTTPError(u, 404, "Not Found", {}, None)
         self.assertEqual(ec.check_link(link, gone), "answered 404")
         cat = {"name": "c", "url": "u", "sha256": None, "json": True}
-        self.assertIsNone(ec.check_link(cat, lambda u: b'{"firmwares": [1]}'))
-        self.assertIn("no firmwares", ec.check_link(cat, lambda u: b'{"firmwares": []}'))
-        self.assertIn("not with JSON", ec.check_link(cat, lambda u: b"<html>"))
+        self.assertIsNone(ec.check_link(cat, ok(b'{"firmwares": [1]}')))
+        self.assertIn("no firmwares", ec.check_link(cat, ok(b'{"firmwares": []}')))
+        self.assertIn("not with JSON", ec.check_link(cat, ok(b"<html>")))
+
+    def test_a_file_a_browser_cant_read_is_broken(self):
+        # The installer and Add firmware download in the visitor's browser: without
+        # CORS the page can't read the bytes, however right they are.
+        blob = b"stock"
+        link = {"name": "x", "url": "u", "sha256": hashlib.sha256(blob).hexdigest(), "json": False}
+        self.assertIn("CORS", ec.check_link(link, lambda u: (blob, {})))
+        self.assertIn("CORS", ec.check_link(link, lambda u: (blob, {"access-control-allow-origin": "https://elsewhere"})))
+        self.assertIsNone(ec.check_link(link, lambda u: (blob, {"Access-Control-Allow-Origin": "*"})))
 
 
 class RenameTest(unittest.TestCase):

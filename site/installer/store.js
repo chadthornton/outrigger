@@ -6,8 +6,8 @@
 // holding JieLi's loader and a starter set of FM-1 firmwares, without their
 // bytes. The visitor's browser downloads the loader from the pinned
 // jl-uboot-tool commit on GitHub and each package from its pinned URL (stock
-// V15 from M-VAVE's repo on GitHub), checks every SHA-256, and fills the store in. This site never hosts the
-// loader or any firmware.
+// V15 from M-VAVE's repo on GitHub), checks every SHA-256, and fills the store
+// in. This site never hosts the loader or any firmware.
 
 const hex = (bytes) => [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
 export const sha256Hex = async (bytes) => hex(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)));

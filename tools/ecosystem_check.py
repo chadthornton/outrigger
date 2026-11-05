@@ -79,17 +79,28 @@ def get(url):
         return r.read()
 
 
-def check_link(link, fetch=get, keep=None):
+def get_for_browser(url):
+    """(bytes, headers) as a page on outrigger.music would ask for them."""
+    req = urllib.request.Request(url, headers={"User-Agent": UA, "Origin": "https://outrigger.music"})
+    with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+        return r.read(), dict(r.headers.items())
+
+
+def check_link(link, fetch=get_for_browser, keep=None):
     """None when the link answers with what the installer expects, else why not.
+    Every link is read by the visitor's browser, so it must allow any origin.
     keep (a dict), when given, gets the downloaded bytes by URL."""
     try:
-        data = fetch(link["url"])
+        data, headers = fetch(link["url"])
         if keep is not None:
             keep[link["url"]] = data
     except urllib.error.HTTPError as e:
         return f"answered {e.code}"
     except Exception as e:  # noqa: BLE001 - any failure to fetch is the finding
         return f"couldn't be reached ({e})"
+    allow = {k.lower(): v for k, v in headers.items()}.get("access-control-allow-origin", "")
+    if allow.strip() not in ("*", "https://outrigger.music"):
+        return "answered, but a web page can't read it (no CORS header for outrigger.music)"
     if link["sha256"] and hashlib.sha256(data).hexdigest() != link["sha256"]:
         return "answered, but the file changed (SHA-256 differs from the installer's pin)"
     if link["json"]:
