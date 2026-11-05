@@ -76,6 +76,13 @@ void describe_plan(const PlanInput &in, UiPlan &out) {
   } else {
     // A UC25HQ80 unit's first switch: the data line, then the risk, in 6 lines.
     const bool risk = p.decision.chip_risk;
+    // A riskier family's first install on this unit, and a unit whose 0xE9000
+    // may no longer name it: their lines are the hold's consent, so the plan's
+    // own lines make room for them.
+    const bool id_risk = p.decision.id_risk;
+    const bool fallback = in.fallback_backup && in.fallback_backup[0];
+    char fallback_line[48];
+    snprintf(fallback_line, sizeof fallback_line, "Same FM-1 as %s, even if its ID changed.", in.fallback_backup);
     if (!risk) {
       if (in.running[0]) snprintf(buf, sizeof buf, "Switches from %s.", in.running);
       else snprintf(buf, sizeof buf, "Switches from a firmware this board doesn't know.");
@@ -83,12 +90,14 @@ void describe_plan(const PlanInput &in, UiPlan &out) {
       // One read must match the latest backup; if the FM-1 changed, the switch
       // backs up first (switch_chain.h). Only the ROM-boot read can tell, so the
       // plan doesn't say: the job page shows the backup when it runs.
-      if (p.current.known() && family_info(p.current.family).saves_enabled) {
+      if (p.current.known() && family_info(p.current.family).saves_enabled && !(id_risk && fallback)) {
         snprintf(buf, sizeof buf, "Saves %s's songs.", running);
         line(buf);
       }
-      snprintf(buf, sizeof buf, "Writes %s: %u sectors.", in.target, unsigned(p.app_sectors));
-      line(buf);
+      if (!id_risk && !fallback) {
+        snprintf(buf, sizeof buf, "Writes %s: %u sectors.", in.target, unsigned(p.app_sectors));
+        line(buf);
+      }
     }
     char target[28];
     name_of(in.target, target, sizeof target);
@@ -117,13 +126,33 @@ void describe_plan(const PlanInput &in, UiPlan &out) {
     }
     char no_saves[48];
     snprintf(no_saves, sizeof no_saves, "%s may not save on this FM-1.", in.target);
-    if (risk) {
+    if (risk && (id_risk || fallback)) {
+      // Every must-say line first; the notes only where room is left.
+      if (warn < 0) warn = n;
+      line("This FM-1 has a newer flash chip (UC25HQ80).");
+      line("Installs may fail or not save your songs.");
+      if (id_risk) line("May change your FM-1's Bluetooth identity.");
+      if (fallback) line(fallback_line);
+      line("Untested by Outrigger: you're taking a risk.");
+      if (p.decision.chip_no_saves) line(no_saves);
+      if (p.decision.stock_resources_warning) line("Returning to stock may lose stock resources.");
+    } else if (risk) {
       if (warn < 0) warn = n;
       line("This FM-1 has a newer flash chip (UC25HQ80).");
       line("Installs may fail or not save your songs.");
       if (p.decision.chip_no_saves) line(no_saves);
       if (p.decision.stock_resources_warning) line("Returning to stock may lose stock resources.");
       line("Untested by Outrigger: you're taking a risk.");
+    } else if (id_risk || fallback) {
+      if (warn < 0) warn = n;
+      if (fallback) line(fallback_line);
+      if (id_risk) {
+        line("May change your FM-1's Bluetooth identity.");
+        line("Songs safe; phone pairings may need redoing.");
+        line("Switching back works through its backup.");
+      }
+      if (p.decision.stock_resources_warning) line("Returning to stock may lose stock resources.");
+      if (p.decision.chip_no_saves) line(no_saves);
     } else {
       // Skiff 2.x writes stock's resources: the warning takes the last line (the
       // job screen says MIDI stops too).
@@ -468,6 +497,20 @@ static void describe_stage(const JobOutcome &in, UiResult &out) {
       if (in.chain == Chain::Install) PUT(out.why, "It's backed up now, and the switch needs your OK first.");
       else PUT(out.why, "This FM-1 has a newer flash chip (UC25HQ80).");
       PUT(out.todo, "Open %s again to read the warning, then hold.", fw);
+      out.fix = UiAct::None;
+      break;
+    case Failure::NeedsIdRiskOk:
+      // The warning is on the plan, as the UC25HQ80's: the hold that agrees to it starts the switch.
+      if (in.chain == Chain::Install) PUT(out.why, "It's backed up now, and the switch needs your OK first.");
+      else PUT(out.why, "It may change the FM-1's Bluetooth identity.");
+      PUT(out.todo, "Open %s again to read the warning, then hold.", fw);
+      out.fix = UiAct::None;
+      break;
+    case Failure::UnitNotSure:
+      // A backup whose 0xE9000 no longer names a known FM-1, and the screen
+      // couldn't name one to confirm (two suspect units, say).
+      PUT(out.why, "Its Bluetooth sector changed: Outrigger can't tell which FM-1 this is.");
+      PUT(out.todo, "Nothing saved. See Known issues in the beta guide.");
       out.fix = UiAct::None;
       break;
     case Failure::WritesLocked:

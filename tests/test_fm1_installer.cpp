@@ -56,6 +56,22 @@ static Image base_flash(const Image &app, const char *unit = "unit-A") {
   return f;
 }
 
+// gen_golden.py FM_A: 0xE9000 as stock V15 wrote it on Chad's FM-A (VM record
+// 102, the Bluetooth address), the rest 0xFF.
+static Image fm_a_sector() {
+  static const uint8_t rec[10] = {0xcb, 0x66, 0x60, 0x00, 0x20, 0x42, 0x1d, 0xde, 0x4b, 0xe4};
+  Image s(kSector, 0xFF);
+  memcpy(s.data(), rec, sizeof rec);
+  return s;
+}
+static Image fm_a_flash(const Image &app) {
+  Image f = base_flash(app);
+  memcpy(f.data() + kUnitSector, fm_a_sector().data(), kSector);
+  return f;
+}
+// gen_golden.py usr4_cleared(): SLOOP cleared its USR4 sample slot (0xE7000-0xFAFFF).
+static void clear_usr4(Image &f) { memset(f.data() + 0xE7000, 0xFF, 0xFB000 - 0xE7000); }
+
 static void add(Library &lib, const char *id, const char *file, const char *project = "") {
   Image data = read_file(std::string("tests/fixtures/") + file);
   CHECK(lib.add_package(id, data.data(), data.size(), nullptr, "", "", project) == PackageError::None);
@@ -67,11 +83,12 @@ struct Rig {
   FakeHost host;
   MockRom rom;
   Installer inst{rom, host, lib, blob()};
-  explicit Rig(const Image &flash) : rom(flash, blob()) {
+  // riskier: SLOOP's file on SLOOP's own project, a riskier family
+  // (writes_unit_sector); otherwise on a plain one, so the warning stays out of
+  // the way of the other tests.
+  explicit Rig(const Image &flash, bool riskier = false) : rom(flash, blob()) {
     add(lib, "skiff-1.4", "skiff-1.4.fwsc", "skiff");
-    // SLOOP's file as a second firmware to switch to, on a project the board
-    // doesn't block (families_gen.h blocks SLOOP itself).
-    add(lib, "sloop-2.8.1", "sloop-2.8.1.fwsc", "other");
+    add(lib, "sloop-2.8.1", "sloop-2.8.1.fwsc", riskier ? "sloop" : "other");
   }
   // "Back up this FM-1", as the board does before an install (the install plans
   // from this backup). Then the mock is an FM-1 back in its firmware, about to
@@ -95,12 +112,14 @@ struct Rig {
     rom.reads_before_first_erase = -1;
     host.keys = 0;
   }
-  void install(const char *id, bool fresh_ok = true, bool layout_ok = false, bool chip_ok = false) {
+  void install(const char *id, bool fresh_ok = true, bool layout_ok = false, bool chip_ok = false,
+               bool id_ok = false) {
     InstallOptions o;
     o.confirmed = true;
     o.fresh_start_ok = fresh_ok;
     o.layout_change_ok = layout_ok;
     o.chip_risk_ok = chip_ok;
+    o.id_risk_ok = id_ok;
     inst.start_install(id, o);
     inst.run();
   }
@@ -937,7 +956,7 @@ static void test_resume_clean_slate() {
 // reason: Melodee's Bluetooth sector, or SLOOP's older Felucca. The words fit
 // both; the preview before the hold gives the specific reason.
 static void test_blocked_firmware() {
-  for (const char *project : {"melodee", "orbit"}) {
+  for (const char *project : {"dock", "orbit"}) {
     Rig r(base_flash(sloop()));
     add(r.lib, "blocked-1", "skiff-1.4.fwsc", project);  // any package, on the blocked project
     r.back_up();
@@ -987,6 +1006,7 @@ static void test_midi_not_back() {
 // mock FM-1, which goes home between them as the real one does.
 struct ChainRun {
   std::vector<loader_messages::Chain> stages;  // the stages that ran, in order
+  std::vector<std::string> log;                // every stage's commands, in order
   loader_messages::JobKind last_kind = loader_messages::JobKind::None;
   loader_messages::Chain last_chain = loader_messages::Chain::First;
   bool done = false;
@@ -994,8 +1014,10 @@ struct ChainRun {
 };
 // between(stage): runs before each stage after the first (the FM-1 changing, a flaky read).
 // fresh_ok: the consent the plan's hold carried (the preview's), for every stage.
+// fallback: the unit the backup screen named and the hold confirmed (InstallOptions::fallback_unit).
 template <class Between>
-static ChainRun switch_to(Rig &r, const char *id, Between between, bool fresh_ok = true) {
+static ChainRun switch_to(Rig &r, const char *id, Between between, bool fresh_ok = true,
+                          const std::string &fallback = "") {
   using namespace loader_messages;
   ChainRun c;
   JobKind kind = JobKind::Install;
@@ -1006,6 +1028,7 @@ static ChainRun switch_to(Rig &r, const char *id, Between between, bool fresh_ok
     if (kind == JobKind::Backup) {
       InstallOptions o;
       o.confirmed = true;
+      o.fallback_unit = fallback;
       r.inst.start_backup(o);
       r.inst.run();
     } else {
@@ -1016,6 +1039,7 @@ static ChainRun switch_to(Rig &r, const char *id, Between between, bool fresh_ok
     c.done = r.inst.current() == Step::Done;
     c.failure = r.inst.failure();
     const NextJob n = next_after(kind, chain, c.done, c.failure, r.inst.danger());
+    c.log.insert(c.log.end(), r.rom.log.begin(), r.rom.log.end());
     if (!n.restart) break;
     kind = n.kind;
     chain = n.chain;
@@ -1106,6 +1130,123 @@ static void test_switch_failed_backup_stops() {
   CHECK(r.rom.lowest_touched < 0 && !r.unit().has_pending);
 }
 
+// ---------- Riskier families (writes_unit_sector) ----------
+// SLOOP and its USR4 forks, Melodee and Tessera may overwrite 0xE9000, the
+// Bluetooth record the unit ID is the hash of. They install after the owner
+// holds through a warning, once per unit; nothing reaches the FM-1 before it.
+static void test_golden_install_riskier() {
+  Rig r(fm_a_flash(skiff()), true);
+  r.back_up();
+  r.install("sloop-2.8.1");
+  CHECK(r.inst.failure() == Failure::NeedsIdRiskOk);
+  CHECK(r.host.keys == 0 && r.rom.commands == 0 && !r.unit().has_pending && !r.unit().id_risk_ok);
+  r.install("sloop-2.8.1", true, false, false, true);
+  CHECK(r.inst.current() == Step::Done);
+  check_golden("install_riskier", r, "done");
+  CHECK(r.unit().id_risk_ok && r.unit().installed_package == "sloop-2.8.1");
+  // Asked once per unit: back to Skiff and to SLOOP again, no OK needed.
+  r.fresh_rom();
+  r.install("skiff-1.4");
+  CHECK(r.inst.current() == Step::Done);
+  r.fresh_rom();
+  r.install("sloop-2.8.1");
+  CHECK(r.inst.current() == Step::Done);
+  CHECK(strstr(failure_text(Failure::NeedsIdRiskOk), "Bluetooth"));
+}
+
+// FM-A after Outrigger put SLOOP on it: its latest backup is the flash as the
+// install left it (gen_golden.py switch_away's stored backup).
+static void on_sloop(Rig &r) {
+  r.back_up();
+  Unit u = r.unit();
+  u.installed_package = "sloop-2.8.1";
+  u.id_risk_ok = true;
+  CHECK(r.lib.put_unit(u));
+}
+
+// SLOOP cleared USR4, which erased 0xE9000: the switch away finds the FM-1
+// changed, backs up, and installs. The backup files under FM-A only when the
+// owner confirmed FM-A on screen; otherwise it stops, nothing written, no new unit.
+static void test_golden_switch_away_blank() {
+  {
+    Rig r(fm_a_flash(sloop()), true);
+    on_sloop(r);
+    clear_usr4(r.rom.flash);
+    const ChainRun c = switch_to(r, "skiff-1.4");
+    CHECK(!c.done && c.failure == Failure::UnitNotSure && c.last_chain == loader_messages::Chain::Backup);
+    CHECK(r.rom.lowest_touched < 0 && r.rom.was_reset && !r.inst.danger());
+    CHECK_EQ(r.lib.unit_ids().size(), size_t(1));
+    CHECK(strstr(failure_text(Failure::UnitNotSure), "which FM-1"));
+  }
+  Rig r(fm_a_flash(sloop()), true);
+  on_sloop(r);
+  const std::string id = r.unit().id;
+  const std::string before = r.unit().latest_backup;
+  clear_usr4(r.rom.flash);
+  CHECK_EQ(fallback_candidate(r.lib), id);
+  const ChainRun c = switch_to(r, "skiff-1.4", [](loader_messages::Chain) {}, true, id);
+  CHECK(c.done && c.stages.size() == 3);
+  r.rom.log = c.log;
+  check_golden("switch_away_blank", r, "done");
+  CHECK(memcmp(r.rom.flash.data() + kAppStart, skiff().data(), kAppLen) == 0);
+  CHECK_EQ(r.lib.unit_ids().size(), size_t(1));  // still FM-A, not a new FM-1
+  Unit u;
+  CHECK(r.lib.unit(id, u) && u.installed_package == "skiff-1.4" && !u.has_pending && u.latest_backup != before);
+  CHECK(u.aliases.empty());  // a blank sector names no FM-1: never remembered
+  // SLOOP's data went on SLOOP's shelf of FM-A.
+  bool shelved = false;
+  for (const SaveState &s : r.lib.saves_of(id)) shelved |= s.project == "sloop";
+  CHECK(shelved);
+}
+
+// SLOOP filled USR4 past 7,680 bytes: 0xE9000 holds sample bytes. The owner's
+// OK files it under FM-A and remembers the sector, so the next backup doesn't ask.
+static void test_switch_away_changed() {
+  Rig r(fm_a_flash(sloop()), true);
+  on_sloop(r);
+  const std::string id = r.unit().id;
+  Image sample = synth("usr4-sample", 0xFB000 - 0xE7000);
+  memcpy(r.rom.flash.data() + 0xE7000, sample.data(), sample.size());
+  const ChainRun c = switch_to(r, "skiff-1.4", [](loader_messages::Chain) {}, true, id);
+  CHECK(c.done && c.stages.size() == 3);
+  CHECK_EQ(r.lib.unit_ids().size(), size_t(1));
+  Unit u;
+  CHECK(r.lib.unit(id, u) && u.aliases.size() == 1 && u.aliases[0] == unit_id_of(r.rom.flash.data() + kUnitSector));
+  r.fresh_rom();
+  InstallOptions o;
+  o.confirmed = true;
+  r.inst.start_backup(o);  // no OK this time
+  r.inst.run();
+  CHECK(r.inst.current() == Step::Done && r.inst.unit().id == id);
+}
+
+// The switch away stopped part-way, the FM-1 stuck in ROM boot: the resume
+// can't ask anyone, so it finds FM-A by the sector its before-backup holds.
+static void test_golden_resume_blank() {
+  Image half = sloop();
+  memcpy(half.data(), skiff().data(), 0x20000);
+  memset(half.data() + 0x20000, 0xFF, kSector);
+  Image now = fm_a_flash(half), before = fm_a_flash(sloop());
+  clear_usr4(now);
+  clear_usr4(before);
+  Rig r(now, true);
+  leave_pending(r, fm_a_flash(sloop()));  // FM-A, as Outrigger last saw it whole
+  // The chained backup the switch planned from: 0xE9000 already blank.
+  Unit u = r.unit();
+  FlashHashes h(kSectors);
+  for (uint32_t i = 0; i < kSectors; ++i) CHECK(r.lib.sectors().put(before.data() + i * kSector, h[i]));
+  std::string b;
+  CHECK(r.lib.add_backup(u, h, b));
+  u.pending.before_backup = b;
+  CHECK(r.lib.put_unit(u));
+  r.inst.start_resume();
+  r.inst.run();
+  CHECK(r.inst.current() == Step::Done);
+  check_golden("resume_blank", r, "done");
+  CHECK(r.lib.unit(u.id, u) && !u.has_pending && u.installed_package == "skiff-1.4");
+  CHECK_EQ(r.lib.unit_ids().size(), size_t(1));
+}
+
 int main() {
   test_golden_install();
   test_golden_noop();
@@ -1149,6 +1290,10 @@ int main() {
   test_blocked_firmware();
   test_resume_with_nothing_left();
   test_autosave_not_repeated();
+  test_golden_install_riskier();
+  test_golden_switch_away_blank();
+  test_switch_away_changed();
+  test_golden_resume_blank();
   if (failures) {
     printf("%d failure(s)\n", failures);
     return 1;

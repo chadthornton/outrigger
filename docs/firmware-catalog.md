@@ -46,7 +46,8 @@ Lookups follow "built on" through firmwares that are themselves bases: Tribe →
 |---|---|---|
 | stock, felucca | Known (tested on hardware) | Yes |
 | fm1base, dinghy, original, foma | Clean slate | Yes |
-| sloop, melodee; ids melodee, tessera; the Felucca 0.9 survey | Blocked | No, held with the reason |
+| ids sloop and its `USR4` forks (clipper, spampy, winampfm, floyd, nmsfm, karma, sloopbanks, fm1quest), melodee, tessera (`riskier_ids`) | Riskier: clean slate, after a warning once per unit | Yes, under "Riskier" |
+| built on sloop, melodee or a riskier id, unreviewed; ids jangada, gator, vector37, mycelium | Blocked | No, held with the reason |
 | ids the survey cleared (`cleared_ids`): sloopdx, salt, hortator, mnm1, nauclerus, hawkchua | Clean slate, whatever their base | Yes |
 | anything else, or none listed | Unknown | Yes |
 
@@ -68,11 +69,15 @@ list (`lib/fm1_loader/src/families_gen.h`, generated with the page's `site/insta
 
 **Blocked, and why:**
 
-- **Melodee, Tessera and the firmwares built on Melodee** write `0xE9000`, the sector whose hash is how Outrigger
-  tells FM-1s apart.
-- **SLOOP and the firmwares built on it or on Felucca 0.9** could leave data that crashes Felucca or Skiff. The
-  clean slate answers that now; SLOOP 2.4+ and the forks with its fourth sample slot (`0xE7000–0xFAFFF`) stay blocked
-  because the slot erases `0xE9000`, Melodee's problem.
+- **Firmwares built on SLOOP, Melodee or a riskier id that nobody has reviewed** may write `0xE9000` or outside the
+  clean slate. Each comes off the list after a source read, into `riskier_ids` or `cleared_ids`.
+- **Jangada, Gator and Vector37** write outside the clean slate; **Mycelium** has no source.
+
+**Riskier, and why:** SLOOP 2.4+ and the forks with its fourth sample slot (`0xE7000–0xFAFFF`), Melodee and Tessera
+may overwrite `0xE9000`, the sector whose hash is how Outrigger tells FM-1s apart, and nothing else outside the clean
+slate. They can't brick the FM-1 (Chad, 2026-11-05), so they install after a warning; how the board copes when the
+sector changes is in `docs/package-sources.md`. The page also holds a firmware the snapshot doesn't know when its
+catalog base is one of these (`HELD_BASES`).
 - **Cleared by id:** six of that family write only inside the clean slate (read at their release tags, 2026-11-04),
   so `cleared_ids` lets them through whatever their base says. Each is cleared for the release tag we read; the daily
   check flags a newer one.

@@ -64,7 +64,7 @@ class FamilyTest(unittest.TestCase):
         # Melodee and the Felucca 0.9 survey are listed as built on Felucca.
         entries = dict(ENTRIES, jangada={"id": "jangada", "base": "felucca"},
                        sloopdx={"id": "sloopdx", "base": "sloop"})
-        self.assertEqual(ec.group_of("melodee", entries, FAM), "blocked")
+        self.assertEqual(ec.group_of("melodee", entries, FAM), "riskier")
         self.assertEqual(ec.group_of("jangada", entries, FAM), "blocked")
         # Cleared by the survey: a clean slate, whatever their base, and so are firmwares built on them.
         self.assertEqual(ec.group_of("hortator", entries, FAM), "clean")
@@ -191,6 +191,14 @@ class ReportTest(unittest.TestCase):
         order = [body.index(s) for s in ("BROKEN: Stock V15", "penumbra v1.2", "orbit v2", "fmel v1.2", "x0x v1.3")]
         self.assertEqual(order, sorted(order))
         self.assertTrue(attention)
+
+    def test_a_riskier_firmwares_release_has_its_own_section(self):
+        # Its flash map was read once (riskier_ids): a new release may write elsewhere.
+        entries = dict(ENTRIES, sloop={"id": "sloop", "base": "sloop"})
+        body, _, _ = ec.build_report([], [item("sloop", "v2.9")], entries, FAM,
+                                     {"date": "2026-11-03", "seen": [], "missing": []}, "2026-11-04")
+        self.assertIn("Riskier", body)
+        self.assertIn("sloop v2.9", body)
 
     def test_a_broken_fixture_has_its_own_section(self):
         bad = [("felucca-1.8.0.fwsc", "https://g/felucca-1.8.0.fwsc", "answered 404")]

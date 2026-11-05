@@ -191,14 +191,41 @@ def resume(jl, scsi, target_app, stored):
 
 
 V15_HEAD = None  # stock V15's boot head, from its package: the only head the board installs on
+# 0xE9000 as stock V15 writes it on Chad's FM-A: VM record 102, its Bluetooth address.
+FM_A = bytes.fromhex("cb666000" "20421dde4be4") + b"\xff" * (SECTOR - 10)
+USR4 = (0xE7000, 0xFB000)  # SLOOP 2.4+'s fourth sample slot: clearing it erases all of it
 
 
-def base_flash(app):
+def base_flash(app, unit=None):
     flash = bytearray(fu.synthetic_flash())
     flash[:len(V15_HEAD)] = V15_HEAD
     flash[fu.FW_START:fu.FW_END] = app
-    flash[UNIT_SECTOR:UNIT_SECTOR + SECTOR] = synth(b"unit-A", SECTOR)
+    flash[UNIT_SECTOR:UNIT_SECTOR + SECTOR] = synth(b"unit-A", SECTOR) if unit is None else unit
     return flash
+
+
+def usr4_cleared(flash):
+    """The flash after SLOOP cleared its USR4 slot: 0xE9000 is gone with it."""
+    f = bytearray(flash)
+    f[USR4[0]:USR4[1]] = b"\xff" * (USR4[1] - USR4[0])
+    return f
+
+
+def switch_away(jl, scsi, target_app, stored):
+    """A switch after SLOOP changed 0xE9000 (switch_chain.h): the install finds the
+    FM-1 changed since its backup and goes home; a backup; then the install,
+    planned from that backup. Each stage is a fresh visit to ROM boot; one log."""
+    result = install(jl, scsi, target_app, stored)
+    if result != "backup-stale":
+        return result
+    scsi2 = GoldenScsi(jl, scsi.m, scsi.blob, scsi.loader_product)
+    scsi2.log = scsi.log
+    if backup(jl, scsi2, None, None) != "done":
+        return "backup-failed"
+    now = bytes(scsi.m.flash)
+    scsi3 = GoldenScsi(jl, scsi.m, scsi.blob, scsi.loader_product)
+    scsi3.log = scsi.log
+    return install(jl, scsi3, target_app, now)
 
 
 def scenarios(pkgs):
@@ -227,6 +254,16 @@ def scenarios(pkgs):
         # refuses its ID, so main() widens check_identity for these two.
         ("install_uc25hq80", base_flash(sloop), {"flash_id": UC25HQ80}, install, skiff, "UBOOT1.00"),
         ("backup_uc25hq80", base_flash(skiff), {"flash_id": UC25HQ80}, backup, None, "UBOOT1.00"),
+        # Riskier families (SLOOP, its USR4 forks, Melodee, Tessera) on an FM-1
+        # with a real Bluetooth record: installed like any other once the owner
+        # held through the warning (nothing reaches the FM-1 before that).
+        ("install_riskier", base_flash(skiff, FM_A), {}, install, sloop, "UBOOT1.00"),
+        # SLOOP cleared USR4, so 0xE9000 is blank: the switch away still runs,
+        # on the unit the owner confirmed.
+        ("switch_away_blank", usr4_cleared(base_flash(sloop, FM_A)), {}, switch_away, skiff, "UBOOT1.00"),
+        # An install that stopped part-way on that FM-1: the resume finds its unit
+        # by the sector its before-backup holds.
+        ("resume_blank", usr4_cleared(base_flash(bytes(half), FM_A)), {}, resume, skiff, "UBOOT1.00"),
     ]
 
 
@@ -252,11 +289,15 @@ def main():
     V15_HEAD = bytes(pkgs["FM-1_015.fwsc"].flash[:0x4000])
 
     expected_id = fu.EXPECTED_FLASH_ID
+    sloop_app = pkgs["sloop-2.8.1.fwsc"].firmware
     for name, flash, kw, entry, target, product in scenarios(pkgs):
         fu.EXPECTED_FLASH_ID = UC25HQ80 if kw.get("flash_id") == UC25HQ80 else expected_id
         m = fu.MockUboot(image=bytes(flash), **kw)
         scsi = GoldenScsi(jl, m, blob, product)
-        result = entry(jl, scsi, target, bytes(flash))  # the stored backup: the flash as it was
+        # The stored backup: the flash as it was (for switch_away, before SLOOP
+        # cleared USR4: what the board recorded when it installed SLOOP).
+        stored = bytes(base_flash(sloop_app, FM_A)) if entry is switch_away else bytes(flash)
+        result = entry(jl, scsi, target, stored)
         text = "".join(line + "\n" for line in scsi.log)
         text += "# flash %s\n# result %s\n" % (sha(bytes(m.flash)), result)
         (out / ("%s.txt" % name)).write_text(text)

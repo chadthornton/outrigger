@@ -47,17 +47,20 @@ struct JobBoot {
   uint32_t magic;
   JobKind kind;
   uint8_t attempt;  // 2, 3: the board restarted after a key because no ROM device showed up
-  bool key_sent, fresh_ok, layout_ok, chip_ok, loader_running;
+  bool key_sent, fresh_ok, layout_ok, chip_ok, id_ok, loader_running;
   char package[48], unit[40];
+  // The unit the page named as this FM-1 should its 0xE9000 have changed
+  // (fallback_candidate): the hold confirmed it, for the job's backup.
+  char fallback[24];
   // A switch that found the FM-1 changed: its backup, then its install
   // (switch_chain.h). Each stage is its own boot; the package, unit and the
-  // preview's consent (fresh_ok, layout_ok, chip_ok) carry through.
+  // preview's consent (fresh_ok, layout_ok, chip_ok, id_ok, fallback) carry through.
   Chain chain;
   char stale_backup[12];  // the backup the FM-1 had changed since ("b50")
 };
 // Changed with JobBoot's layout: a record left by an older build is never
 // read as a job.
-constexpr uint32_t kJobMagic = 0x10B5EED4;
+constexpr uint32_t kJobMagic = 0x10B5EED5;
 constexpr uint8_t kKeyTries = 3;  // boots that look for ROM boot, each after a key
 RTC_NOINIT_ATTR JobBoot job_boot;
 
@@ -372,6 +375,9 @@ std::string selected_id;
 // package and that data decision.
 std::string previewed_id;
 DataDecision previewed;
+// The unit a backup would fall back to, as the page last named it (the plan's
+// line, the Backups row): what the hold confirms. Empty: none named.
+std::string shown_fallback;
 // The last job left the FM-1 in ROM boot: stay in Load mode for the retry.
 bool in_rom_boot = false;
 // ...and stopped without a reset: the loader still runs in the FM-1's RAM.
@@ -445,6 +451,21 @@ Known known_unit(bool what_runs = true) {
 }
 
 
+// The unit a backup would fall back to if this FM-1's 0xE9000 no longer names
+// it (fallback_candidate), and its latest backup's name ("b50") for the page.
+// Sets shown_fallback: the page says it, so the hold confirms it.
+bool fallback_backup(char *name, size_t len) {
+  shown_fallback = fallback_candidate(*library);
+  Unit u;
+  if (shown_fallback.empty() || !library->unit(shown_fallback, u)) {
+    shown_fallback.clear();
+    name[0] = 0;
+    return false;
+  }
+  loader_messages::backup_name(u.latest_backup.c_str(), name, len);
+  return true;
+}
+
 void refresh_items() {
   const Known k = known_unit();
   const std::vector<SaveState> saves = k.has_unit ? library->saves_of(k.unit.id) : std::vector<SaveState>();
@@ -482,7 +503,9 @@ void refresh_items() {
   selected = sel;
   char running_label[28], backups[40];
   strlcpy(running_label, k.running_label.c_str(), sizeof running_label);
-  if (k.has_unit) snprintf(backups, sizeof backups, "Latest %s, first %s", k.latest, k.first);
+  char fallback[12];
+  if (fallback_backup(fallback, sizeof fallback)) snprintf(backups, sizeof backups, "Same FM-1 as %s if its ID changed", fallback);
+  else if (k.has_unit) snprintf(backups, sizeof backups, "Latest %s, first %s", k.latest, k.first);
   else strlcpy(backups, "No backup yet", sizeof backups);
   taskENTER_CRITICAL(&lock);
   memcpy(shown.items, items, sizeof items);
@@ -530,6 +553,10 @@ void refresh_preview() {
     in.writes_enabled = kWritesEnabled;
     in.unfinished = previewed_retry;
     in.preview = preview_install(*library, library->last_unit(), item_ids[sel]);
+    // The plan is the last unit's: its line names a fallback only when that's the unit.
+    char fallback[12];
+    if (fallback_backup(fallback, sizeof fallback) && shown_fallback == library->last_unit())
+      in.fallback_backup = fallback;
     previewed = in.preview.decision;
     previewed_id = item_ids[sel];
     plan.item = int8_t(sel);
@@ -723,6 +750,13 @@ void request_job(UiAct act, int index) {
   j.kind = loader_messages::job_for_hold(
       {act, index, sel, sel >= 0 && item_ids[sel] == previewed_id, resume_pending(), previewed_retry}, &why);
   if (j.kind == JobKind::None) return refuse(why);
+  // The Backups row, or for a switch the plan's line, named this unit: the hold
+  // confirms it, for the backup the job (or the switch's chain) runs. A switch
+  // plans from the last unit's backup, so only that unit is named there, and the
+  // chain's install plans from the same unit (j.unit).
+  if (j.kind == JobKind::Backup ||
+      (j.kind == JobKind::Install && shown_fallback == library->last_unit()))
+    strlcpy(j.fallback, shown_fallback.c_str(), sizeof j.fallback);
   if (j.kind == JobKind::Resume) {
     j.loader_running = loader_left_running;
   } else if (j.kind == JobKind::Install) {
@@ -732,6 +766,7 @@ void request_job(UiAct act, int index) {
     j.fresh_ok = needs_erase_ok(previewed);
     j.layout_ok = previewed.layout_warning;
     j.chip_ok = previewed.chip_risk;  // the plan showed the UC25HQ80 warning: the hold took the risk
+    j.id_ok = previewed.id_risk;      // ...and the riskier family's
   }
   const JobNames names = job_names(j);
   show_job(j, Step::Idle, names.firmware.c_str(), names.backup, 0, 0, false);
@@ -784,6 +819,7 @@ void run_job() {
       finish(inst, host, scsi, "Install finished.", j, names, wrote);
     }
   } else if (j.kind == JobKind::Backup) {
+    o.fallback_unit = j.fallback;
     inst.start_backup(o);
     run(inst, j, names, wrote);
     finish(inst, host, scsi, "Backed up. Nothing written.", j, names, wrote);
@@ -793,6 +829,7 @@ void run_job() {
     o.fresh_start_ok = j.fresh_ok;
     o.layout_change_ok = j.layout_ok;
     o.chip_risk_ok = j.chip_ok;
+    o.id_risk_ok = j.id_ok;
     inst.start_install(j.package, o);
     run(inst, j, names, wrote);
     char buf[40];

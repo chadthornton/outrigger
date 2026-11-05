@@ -51,10 +51,12 @@ const char *failure_text(Failure f) {
     case Failure::BackupStale: return "the FM-1 changed since its backup: back up again";
     case Failure::LoaderTooSlow: return "the FM-1 was too slow to read: nothing written";
     case Failure::BlankUnitSector: return "the unit's Bluetooth sector is blank";
+    case Failure::UnitNotSure: return "its Bluetooth sector changed: confirm which FM-1 it is";
     case Failure::StorageFailed: return "the Waveshare's storage failed";
     case Failure::PackageMissing: return "package missing or damaged in the library";
     case Failure::NeedsFreshStartOk: return "the new firmware needs a fresh start: confirm it";
     case Failure::NeedsChipRiskOk: return "the newer flash chip (UC25HQ80) needs your OK first";
+    case Failure::NeedsIdRiskOk: return "it may change the FM-1's Bluetooth identity: confirm it";
     case Failure::NeedsLayoutChangeOk: return "old settings may crash the new firmware: confirm it";
     case Failure::RestoreRefused: return "save state doesn't match this unit and firmware";
     case Failure::GuardRefused: return "refused: outside the allowed flash areas";
@@ -305,13 +307,25 @@ void Installer::do_backup() {
   // Both reads agree: now the unit can be named and the backup recorded.
   if (!lib_.sectors().get(flash_[kUnitSector / kSector], buf.data()))
     return fail(Failure::StorageFailed, true);
-  std::string id = unit_id_of(buf.data());
-  if (id.empty()) return fail(Failure::BlankUnitSector, true);
-  if (!lib_.unit(id, unit_)) {
-    unit_ = Unit();
-    unit_.id = id;
-    unit_.name = opts_.unit_name;
+  const UnitLookup found = resolve_unit(lib_, buf.data(), opts_.fallback_unit);
+  switch (found.how) {
+    case UnitMatch::Blank: return fail(Failure::BlankUnitSector, true);
+    case UnitMatch::Unsure: return fail(Failure::UnitNotSure, true);
+    case UnitMatch::New:
+      unit_ = Unit();
+      unit_.id = found.id;
+      unit_.name = opts_.unit_name;
+      break;
+    case UnitMatch::Known:
+    case UnitMatch::Fallback:
+      if (!lib_.unit(found.id, unit_)) return fail(Failure::StorageFailed, true);
+      break;
   }
+  // The owner said this is that FM-1: its new sector names it from now on
+  // (a blank one never does: every blank FM-1 would match).
+  if (found.how == UnitMatch::Fallback && !unit_id_of(buf.data()).empty() &&
+      !lib_.add_alias(unit_, unit_id_of(buf.data())))
+    return fail(Failure::StorageFailed, true);
   unit_.flash_id = flash_id_;
   if (!lib_.add_backup(unit_, flash_, backup_id_)) return fail(Failure::StorageFailed, true);
   if (!autosave()) return;
@@ -351,6 +365,12 @@ bool Installer::prepare_install() {
   if (unit_.flash_id == kFlashIdUc25hq80 && !unit_.chip_risk_ok) {
     if (!opts_.chip_risk_ok) return fail(Failure::NeedsChipRiskOk), false;
     unit_.chip_risk_ok = true;  // asked once per unit
+    if (!lib_.put_unit(unit_)) return fail(Failure::StorageFailed), false;
+  }
+  PackageInfo target;
+  if (lib_.package(package_id_, target) && writes_unit_sector(target.project) && !unit_.id_risk_ok) {
+    if (!opts_.id_risk_ok) return fail(Failure::NeedsIdRiskOk), false;
+    unit_.id_risk_ok = true;  // asked once per unit
     if (!lib_.put_unit(unit_)) return fail(Failure::StorageFailed), false;
   }
   unit_.has_pending = true;
@@ -401,8 +421,10 @@ void Installer::do_resume_read() {
       detail_ = where("read unit sector", kUnitSector);
       return fail(Failure::DeviceLost);
     }
-    std::string id = unit_id_of(buf.data());
-    if (id.empty()) return fail(Failure::BlankUnitSector);
+    // No one to ask here (the FM-1 is in ROM boot): its own ID, an alias, or the
+    // unfinished install whose before-backup holds exactly this sector.
+    const std::string id = resume_unit(lib_, buf.data());
+    if (id.empty()) return fail(unit_id_of(buf.data()).empty() ? Failure::BlankUnitSector : Failure::NoBackupForResume);
     FlashHashes stored;
     if (!lib_.unit(id, unit_) || !lib_.backup(unit_.latest_backup, stored))
       return fail(Failure::NoBackupForResume);

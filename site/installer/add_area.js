@@ -4,7 +4,7 @@
 // program: no BOOT+RST, nothing but its store's new package is written.
 //
 //   <div class="add-firmware"></div>
-import { addableFirmwares, fetchHubPackage, loadCatalog, BoardLink } from "./add.js";
+import { addableFirmwares, fetchHubPackage, loadCatalog, BoardLink, RISKIER_LINE } from "./add.js";
 import { PORT_FILTER, SERIAL_OPTIONS, port as lock, h } from "./ui.js";
 
 const BAUD = 115200;  // ignored by USB-Serial-JTAG, but Web Serial needs one
@@ -98,16 +98,21 @@ class AddArea {
     const hello = await this.link.hello();
     const stored = new Set((await this.link.list()).map((p) => p.sha256));
     const full = hello.packages >= hello.maxPackages;
-    const rows = this.catalog.addable.map((fw) => h("li", {},
+    const row = (fw) => h("li", {},
       h("span", {}, h("b", {}, fw.name), ` ${fw.version}`,
         fw.family || fw.lic ? h("small", {}, ` ${[fw.family && `${fw.family} family`, fw.lic].filter(Boolean).join(" · ")}`) : null),
       stored.has(fw.sha256) ? h("small", {}, "On your Outrigger")
-        : h("button", { class: "alt", disabled: full, on: { click: () => this.add(fw) } }, "Add")));
+        : h("button", { class: "alt", disabled: full, on: { click: () => this.add(fw) } }, "Add"));
+    const plain = this.catalog.addable.filter((fw) => !fw.riskier);
+    const riskier = this.catalog.addable.filter((fw) => fw.riskier);
     this.show(
       note ? h("p", { class: note.bad ? "install-error" : "install-done", role: note.bad ? "alert" : "status" }, note.text) : null,
       h("p", { class: "install-read" }, `Outrigger has ${hello.packages} of ${hello.maxPackages} firmwares, ${mb(hello.free)} free.`,
         full ? " Its list is full." : "", ` The list is from ${this.from}.`),
-      h("ul", { class: "add-list" }, rows),
+      h("ul", { class: "add-list" }, plain.map(row)),
+      riskier.length ? h("h4", {}, "Riskier") : null,
+      riskier.length ? h("p", { class: "install-read" }, RISKIER_LINE) : null,
+      riskier.length ? h("ul", { class: "add-list" }, riskier.map(row)) : null,
       this.catalog.held.length ? h("details", { class: "install-log" }, h("summary", {}, `Not on the list yet (${this.catalog.held.length})`),
         h("ul", {}, this.catalog.held.map((f) => h("li", {}, h("b", {}, f.name), ` ${f.why}`)))) : null,
       h("div", { class: "row" }, h("button", { class: "alt", on: { click: async () => { await this.close(); this.ready(); } } }, "Done")),

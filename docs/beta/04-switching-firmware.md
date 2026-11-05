@@ -1,7 +1,7 @@
 # Switching FM-1 firmware: what can go wrong
 
 Outrigger can put a different firmware on your FM-1: Felucca, Skiff, SLOOP, M-VAVE's own, and most of the
-Firmware Hub catalog. Two aren't supported yet: **Melodee** and **Tessera** (below). This page explains what happens during a switch, what can go wrong, and how to make it
+Firmware Hub catalog. A few are **Riskier** (below). This page explains what happens during a switch, what can go wrong, and how to make it
 unlikely. Read it before your first switch.
 
 ## What happens when you switch
@@ -39,11 +39,16 @@ MIDI stops while this runs, and comes back when the FM-1 does.
   resources, and the board can't put those back. Until we've tested what stock does without them, the plan page
   warns: "Returning to stock may lose stock resources."
 
-## Firmwares that aren't supported yet
+## Riskier firmwares
 
-**Melodee** and **Tessera** can write the part of the FM-1 the board uses to tell one FM-1 from another. After
-that, the board would see a stranger, and your backups would no longer match it. The board won't install them
-until it can recognise an FM-1 another way. If your FM-1 runs one of them now, switching away still works.
+**SLOOP**, its sample-slot forks, **Melodee** and **Tessera** can overwrite the FM-1's Bluetooth address, the part the
+board uses to tell one FM-1 from another. The first time you put one on an FM-1, the plan warns: "May change your
+FM-1's Bluetooth identity. Songs safe; phone pairings may need redoing. Switching back works through its backup."
+Your hold is the OK, once per FM-1.
+
+Switching away afterwards works. If the address changed, the plan says "Same FM-1 as b50, even if its ID changed",
+naming that FM-1's latest backup, and your hold confirms it's the same FM-1. What isn't put back yet is on
+[Known issues](07-known-issues.md).
 
 ## What the board never touches
 

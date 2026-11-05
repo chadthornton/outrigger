@@ -118,6 +118,120 @@ std::string unit_id_of(const uint8_t *sector) {
   return hex(h.data(), 8);
 }
 
+bool unit_record_ok(const uint8_t *sector) {
+  // Header: check byte, id [7:0], id [11:8] | length [3:0] << 4, length [11:4].
+  if (sector[1] != 102 || sector[2] != 0x60 || sector[3] != 0) return false;
+  if (sector[0] != uint8_t(crc16(sector + 4, 6))) return false;
+  for (uint32_t i = 10; i < kSector; ++i)
+    if (sector[i] != 0xFF) return false;
+  return true;
+}
+
+bool writes_unit_sector(const std::string &project) {
+  for (const char *p : families::kRiskierIdentity)
+    if (project == p) return true;
+  return false;
+}
+
+namespace {
+
+// Whether a stored backup's 0xE9000 parses (unit_record_ok); false when missing.
+bool backup_record_ok(Library &lib, const std::string &backup_id) {
+  FlashHashes flash;
+  std::vector<uint8_t> sector(kSector);
+  return !backup_id.empty() && lib.backup(backup_id, flash) &&
+         lib.sectors().get(flash[kUnitSector / kSector], sector.data()) && unit_record_ok(sector.data());
+}
+
+// The projects a unit runs as far as the library knows: what Outrigger
+// installed, and what its latest backup's app matches.
+std::vector<std::string> unit_projects(Library &lib, const Unit &u) {
+  std::vector<std::string> out;
+  PackageInfo p;
+  if (!u.installed_package.empty() && lib.package(u.installed_package, p)) out.push_back(p.project);
+  FlashHashes flash;
+  if (!u.latest_backup.empty() && lib.backup(u.latest_backup, flash)) {
+    const Firmware fw =
+        lib.identify_app(std::vector<Hash>(flash.begin() + kAppStart / kSector, flash.begin() + kAppEnd / kSector));
+    if (!fw.project.empty()) out.push_back(fw.project);
+  }
+  return out;
+}
+
+}  // namespace
+
+bool unit_sector_suspect(Library &lib, const Unit &u) {
+  for (const std::string &p : unit_projects(lib, u))
+    if (writes_unit_sector(p)) return true;
+  return backup_record_ok(lib, u.baseline_backup) && !backup_record_ok(lib, u.latest_backup);
+}
+
+std::string fallback_candidate(Library &lib, size_t *count) {
+  std::string found;
+  size_t n = 0;
+  for (const std::string &id : lib.unit_ids()) {
+    Unit u;
+    if (lib.unit(id, u) && unit_sector_suspect(lib, u)) {
+      found = id;
+      ++n;
+    }
+  }
+  if (count) *count = n;
+  return n == 1 ? found : std::string();
+}
+
+namespace {
+// The unit a sector names: its own ID, or an alias it was given. "" when none.
+std::string named_unit(Library &lib, const std::string &id) {
+  Unit u;
+  if (id.empty()) return std::string();
+  if (lib.unit(id, u)) return id;
+  return lib.alias_owner(id);
+}
+}  // namespace
+
+UnitLookup resolve_unit(Library &lib, const uint8_t *sector, const std::string &confirmed) {
+  const std::string id = unit_id_of(sector);
+  const std::string named = named_unit(lib, id);
+  if (!named.empty()) return {UnitMatch::Known, named};
+  Unit u;
+  size_t suspects = 0;
+  const std::string candidate = fallback_candidate(lib, &suspects);
+  const bool ok = !candidate.empty() && confirmed == candidate;
+  if (unit_record_ok(sector)) {
+    // A valid record nobody has: a new FM-1, unless the owner confirmed the
+    // suspect unit and it's back on stock with its sector seen changed (stock
+    // writes a new address over a missing one).
+    if (ok && lib.unit(candidate, u) && !backup_record_ok(lib, u.latest_backup)) {
+      for (const std::string &p : unit_projects(lib, u))
+        if (p == "stock") return {UnitMatch::Fallback, candidate};
+    }
+    return {UnitMatch::New, id};
+  }
+  if (ok) return {UnitMatch::Fallback, candidate};
+  if (suspects) return {UnitMatch::Unsure, ""};
+  if (id.empty()) return {UnitMatch::Blank, ""};
+  return {UnitMatch::New, id};
+}
+
+std::string resume_unit(Library &lib, const uint8_t *sector) {
+  const std::string named = named_unit(lib, unit_id_of(sector));
+  if (!named.empty()) return named;
+  Unit u;
+  const Hash h = sha256(sector, kSector);
+  std::string found;
+  size_t n = 0;
+  for (const std::string &uid : lib.unit_ids()) {
+    FlashHashes before;
+    if (lib.unit(uid, u) && u.has_pending && lib.backup(u.pending.before_backup, before) &&
+        before[kUnitSector / kSector] == h) {
+      found = uid;
+      ++n;
+    }
+  }
+  return n == 1 ? found : std::string();
+}
+
 bool Library::put_manifest(const std::string &key, const Manifest &m) {
   std::string text = m.serialize();
   return storage_.write(key, reinterpret_cast<const uint8_t *>(text.data()), text.size()) &&
@@ -166,10 +280,11 @@ constexpr TestedPair kTestedPairs[] = {
 };
 
 // Projects the loader can't take a unit to yet (families_gen.h, from the
-// reviewed tools/fm1_families.json): Melodee, Tessera and firmwares built on
-// Melodee write 0xE9000, the sector whose hash is the unit ID
-// (fw-map-bench.md finding 2); SLOOP, firmwares built on it and our Felucca
-// 0.9 survey can leave data that crashes Felucca or Skiff.
+// reviewed tools/fm1_families.json): firmwares built on Melodee or SLOOP that
+// nobody has reviewed may write 0xE9000, the sector whose hash is the unit ID
+// (fw-map-bench.md finding 2); our Felucca 0.9 survey's jangada, gator and
+// vector37 write outside the clean slate, and mycelium has no source. Melodee,
+// Tessera, SLOOP and its USR4 forks are riskier instead (writes_unit_sector).
 constexpr const char *kBluetoothReason = "Not yet: it writes the FM-1's Bluetooth sector";
 constexpr const char *kOldFeluccaReason = "Not yet: it's built on an older Felucca";
 }  // namespace
@@ -343,6 +458,14 @@ bool Library::unit(const std::string &id, Unit &out) {
   }
   out.flash_id = uint32_t(strtoul(m.get("flash").c_str(), nullptr, 16));
   out.chip_risk_ok = m.get("chip_ok") == "1";
+  out.id_risk_ok = m.get("id_ok") == "1";
+  const std::string aliases = m.get("alias");
+  for (size_t at = 0; at < aliases.size();) {
+    size_t end = aliases.find(' ', at);
+    if (end == std::string::npos) end = aliases.size();
+    if (end > at) out.aliases.push_back(aliases.substr(at, end - at));
+    at = end + 1;
+  }
   return true;
 }
 
@@ -367,10 +490,40 @@ bool Library::put_unit(const Unit &u) {
     m.fields["flash"] = id;
   }
   if (u.chip_risk_ok) m.fields["chip_ok"] = "1";
+  if (u.id_risk_ok) m.fields["id_ok"] = "1";
+  for (const std::string &a : u.aliases) {
+    if (!key_safe(a)) return false;
+    m.fields["alias"] += (m.fields["alias"].empty() ? "" : " ") + a;
+  }
   // Empty values would serialize as "key " and parse back as empty: drop them.
   for (auto it = m.fields.begin(); it != m.fields.end();)
     it = it->second.empty() ? m.fields.erase(it) : std::next(it);
   return put_manifest("m/unit/" + u.id, m);
+}
+
+bool Library::add_alias(Unit &u, const std::string &sector_id) {
+  if (sector_id.empty() || sector_id == u.id || !key_safe(sector_id)) return false;
+  for (const std::string &a : u.aliases)
+    if (a == sector_id) return true;
+  Unit other;
+  if (unit(sector_id, other)) return false;
+  const std::string owner = alias_owner(sector_id);
+  if (!owner.empty()) return owner == u.id;
+  Unit next = u;
+  next.aliases.push_back(sector_id);
+  if (!put_unit(next)) return false;
+  u = next;
+  return true;
+}
+
+std::string Library::alias_owner(const std::string &sector_id) {
+  for (const std::string &id : unit_ids()) {
+    Unit u;
+    if (!unit(id, u)) continue;
+    for (const std::string &a : u.aliases)
+      if (a == sector_id) return id;
+  }
+  return std::string();
 }
 
 std::vector<std::string> Library::unit_ids() {
@@ -460,6 +613,7 @@ InstallPreview preview_install(Library &lib, const std::string &unit_id, const s
     p.decision.chip_risk = !u.chip_risk_ok;
     p.decision.chip_no_saves = !saves_on_uc25hq80(target.project, target.version);
   }
+  p.decision.id_risk = writes_unit_sector(target.project) && !u.id_risk_ok;
   if (p.decision.blocked) {
     p.problem = p.decision.blocked;
     return p;
@@ -588,11 +742,15 @@ DataDecision decide_data(const std::string &unit_id, const Firmware &current,
     return d;  // another version of the same project: the autosave is the rollback
   d.clean_slate = !tested_pair(current.project, current.identity, target.project, target.identity);
   if (target.project == "stock") {
-    // Skiff 2.x on this unit, now or earlier (data era 2 is Skiff 2.0 and up).
-    bool skiff2 = current.project == "skiff" && data_era(current.project, current.identity) == 2;
-    for (const SaveState &s : saves)
-      skiff2 |= s.unit == unit_id && s.project == "skiff" && data_era(s.project, s.identity) == 2;
-    d.stock_resources_warning = skiff2;
+    // Skiff 2.x on this unit, now or earlier (data era 2 is Skiff 2.0 and up),
+    // or a riskier firmware: SLOOP's USR4 reaches 0xFAFFF, Melodee's projects
+    // 0xF9FFF (unit-id-scope.md).
+    auto writes_resources = [](const std::string &project, const std::string &identity) {
+      return (project == "skiff" && data_era(project, identity) == 2) || writes_unit_sector(project);
+    };
+    bool resources = writes_resources(current.project, current.identity);
+    for (const SaveState &s : saves) resources |= s.unit == unit_id && writes_resources(s.project, s.identity);
+    d.stock_resources_warning = resources;
   }
   if (family_info(target.family).saves_enabled) {
     for (auto it = saves.rbegin(); it != saves.rend(); ++it) {
