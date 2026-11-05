@@ -28,6 +28,12 @@ constexpr uint32_t kGlobalsStart = 0xFC000;    // Felucca-family globals
 constexpr uint32_t kGlobalsEnd = 0xFF000;
 constexpr uint32_t kKeyMacStart = 0xFF000;     // erased at the factory, never written
 
+// Boot heads by CRC-32 of 0x0-0x3FFF. The board installs only on stock V15's
+// (Chad's units; u/deamonSLINKY on r/MVaveFM1); V16's is from that post, not
+// checked on a unit. Every other head is backup-only (library.h head_of).
+constexpr uint32_t kHeadCrcV15 = 0x3A04AD23;
+constexpr uint32_t kHeadCrcV16 = 0x08316064;
+
 constexpr uint32_t kChipKey = 0x980F;
 constexpr uint32_t kFlashId = 0x856014;
 // The UC25HQ80 newer FM-1s ship with: the same commands as the FM-1's own flash
