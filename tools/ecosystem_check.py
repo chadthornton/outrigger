@@ -47,6 +47,7 @@ TIMEOUT = 30
 GROUPS = [
     ("unknown", "New or unknown family, or a file gone missing"),
     ("blocked", "Blocked: Outrigger won't add these"),
+    ("riskier", "Riskier (may change the FM-1's Bluetooth identity): read the new release's flash map again"),
     ("clean", "Clean-slate families: switch with a clean slate"),
     ("keep", "Families we know (stock, Felucca): data kept per firmware"),
 ]
@@ -168,7 +169,7 @@ def bases_of(entries, hub=None):
 
 
 def group_of(entry_id, entries, fam, bases=None):
-    """keep, clean, blocked or unknown for a mutant.cloud entry id, by the same
+    """keep, clean, riskier, blocked or unknown for a mutant.cloud entry id, by the same
     rules as the loader's blocks (tools/gen_families.py)."""
     c = gen_families.category(entry_id, bases if bases is not None else bases_of(entries), fam)
     return "blocked" if c in gen_families.BLOCKS else c

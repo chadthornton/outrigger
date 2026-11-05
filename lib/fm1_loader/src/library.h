@@ -253,8 +253,8 @@ struct DataDecision {
 };
 
 // Why a project can't be installed yet, for the screen; null when it can. The
-// list is families_gen.h: it writes the unit-ID sector, or it's built on an
-// older Felucca.
+// list is families_gen.h: built on a firmware that writes the unit-ID sector,
+// or on an older Felucca, and not reviewed.
 const char *blocked_reason(const std::string &project);
 
 // Whether a hardware test proved this switch, in either direction: such a pair

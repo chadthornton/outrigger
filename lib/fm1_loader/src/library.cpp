@@ -284,10 +284,11 @@ constexpr TestedPair kTestedPairs[] = {
 };
 
 // Projects the loader can't take a unit to yet (families_gen.h, from the
-// reviewed tools/fm1_families.json): Melodee, Tessera and firmwares built on
-// Melodee write 0xE9000, the sector whose hash is the unit ID
-// (fw-map-bench.md finding 2); SLOOP, firmwares built on it and our Felucca
-// 0.9 survey can leave data that crashes Felucca or Skiff.
+// reviewed tools/fm1_families.json): firmwares built on Melodee or SLOOP that
+// nobody has reviewed may write 0xE9000, the sector whose hash is the unit ID
+// (fw-map-bench.md finding 2); our Felucca 0.9 survey's jangada, gator and
+// vector37 write outside the clean slate, and mycelium has no source. Melodee,
+// Tessera, SLOOP and its USR4 forks are riskier instead (writes_unit_sector).
 constexpr const char *kBluetoothReason = "Not yet: it writes the FM-1's Bluetooth sector";
 constexpr const char *kOldFeluccaReason = "Not yet: it's built on an older Felucca";
 }  // namespace
