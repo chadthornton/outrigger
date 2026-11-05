@@ -14,7 +14,19 @@ Sources:
 **Probe result.** FM-B on Official Open V14 (installed by Chad with the Workbench, force flash from Felucca). Small-V2
 ran `fb3dc0d` (BENCH, the backup-only bypass). The Backup job sent the 7D key, read the whole flash and finished OK
 (`08d4edf4e6f63ad5-b1`). FM-B came back on Open (3654:7756). The unit ID is FM-B's usual one, so the Workbench
-install left 0xE9000 alone. Not yet read: the dump itself (head, VM start), which needs Small-V2's store over USB.
+install left 0xE9000 alone.
+
+The dump (`08d4edf4e6f63ad5-b1`, read from Small-V2's store over USB, sha256 `2ca47bae…`):
+- 0x0000–0x72FFF is the Open package's flash.bin byte for byte, head included: the Workbench writes from address
+  0, so a Workbench-installed Open FM-1 has Open's head. The mixed-head pairs remain only for Outrigger's own
+  installs.
+- VM 0x73000: one sector formatted (JieLi `55 AA AA 55`), the rest blank. BTIF 0x7B000: blank.
+- No Open project or settings records yet (no `FMP6`/`FMS6` magic): 0x7C000–0x8CFFF still holds the previous
+  firmware's app bytes, which Open ignores.
+- A built-in sample bank was written at install: header `FM1S` at 0x8D000, 76,436 bytes, so it runs to 0x9FA94.
+  It covers 0x93000 (stock's factory sector), and Felucca's 0x94000–0x9FFFF. Installing Open with the Workbench
+  already overwrites 0x93000.
+- 0xE9000 unchanged.
 During the job Small-V2 was off Wi-Fi for about 25 minutes, yet its uptime afterwards dated its boot before the
 job. Small-V1 showed the same Wi-Fi stall on a build with master 7945bac, so it's probably not Open-specific.
 
