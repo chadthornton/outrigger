@@ -135,7 +135,7 @@ class FakeBoard:
         if hashlib.sha256(data).hexdigest() != q.get("sha256"):
             raise AssertionError("bench.py sent a sha256 that doesn't match the body")
         if q.get("slot") == "recovery":
-            self.recovery = q["sha256"][:16]
+            self.recovery = data[-32:].hex()[:16]  # the digest ESP-IDF appends, as the board reports it
             return {"accepted": True, "slot": "recovery", "restarting": False}
         if self.recovery == "none":
             raise self.refused("POST /bench/update: 409 no recovery app: send one first (slot=recovery)")

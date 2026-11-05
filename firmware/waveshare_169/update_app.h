@@ -30,7 +30,8 @@ void update_loop(uint32_t now_ms, bool healthy);
 void update_confirm_now(bool healthy);
 // For GET /status, from any task: a copy taken under a lock.
 UpdateStatus update_status();
-// The recovery app's image SHA-256 (16 hex digits), or "none": hashed the
+// The recovery app's image digest (esp_partition_get_sha256: the SHA-256 ESP-IDF
+// appends to an image, its last 32 bytes), 16 hex digits, or "none": hashed the
 // first time it's asked for, not at every boot.
 const char *update_recovery_sha();
 // The recovery app's NVS log, newest last (empty if none): for GET /crash.

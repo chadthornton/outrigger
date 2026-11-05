@@ -222,7 +222,7 @@ def test_update():
 def test_update_sends_recovery_first():
     b = updater(recovery="none")
     with tempfile.TemporaryDirectory() as tmp:
-        r = write(tmp, "recovery.bin", b"\xe9" + bytes(5000))
+        r = write(tmp, "recovery.bin", b"\xe9" + bytes(5000) + bytes(range(32)))
         rec = bench.do_update(b, "Small-V2", REG, write(tmp, "app.bin", app_image()), r)
         expect(rec["ok"] and rec.get("recovery_sent"), "recovery sent, then the app")
         expect([u[0] for u in b.uploads] == ["recovery", "app"], "in that order")

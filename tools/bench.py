@@ -303,6 +303,12 @@ def update_info(status):
     return status.get("update") or {}
 
 
+def image_digest(data):
+    """What /status's update.recovery shows for an image: the SHA-256 ESP-IDF appends
+    to it (its last 32 bytes, esp_partition_get_sha256), first 16 hex digits."""
+    return data[-32:].hex()[:16]
+
+
 def send_image(board, data, label, slot):
     sha = hashlib.sha256(data).hexdigest()
     ans = board.upload(f"/bench/update?sha256={sha}&label={label}&slot={slot}", data)
@@ -344,11 +350,12 @@ def do_update(board, want, reg, image=None, recovery=None):
         rdata = recovery.read_bytes()
         rsha = hashlib.sha256(rdata).hexdigest()
         rec["recovery_sha256"] = rsha
-        if on_board != rsha[:16]:
+        want = image_digest(rdata)
+        if on_board != want:
             send_image(board, rdata, "recovery", "recovery")
             on_board = update_info(wait_status(board, lambda s: True, "/status after the recovery app", 30)).get("recovery")
-            if on_board != rsha[:16]:
-                raise BenchError(f"the recovery slot reads {on_board} after writing {rsha[:16]}")
+            if on_board != want:
+                raise BenchError(f"the recovery slot reads {on_board} after writing {want}")
             rec["recovery_sent"] = True
     if on_board in (None, "none"):
         raise BenchError("the board has no recovery app: pass --recovery (make recovery builds it)")

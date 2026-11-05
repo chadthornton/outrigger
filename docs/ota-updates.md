@@ -64,8 +64,9 @@ record says which one.
   where Outrigger had them.
 - **Installing it:** `make flash-recovery` writes only that slot over USB.
   Outrigger can also write the slot itself, because it's the app slot not running.
-- **Is it there:** `/status` → `update.recovery` gives the slot's image SHA-256
-  (16 hex digits), or `none`.
+- **Is it there:** `/status` → `update.recovery` gives the slot's image digest, or
+  `none`. That's the SHA-256 ESP-IDF appends to every image (its last 32 bytes), 16 hex
+  digits, not the file's own SHA-256.
 - **What it did:** `/crash` → `recovery_log`.
 
 ## Bench push (BENCH=1 builds)
