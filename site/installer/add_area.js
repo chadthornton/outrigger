@@ -80,7 +80,7 @@ class AddArea {
       this.io = serialIo(port);
       this.link = new BoardLink(this.io);
       const hello = await this.link.hello();
-      if (hello.protocol !== 1) throw new Error("This Outrigger speaks a newer protocol than this page. Reload the page.");
+      if (hello.protocol > 2) throw new Error("This Outrigger speaks a newer protocol than this page. Reload the page.");
       const catalog = await loadCatalog();
       this.from = catalog.from;
       this.catalog = addableFirmwares(catalog);

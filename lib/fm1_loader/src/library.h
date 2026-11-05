@@ -138,6 +138,8 @@ class Library {
   std::vector<std::string> package_ids();
   // Refused while a unit has it installed or an unfinished install needs it.
   bool remove_package(const std::string &id);
+  // True when a unit runs it or an unfinished install needs it: remove_package keeps it.
+  bool package_in_use(const std::string &id);
   bool set_pinned(const std::string &id, bool pinned);
   // What an app area with these sector hashes is (identity empty if unknown).
   Firmware identify_app(const std::vector<Hash> &app);

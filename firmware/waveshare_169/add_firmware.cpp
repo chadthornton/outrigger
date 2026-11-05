@@ -41,6 +41,12 @@ void set_line(const ReceiveStatus &s) {
     case ReceiveStatus::State::Failed:
       snprintf(text, sizeof text, "Not added: %s", s.why.c_str());
       break;
+    case ReceiveStatus::State::Removing:
+      snprintf(text, sizeof text, "Removing %s...", s.label.c_str());
+      break;
+    case ReceiveStatus::State::Removed:
+      snprintf(text, sizeof text, "Removed %s", s.label.c_str());
+      break;
     default:
       text[0] = 0;
   }

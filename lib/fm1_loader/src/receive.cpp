@@ -118,9 +118,65 @@ void Receiver::handle(uint8_t type, const std::vector<uint8_t> &p, uint32_t now_
     std::vector<uint8_t> r;
     put32(r, 0);
     reply(out, 'k', r);
+  } else if (type == 'R' && !p.empty()) {
+    remove(p, out);
+  } else if (type == 'I' && p.empty()) {
+    info(out);
   } else {
     refuse(out, ReceiveError::BadRequest, "Outrigger didn't understand the page");
   }
+}
+
+void Receiver::remove(const std::vector<uint8_t> &p, std::vector<uint8_t> &out) {
+  if (buf_) return refuse(out, ReceiveError::Busy, "Outrigger is receiving a firmware");
+  const std::string id(p.begin(), p.end());
+  if (id == last_removed_) return reply(out, 'r', {});
+  PackageInfo info;
+  if (!key_safe(id) || !lib_.package(id, info)) return refuse(out, ReceiveError::NoSuchPackage, "Outrigger doesn't have that firmware");
+  if (info.project == "stock") return refuse(out, ReceiveError::Kept, "Stock V15 always stays on Outrigger");
+  // package_in_use is also true when a unit's record can't be read: then nothing is removed.
+  if (lib_.package_in_use(id))
+    return refuse(out, ReceiveError::InUse, "An FM-1 runs it, an install of it isn't finished, or a record of your FM-1s can't be read");
+  // On the screen while the store frees its sectors, which can take a few seconds.
+  status_ = ReceiveStatus();
+  status_.label = info.version.empty() ? (info.name.empty() ? id : info.name) : info.name + " " + info.version;
+  set_state(ReceiveStatus::State::Removing);
+  if (!lib_.remove_package(id)) {
+    set_state(ReceiveStatus::State::Idle);
+    return refuse(out, ReceiveError::StoreFailed, "Outrigger's store refused the change");
+  }
+  lib_.collect_garbage();
+  last_removed_ = id;
+  set_state(ReceiveStatus::State::Removed);
+  reply(out, 'r', {});
+}
+
+void Receiver::info(std::vector<uint8_t> &out) {
+  uint8_t flags = 0, head = 255;
+  uint32_t flash_id = 0;
+  std::string package, name;
+  Unit u;
+  const std::string uid = lib_.last_unit();
+  if (!uid.empty() && lib_.unit(uid, u)) {
+    flags |= 1;
+    if (u.has_pending) flags |= 4;
+    flash_id = u.flash_id;
+    package = u.installed_package;
+    name = u.name;
+    FlashHashes flash;
+    if (!u.latest_backup.empty() && lib_.backup(u.latest_backup, flash)) {
+      flags |= 2;
+      const Head h = head_of(lib_, flash);
+      head = h == Head::V15 ? 0 : h == Head::V16 ? 1 : 2;
+    }
+  }
+  std::vector<uint8_t> r = {flags, head};
+  put32(r, flash_id);
+  r.insert(r.end(), package.begin(), package.end());
+  r.push_back(0);
+  r.insert(r.end(), name.begin(), name.end());
+  r.push_back(0);
+  reply(out, 'i', r);
 }
 
 void Receiver::refuse(std::vector<uint8_t> &out, ReceiveError e, const std::string &why) {
@@ -132,6 +188,7 @@ void Receiver::refuse(std::vector<uint8_t> &out, ReceiveError e, const std::stri
 void Receiver::begin(const std::vector<uint8_t> &p, uint32_t now_ms, std::vector<uint8_t> &out) {
   drop();
   last_reply_.clear();
+  last_removed_.clear();
   // size, SHA-256, then three NUL-terminated strings.
   std::vector<std::string> strs;
   size_t at = 36;

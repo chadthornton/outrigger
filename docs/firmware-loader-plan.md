@@ -615,6 +615,11 @@ Approach B of the scope (fw-add-scope.md, Chad's pick): the board receives the p
 - **It only adds:** new sectors and one `m/pkg/` manifest; it never removes or rewrites a key, and never collects
   garbage (sectors orphaned by an add that failed partway only cost space). `tests/test_fm1_receive.cpp` snapshots the
   store around an add.
+- **Remove and Info (protocol 2, 2026-11-05):** `'R' id` deletes one `m/pkg/` manifest (`Library::remove_package`),
+  never stock's, the one a unit runs or one an unfinished install needs, and not while a transfer is open; then
+  `collect_garbage`, which keeps every sector a package, backup or save manifest names. Backups and saves are never
+  touched. `'I'` reads the last unit's installed package, backup, boot head and flash ID, and writes nothing. The
+  library page (`site/library/`, `site/installer/library_area.js`) queues removes before adds in one Apply.
 - **The page** (`site/installer/add.js`, `add_area.js`): the Hub's catalog minus Melodee/Tessera, the 18 Felucca
   0.9/SLOOP-store firmwares from the 2026-11-01 survey (and any whose `base` names one), firmwares with no license, and
   `amenity` (fails our checks). It downloads the file into the browser, checks the catalog's SHA-256 and parses it as
