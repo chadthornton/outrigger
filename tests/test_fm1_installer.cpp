@@ -245,6 +245,10 @@ static void test_uc25hq80() {
     Rig r(base_flash(sloop()));
     r.rom.id = kFlashIdUc25hq80;
     r.back_up();
+    // What it runs already: nothing to write, and the plan showed no warning, so
+    // the hold isn't the OK even if it carried one.
+    r.install("sloop-2.8.1", true, false, true);
+    CHECK(r.inst.current() == Step::Done && !r.unit().chip_risk_ok && r.host.keys == 0);
     r.install("skiff-1.4");  // no OK yet: nothing reaches the FM-1
     CHECK(r.inst.failure() == Failure::NeedsChipRiskOk);
     CHECK(r.host.keys == 0 && r.rom.commands == 0 && !r.unit().has_pending && !r.unit().chip_risk_ok);

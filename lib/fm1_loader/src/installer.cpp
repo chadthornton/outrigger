@@ -339,13 +339,13 @@ bool Installer::prepare_install() {
   if (id.empty() || !lib_.unit(id, unit_) || !lib_.backup(unit_.latest_backup, flash_) ||
       flash_.size() != kSectors)
     return fail(Failure::NoBackupForInstall), false;
+  if (!autosave() || !plan_ops()) return false;
+  if (total_ == 0) return true;  // nothing to write: the plan showed no warning, so no OK either
   if (unit_.flash_id == kFlashIdUc25hq80 && !unit_.chip_risk_ok) {
     if (!opts_.chip_risk_ok) return fail(Failure::NeedsChipRiskOk), false;
     unit_.chip_risk_ok = true;  // asked once per unit
     if (!lib_.put_unit(unit_)) return fail(Failure::StorageFailed), false;
   }
-  if (!autosave() || !plan_ops()) return false;
-  if (total_ == 0) return true;
   unit_.has_pending = true;
   unit_.pending.package_id = package_id_;
   unit_.pending.action = decision_.action;
