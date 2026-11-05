@@ -20,7 +20,8 @@ Then put it on the hub:
 Outrigger's **Play** screen shows a line each for the hub, your controller, the router and the FM-1. All green means
 notes are getting through.
 
-**Wi-Fi:** the Install button gives you Outrigger without Wi-Fi. Wi-Fi and Outrigger's own web page are coming;
+**Wi-Fi:** off until you turn on **Setup > Remote diagnostics**, and then only for a read-only page with Outrigger's
+status, log and any crash: see [Known issues](07-known-issues.md). Updates and downloads over Wi-Fi are coming;
 see "What's coming" on the homepage.
 
 ## Updating

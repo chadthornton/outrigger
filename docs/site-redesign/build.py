@@ -207,20 +207,23 @@ BEFORE = """<div class="faq">
     them. One at a time for now: see What's coming.</p></details>
 </div>"""
 
-# What's coming, in three groups: (heading, one-line intro, cards). Each card: title, text, stage label, stage class.
+# What's coming, in groups: (heading, one-line intro, cards). Each card: title, text, stage label, stage class.
 COMING = [
     ("Over Wi-Fi", "Set up, update and check on Outrigger from your phone or laptop, without plugging it in.", [
         ("Wi-Fi", "Join your network from Outrigger's screen, so updates, downloads and its web page need no cable.", "In testing", "test"),
         ("outrigger.local", "Open Outrigger from any browser on your Wi-Fi: status, backups and settings.", "In testing", "test"),
         ("Firmware over Wi-Fi", "Browse the Firmware Hub on Outrigger's screen and download straight to Outrigger.", "Planned", "plan"),
         ("Backups on your computer", "Copy any backup off Outrigger, and restore the one you choose.", "Planned", "plan"),
-        ("Troubleshoot from your browser", "Outrigger's page shows what it sees: the devices, its log and any crash. A fix starts with a link, not a guess.", "In testing", "test"),
+        ("Update Outrigger over Wi-Fi", "Install a new Outrigger without a USB cable. It's running on our bench now.", "In testing", "test"),
     ]),
     ("Playing and recording", "More of your rig on one hub, and a way to capture what you play.", [
         ("Record the FM-1", "Capture its audio over USB at 44.1 kHz stereo and pull the takes off over Wi-Fi. Streaming comes after.", "In testing", "test"),
         ("A general-purpose MIDI hub", "Route any MIDI controller with a USB connection to any USB synth, not just the FM-1. The router is built; pointing it at other synths is a small change we haven't made or tested yet.", "Planned", "plan"),
         ("More devices at once", "Several controllers together, Bluetooth MIDI, and twice the USB room on ESP32-P4 boards.", "Planned", "plan"),
         ("The whole catalog on a TF card", 'Boards with a card slot keep every firmware locally, about 60 MB in all.<span class="tip"><b>Pro tip:</b> buying an ESP32 now? Get one with a TF card slot, like the <a href="#board">1.8-inch AMOLED</a>.</span>', "Planned", "plan"),
+    ]),
+    ("More firmwares", "More of the catalog on your FM-1.", [
+        ("Riskier firmwares, with a warning", "SLOOP 2.4 and later, and Melodee. They write the part of the FM-1's memory that holds its Bluetooth address, so Outrigger will warn you before it installs one.", "Planned", "plan"),
     ]),
 ]
 
@@ -347,6 +350,10 @@ STYLE = """
   .coming .stage { display: flex; align-items: center; gap: 8px; font-size: .75rem; letter-spacing: .06em; text-transform: uppercase; font-weight: 600; color: var(--muted); margin-bottom: 4px; }
   .coming .stage::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--dot, var(--line)); }
   .coming .s-test { --dot: var(--accent); } .coming .s-plan { --dot: var(--muted); }
+  .news { list-style: none; margin: 0; padding: 0; display: grid; gap: 28px; max-width: 760px; }
+  .news time { display: block; font-size: .75rem; letter-spacing: .06em; text-transform: uppercase; font-weight: 600; color: var(--muted); margin-bottom: 8px; }
+  .news ul { margin: 0; padding-left: 1.1em; display: grid; gap: 8px; }
+  .news li li { line-height: 1.55; }
   .coming h4 { margin: 0; font-size: 1.0625rem; line-height: 1.35; font-weight: 650; text-wrap: balance; }
   .cgroup + .cgroup { margin-top: 48px; }
   .faq .answer { margin: -4px 0 18px; display: grid; gap: 14px; }
@@ -455,7 +462,7 @@ STYLE = """
 BODY = f"""<nav class="wrap topnav">
   <a class="wordmark" href="#"><i></i>Outrigger</a><span class="beta">Beta</span>
   <span class="sp"></span>
-  <a class="link wide" href="#need">What you need</a><a class="link wide" href="#coming">What's coming</a><a class="link" href="#trouble">Help</a>
+  <a class="link wide" href="#need">What you need</a><a class="link wide" href="#new">What's new</a><a class="link wide" href="#coming">What's coming</a><a class="link" href="#trouble">Help</a>
 </nav>
 <div class="wrap">
   <div class="layout">
@@ -496,6 +503,34 @@ BODY = f"""<nav class="wrap topnav">
       <div><h2>What you need</h2>{NEED}</div>
       <aside><p class="eyebrow">Before you buy</p>{BEFORE}</aside>
     </div>
+  </section>
+  <section class="section" id="new"><h2>What's new</h2>
+    <ol class="news">
+      <li><time datetime="2026-11-05">Nov 5</time><ul>
+        <li><b>Send this log to Outrigger.</b> When an install fails, one button sends us its log. You see exactly what
+          goes before you send it, and MAC addresses are removed.</li>
+        <li><b>Newer FM-1s with the UC25HQ80 flash chip can switch firmware.</b> Outrigger warns you first: we haven't
+          tested that chip, and a switch may fail or not keep your songs.</li>
+        <li><b>M-VAVE's Open firmware is recognised.</b> An FM-1 running it plays from your keys. Backing it up and
+          switching away from it come next.</li>
+        <li><b>A factory FM-1 on stock V15 shows as running</b> in the firmware list.</li>
+        <li><b>Stock V15 comes from M-VAVE's own repo,</b> at a fixed version, so it can't vanish when a newer one
+          comes out.</li>
+        <li><b>Six more firmwares can be added:</b> DX SLOOP, Salt, Hortator, MNM-1, Nauclerus and Hawk-Chua, from the
+          SLOOP and Felucca 0.9 family. We cleared them by reading their source; they haven't run on an FM-1 yet.</li>
+        <li><b>Remote diagnostics,</b> off unless you turn it on in Setup. Then Outrigger shows its status, log and any
+          crash on a read-only page over Wi-Fi, so we can help without guessing.</li>
+      </ul></li>
+      <li><time datetime="2026-11-04">Nov 4</time><ul>
+        <li><b>Add firmware from the community catalog.</b> The list comes from mutant.cloud, about 190 FM-1 firmwares,
+          with the Firmware Hub as a fallback when it's slow. <a href="library/">Add one.</a></li>
+      </ul></li>
+      <li><time>Since the first beta</time><ul>
+        <li><b>Your FM-1 stays recoverable.</b> Outrigger backs it up before every switch and never writes the part of
+          the FM-1 that lets it start up and recover. If an install of Outrigger stops partway, install again: it picks
+          up where it stopped.</li>
+      </ul></li>
+    </ol>
   </section>
   <section class="section" id="coming"><h2>What's coming</h2>
     {COMING_HTML}</section>
@@ -569,8 +604,8 @@ for a, b in [
     ("""<dd>Switching needs a 24 KB file from the FM-1's chip maker that we can't host ourselves. The installer fetches it
       from the open-source tool that already publishes it, checks it, and stores it on your ESP32.</dd>""",
      """<dd>Switching needs a 24 KB file from the FM-1's chip maker that we can't host ourselves. On a new ESP32 the
-      installer downloads it straight from GitHub into your browser, and the three starter firmwares from the Firmware
-      Hub, checks every one, and puts them on Outrigger. If a download fails, nothing is written.</dd>"""),
+      installer downloads it and M-VAVE's stock V15 straight from GitHub into your browser, checks both, and puts
+      them on Outrigger. If a download fails, nothing is written.</dd>"""),
     ('more at the Firmware Hub ↗</a></div>', 'more at the Firmware Hub ↗</a></div>\n  ' + ADD_BLOCK),
     ('<title>Outrigger: B3</title>', '<title>Outrigger: a little companion for your FM-1</title>\n'
      '<meta name="description" content="Play the M-VAVE FM-1 from any MIDI controller with a USB connection, and switch between 100+ firmwares without a laptop.">\n'

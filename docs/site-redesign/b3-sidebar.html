@@ -93,6 +93,10 @@
   .coming .stage { display: flex; align-items: center; gap: 8px; font-size: .75rem; letter-spacing: .06em; text-transform: uppercase; font-weight: 600; color: var(--muted); margin-bottom: 4px; }
   .coming .stage::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--dot, var(--line)); }
   .coming .s-test { --dot: var(--accent); } .coming .s-plan { --dot: var(--muted); }
+  .news { list-style: none; margin: 0; padding: 0; display: grid; gap: 28px; max-width: 760px; }
+  .news time { display: block; font-size: .75rem; letter-spacing: .06em; text-transform: uppercase; font-weight: 600; color: var(--muted); margin-bottom: 8px; }
+  .news ul { margin: 0; padding-left: 1.1em; display: grid; gap: 8px; }
+  .news li li { line-height: 1.55; }
   .coming h4 { margin: 0; font-size: 1.0625rem; line-height: 1.35; font-weight: 650; text-wrap: balance; }
   .cgroup + .cgroup { margin-top: 48px; }
   .faq .answer { margin: -4px 0 18px; display: grid; gap: 14px; }
@@ -202,7 +206,7 @@
 <nav class="wrap topnav">
   <a class="wordmark" href="#"><i></i>Outrigger</a><span class="beta">Beta</span>
   <span class="sp"></span>
-  <a class="link wide" href="#need">What you need</a><a class="link wide" href="#coming">What's coming</a><a class="link" href="#trouble">Help</a>
+  <a class="link wide" href="#need">What you need</a><a class="link wide" href="#new">What's new</a><a class="link wide" href="#coming">What's coming</a><a class="link" href="#trouble">Help</a>
 </nav>
 <div class="wrap">
   <div class="layout">
@@ -387,8 +391,36 @@
 </div></aside>
     </div>
   </section>
+  <section class="section" id="new"><h2>What's new</h2>
+    <ol class="news">
+      <li><time datetime="2026-11-05">Nov 5</time><ul>
+        <li><b>Send this log to Outrigger.</b> When an install fails, one button sends us its log. You see exactly what
+          goes before you send it, and MAC addresses are removed.</li>
+        <li><b>Newer FM-1s with the UC25HQ80 flash chip can switch firmware.</b> Outrigger warns you first: we haven't
+          tested that chip, and a switch may fail or not keep your songs.</li>
+        <li><b>M-VAVE's Open firmware is recognised.</b> An FM-1 running it plays from your keys. Backing it up and
+          switching away from it come next.</li>
+        <li><b>A factory FM-1 on stock V15 shows as running</b> in the firmware list.</li>
+        <li><b>Stock V15 comes from M-VAVE's own repo,</b> at a fixed version, so it can't vanish when a newer one
+          comes out.</li>
+        <li><b>Six more firmwares can be added:</b> DX SLOOP, Salt, Hortator, MNM-1, Nauclerus and Hawk-Chua, from the
+          SLOOP and Felucca 0.9 family. We cleared them by reading their source; they haven't run on an FM-1 yet.</li>
+        <li><b>Remote diagnostics,</b> off unless you turn it on in Setup. Then Outrigger shows its status, log and any
+          crash on a read-only page over Wi-Fi, so we can help without guessing.</li>
+      </ul></li>
+      <li><time datetime="2026-11-04">Nov 4</time><ul>
+        <li><b>Add firmware from the community catalog.</b> The list comes from mutant.cloud, about 190 FM-1 firmwares,
+          with the Firmware Hub as a fallback when it's slow. <a href="library/">Add one.</a></li>
+      </ul></li>
+      <li><time>Since the first beta</time><ul>
+        <li><b>Your FM-1 stays recoverable.</b> Outrigger backs it up before every switch and never writes the part of
+          the FM-1 that lets it start up and recover. If an install of Outrigger stops partway, install again: it picks
+          up where it stopped.</li>
+      </ul></li>
+    </ol>
+  </section>
   <section class="section" id="coming"><h2>What's coming</h2>
-    <div class="cgroup"><div class="cgroup-head"><h3>Over Wi-Fi</h3><p>Set up, update and check on Outrigger from your phone or laptop, without plugging it in.</p></div><div class="coming"><article><span class="stage s-test">In testing</span><h4>Wi-Fi</h4><p>Join your network from Outrigger's screen, so updates, downloads and its web page need no cable.</p></article><article><span class="stage s-test">In testing</span><h4>outrigger.local</h4><p>Open Outrigger from any browser on your Wi-Fi: status, backups and settings.</p></article><article><span class="stage s-plan">Planned</span><h4>Firmware over Wi-Fi</h4><p>Browse the Firmware Hub on Outrigger's screen and download straight to Outrigger.</p></article><article><span class="stage s-plan">Planned</span><h4>Backups on your computer</h4><p>Copy any backup off Outrigger, and restore the one you choose.</p></article><article><span class="stage s-test">In testing</span><h4>Troubleshoot from your browser</h4><p>Outrigger's page shows what it sees: the devices, its log and any crash. A fix starts with a link, not a guess.</p></article></div></div><div class="cgroup"><div class="cgroup-head"><h3>Playing and recording</h3><p>More of your rig on one hub, and a way to capture what you play.</p></div><div class="coming"><article><span class="stage s-test">In testing</span><h4>Record the FM-1</h4><p>Capture its audio over USB at 44.1 kHz stereo and pull the takes off over Wi-Fi. Streaming comes after.</p></article><article><span class="stage s-plan">Planned</span><h4>A general-purpose MIDI hub</h4><p>Route any MIDI controller with a USB connection to any USB synth, not just the FM-1. The router is built; pointing it at other synths is a small change we haven't made or tested yet.</p></article><article><span class="stage s-plan">Planned</span><h4>More devices at once</h4><p>Several controllers together, Bluetooth MIDI, and twice the USB room on ESP32-P4 boards.</p></article><article><span class="stage s-plan">Planned</span><h4>The whole catalog on a TF card</h4><p>Boards with a card slot keep every firmware locally, about 60 MB in all.<span class="tip"><b>Pro tip:</b> buying an ESP32 now? Get one with a TF card slot, like the <a href="#board">1.8-inch AMOLED</a>.</span></p></article></div></div></section>
+    <div class="cgroup"><div class="cgroup-head"><h3>Over Wi-Fi</h3><p>Set up, update and check on Outrigger from your phone or laptop, without plugging it in.</p></div><div class="coming"><article><span class="stage s-test">In testing</span><h4>Wi-Fi</h4><p>Join your network from Outrigger's screen, so updates, downloads and its web page need no cable.</p></article><article><span class="stage s-test">In testing</span><h4>outrigger.local</h4><p>Open Outrigger from any browser on your Wi-Fi: status, backups and settings.</p></article><article><span class="stage s-plan">Planned</span><h4>Firmware over Wi-Fi</h4><p>Browse the Firmware Hub on Outrigger's screen and download straight to Outrigger.</p></article><article><span class="stage s-plan">Planned</span><h4>Backups on your computer</h4><p>Copy any backup off Outrigger, and restore the one you choose.</p></article><article><span class="stage s-test">In testing</span><h4>Update Outrigger over Wi-Fi</h4><p>Install a new Outrigger without a USB cable. It's running on our bench now.</p></article></div></div><div class="cgroup"><div class="cgroup-head"><h3>Playing and recording</h3><p>More of your rig on one hub, and a way to capture what you play.</p></div><div class="coming"><article><span class="stage s-test">In testing</span><h4>Record the FM-1</h4><p>Capture its audio over USB at 44.1 kHz stereo and pull the takes off over Wi-Fi. Streaming comes after.</p></article><article><span class="stage s-plan">Planned</span><h4>A general-purpose MIDI hub</h4><p>Route any MIDI controller with a USB connection to any USB synth, not just the FM-1. The router is built; pointing it at other synths is a small change we haven't made or tested yet.</p></article><article><span class="stage s-plan">Planned</span><h4>More devices at once</h4><p>Several controllers together, Bluetooth MIDI, and twice the USB room on ESP32-P4 boards.</p></article><article><span class="stage s-plan">Planned</span><h4>The whole catalog on a TF card</h4><p>Boards with a card slot keep every firmware locally, about 60 MB in all.<span class="tip"><b>Pro tip:</b> buying an ESP32 now? Get one with a TF card slot, like the <a href="#board">1.8-inch AMOLED</a>.</span></p></article></div></div><div class="cgroup"><div class="cgroup-head"><h3>More firmwares</h3><p>More of the catalog on your FM-1.</p></div><div class="coming"><article><span class="stage s-plan">Planned</span><h4>Riskier firmwares, with a warning</h4><p>SLOOP 2.4 and later, and Melodee. They write the part of the FM-1's memory that holds its Bluetooth address, so Outrigger will warn you before it installs one.</p></article></div></div></section>
   <section class="section" id="trouble" style="max-width:760px"><h2>Troubleshooting</h2><div class="faq">
   <details><summary>How do I update Outrigger?</summary><div class="answer">
     <p>Outrigger's USB port is busy running your MIDI gear, so first hand it to your computer: in Settings, open

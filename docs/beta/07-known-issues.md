@@ -18,7 +18,10 @@ A living list. If you hit something that isn't here, email
   there's no way to remove a firmware yet.
 - **Melodee, Tessera and the firmwares built on Melodee can't be added yet.** They write the part of the FM-1's
   memory Outrigger uses to tell FM-1s apart.
-- **No Wi-Fi.** The Install button gives you Outrigger without Wi-Fi and without its own web page. Both are coming.
+- **Wi-Fi is for remote diagnostics only, and it's off until you turn it on.** In **Setup**, open **Remote
+  diagnostics** and tap **Turn on (restarts)**. Outrigger opens a hotspot, `fm1hub-setup`: join it from your phone and
+  pick your Wi-Fi. Then open `http://fm1hub.local` on the same Wi-Fi for a read-only page with its status, log and any
+  crash. Updates and firmware downloads over Wi-Fi are coming.
 
 ## Firmware switching
 
@@ -34,8 +37,6 @@ backup Outrigger takes before every switch.
   A crash looks different: a safe-mode screen that says where it stopped and "RST to try again". If you see that,
   email us.
 - **After a firmware switch, your MIDI controller may stop sending.** Unplug it and plug it back in.
-- **A factory-stock FM-1 may not be marked "running" in the firmware list after its first backup,** even though it is.
-  Harmless; the fix is coming.
 - What can go wrong during a switch, and what to do, is on [Switching FM-1 firmware](04-switching-firmware.md).
 
 ## Setup
@@ -45,9 +46,9 @@ backup Outrigger takes before every switch.
   going further: your backups may be in there.
 - **Adding a firmware needs Outrigger in Computer mode, on a build from this page.** After an install it restarts into
   MIDI: go back to Computer mode before adding.
-- **An FM-1 running M-VAVE's October "Open" firmware isn't recognised yet.** Its USB ID is 3654:7756 ("FM1 Community").
-  Outrigger treats it as a MIDI controller and shows no FM-1. The fix is coming; until then, switch it back to stock
-  with M-VAVE's own tools or the Transporter.
+- **An FM-1 running M-VAVE's October "Open" firmware plays, but can't be backed up or switched yet.** Outrigger
+  recognises it (USB ID 3654:7756, "FM1 Community") and your keys play it. A switch stops before anything is
+  written, and says so. To switch firmware, first put stock V15 back with M-VAVE's FM1 Workbench or the Transporter.
 - **Installing needs Chrome or Edge on a computer.** Phones, Safari and Firefox can't talk to the board's USB port.
 - **There's no way back to an earlier build from the website.** See [Install and first setup](02-install-and-setup.md).
 
