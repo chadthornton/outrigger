@@ -69,7 +69,9 @@ def describe(r):
     if r.get("note"):
         lines.append("  note: " + r["note"].replace("\n", "\n        "))
     if r.get("verdict"):
-        lines.append(f"  chip check said: {r['verdict']}")
+        lines.append(f"  {'the page said' if r.get('log') else 'chip check said'}: {r['verdict']}")
+    if r.get("log"):
+        lines.append("  log:\n    " + r["log"].replace("\n", "\n    "))
     return "\n".join(lines)
 
 

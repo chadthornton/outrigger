@@ -131,3 +131,20 @@ test("the same visitor on a new day can't be linked to the day before", async ()
   const after = db.sqlite.prepare("SELECT key FROM hits").get().key;
   assert.notEqual(before, after);
 });
+
+test("a failed install's log is stored, with any MAC the page missed removed", async () => {
+  const db = fakeD1();
+  const log = "1.3 s  MAC: f4:12:fa:43:5b:c8\n1.9 s  Flash ID: 0x184020";
+  const { id } = await (await send(db, body({ log, verdict: "The install stopped.", note: "F4-12-FA-43-5B-C8" }))).json();
+  const row = db.sqlite.prepare("SELECT log, note FROM reports WHERE id = ?").get(id);
+  assert.equal(row.log, "1.3 s  MAC: [MAC removed]\n1.9 s  Flash ID: 0x184020");
+  assert.equal(row.note, "[MAC removed]");
+  const dump = JSON.stringify(db.sqlite.prepare("SELECT * FROM reports").all()).toLowerCase();
+  assert.ok(!dump.includes("f4:12") && !dump.includes("f4-12"), dump);
+});
+
+test("a board report without a log stores no log", async () => {
+  const db = fakeD1();
+  const { id } = await (await send(db, body())).json();
+  assert.equal(db.sqlite.prepare("SELECT log FROM reports WHERE id = ?").get(id).log, null);
+});

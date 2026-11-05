@@ -304,12 +304,29 @@ static void test_fallback_no_nudge_while_associated() {
   EXPECT(a.size() == 1 && a[0].what == WF::Do::Nudge, "second nudge when it stalls again");
 }
 
-static void test_fallback_never_after_online() {
+// A drop after the network worked: the library's own reconnect can fail the
+// same two ways a boot join does, and then nothing rejoined (Small-V1 and
+// Small-V2 off Wi-Fi for 25-45 min, 2026-11-05). So it gets nudges, and never
+// the hotspot, whose scan would block the loop mid-job.
+static void test_fallback_after_a_drop() {
   WF f;
   f.boot_join(0);
   run(f, 0, 5000, kOnline);
-  auto a = run(f, 5000, 300000, kStalled);
-  EXPECT(a.empty(), "a network that worked since boot: no nudge, no hotspot");
+  auto a = run(f, 5000, 25000, kAssociated);
+  EXPECT(a.empty(), "a drop still associated (the library reconnecting): nothing");
+  a = run(f, 25000, 45000, kStalled);
+  EXPECT(a.empty(), "stalled under 20 s: the library's own reconnect gets its chance");
+  a = run(f, 45000, 45100, kStalled);
+  EXPECT(a.size() == 1 && a[0].ms == 45000 && a[0].what == WF::Do::Nudge, "nudge after 20 s stalled");
+  a = run(f, 45100, 125100, kStalled);
+  EXPECT(a.size() == 4, "then every 20 s while it stays stalled");
+  for (const auto &x : a) EXPECT(x.what == WF::Do::Nudge, "only nudges after a drop, never the hotspot");
+  a = run(f, 125100, 300000, kOnline);
+  EXPECT(a.empty(), "back online: nothing");
+  a = run(f, 300000, 319000, kStalled);
+  EXPECT(a.empty(), "a second drop waits its own 20 s");
+  a = run(f, 319000, 320100, kStalled);
+  EXPECT(a.size() == 1 && a[0].what == WF::Do::Nudge, "and is nudged too");
 }
 
 static void test_fallback_online_in_time() {
@@ -418,7 +435,7 @@ int main() {
   test_wifi_qr();
   test_fallback_stalled_boot();
   test_fallback_no_nudge_while_associated();
-  test_fallback_never_after_online();
+  test_fallback_after_a_drop();
   test_fallback_online_in_time();
   test_fallback_retries_with_hotspot();
   test_fallback_waits_for_phone();

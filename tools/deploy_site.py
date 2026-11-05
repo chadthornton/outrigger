@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Publish the installer site on Cloudflare Pages (outrigger.music).
 
-    tools/deploy_site.py source <channel> [FULL]     refuse early; print "ci" or "check": where the site comes from
-    tools/deploy_site.py deploy-ci <channel>          stage, check and upload CI's build of HEAD
+    tools/deploy_site.py source <channel> [FULL]     refuse early; print "ci", "beta" or "check": where the site comes from
+    tools/deploy_site.py deploy-ci <channel>          stage, check and upload CI's build of HEAD, or HEAD pinned
     tools/deploy_site.py deploy-beta production       upload beta's kept copy of HEAD, as checked there
     tools/deploy_site.py deploy <channel> <site dir>  stage, check and upload a site make check built
                                                      (build/checked/site; its commit in build/checked/commit)
@@ -10,7 +10,16 @@
 
 Channels: production (outrigger.music, from origin/master only) and beta
 (beta.outrigger.music, any pushed commit). Only a site built from a clean
-checkout of a committed, pushed HEAD goes live, built one of two ways:
+checkout of a committed, pushed HEAD goes live, built one of these ways:
+
+- Pinned (when nothing since production's firmware commit needs new firmware:
+  firmware_paths, by SITE_ONLY and FIRMWARE_READERS): HEAD's pages, functions/
+  and wrangler.toml over production's live firmware, byte for byte, from a kept
+  copy (production's or beta's) checked against its sums and against the
+  manifests outrigger.music serves. HEAD's own installer code then loads every
+  build (tools/check_pinned.mjs). It needs CI's green run of HEAD, but no CI
+  artifact and no make check. "Since production" counts from production's
+  firmware commit, so firmware a pinned deploy left out still counts as unshipped.
 
 - CI's build (the usual way): GitHub CI's push run of exactly HEAD (or a run
   started by hand on its branch, gh workflow run CI --ref <branch>) built every
@@ -21,7 +30,7 @@ checkout of a committed, pushed HEAD goes live, built one of two ways:
   The wl82loader.bin scan and the Pages limits run here, as for make check.
   Either way, a red or running CI run of HEAD refuses, and production needs one.
 - make check on the Mac: for FULL=1, for a batch (since the commit production
-  serves, on either channel, so beta carries the build production will) that
+  serves, firmware counted from its firmware commit, on either channel, so beta carries the build production will) that
   touches the critical list's code or any firmware (CRITICAL; CONTRIBUTING.md, "Shipping to
   production"), and for a
   commit CI has no build of (a branch commit: CI builds a PR merged into master;
@@ -30,7 +39,8 @@ checkout of a committed, pushed HEAD goes live, built one of two ways:
   (the bytes checked there, matching their SHA-256 sums) when the deploy log
   says beta serves HEAD and how it was built: a make check build always, a CI
   build if the batch needs no make check. A firmware ship runs make check once. Each upload carries its commit, so the Pages dashboard
-answers "which commit is live?". The Pages Functions (functions/) and their
+answers "which commit is live?"; its message, the deploy log's firmware field and
+the site's /version.json name the firmware's commit too. The Pages Functions (functions/) and their
 config (wrangler.toml, with the D1 bindings) go up with the site, from the same
 checked commit: wrangler reads them from its working directory, so it runs in
 the staging folder, never in the worktree.
@@ -38,9 +48,10 @@ the staging folder, never in the worktree.
 Rollback: every deploy and rollback is a line in the deploy log (DEPLOYS, shared
 by every worktree), with its commit, Pages deployment ID, time and session.
 Production rolls back through Cloudflare's own rollback, which only takes
-production deployments: seconds, no upload, and the old Functions come back with
-the old site. Beta can't, so each deploy keeps what it uploaded (site, functions/,
-wrangler.toml, with SHA-256 sums) and a beta rollback uploads that copy again.
+production deployments: seconds, no upload, and the old Functions and firmware
+come back with the old site. Beta can't, so each deploy keeps what it uploaded
+(site, functions/, wrangler.toml, with SHA-256 sums) and a beta rollback uploads
+that copy again. Production keeps copies too, for pinned deploys to take its firmware from.
 Neither re-runs make check: what goes back up already passed it.
 
 Credentials: ~/.config/cloudflare/outrigger-pages.env (CLOUDFLARE_API_TOKEN with
@@ -49,6 +60,7 @@ CLOUDFLARE_ACCOUNT_ID). Never printed.
 """
 import fnmatch
 import hashlib
+import http.client
 import io
 import json
 import os
@@ -80,6 +92,8 @@ REPO = "chadthornton/outrigger"
 # CI's build of HEAD, downloaded and laid out the way make check leaves build/checked.
 CI_FIRMWARE = ROOT / "build/ci-firmware"
 CI_CHECKED = ROOT / "build/ci-checked"
+# A pinned deploy: HEAD's pages over production's live firmware, laid out the same way.
+PINNED = ROOT / "build/pinned"
 # The critical list's code (CONTRIBUTING.md, "Shipping to production"), and all firmware: a batch touching any of it
 # deploys the Mac's make check build, the one the hardware smoke check installs. Every firmware change, not a
 # list of loader and store files: store code hides under many names (board_store.h, board_blob.cpp,
@@ -88,6 +102,16 @@ CRITICAL = ["firmware/*", "lib/*", "*partitions.csv",
             "functions/*", "wrangler.toml", "migrations/*", "tools/deploy_site.py", "tools/check.py",
             "tools/build_site.py", "tools/store_template.py", "tools/boards.py", "Makefile", ".github/workflows/*",
             "workers/*", "tools/deploy_email.py"]
+# What a deploy may change while production's firmware stays live, byte for byte (a pinned deploy): the pages,
+# the server code, the docs and tests, the tools that never build firmware. Anything else, a path nobody listed
+# included, counts as a firmware change and the deploy builds as before. fnmatch patterns; * crosses /.
+SITE_ONLY = ["site/*", "functions/*", "migrations/*", "wrangler.toml", "docs/*", "*.md", "tests/*", "workers/*",
+             "tools/deploy_site.py", "tools/check_pinned.mjs", "tools/deploy_email.py", "tools/reports.py",
+             "tools/installs.py", "tools/ecosystem_check.py"]
+# The installer code that reads what the firmware build made (manifests, store template, build tag, the loader's
+# block list): it must stay the version that shipped with the firmware it reads.
+FIRMWARE_READERS = ["site/installer/install.js", "site/installer/plan.js", "site/installer/store.js",
+                    "site/installer/board.js", "site/installer/families_gen.js"]
 # The deploy log and beta's kept copies, outside build/ so every worktree sees the same ones.
 DEPLOYS = Path.home() / "Library/Application Support/outrigger/deploys"
 KEEP = 3  # kept copies per channel
@@ -168,10 +192,13 @@ def stage(src, dst):
     shutil.copytree(src, dst, ignore=lambda _, names: [n for n in names if n.startswith(".")])
 
 
-def stage_root(checked, dst):
-    """build/checked's site, functions/ and wrangler.toml into an emptied dst. Returns what's missing."""
+def stage_root(checked, dst, commit=None, firmware=None):
+    """build/checked's site, functions/ and wrangler.toml into an emptied dst, with site/version.json
+    saying which commit the pages (commit) and the firmware (firmware) came from. Returns what's missing."""
     shutil.rmtree(dst, ignore_errors=True)
     stage(checked / "site", dst / "site")
+    if commit:
+        (dst / "site" / "version.json").write_text(json.dumps({"site": commit, "firmware": firmware or commit}) + "\n")
     missing = []
     if (checked / "functions").is_dir():
         stage(checked / "functions", dst / "functions")
@@ -184,25 +211,41 @@ def stage_root(checked, dst):
     return missing
 
 
+def firmware_of(entry):
+    """The commit a deploy log entry's firmware was built from; entries from before pinning built their own."""
+    return entry.get("firmware") or entry["commit"]
+
+
+def deployed(entry):
+    """What a deploy put up: its pages' commit and its firmware's."""
+    return entry["commit"], firmware_of(entry)
+
+
 def live_history(entries, channel):
     """The channel's deploys that are still in line to be live, oldest first; the last one is live.
 
-    A deploy goes on top (replacing the top if it is the same commit). A rollback takes
-    off everything above its target, so a second rollback goes further back instead of
+    A deploy goes on top (replacing the top if it is the same pages and firmware). A rollback
+    takes off everything above its target, so a second rollback goes further back instead of
     forward to the build the first one rolled away from."""
     stack = []
     for e in entries:
         if e["channel"] != channel:
             continue
         if e["action"] == "rollback":
-            while stack and stack[-1]["commit"] != e["commit"]:
+            while stack and deployed(stack[-1]) != deployed(e):
                 stack.pop()
             if stack:
                 stack.pop()
-        elif stack and stack[-1]["commit"] == e["commit"]:
+        elif stack and deployed(stack[-1]) == deployed(e):
             stack.pop()
         stack.append(e)
     return stack
+
+
+def live_firmware(entries, channel, live):
+    """The firmware commit the channel serves. live: the commit Cloudflare says is live (its pages')."""
+    stack = live_history(entries, channel)
+    return firmware_of(stack[-1]) if stack and stack[-1]["commit"] == live else live
 
 
 def rollback_target(entries, channel, live, commit=None):
@@ -284,6 +327,55 @@ def kept_problems(kept):
     return problems
 
 
+def kept_firmware_problem(kept, firmware):
+    """Why kept (a kept copy) doesn't hold firmware's firmware, or None. Copies from before
+    version.json hold their own commit's."""
+    version = kept / "site" / "version.json"
+    has = json.loads(version.read_text())["firmware"] if version.is_file() else kept.name
+    if has != firmware:
+        return f"the kept copy of {kept.name[:7]} is over firmware {has[:7]}, not {firmware[:7]}"
+    return None
+
+
+def pinned_problems(kept, firmware, fetch):
+    """Everything that keeps kept's site/firmware from being the live firmware. fetch(name): the bytes
+    production serves at firmware/<name>, or None."""
+    problems = kept_problems(kept)
+    fw = kept / "site" / "firmware"
+    manifests = sorted(fw.glob("*/*/manifest.json"))
+    if not manifests:
+        problems.append(f"no firmware in {kept}")
+    for m in manifests:
+        name = str(m.relative_to(fw))
+        build = json.loads(m.read_bytes()).get("build") or {}
+        commit = build.get("commit") or ""
+        if len(commit) < 7 or not firmware.startswith(commit):
+            problems.append(f"{name} was built from {commit or 'no commit'}, not {firmware[:7]}")
+        if build.get("dirty") is not False:
+            problems.append(f"{name} is a dirty build")
+        live = fetch(name)
+        if live is None:
+            problems.append(f"outrigger.music has no firmware/{name}")
+        elif live != m.read_bytes():
+            problems.append(f"outrigger.music serves another firmware/{name}")
+    return problems
+
+
+def pinned_copy(channel_dirs, firmware, fetch):
+    """(the newest kept copy holding production's live firmware, None) or (None, why not)."""
+    copies = sorted(((json.loads((d / SUMS).read_text())["kept"], d) for c in channel_dirs if c.is_dir()
+                     for d in c.iterdir() if (d / SUMS).is_file()), reverse=True)
+    if not copies:
+        return None, f"no kept copy of firmware {firmware[:7]}"
+    why = None
+    for _, kept in copies:
+        problems = pinned_problems(kept, firmware, fetch)
+        if not problems:
+            return kept, None
+        why = why or f"{kept.parent.name}'s copy of {kept.name[:7]}: {problems[0]}"
+    return None, f"no kept copy holds firmware {firmware[:7]} as production serves it ({why})"
+
+
 def ci_run(runs, checks, head):
     """(run, None) for CI's green push run of exactly head; (None, None) if CI never built head
     itself; (None, why not) if it did but the build may not go up. runs: newest first."""
@@ -356,18 +448,23 @@ def ci_firmware_problems(fw, head):
     return problems
 
 
-def choose_source(channel, full, run, crit, beta=None):
-    """("ci", "check" or "beta", why), or (None, why not). run: CI's green run of exactly HEAD, or None
-    if CI never built HEAD itself; crit: the critical-list files changed since the commit production
-    serves; beta: how beta's verified kept copy of HEAD was built ("ci" or "check"), or None."""
+def choose_source(channel, full, run, crit, beta=None, fw=None, pinned=None):
+    """("ci", "check", "pinned" or "beta", why), or (None, why not). run: CI's green run of exactly HEAD,
+    or None if CI never built HEAD itself; crit: the critical-list files changed since production's
+    firmware commit; beta: how beta's verified kept copy of HEAD was built ("ci", "check" or "pinned"),
+    or None; fw: the changes since production's firmware that need new firmware (firmware_paths), or
+    None if unknown; pinned: the kept copy of production's live firmware, or None."""
     if full not in ("", "1"):
         return None, f"FULL={full}: use FULL=1, or leave it out"
     if run is None and channel == "production":
         return None, "CI hasn't built origin/master's head yet; wait for its run"
     if full == "1":
         return "check", "FULL=1: make check builds the site on the Mac"
-    if channel == "production" and (beta == "check" or (beta == "ci" and not crit)):
-        return "beta", f"beta's build of this commit ({'make check' if beta == 'check' else 'CI'}), as checked there"
+    if channel == "production" and (beta in ("check", "pinned") or (beta == "ci" and not crit)):
+        how = {"check": "make check", "ci": "CI", "pinned": "pinned to production's firmware"}[beta]
+        return "beta", f"beta's build of this commit ({how}), as checked there"
+    if fw == [] and pinned is not None and run is not None:
+        return "pinned", f"no firmware change since production's: this commit's pages over production's firmware ({pinned})"
     if crit:
         more = ", ..." if len(crit) > 5 else ""
         return "check", f"the batch since production touches the critical list ({', '.join(crit[:5])}{more}): make check on the Mac"
@@ -376,22 +473,40 @@ def choose_source(channel, full, run, crit, beta=None):
     return "ci", f"CI's build (run {run['id']})"
 
 
-def beta_build(entries, beta_dir, head):
+def beta_build(entries, beta_dir, head, firmware=None):
     """(how beta's kept copy of head was built, its problems). Reusable for production when beta
-    serves head (by the deploy log) and the copy still matches its sums."""
+    serves head (by the deploy log), the copy still matches its sums, and a pinned copy pinned
+    firmware, production's live firmware commit."""
     stack = live_history(entries, "beta")
     if not stack or stack[-1]["commit"] != head:
         return None, [f"beta doesn't serve {head[:7]} by the deploy log"]
-    deploys = [e for e in entries if e["channel"] == "beta" and e["action"] == "deploy" and e["commit"] == head]
+    deploys = [e for e in entries if e["channel"] == "beta" and e["action"] == "deploy"
+               and deployed(e) == deployed(stack[-1])]
     built = deploys[-1].get("built") if deploys else None
-    if built not in ("ci", "check"):
+    if built not in ("ci", "check", "pinned"):
         return None, [f"the deploy log doesn't say how beta's {head[:7]} was built"]
+    if built == "pinned" and firmware_of(stack[-1]) != firmware:
+        return None, [f"beta's {head[:7]} is over firmware {firmware_of(stack[-1])[:7]}, production serves "
+                      f"{(firmware or '?')[:7]}'s; deploy beta again"]
     return built, kept_problems(beta_dir / head)
 
 
 def critical_paths(files):
     """The changed files on the critical list's code."""
     return [f for f in files if any(fnmatch.fnmatch(f, pattern) for pattern in CRITICAL)]
+
+
+def firmware_paths(files):
+    """The changed files that need new firmware: everything not on SITE_ONLY, and the FIRMWARE_READERS."""
+    return [f for f in files if f in FIRMWARE_READERS or not any(fnmatch.fnmatch(f, p) for p in SITE_ONLY)]
+
+
+def batch(since_firmware, since_pages):
+    """(critical-list files, files that need new firmware) a deploy ships. since_firmware: the files changed
+    since production's firmware commit; since_pages: since its pages' commit. Firmware a pinned deploy left
+    out still counts; server code and pages it shipped don't count again."""
+    fw = firmware_paths(since_firmware)
+    return critical_paths(fw + [f for f in since_pages if f not in fw and not firmware_paths([f])]), fw
 
 
 def assemble(commit, fw, dst):
@@ -532,28 +647,57 @@ def ci_build(head):
     return run
 
 
+def live_firmware_file(name, cache={}):
+    """The bytes outrigger.music serves at firmware/<name>, or None."""
+    if name not in cache:
+        # Cloudflare answers urllib's own User-Agent with 403.
+        req = urllib.request.Request(f"{URLS['production']}/firmware/{name}",
+                                     headers={"Cache-Control": "no-cache", "User-Agent": "outrigger-deploy-site"})
+        try:
+            with urllib.request.urlopen(req, timeout=60) as resp:
+                cache[name] = resp.read()
+        except (OSError, http.client.HTTPException):  # URLError, timeouts, a connection dropped mid-read
+            cache[name] = None
+    return cache[name]
+
+
 def plan(channel, full=""):
-    """(where the site comes from, HEAD, CI's run of it). Refuses what guard refuses and a red or
-    running CI. Says why on stderr."""
+    """(where the site comes from, HEAD, CI's run of it, production's firmware commit, the kept copy
+    of that firmware or None). Refuses what guard refuses and a red or running CI. Says why on stderr."""
     head = guard(channel)
     run = ci_build(head)
-    live = commit_of(live_deployment(load_credentials(), "production"))
-    crit = critical_paths(git("diff", "--name-only", live, head).splitlines())
+    entries = read_log(DEPLOYS / "deploys.jsonl")
+    # Firmware counts from production's firmware commit, the rest from its pages' (batch).
+    pages = commit_of(live_deployment(load_credentials(), "production"))
+    firmware = live_firmware(entries, "production", pages)
+    crit, fw = batch(git("diff", "--name-only", firmware, head).splitlines(),
+                     git("diff", "--name-only", pages, head).splitlines())
+    pinned = None
+    if fw:
+        more = ", ..." if len(fw) > 5 else ""
+        print(f"firmware changed since production's {firmware[:7]} ({', '.join(fw[:5])}{more}): "
+              "this deploy builds it", file=sys.stderr)
+    elif full == "":
+        pinned, problem = pinned_copy([DEPLOYS / "production", DEPLOYS / "beta"], firmware, live_firmware_file)
+        if problem:
+            print(f"not pinning production's firmware: {problem}", file=sys.stderr)
     beta = None
     if channel == "production":
-        beta, problems = beta_build(read_log(DEPLOYS / "deploys.jsonl"), DEPLOYS / "beta", head)
+        beta, problems = beta_build(entries, DEPLOYS / "beta", head, firmware)
         if problems:
             print(f"not reusing beta's build: {problems[0]}", file=sys.stderr)
             beta = None
-    kind, why = choose_source(channel, full, run, crit, beta)
+    kind, why = choose_source(channel, full, run, crit, beta, fw, pinned)
     if kind is None:
         fail(why)
     print(why, file=sys.stderr)
-    return kind, head, run
+    return kind, head, run, firmware, pinned
 
 
 def deploy_ci(channel):
-    kind, head, run = plan(channel)
+    kind, head, run, firmware, pinned = plan(channel)
+    if kind == "pinned":  # source prints "ci" for it, so the Makefile needn't change
+        return deploy_pinned(channel, head, firmware, pinned)
     if kind != "ci":  # the same choice make deploy-site made, so this can't skip make check
         fail("this deploy needs make check; make deploy-site runs it")
     art, problem = site_artifact(json.loads(gh(f"repos/{REPO}/actions/runs/{run['id']}/artifacts"))["artifacts"])
@@ -574,15 +718,27 @@ def deploy_ci(channel):
     publish(channel, head, CI_CHECKED, "ci")
 
 
+def deploy_pinned(channel, head, firmware, pinned):
+    """HEAD's pages over the kept copy of production's live firmware, once HEAD's installer loads every build."""
+    assemble(head, pinned / "site" / "firmware", PINNED)
+    check = subprocess.run(["node", str(ROOT / "tools/check_pinned.mjs"), str(PINNED / "site")], cwd=ROOT)
+    if check.returncode:
+        fail(f"this commit's installer can't use production's firmware {firmware[:7]} (above); deploy with FULL=1")
+    print(f"{head[:7]}'s pages over production's firmware {firmware[:7]} ({pinned}) check out", file=sys.stderr)
+    publish(channel, head, PINNED, "pinned", firmware)
+
+
 def deploy_beta(channel):
     """Production uploads beta's kept copy of HEAD: the bytes checked on beta, without building again."""
-    kind, head, _ = plan(channel)
+    kind, head, _, firmware, _ = plan(channel)
     if kind != "beta":  # the same choice make deploy-site made
         fail("this deploy doesn't reuse beta's build; make deploy-site picks the right one")
-    built, problems = beta_build(read_log(DEPLOYS / "deploys.jsonl"), DEPLOYS / "beta", head)
+    entries = read_log(DEPLOYS / "deploys.jsonl")
+    built, problems = beta_build(entries, DEPLOYS / "beta", head, firmware)
     if problems:  # beta's copy changed since plan() looked
         fail("beta's build changed:\n  " + "\n  ".join(problems))
-    publish(channel, head, DEPLOYS / "beta" / head, built, reused="beta")
+    publish(channel, head, DEPLOYS / "beta" / head, built, firmware_of(live_history(entries, "beta")[-1]),
+            reused="beta")
 
 
 def deploy(channel, site):
@@ -593,9 +749,11 @@ def deploy(channel, site):
     publish(channel, head, site.parent, "check")
 
 
-def publish(channel, head, checked, built, **extra):
-    """Stage checked (site/, functions/, wrangler.toml), scan it, upload it and log it. built: "ci" or "check"."""
-    problems = stage_root(checked, STAGE) + site_problems(STAGE / "site", load_wl82_blob())
+def publish(channel, head, checked, built, firmware=None, **extra):
+    """Stage checked (site/, functions/, wrangler.toml), scan it, upload it and log it. built: "ci", "check"
+    or "pinned"; firmware: the commit its firmware was built from (head's own unless pinned)."""
+    firmware = firmware or head
+    problems = stage_root(checked, STAGE, head, firmware) + site_problems(STAGE / "site", load_wl82_blob())
     if problems:
         fail("refusing to upload:\n  " + "\n  ".join(problems))
     env = load_credentials()
@@ -604,11 +762,13 @@ def publish(channel, head, checked, built, **extra):
     if needs_baseline(read_log(log), channel, commit_of(before)):
         # Note what this deploy replaces, so a rollback can go back to it.
         append_log(log, log_entry("baseline", channel, before))
-    live = upload(env, STAGE, channel, head, git("log", "-1", "--format=%s", head))
-    append_log(log, log_entry("deploy", channel, live, built=built, **extra))
-    if channel != "production":  # production rolls back through Cloudflare, with no copy
-        keep(STAGE, DEPLOYS / channel, head)
-    print(f"deployed {head[:7]} to {channel}: {URLS[channel]} (deployment {live['id']}; logged in {log})")
+    message = git("log", "-1", "--format=%s", head) + (f" (firmware {firmware[:7]})" if firmware != head else "")
+    live = upload(env, STAGE, channel, head, message)
+    append_log(log, log_entry("deploy", channel, live, built=built, firmware=firmware, **extra))
+    # Beta rolls back from its copies (Cloudflare can't roll back a preview); production's are for pinning.
+    keep(STAGE, DEPLOYS / channel, head)
+    print(f"deployed {head[:7]} (firmware {firmware[:7]}) to {channel}: {URLS[channel]} "
+          f"(deployment {live['id']}; logged in {log})")
 
 
 def rollback(channel, commit=None):
@@ -630,10 +790,11 @@ def rollback(channel, commit=None):
     else:
         kept = DEPLOYS / channel / target["commit"]
         problems = kept_problems(kept)
+        problems = problems or [p for p in [kept_firmware_problem(kept, firmware_of(target))] if p]
         if problems:
             fail(f"can't roll {channel} back to {target['commit'][:7]}:\n  " + "\n  ".join(problems))
         now = upload(env, kept, channel, target["commit"], f"Rollback to {target['commit'][:7]}")
-    append_log(log, log_entry("rollback", channel, now, **{"from": commit_of(live)}))
+    append_log(log, log_entry("rollback", channel, now, firmware=firmware_of(target), **{"from": commit_of(live)}))
     print(f"rolled {channel} back from {commit_of(live)[:7]} to {target['commit'][:7]}: {URLS[channel]} "
           f"serves {target['commit'][:7]} (deployment {now['id']}; logged in {log})")
 
@@ -643,7 +804,8 @@ def main():
     if len(args) == 2 and args[0] == "guard":
         guard(args[1])
     elif len(args) in (2, 3) and args[0] == "source":
-        print(plan(*args[1:])[0])
+        kind = plan(*args[1:])[0]
+        print("ci" if kind == "pinned" else kind)  # deploy-ci takes a pinned deploy
     elif len(args) == 2 and args[0] == "deploy-ci":
         deploy_ci(args[1])
     elif len(args) == 2 and args[0] == "deploy-beta":
