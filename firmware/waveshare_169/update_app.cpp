@@ -243,6 +243,9 @@ void on_deadline(void *) {
 
 void confirm() {
   if (!pending || confirm_failed) return;
+#if OTA_NEVER_CONFIRM
+  return;  // test build (Makefile NEVER_CONFIRM=1): the deadline restarts it, and the recovery app rolls back
+#endif
   if (esp_ota_mark_app_valid_cancel_rollback() != ESP_OK) {
     // Once: the deadline timer still restarts the board, and the recovery app tries again.
     confirm_failed = true;

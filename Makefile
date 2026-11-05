@@ -62,6 +62,13 @@ APP_LIBS_everything := --library lib/fm1_loader --library lib/web_core
 APP_LIBS_synth := --library lib/synth
 # DIAG_WEB=1: a build that starts with Remote diagnostics on, for Chad's lab
 # boards and loader checkpoints (Setup still turns it off).
+# NEVER_CONFIRM=1 (with BENCH=1): a build that never confirms itself after an
+# update, so the recovery app's rollback runs (docs/ota-updates.md). Never a release.
+ifeq ($(NEVER_CONFIRM),1)
+$(if $(filter 1,$(BENCH)),,$(error NEVER_CONFIRM=1 needs BENCH=1))
+WRITE_FLAGS += -DOTA_NEVER_CONFIRM=1
+BUILD_SUFFIX_NC := -noconfirm
+endif
 ifeq ($(DIAG_WEB),1)
 WRITE_FLAGS += -DDIAG_DEFAULT_ON=1
 BUILD_SUFFIX := -web
@@ -76,7 +83,7 @@ ifeq ($(WIFI_BOOTLOOP),1)
 BUILD_SUFFIX := $(BUILD_SUFFIX)-bootloop
 endif
 ifeq ($(BENCH),1)
-BUILD_SUFFIX := $(BUILD_SUFFIX)-bench
+BUILD_SUFFIX := $(BUILD_SUFFIX)-bench$(BUILD_SUFFIX_NC)
 endif
 # The sketch is still named for the first board; it's every board's. Renaming
 # it waits for the branches editing it to land.
