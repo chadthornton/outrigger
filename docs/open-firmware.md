@@ -2,7 +2,7 @@
 
 Status 2026-11-04: research and a read-only layout reader (`lib/fm1_loader/src/app_table.*`). Switching an Open
 FM-1 is still blocked (PR #40). Guarded work: nothing here may write to an FM-1 until the hardware probe below
-passes and Chad settles the decisions at the end.
+passes. Chad's decisions are at the end.
 
 Sources:
 - M-VAVE's FM1 Open, GPL-3.0 app with a binary SDK: github.com/m-vave/fm1_open (V14). Read: `sdk/Package.cs` (the
@@ -61,7 +61,7 @@ Mac, no FM-1 (done in this branch): `make test` runs `test_fm1_apptable`:
 - a table that fits neither layout is Unknown;
 - Open's identity reply parses.
 
-Mac, still to write (needs Chad's decisions): Open-layout packages in the store, the app compare stopping at the
+Mac, still to write (decisions below): Open-layout packages in the store, the app compare stopping at the
 image end, a `Family::Open` shelf and its guard ranges, install-Open erasing up to 0x92FFF, the Open→stock warning,
 and the Python side (`tools/fm1lib.py`) with the interop test.
 
@@ -72,10 +72,12 @@ Hardware, one card each, on hub B (Small-V2) with FM-B:
 2. **Switch loop, after the code.** Open → Felucca → Open → stock, checking that each boots and plays (including
    both mixed-head pairs) and that Open's projects come back.
 
-## Decisions Chad owes
+## Decisions (Chad, 2026-11-04, in chat)
 
-1. Switching away from Open: projects, settings and preferences come back; samples and the voice library don't
-   (the user reloads them in the Workbench). OK?
-2. Open → stock: warn that stock's factory voices need the Workbench's restore, like the Skiff 2.x warning?
-3. A sample bank over about 16.5 s gives the FM-1 a new unit ID, so its old backups list under the old one.
-   Accept as a known beta gap?
+1. **Switching away from Open:** projects, settings and MIDI preferences come back (a `Family::Open` shelf, image end
+   to 0x8CFFF). Samples and the voice library don't; the user reloads them in the Workbench.
+2. **Open → stock:** warn, then allow. The warning says stock's factory voices need the Workbench's restore step
+   (the Skiff 2.x warning's pattern).
+3. **A sample bank that reaches 0xE9000:** warn when it happens. When an Open FM-1's unit ID matches no known unit,
+   Outrigger says its samples may have overwritten the sector it recognises FM-1s by, and that older backups are
+   still listed under the previous FM-1, instead of silently treating it as new.
