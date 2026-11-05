@@ -5,6 +5,7 @@
 // itself, and none is kept that never reached its first healthy loop.
 #pragma once
 
+#include <stddef.h>
 #include <stdint.h>
 
 struct UpdateStatus {
@@ -29,8 +30,25 @@ void update_loop(uint32_t now_ms, bool healthy);
 void update_confirm_now(bool healthy);
 // For GET /status, from any task: a copy taken under a lock.
 UpdateStatus update_status();
-// The recovery app's image SHA-256 (16 hex digits), or "none": hashed the
+// The recovery app's image digest (esp_partition_get_sha256: the SHA-256 ESP-IDF
+// appends to an image, its last 32 bytes), 16 hex digits, or "none": hashed the
 // first time it's asked for, not at every boot.
 const char *update_recovery_sha();
 // The recovery app's NVS log, newest last (empty if none): for GET /crash.
 const char *update_recovery_log();
+
+// ---------- Starting one (POST /bench/update for now; Setup's button in phase 3) ----------
+// The image arrives in pieces on the web task: begin, write..., end. An app
+// image goes to the store's u/next.tmp, and once end() has checked its hash
+// the loop (update_loop) saves the running image as u/prev.bin, writes the
+// Staged record, points otadata at the recovery app, shows "Updating" and
+// restarts. A recovery image is written straight into the recovery slot,
+// which nothing runs while Outrigger does. Each returns false with *why set;
+// begin refuses while the Loader is busy, while this image is unconfirmed, while
+// another update is under way, without a recovery app (for app images), and
+// when the store hasn't room for both images.
+bool update_receive_begin(bool recovery_slot, uint32_t size, const uint8_t sha256[32], const char *label,
+                          const char **why);
+bool update_receive_write(const uint8_t *data, size_t len, const char **why);
+bool update_receive_end(const char **why);
+void update_receive_abort();

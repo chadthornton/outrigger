@@ -16,6 +16,10 @@
 const char *board_select();
 const BoardProfile &board_profile();
 const char *board_source();
+// The pins the recovery app keeps as Outrigger had them during an update
+// (lib/ota Record): the backlight and hold_high pins on, hold_low off. GPIOs
+// only (an expander pin needs a driver the recovery app hasn't); -1 padded.
+void board_update_pins(int8_t high[4], int8_t low[4]);
 bool board_build_quad_psram();
 // Watches BOOT for the first 15 s on its own task; held 3 s, it forgets the
 // stored profile and calls on_escape. Call right after board_select().

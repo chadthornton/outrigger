@@ -2,6 +2,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <ctype.h>
 #include <string.h>
 
 namespace web_core {
@@ -94,6 +95,34 @@ bool parse_bench_command(const char *path, const char *query, BenchCommand &out,
   } else {
     return *why = "kind must be switch, backup or retry", false;
   }
+  return true;
+}
+
+bool parse_bench_update(const char *query, size_t length, size_t app_bytes, size_t recovery_bytes, BenchUpdate &out,
+                        const char **why) {
+  const char *dummy;
+  if (!why) why = &dummy;
+  out = BenchUpdate{};
+  if (!query) query = "";
+  char hex[65], slot[10] = "app";
+  if (!query_value(query, "sha256", hex, sizeof hex) || strlen(hex) != 64) return *why = "update needs sha256=<64 hex>", false;
+  for (int i = 0; i < 32; ++i) {
+    unsigned v;
+    char pair[3] = {hex[2 * i], hex[2 * i + 1], 0};
+    if (!isxdigit(uint8_t(pair[0])) || !isxdigit(uint8_t(pair[1])) || sscanf(pair, "%2x", &v) != 1)
+      return *why = "update needs sha256=<64 hex>", false;
+    out.sha256[i] = uint8_t(v);
+  }
+  if (!query_value(query, "label", out.label, sizeof out.label) || !out.label[0])
+    return *why = "update needs label=<commit>, up to 15 characters", false;
+  for (const char *c = out.label; *c; ++c)
+    if (!isalnum(uint8_t(*c)) && !strchr("+-.", *c)) return *why = "label: letters, digits, + - . only", false;
+  if (query_value(query, "slot", slot, sizeof slot) && strcmp(slot, "app") && strcmp(slot, "recovery"))
+    return *why = "slot must be app or recovery", false;
+  out.slot = strcmp(slot, "recovery") == 0 ? UpdateSlot::Recovery : UpdateSlot::App;
+  const size_t max = out.slot == UpdateSlot::Recovery ? recovery_bytes : app_bytes;
+  if (length < 256 || length > max) return *why = "the image doesn't fit that slot", false;
+  out.size = uint32_t(length);
   return true;
 }
 

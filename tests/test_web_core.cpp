@@ -190,6 +190,32 @@ static void test_bench_mac() {
   EXPECT(strcmp(name, "fm1bench") == 0, "an unlisted bench build is fm1bench, never fm1hub");
 }
 
+static void test_bench_update() {
+  const char *why = "";
+  BenchUpdate u;
+  const std::string sha(64, 'a');
+  const std::string q = "sha256=" + sha + "&label=abc1234";
+  EXPECT(parse_bench_update(q.c_str(), 1700000, 3145728, 786432, u, &why), "an app image");
+  EXPECT(u.slot == UpdateSlot::App && u.size == 1700000 && u.sha256[0] == 0xaa && u.sha256[31] == 0xaa, "its fields");
+  EXPECT(strcmp(u.label, "abc1234") == 0, "its label");
+  EXPECT(parse_bench_update((q + "&slot=recovery").c_str(), 343000, 3145728, 786432, u, &why) &&
+             u.slot == UpdateSlot::Recovery,
+         "a recovery image");
+  EXPECT(!parse_bench_update((q + "&slot=recovery").c_str(), 800000, 3145728, 786432, u, &why), "too big for recovery");
+  EXPECT(!parse_bench_update(q.c_str(), 3145729, 3145728, 786432, u, &why), "too big for app0");
+  EXPECT(!parse_bench_update(q.c_str(), 100, 3145728, 786432, u, &why), "too small to be an image");
+  EXPECT(!parse_bench_update((q + "&slot=boot").c_str(), 343000, 3145728, 786432, u, &why), "an unknown slot");
+  EXPECT(!parse_bench_update(("sha256=" + sha.substr(1) + "&label=x").c_str(), 1000, 3145728, 786432, u, &why),
+         "a short hash");
+  EXPECT(!parse_bench_update(("sha256=" + std::string(63, 'a') + "g&label=x").c_str(), 1000, 3145728, 786432, u, &why),
+         "a hash that isn't hex");
+  EXPECT(!parse_bench_update(("sha256=" + sha).c_str(), 1000, 3145728, 786432, u, &why), "no label");
+  EXPECT(!parse_bench_update(("sha256=" + sha + "&label=a%22b").c_str(), 1000, 3145728, 786432, u, &why),
+         "a label that would need escaping");
+  EXPECT(!parse_bench_update(("sha256=" + sha + "&label=0123456789abcdefg").c_str(), 1000, 3145728, 786432, u, &why),
+         "a label too long");
+}
+
 static void test_bench_commands() {
   BenchCommand c;
   const char *why = nullptr;
@@ -428,6 +454,7 @@ int main() {
   test_routes_read_only();
   test_bench_routes_apart();
   test_bench_mac();
+  test_bench_update();
   test_bench_commands();
   test_host_guard();
   test_json_fields();

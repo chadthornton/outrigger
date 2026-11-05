@@ -31,6 +31,8 @@
 #include "request_guard.h"
 #include "routes.h"
 #include "update_app.h"
+#include "build_tag.h"
+extern "C" const platform::BuildTag kBuildTag;  // app.cpp
 #include <esp_mac.h>
 #include "bench.h"  // web_host_name in every build; the bench API only with BENCH=1
 #ifndef BENCH
@@ -398,8 +400,9 @@ static esp_err_t on_status(httpd_req_t *req) {
   Out o{buf, kJsonBuf};
   char commit[12];
   snprintf(commit, sizeof commit, "%07lx", (unsigned long)FW_VERSION);
-  o.raw("{\"build\":{\"commit\":\"%s\",\"dirty\":%s,\"apps\":\"%s\",\"writes\":%s,\"safe_mode\":%s}", commit,
-        FW_DIRTY ? "true" : "false", platform::kAppSetLabel,
+  o.raw("{\"build\":{\"commit\":\"%s\",\"dirty\":%s,\"apps\":\"%s\",\"board_tag\":%u,\"writes\":%s,"
+        "\"safe_mode\":%s}",
+        commit, FW_DIRTY ? "true" : "false", platform::kAppSetLabel, unsigned(kBuildTag.board),
 #ifdef FM1_LOADER_WRITES
         FM1_LOADER_WRITES ? "true" : "false",
 #else
@@ -753,6 +756,59 @@ static void bench_check_board() {
            mac[5]);
   DLOG_LOOP("bench: board %s is %s", bench_mac, bench_board ? bench_board : "not a listed Waveshare: no bench API");
 }
+// POST /bench/update?sha256=&label=[&slot=recovery], the image as the body
+// (docs/ota-updates.md). Streamed into the store (or the recovery slot) a few
+// KB at a time, so MIDI keeps running; an app image then restarts the board
+// through the recovery app. tools/bench.py update reads the outcome from /status.
+static esp_err_t send_refusal(httpd_req_t *req, const char *status, const char *why) {
+  httpd_resp_set_status(req, status);
+  httpd_resp_set_type(req, "text/plain");
+  return httpd_resp_sendstr(req, why);
+}
+
+static esp_err_t on_bench_update(httpd_req_t *req) {
+  if (!guard(req)) return ESP_OK;
+  if (via_hotspot(req)) return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "not on the setup hotspot");
+  char query[160] = "";
+  httpd_req_get_url_query_str(req, query, sizeof query);
+  const esp_partition_t *app0 = esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_OTA_0, nullptr);
+  const esp_partition_t *rec = esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_OTA_1, nullptr);
+  web_core::BenchUpdate u;
+  const char *why = "";
+  if (!app0 || !rec ||
+      !web_core::parse_bench_update(query, req->content_len, app0->size, rec->size, u, &why))
+    return send_refusal(req, "400 Bad Request", why);
+  if (!update_receive_begin(u.slot == web_core::UpdateSlot::Recovery, u.size, u.sha256, u.label, &why))
+    return send_refusal(req, "409 Conflict", why);
+  static uint8_t *chunk = static_cast<uint8_t *>(heap_caps_malloc(4096, MALLOC_CAP_SPIRAM));
+  if (!chunk) {
+    update_receive_abort();
+    return httpd_resp_send_500(req);
+  }
+  uint32_t left = u.size;
+  int timeouts = 0;
+  while (left) {
+    const int n = httpd_req_recv(req, reinterpret_cast<char *>(chunk), left < 4096 ? left : 4096);
+    if (n == HTTPD_SOCK_ERR_TIMEOUT && ++timeouts < 10) continue;  // 2 s each: Wi-Fi stalls
+    if (n <= 0) {
+      update_receive_abort();
+      return ESP_FAIL;  // the connection is gone; nothing to answer
+    }
+    timeouts = 0;
+    if (!update_receive_write(chunk, n, &why)) {
+      update_receive_abort();
+      return send_refusal(req, "500 Internal Server Error", why);
+    }
+    left -= n;
+  }
+  if (!update_receive_end(&why)) return send_refusal(req, "422 Unprocessable Entity", why);
+  char buf[96];
+  snprintf(buf, sizeof buf, "{\"accepted\":true,\"slot\":\"%s\",\"restarting\":%s}",
+           u.slot == web_core::UpdateSlot::Recovery ? "recovery" : "app",
+           u.slot == web_core::UpdateSlot::Recovery ? "false" : "true");
+  return send_json(req, buf, strlen(buf));
+}
+
 #endif  // BENCH
 
 static esp_err_t on_not_found(httpd_req_t *req, httpd_err_code_t) {
@@ -804,7 +860,9 @@ static void start_server() {
       httpd_uri_t u{};
       u.uri = r.uri;
       u.method = r.method == web_core::Method::Get ? HTTP_GET : HTTP_POST;
-      u.handler = r.method == web_core::Method::Get ? on_bench_state : on_bench_command;
+      u.handler = r.method == web_core::Method::Get       ? on_bench_state
+                  : strcmp(r.uri, "/bench/update") == 0 ? on_bench_update
+                                                        : on_bench_command;
       httpd_register_uri_handler(server, &u);
     }
   }
