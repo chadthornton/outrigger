@@ -5,8 +5,10 @@ connection play the FM-1 with no computer, and it switches the FM-1's firmware f
 
 **The homepage has the full shopping list, with links: [outrigger.music](https://outrigger.music/#need).** In short:
 
-- **An ESP32-S3 board with a screen.** Tested: Waveshare ESP32-S3-Touch-LCD-1.69.
-- **A powered USB-C hub** that can charge a laptop through it. Outrigger plugs in where the laptop would.
+- **An ESP32-S3 board with a screen.** Tested: Waveshare ESP32-S3-Touch-LCD-1.69 and 3.5. Other ESP32-S3 boards with
+  native USB need a board profile: tell us the board, or send **Report this board** from the installer.
+- **A powered USB-C hub** that can charge a laptop through it. Outrigger plugs into its host cable, where the laptop
+  would; the FM-1 and controller go in its USB-C data ports.
 - **Your FM-1.**
 - **A MIDI controller with a USB connection.** Tested: Novation Launchkey Mini MK4 37.
 - **To install:** Chrome or Edge on a Mac, Windows or Linux computer, and a USB-C data cable.

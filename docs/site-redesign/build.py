@@ -133,7 +133,9 @@ NEED = f"""<div class="need-items">
     <svg class="ico" viewBox="0 0 120 140" aria-hidden="true"><use href="art.svg#board"/></svg>
     <div>
       <h3>ESP32-S3 board with a screen</h3>
-      <p>This runs Outrigger. Most ESP32-S3 boards with a screen should work; we're still testing.</p>
+      <p>This runs Outrigger, on the boards below. Other ESP32-S3 boards with native USB need a board profile first:
+        <a href="{FEEDBACK}">tell us which board</a>, or pick "Another ESP32-S3 board" in the installer and send
+        <b>Report this board</b>.</p>
       <ul class="picks">
         {pick("Tested", BUY_BOARD, "Waveshare ESP32-S3 Touch LCD 1.69 ↗")}
         {pick("Tested", BUY_35, "Waveshare ESP32-S3 Touch LCD 3.5 ↗")}
@@ -157,6 +159,13 @@ NEED = f"""<div class="need-items">
     <div>
       <h3>Powered USB-C hub</h3>
       <p>Most hubs that can charge a laptop through them work. Outrigger plugs in where the laptop would.</p>
+      <ol class="hubsteps">
+        <li><b>Power first:</b> the charger into the hub's charging input. The hub needs its own power.</li>
+        <li><b>Outrigger on the hub's host cable</b> (or host port): the one a laptop would plug into.</li>
+        <li><b>The FM-1 and your controller in the hub's USB-C data ports.</b> On the hub we tested, its USB-A ports
+          didn't work.</li>
+      </ol>
+      <svg class="hubfig" viewBox="0 0 500 190" role="img" aria-label="Hub wiring: charger into the power input, Outrigger on the host cable, FM-1 and controller on USB-C data ports"><use href="art.svg#hub-wiring"/></svg>
       <ul class="picks">
         {pick("Likely", BUY_HUB, "Aceele 4-Port USB-C Hub with 100W PD ↗")}
       </ul>
@@ -415,6 +424,9 @@ STYLE = """
   .addfw summary span { color: var(--muted); }
   .addfw summary b { color: var(--accent); font-weight: 650; }
   .addfw-body { padding: 0 18px 18px; }
+  .hubsteps { margin: 12px 0 0; padding-left: 20px; display: grid; gap: 6px; font-size: .9375rem; color: var(--muted); }
+  .hubsteps b { color: var(--fg); font-weight: 600; }
+  .hubfig { margin-top: 12px; max-width: 420px; color: var(--fg); }
   .addfw-link { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; padding: 14px 18px; font-size: .9375rem; text-decoration: none; }
   .addfw-link span { color: var(--muted); }
   .addfw-link b { color: var(--accent); font-weight: 650; }
@@ -566,14 +578,15 @@ import boards  # noqa: E402
 
 def install_area(label, app_set):
     """One install button per built board (tested ones, tools/boards.py ids), plus "another board", which only checks
-    the chip; the area asks which board first (site/installer/area.js). data-suggest names every profile, for the
+    the chip; the area asks which board first (site/installer/area.js). data-suggest names every tested profile, for the
     chip check's "you need an ESP32-S3 such as ..." line."""
     table = boards.checked(boards.load())
     builds = [{"label": label, "manifest": f"firmware/{b['site_id']}/{app_set}/manifest.json",
                "board": b["short_name"], "profile": b["site_id"], "edition": app_set, "tag_id": b["tag_id"], "flash_mb": b["flash_mb"], "psram_mb": b["psram_mb"],
                "tested": b["tested"]} for b in (table["boards"][bid] for bid in boards.ids(table))]
     builds.append({"label": label, "manifest": None, "board": "Another ESP32-S3 board", "tag_id": None})
-    suggest = [b["short_name"] for b in table["boards"].values()]
+    # Tested boards only: an untested profile isn't one to send people to buy.
+    suggest = [b["short_name"] for b in table["boards"].values() if b["tested"]]
     return (f'<div class="install" data-builds="{html.escape(json.dumps(builds))}" '
             f'data-suggest="{html.escape(json.dumps(suggest))}" data-help="#no-port">\n'
             '      <p class="install-note">Installing needs Chrome or Edge on a computer, with JavaScript on.</p>\n    </div>')
