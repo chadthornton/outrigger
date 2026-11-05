@@ -1,0 +1,39 @@
+{
+  "about": "How Outrigger treats each FM-1 firmware family, keyed by mutant.cloud firmware.json's `base`. Reviewed by hand: a listing's base is self-serve on mutant.cloud, so ids here override it. docs/firmware-catalog.md explains the groups.",
+  "keep": [
+    "felucca"
+  ],
+  "clean": [
+    "fm1base",
+    "dinghy",
+    "original",
+    "foma"
+  ],
+  "blocked_bases": [
+    "sloop",
+    "melodee"
+  ],
+  "blocked_ids": {
+    "melodee": "writes the FM-1's Bluetooth sector (listed as built on Felucca)",
+    "tessera": "writes the FM-1's Bluetooth sector",
+    "sloop": "built on Felucca 0.9",
+    "clipper": "built on Felucca 0.9",
+    "spampy": "built on Felucca 0.9",
+    "winampfm": "built on Felucca 0.9",
+    "floyd": "built on Felucca 0.9",
+    "jangada": "built on Felucca 0.9 (mutant.cloud says Felucca)",
+    "nmsfm": "built on Felucca 0.9",
+    "karma": "built on Felucca 0.9",
+    "sloopdx": "built on Felucca 0.9",
+    "hortator": "built on Felucca 0.9 (mutant.cloud says Felucca)",
+    "sloopbanks": "built on Felucca 0.9",
+    "fm1quest": "built on Felucca 0.9",
+    "mnm1": "built on Felucca 0.9 (via Hortator)",
+    "salt": "built on Felucca 0.9 (mutant.cloud says Felucca)",
+    "vector37": "built on Felucca 0.9 (mutant.cloud says its own code)",
+    "nauclerus": "built on Felucca 0.9 (via Hortator)",
+    "gator": "built on Felucca 0.9 (mutant.cloud says its own code)",
+    "hawkchua": "built on Felucca 0.9",
+    "mycelium": "built on Felucca 0.9 (the Hub says Felucca and SLOOP; mutant.cloud says Felucca)"
+  }
+}

@@ -60,14 +60,13 @@ HUB = "https://thefirmwarehub.com/"
 # each project's latest file, so when one releases, its URL here stops
 # answering and the installer sets up no store until these are bumped (with
 # tools/fetch_fixtures.py's pins) and the site deployed again.
+# Stock only since 2026-11-04 (Chad): the Hub dropped Felucca 1.8.0 and Skiff
+# 2.1.1, which broke fresh installs, and M-VAVE's stock file is the one stable
+# link. Every community firmware is added from the Hub list on equal footing.
 STARTER = [
     # id, name, version, project, fixture, Firmware Hub path, sha256
     ("stock-V15", "M-VAVE stock", "V15", "stock", "FM-1_015.fwsc", "fw/mvave/FM-1_015.fwsc",
      "db1642b2b6fa5c2cccb11ffd13878068bb28601678d3644049f99dc40e7edb8a"),
-    ("felucca-1.8.0", "Felucca", "1.8.0", "felucca", "felucca-1.8.0.fwsc", "fw/felucca-1.8.0.fwsc",
-     "a31760f2588b39bcb3a8d6f78f6041a1a550978a972ecd71564e45513698ecd6"),
-    ("skiff-2.1.1", "Skiff", "2.1.1", "skiff", "skiff-2.1.1.fwsc", "fw/skiff-2.1.1.fwsc",
-     "0cfae2431f351365d83842bf1a381ee48baead371e81f77faaa2b3c6aabbd304"),
 ]
 
 

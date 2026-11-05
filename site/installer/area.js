@@ -20,11 +20,12 @@ import { describeBoard, buildName } from "./board.js";
 import { checkChip, USB_BRIDGES } from "./chip.js";
 import { openReportForm, openRequestChoice } from "./report_form.js";
 import { readBoard, fetchBuild, install, finish, prepareStore } from "./install.js";
+import { buildInstallEvent, sendInstallEvent, countingOn, setCounting } from "./install_event.js";
 import { PORT_FILTER, SERIAL_OPTIONS, port as lock, h } from "./ui.js";
 
 // Shown in the page footer and in Details, so a bug report says which
 // installer ran. Bump it with every change to site/installer/.
-export const INSTALLER_VERSION = "2026-11-04.1";
+export const INSTALLER_VERSION = "2026-11-04.2";
 
 // The page footer shows it (build.py), so a bug report says which installer ran.
 const versionLine = typeof document !== "undefined" && document.getElementById("installer-version");
@@ -67,6 +68,15 @@ const UNREADABLE = "Your ESP32 has storage we can't read. Email feedback@outrigg
 
 const KEEPS = "Your settings and FM-1 backups stay.";
 
+// The anonymous install count (install_event.js). Reading localStorage itself can throw; then nothing is remembered.
+function storage() {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
 
 let areas = 0;
 
@@ -107,6 +117,7 @@ class InstallArea {
         h("pre", {}, [`Installer ${INSTALLER_VERSION}`, ...LOG.slice(-25), "", ...this.trace.split("\n").slice(-40).map((l) => l.slice(0, 160))].join("\n"))) : null,
       expanded && this.boards.length > 1 ? this.boardPicker() : null,
       h("div", { class: "row" }, this.mainButton(expanded)),
+      this.profiles.length ? this.countBox() : null,
       this.links(),
     );
   }
@@ -121,6 +132,21 @@ class InstallArea {
       return this.continueButton;
     }
     return h("button", { on: { click: () => many ? this.ready(undefined, true) : this.connect(this.builds[0]) } }, this.builds[0].label);
+  }
+
+  // Ticked by default; unticking it sends nothing and is remembered in this browser.
+  countBox() {
+    return h("label", { class: "install-count" },
+      h("input", { type: "checkbox", checked: countingOn(storage()), on: { change: (e) => setCounting(storage(), e.target.checked) } }),
+      " Send an anonymous install count (board and result, nothing else)");
+  }
+
+  // Fire and forget, only for a board with a build: the count must never hold up or break an install.
+  // failure: where it stopped (install_event.js FAILURES), or none when it finished.
+  count(choice, failure = null) {
+    if (!choice || !choice.profile || !choice.edition) return;
+    const event = buildInstallEvent({ board: choice.profile, edition: choice.edition, installer: INSTALLER_VERSION, failure });
+    sendInstallEvent(event, { fetch: (...args) => fetch(...args), storage: storage() }).catch(() => {});
   }
 
   links() {
@@ -168,25 +194,30 @@ class InstallArea {
       try {
         build = await fetchBuild(choice.manifest);
       } catch (e) {
+        this.count(choice, "download");
         return this.ready(this.explain(e, "Couldn't download the firmware."));
       }
       const step = h("span", {});
       this.show(h("p", { class: "install-note", role: "status" }, "Reading the board… ", step));
       onLogLine = (text) => { if (!text.startsWith("Debug")) step.textContent = text; };
+      let stage = "read"; // for the install count: where it stopped
       try {
         // Only the board read is timed: a slow download isn't a cable problem.
         const reading = this.open(port, choice).then((loader) => readBoard(loader));
         reading.catch(() => {}); // after a timeout it fails against the closed port; nothing waits for it
         const board = await withTimeout(reading, READ_TIMEOUT_MS, "Reading the board");
+        stage = "store";
         if (build.template && !board.store) this.show(h("p", { class: "install-note", role: "status" }, "Checking the board's store…"));
         // The region's MD5 takes seconds and each download has its own deadline; this bounds them all.
         const store = await withTimeout(prepareStore({ loader: this.loader, board, build }), STORE_TIMEOUT_MS, "Checking the board's store");
         if (store.action === "unreadable") {
+          this.count(choice, "store");
           await this.close();
           return this.ready(UNREADABLE);
         }
         this.confirm(choice, build, board, store);
       } catch (e) {
+        this.count(choice, this.refused ? "chip" : stage);
         await this.close();
         this.ready(this.explain(e, "Couldn't read the board."));
       }
@@ -255,6 +286,7 @@ class InstallArea {
     const noStore = store.unfinished ? "Its store was being set up when the last install stopped, so it has no store yet."
       : store.previousFirmware ? "This board ran other firmware before, so it has no store." : "It has no store yet.";
     if (store.downloadProblem) {
+      this.count(choice, "store");
       // A store set up later would land on leftovers (store.js storeAction), so nothing installs without it.
       return this.show(
         h("p", { class: "install-read" }, words.board),
@@ -264,8 +296,8 @@ class InstallArea {
       );
     }
     const storeWords = store.action !== "create" ? null
-      : `${noStore} Installing also sets up a fresh one with ${store.starter.length} FM-1 firmwares to switch between: ${listOf(store.starter)}. ` +
-        "They download from thefirmwarehub.com, and the file the loader needs from the FM-1's chip maker from GitHub, straight into this browser.";
+      : `${noStore} Installing also sets up a fresh one with ${listOf(store.starter)}; add Felucca, Skiff and others after. ` +
+        "It downloads from thefirmwarehub.com, and the file the loader needs from the FM-1's chip maker from GitHub, straight into this browser.";
     this.show(
       h("p", { class: "install-read" }, words.board),
       words.warning ? h("p", { class: "install-error", role: "alert" }, words.warning) : null,
@@ -273,8 +305,9 @@ class InstallArea {
       h("p", {}, words.install),
       storeWords ? h("p", {}, storeWords) : null,
       h("div", { class: "row" },
-        h("button", { on: { click: () => this.run(build, board, store) } }, `Install ${name}`),
+        h("button", { on: { click: () => this.run(choice, build, board, store) } }, `Install ${name}`),
         h("button", { class: "alt", on: { click: async () => { await this.close(); this.ready(); } } }, "Cancel")),
+      this.countBox(),
       h("p", { class: "install-note" }, KEEPS),
     );
   }
@@ -284,9 +317,10 @@ class InstallArea {
     this.show(bar, h("p", { class: "install-note", role: "status" }, label, ". Keep the cable in."));
   }
 
-  async run(build, board, store) {
+  async run(choice, build, board, store) {
     if (lock.busy) return;
     lock.busy = true;
+    let verified = false;
     const label = { verify: "Checking every part", "verify store": "Checking the new store" };
     try {
       const { storeProblem } = await install({
@@ -295,11 +329,14 @@ class InstallArea {
         onStep: (s) => this.progress(label[s.step] || `Writing the ${s.part}`, s.written, s.total),
       });
       // Verified: from here on it's installed, whatever the restart does.
+      verified = true;
+      this.count(choice);
       const { loader, transport } = this;
       this.transport = this.loader = null;
       await finish({ loader, transport });
       this.done(build, store, storeProblem);
     } catch (e) {
+      if (!verified) this.count(choice, "write"); // after the check it counted as installed
       await this.close();
       this.ready(this.explain(e, "The install stopped."));
     } finally {
@@ -311,7 +348,7 @@ class InstallArea {
     const name = `${buildName(build.manifest.build.app_set)} ${build.manifest.build.commit}`;
     const storeWords = store.action !== "create" ? null
       : storeProblem ? `Firmware switching isn't set up: ${storeProblem}.`
-        : `Its store is set up with ${listOf(store.starter)}. Switch between them from the loader on the board.`;
+        : `Its store is set up with ${listOf(store.starter)}. Add more firmwares below, then switch between them from the loader on the board.`;
     document.dispatchEvent(new CustomEvent("outrigger-installed"));  // unlocks "Add custom FM-1 firmwares" (site/index.html)
     this.show(h("div", { class: "install-done", role: "status" },
       h("p", {}, h("b", {}, `Installed ${name}.`), " The board restarts by itself. If its screen stays dark, tap RST once."),

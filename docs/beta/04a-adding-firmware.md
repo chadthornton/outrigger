@@ -1,7 +1,7 @@
 # Adding a firmware
 
-Outrigger comes with three FM-1 firmwares: M-VAVE stock V15, Felucca and Skiff. You can add more from the Firmware
-Hub's list, up to ten in all, from the homepage. No Mac tools, and nothing on Outrigger is erased.
+Outrigger comes with M-VAVE stock V15. Add Felucca, Skiff or any other firmware from the community
+catalog at [mutant.cloud](https://mutant.cloud), up to ten in all, from the homepage. No Mac tools, and nothing on Outrigger is erased.
 
 ## How
 
@@ -11,9 +11,11 @@ Hub's list, up to ten in all, from the homepage. No Mac tools, and nothing on Ou
    Edge.
 3. If you haven't updated Outrigger since this feature came out, click **Check my board**, then **Install**, first.
    Outrigger restarts into MIDI after an install, so go back to **Computer mode** (step 1) before going on.
-4. Under **Add custom FM-1 firmwares**, click **Connect to my Outrigger** and pick the port Chrome offers. The page lists the
-   Firmware Hub's firmwares and marks the ones Outrigger already has.
-5. Click **Add** next to one. Your browser downloads it from thefirmwarehub.com and checks it against the Hub's list.
+4. Under **Add custom FM-1 firmwares**, click **Connect to my Outrigger** and pick the port Chrome offers. The page lists
+   mutant.cloud's FM-1 firmwares, with each one's family and license, and marks the ones Outrigger already has. If
+   mutant.cloud doesn't answer within a few seconds, the page uses the Firmware Hub's list instead and says so.
+5. Click **Add** next to one. Your browser downloads it from the same site as the list and checks it against the list's
+   SHA-256.
    Then it sends it to Outrigger, which checks it again before storing it. Outrigger's screen shows how far it's got.
    About a minute.
 6. Add more if you like. When you're done, tap **Back to MIDI** on Outrigger, then plug it back into the hub. The new
@@ -34,7 +36,7 @@ Outrigger refuses an add, and says why, when:
 
 The page lists these under **Not on the list yet**, with the reason:
 
-- **Melodee and Tessera.** They write the part of the FM-1's memory Outrigger uses to tell FM-1s apart.
+- **Melodee, Tessera and the firmwares built on Melodee.** They write the part of the FM-1's memory Outrigger uses to tell FM-1s apart.
 - **SLOOP and the firmwares built on it or on Felucca 0.9** (Clipper, Hortator and others). Going from one of them to
   Felucca or Skiff can leave data that crashes them, until we know where they keep it.
 - **Firmwares without a license**, and one whose file doesn't pass Outrigger's checks.

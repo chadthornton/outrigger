@@ -101,7 +101,7 @@ INSTALL_BTN = """<button class="btn" type="button" data-install="{out}">Install 
 SETUP = f"""<ol class="steps3">
   <li><div><b>Install Outrigger on your ESP32</b><p>Plug it into this computer.</p>
     {INSTALL_BTN.format(out="out-b")}</div></li>
-  <li><div><b>Add firmwares</b><p>Stock V15, Felucca and Skiff come with it. Add more with the <a href="#add">firmware installer</a> below.</p></div></li>
+  <li><div><b>Add firmwares</b><p>Stock V15 comes with it. Add Felucca, Skiff and more with the <a href="#add">firmware installer</a> below.</p></div></li>
   <li><div><b>Plug everything into the hub</b><p>From then on, it all happens on Outrigger's screen.</p></div></li>
 </ol>
 <details class="overview"><summary>Installation overview</summary>
@@ -249,6 +249,10 @@ TROUBLE = """<div class="faq">
     from a computer.</p></details>
   <details><summary>Why doesn't my second MIDI controller play?</summary><p>For now, Outrigger has room
     for one MIDI controller next to the FM-1. Unplug the other one. More than one is coming.</p></details>
+  <details id="counts"><summary>Does the installer send anything about me?</summary><p>One anonymous install count, unless you
+    untick the box under the install button: which board profile, which edition, the installer's version, whether it
+    finished or where it stopped, and the day. No MAC address, chip serial, IP address, browser details or cookies. A
+    finished install counts once per board in each browser.</p></details>
   <details><summary>Where do my backups live?</summary><p>On Outrigger itself, never online. Copying them to a computer is
     coming.</p></details>
 </div>"""
@@ -378,6 +382,8 @@ STYLE = """
   .install-boards label { display: flex; gap: 6px; align-items: center; cursor: pointer; }
   .install-boards input { accent-color: var(--accent); margin: 0; }
   .install-links { display: grid; gap: 6px; font-size: .875rem; }
+  .install-count { display: flex; gap: 8px; align-items: baseline; font-size: .8125rem; color: var(--muted); cursor: pointer; }
+  .install-count input { accent-color: var(--accent); margin: 0; }
   .install-links a { text-decoration: none; }
   .install-links a:hover, .install-links a:focus-visible { text-decoration: underline; }
   .report-choice { display: grid; gap: 14px; }
@@ -523,7 +529,7 @@ def install_area(label, app_set):
     chip check's "you need an ESP32-S3 such as ..." line."""
     table = boards.checked(boards.load())
     builds = [{"label": label, "manifest": f"firmware/{b['site_id']}/{app_set}/manifest.json",
-               "board": b["short_name"], "tag_id": b["tag_id"], "flash_mb": b["flash_mb"], "psram_mb": b["psram_mb"],
+               "board": b["short_name"], "profile": b["site_id"], "edition": app_set, "tag_id": b["tag_id"], "flash_mb": b["flash_mb"], "psram_mb": b["psram_mb"],
                "tested": b["tested"]} for b in (table["boards"][bid] for bid in boards.ids(table))]
     builds.append({"label": label, "manifest": None, "board": "Another ESP32-S3 board", "tag_id": None})
     suggest = [b["short_name"] for b in table["boards"].values()]
