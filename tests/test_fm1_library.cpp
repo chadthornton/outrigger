@@ -373,6 +373,35 @@ static void test_decide_data() {
   CHECK(!d.blocked && d.clean_slate);
 }
 
+// The family table (tools/fm1_families.json, generated into families_gen.h):
+// the board refuses firmwares built on SLOOP, Melodee or Felucca 0.9, by our
+// own survey where mutant.cloud's self-serve "built on" disagrees.
+static void test_family_blocks() {
+  // Built on Melodee, and Melodee and Tessera themselves: the Bluetooth sector.
+  for (const char *proj : {"melodee", "tessera", "orange-cat", "tessera-fm-1-83773022"}) {
+    const char *why = blocked_reason(proj);
+    CHECK(why && strstr(why, "Bluetooth"));
+  }
+  // SLOOP, built on SLOOP, and our Felucca 0.9 survey, including the ones
+  // mutant.cloud lists as built on Felucca (hortator, jangada, salt, mnm1)
+  // or on its own code (vector37, gator).
+  for (const char *proj : {"sloop", "clipper", "orbit", "floyd-sloop", "hortator", "jangada", "salt", "mnm1",
+                           "nauclerus", "vector37", "gator", "hawkchua"}) {
+    const char *why = blocked_reason(proj);
+    CHECK(why && strstr(why, "older Felucca"));
+  }
+  // Both reasons fit one line of the switch preview (PlanView lines, 47 characters).
+  CHECK(strlen(blocked_reason("sloop")) < 48 && strlen(blocked_reason("melodee")) < 48);
+  // Felucca, its family, stock, the clean-slate families, unknowns and sideloads go through.
+  for (const char *proj : {"felucca", "skiff", "x0x", "tribe", "stock", "fmel", "ravel", "penumbra", "sha:0123456789abcdef", ""})
+    CHECK(!blocked_reason(proj));
+  // A switch away from a blocked firmware is how a unit gets back: never blocked.
+  DataDecision d = decide_data("A", running(info("sloop", "FM-1_900", 6)), info("felucca", "FM-1_916", 4), {});
+  CHECK(!d.blocked && d.clean_slate);
+  d = decide_data("A", running(info("felucca", "FM-1_916", 4)), info("orbit", "FM-1_900", 6), {});
+  CHECK(d.blocked && strstr(d.blocked, "older Felucca"));
+}
+
 // Projects of packages and saves recorded before projects existed.
 static void test_projects() {
   CHECK(family_of_project("stock", "FM-1_015") == Family::Stock);
@@ -680,6 +709,7 @@ int main() {
   test_decide_data();
   test_clean_slate();
   test_restore_old_save();
+  test_family_blocks();
   test_projects();
   test_save_restore_round_trip();
   test_fresh_start();

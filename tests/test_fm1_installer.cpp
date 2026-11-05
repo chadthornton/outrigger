@@ -67,7 +67,9 @@ struct Rig {
   Installer inst{rom, host, lib, blob()};
   explicit Rig(const Image &flash) : rom(flash, blob()) {
     add(lib, "skiff-1.4", "skiff-1.4.fwsc", "skiff");
-    add(lib, "sloop-2.8.1", "sloop-2.8.1.fwsc", "sloop");
+    // SLOOP's file as a second firmware to switch to, on a project the board
+    // doesn't block (families_gen.h blocks SLOOP itself).
+    add(lib, "sloop-2.8.1", "sloop-2.8.1.fwsc", "other");
   }
   // "Back up this FM-1", as the board does before an install (the install plans
   // from this backup). Then the mock is an FM-1 back in its firmware, about to
@@ -845,15 +847,20 @@ static void test_resume_clean_slate() {
   CHECK(memcmp(r.rom.flash.data() + kAppStart, skiff().data(), kAppLen) == 0);
 }
 
-// Melodee and Tessera write the unit-ID sector: refused before the key.
+// A blocked project (families_gen.h) is refused before the key, whichever
+// reason: Melodee's Bluetooth sector, or SLOOP's older Felucca. The words fit
+// both; the preview before the hold gives the specific reason.
 static void test_blocked_firmware() {
-  Rig r(base_flash(sloop()));
-  add(r.lib, "melodee-1.6", "skiff-1.4.fwsc", "melodee");  // any package, on Melodee's project
-  r.back_up();
-  r.install("melodee-1.6");
-  CHECK(r.inst.failure() == Failure::Blocked);
-  CHECK(r.host.keys == 0 && r.rom.lowest_touched < 0);
-  CHECK(strstr(failure_text(Failure::Blocked), "Bluetooth"));
+  for (const char *project : {"melodee", "orbit"}) {
+    Rig r(base_flash(sloop()));
+    add(r.lib, "blocked-1", "skiff-1.4.fwsc", project);  // any package, on the blocked project
+    r.back_up();
+    r.install("blocked-1");
+    CHECK(r.inst.failure() == Failure::Blocked);
+    CHECK(r.host.keys == 0 && r.rom.lowest_touched < 0);
+  }
+  CHECK(strstr(failure_text(Failure::Blocked), "can't switch to this firmware yet"));
+  CHECK(!strstr(failure_text(Failure::Blocked), "Bluetooth"));
 }
 
 static void test_resume_with_nothing_left() {

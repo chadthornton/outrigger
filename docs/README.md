@@ -28,6 +28,8 @@ What Outrigger does with your firmware, and where its data lives.
 
 - [Switching FM-1 firmware](beta/04-switching-firmware.md): what a switch keeps, what it never touches, and which
   firmware data survives it.
+- [The firmware catalog](firmware-catalog.md): where the Add firmware list comes from (mutant.cloud, the Firmware
+  Hub as fallback), how a firmware's family decides a switch, and the daily ecosystem check.
 - [Package sources](package-sources.md): how firmware reaches the board (the Firmware Hub catalog, your own files)
   and the trust rule for carrying data between firmwares.
 - [The firmware loader](firmware-loader-plan.md): ROM-boot installs, the flash map, units and save states, backups,

@@ -169,8 +169,9 @@ struct DataDecision {
   const char *blocked = nullptr;
 };
 
-// Why a project can't be installed yet (it writes the unit-ID sector), for the
-// screen; null when it can.
+// Why a project can't be installed yet, for the screen; null when it can. The
+// list is families_gen.h: it writes the unit-ID sector, or it's built on an
+// older Felucca.
 const char *blocked_reason(const std::string &project);
 
 // Whether a hardware test proved this switch, in either direction: such a pair

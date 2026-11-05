@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { addableFirmwares, fetchHubPackage, BoardLink, encodeFrame, FrameReader, WRITE_PIECE }
+import { addableFirmwares, fetchHubPackage, fromMutant, loadCatalog, BoardLink, encodeFrame, FrameReader, WRITE_PIECE }
   from "../../site/installer/add.js";
 
 const root = new URL("../../", import.meta.url);
@@ -140,7 +140,7 @@ test("addableFirmwares: stock and the Hub list, most installed first, without th
   const { addable, held } = addableFirmwares(catalog);
   assert.deepEqual(addable.map((f) => f.project), ["felucca", "zp12", "stock"]);
   assert.deepEqual(addable[0], { project: "felucca", name: "Felucca", version: "1.8.0", sha256: "bb", size: 610286,
-    url: "https://thefirmwarehub.com/fw/felucca-1.8.0.fwsc", installs: 2610 });
+    url: "https://thefirmwarehub.com/fw/felucca-1.8.0.fwsc", installs: 2610, family: "", lic: "GPL-3.0" });
   assert.equal(addable[2].name, "M-VAVE stock");
   assert.equal(addable[2].version, "V15");
   const why = Object.fromEntries(held.map((h) => [h.project, h.why]));
@@ -150,6 +150,102 @@ test("addableFirmwares: stock and the Hub list, most installed first, without th
   assert.match(why.emb, /licen[cs]e/);
   assert.match(why.amenity, /checks/);
   assert.equal(why.nopkg, undefined);  // no file to add: not listed at all
+});
+
+// mutant.cloud's two files, cut down to what the page reads.
+const mutantCatalog = {
+  stock: { pkg: "https://raw.githubusercontent.com/m-vave/fm1_open/b178/sdk/firmware/FM-1_015.fwsc", sha256: "aa", size: 699956, product: "FM-1_015" },
+  firmwares: [
+    { id: "felucca", entry: "felucca", name: "Felucca", version: "1.8.2-beta", file: "felucca-1.8.2-beta.fwsc",
+      pkg: "https://github.com/hugelton/Felucca/releases/download/v1.8.2-beta/felucca-1.8.2-beta.fwsc", product: "FM-1_918", sha256: "bb", size: 610286, lic: "GPL-3.0" },
+    { id: "skiff-fm-1-722", entry: "skiff", name: "Skiff", version: "2.2", file: "skiff-2.2.fwsc", pkg: "x", product: "FM-1_722", sha256: "cc", size: 1, lic: "GPL-3.0" },
+    { id: "skiff-smk", entry: "skiff", name: "Skiff", version: "2.2", file: "skiff-2.2-smk37-elite.fwsc", pkg: "x", product: "SMK-37 Elite_722", sha256: "c2", size: 1, lic: "GPL-3.0" },
+    { id: "choralroot", entry: "choralroot", name: "Choralroot", version: "0.29.2", file: "choralroot-0.29.2-1core.fwsc", pkg: "x", product: "FM-1_920", sha256: "d1", size: 1, lic: "GPL-3.0" },
+    { id: "choralroot-fm-1-920", entry: "choralroot", name: "Choralroot", version: "0.29.2", file: "choralroot-0.29.2.fwsc", pkg: "x", product: "FM-1_920", sha256: "d2", size: 1, lic: "GPL-3.0" },
+    { id: "fm1-dock", entry: "fm1-dock", name: "fm1-dock", version: "1.0", file: "fm1-dock-1.0.fwsc", pkg: "x", product: "FM-1_960", sha256: "ee", size: 1, lic: "MIT" },
+    { id: "orange-cat", entry: "orange-cat", name: "Orange Cat", version: "1", file: "orange-cat-1.fwsc", pkg: "x", product: "FM-1_970", sha256: "ff", size: 1, lic: "GPL-3.0" },
+    { id: "melodee-bt", entry: "melodee", name: "Melodee", version: "1.6", file: "melodee-bt.fwsc", pkg: "x", product: "FM-1_91061", sha256: "m1", size: 1, lic: "GPL-3.0" },
+    { id: "melodee", entry: "melodee", name: "Melodee", version: "1.6", file: "melodee.fwsc", pkg: "x", product: "FM-1_91061", sha256: "m2", size: 1, lic: "GPL-3.0" },
+    { id: "mycelium", entry: "mycelium", name: "Mycelium", version: "1", file: "mycelium-1.fwsc", pkg: "x", product: "FM-1_918", sha256: "my", size: 1, lic: "GPL-3.0" },
+    { id: "clipper", entry: "clipper", name: "Clipper", version: "1", file: "clipper-1.fwsc", pkg: "x", product: "FM-1_900", sha256: "11", size: 1, lic: "GPL-3.0" },
+  ],
+};
+const mutantFamilies = {
+  bases: { felucca: { name: "Felucca" }, sloop: { name: "SLOOP" }, melodee: { name: "Melodee" }, original: { name: "its own code" } },
+  entries: [
+    { id: "felucca", base: null }, { id: "skiff", base: "felucca" }, { id: "choralroot", base: "original" },
+    { id: "orange-cat", base: "melodee" }, { id: "mycelium", base: "felucca" }, { id: "melodee", base: "felucca" }, { id: "clipper", base: "sloop" },
+  ],
+};
+
+test("fromMutant: FM-1 files only, through mutant.cloud's /dl, with the Hub's ids and each file its own shelf", () => {
+  const { addable, held } = addableFirmwares(fromMutant(mutantCatalog, mutantFamilies));
+  const by = Object.fromEntries(addable.map((f) => [f.project, f]));
+  // Choralroot's main file is the one named choralroot-0.29.2.fwsc (the Hub's), though its row id isn't
+  // the entry; the one-core build, whose row id is the entry, gets a project of its own.
+  assert.equal(addable.length, Object.keys(by).length);  // no two files share a project
+  assert.deepEqual(Object.keys(by).sort(), ["choralroot", "choralroot-choralroot-0.29.2-1core", "felucca", "fm1dock", "skiff", "stock"]);
+  assert.equal(by.choralroot.url, "https://mutant.cloud/dl/choralroot/choralroot-0.29.2.fwsc");
+  // The entry is the project, as boards' shelves and the loader's tables know it ("skiff", not "skiff-fm-1-722").
+  assert.equal(by.skiff.url, "https://mutant.cloud/dl/skiff/skiff-2.2.fwsc");
+  assert.equal(by.skiff.family, "Felucca");
+  assert.equal(by.skiff.lic, "GPL-3.0");
+  assert.equal(by.felucca.family, "");
+  assert.equal(by.choralroot.family, "");  // "its own code" isn't a family
+  assert.match(by["choralroot-choralroot-0.29.2-1core"].name, /\(choralroot-0\.29\.2-1core\)/);
+  assert.equal(by.fm1dock.url, "https://mutant.cloud/dl/fm1-dock/fm1-dock-1.0.fwsc");
+  assert.equal(by.stock.url, mutantCatalog.stock.pkg);
+  assert.equal(by.stock.version, "V15");
+  const why = Object.fromEntries(held.map((h) => [h.project, h.why]));
+  assert.match(why["orange-cat"], /Bluetooth/);  // blocked by its own id in the generated list
+  assert.match(why.clipper, /older Felucca/);
+  assert.match(why.mycelium, /older Felucca/);  // the Hub says built on SLOOP too
+  // Melodee is listed as built on Felucca: its id holds it, and its other file too.
+  assert.match(why.melodee, /Bluetooth/);
+  assert.match(why["melodee-bt"], /Bluetooth/);
+});
+
+test("fromMutant: without firmware.json the list still works, families blank", () => {
+  const { addable } = addableFirmwares(fromMutant(mutantCatalog, null));
+  assert.ok(addable.every((f) => f.family === ""));
+  assert.ok(addable.some((f) => f.project === "skiff"));
+});
+
+// A fetch that answers per URL: a value is its JSON, a number its status, "hang" never answers in time.
+const site = (answers) => async (url, opts = {}) => {
+  const key = Object.keys(answers).find((k) => url.startsWith(k));
+  const a = key ? answers[key] : 404;
+  if (a === "hang") {
+    return new Promise((_, reject) => opts.signal.addEventListener("abort", () => reject(opts.signal.reason)));
+  }
+  if (a instanceof Error) throw a;
+  return typeof a === "number" ? { ok: false, status: a } : { ok: true, status: 200, json: async () => a };
+};
+const HUB_CAT = "https://thefirmwarehub.com/catalog.json";
+
+test("loadCatalog: mutant.cloud first", async () => {
+  const c = await loadCatalog(site({ "https://mutant.cloud/catalog.json": mutantCatalog, "https://mutant.cloud/firmware.json": mutantFamilies, [HUB_CAT]: catalog }));
+  assert.equal(c.from, "mutant.cloud");
+  assert.ok(c.firmwares.some((f) => f.family === "Felucca"));
+});
+
+test("loadCatalog: the Hub when mutant.cloud fails, is slow or sends nothing", async () => {
+  for (const down of [503, new TypeError("Failed to fetch"), "hang", { firmwares: [] }]) {
+    const c = await loadCatalog(site({ "https://mutant.cloud/": down, [HUB_CAT]: catalog }), 50);
+    assert.equal(c.from, "the Firmware Hub");
+    const { addable } = addableFirmwares(c);
+    assert.equal(addable[0].url, "https://thefirmwarehub.com/fw/felucca-1.8.0.fwsc");
+  }
+});
+
+test("loadCatalog: both down says so", async () => {
+  await assert.rejects(loadCatalog(site({ "https://mutant.cloud/": 503, [HUB_CAT]: 500 }), 50), /mutant\.cloud.*Firmware Hub answered 500/);
+});
+
+test("fetchHubPackage: messages name where the file comes from", async () => {
+  const file = fixture("felucca-1.8.0.fwsc");
+  const fw = entry("Felucca", "1.8.0", "felucca", file);
+  await assert.rejects(fetchHubPackage(fw, answer(file, 502), "mutant.cloud"), /^Error: mutant\.cloud answered 502/);
 });
 
 const answer = (bytes, status = 200) => async () => ({ ok: status === 200, status, arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.length) });

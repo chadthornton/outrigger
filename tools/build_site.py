@@ -85,7 +85,7 @@ APP_SETS = {
 
 # Each app set's label in the build tag (lib/platform/src/apps.h kAppSetLabel).
 # hub-loader may carry the Wi-Fi diagnostics page (DIAG_WEB=1).
-APP_SET_LABELS = {"hub": {"hub"}, "hub-loader": {"hub+L", "hub+LW"}, "everything": {"all"}}
+APP_SET_LABELS = {"hub": {"hub", "hub+W"}, "hub-loader": {"hub+L", "hub+LW"}, "everything": {"all"}}
 
 # The build tag (lib/platform/src/build_tag.h), right after esp_app_desc_t at
 # app image offset 0x120. The page reads it off a board to name the build it

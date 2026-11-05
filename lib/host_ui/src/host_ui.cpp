@@ -1272,7 +1272,7 @@ void ui_update_loader(const UiLoader &l) {
 
 // ---------- Setup and Computer mode ----------
 static lv_obj_t *size_buttons[3], *version_label, *computer_screen_confirm;
-static lv_obj_t *network_labels[2];  // Setup, the Computer mode screen
+static lv_obj_t *network_labels[3];  // Setup, the Computer mode screen, Remote diagnostics
 static char network_text[48] = "";
 // The setup hotspot as a QR code and a hint, under Setup's network line, only
 // while it's open (ui_set_join_qr): made then and deleted after, so it costs no
@@ -1327,6 +1327,30 @@ static void run_computer_hold(Hold &) {
   if (hooks.connect_computer) hooks.connect_computer();
 }
 
+// Remote diagnostics: its own page, one button, since turning it on or off restarts the board.
+static lv_obj_t *diag_screen;
+static void diag_tapped(lv_event_t *) { push(diag_screen); }
+static void diag_toggle_tapped(lv_event_t *) {
+  if (hooks.set_diagnostics) hooks.set_diagnostics(!settings.diagnostics);
+}
+
+static void build_diag_page() {
+  lv_obj_t *title;
+  Page p = sub_page(&title, nullptr, true);
+  diag_screen = p.scr;
+  lv_label_set_text(title, "Remote diagnostics");
+  if (settings.diagnostics) {
+    text(p.content, "On: this board's status, log and crashes are on a read-only page on your Wi-Fi.", kWhite,
+         Role::Body);
+    network_labels[2] = network_label(p.content);
+  } else {
+    text(p.content, "Off: no Wi-Fi. On, this board's status, log and crashes go on a read-only page on your Wi-Fi.",
+         kWhite, Role::Body);
+    text(p.content, "The first time, it starts a hotspot to join your Wi-Fi.", kGrey, Role::Detail);
+  }
+  plain_button(foot_box(p), settings.diagnostics ? "Turn off (restarts)" : "Turn on (restarts)", diag_toggle_tapped);
+}
+
 static void build_setup() {
   Page t = section_page(kSetup);
   version_label = text(t.content, firmware, kGrey, Role::Body);
@@ -1357,6 +1381,11 @@ static void build_setup() {
   lv_obj_t *sub;
   nav_row(t.content, LV_SYMBOL_USB " Computer mode", &sub, computer_tapped);
   lv_label_set_text(sub, "For updates over USB");
+  if (hooks.set_diagnostics) {
+    nav_row(t.content, LV_SYMBOL_WIFI " Remote diagnostics", &sub, diag_tapped);
+    lv_label_set_text(sub, settings.diagnostics ? "On" : "Off");
+    build_diag_page();
+  }
 
   // Computer mode: its own page, and a hold, since it stops MIDI.
   lv_obj_t *title;
@@ -1418,8 +1447,10 @@ static void build_all() {
 // A new text size: every page again, at the new size, on the same section.
 static void rebuild(void *) {
   lv_obj_t *old[] = {section_screens[kPlay], section_screens[kFm1], section_screens[kSetup], plan_screen,
-                     backups_screen,        result_screen,        job_screen,             computer_screen_confirm};
-  plan_screen = backups_screen = result_screen = job_screen = nullptr;
+                     backups_screen,        result_screen,        job_screen,             computer_screen_confirm,
+                     diag_screen};
+  plan_screen = backups_screen = result_screen = job_screen = diag_screen = nullptr;
+  network_labels[2] = nullptr;  // it was on the diagnostics page
   const int was = section;
   const bool job = job_showing;
   build_all();
