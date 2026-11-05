@@ -6,6 +6,7 @@ import hashlib
 import json
 import re
 import sys
+import tempfile
 import unittest
 import urllib.error
 from pathlib import Path
@@ -111,6 +112,22 @@ class LinkTest(unittest.TestCase):
         self.assertIn(ec.MUTANT_CATALOG, urls)
         self.assertTrue(all(l["sha256"] for l in links if not l["json"]))
 
+    def test_the_fixture_links_are_fetch_fixtures_pins(self):
+        links = ec.fixture_links()
+        names = [l["name"] for l in links]
+        self.assertIn("FM-1_015.fwsc", names)
+        self.assertIn("wl82loader.bin", names)
+        for l in links:
+            self.assertTrue(l["url"].startswith("https://"), l)
+            self.assertRegex(l["sha256"], r"^[0-9a-f]{64}$")
+
+    def test_constants_follow_names_and_joined_strings(self):
+        with tempfile.TemporaryDirectory() as d:
+            src = Path(d) / "pins.py"
+            src.write_text('import os\nA = "https://x/"\nB = A + "rel/"\nC = os.getcwd()\n'
+                           'L = [("f", None, B + "f.bin", "ab")]\n')
+            self.assertEqual(ec._constants(src, {"L", "C"}), {"L": [("f", None, "https://x/rel/f.bin", "ab")]})
+
     def test_check_link(self):
         blob = b"loader"
         link = {"name": "x", "url": "u", "sha256": hashlib.sha256(blob).hexdigest(), "json": False}
@@ -148,6 +165,18 @@ class ReportTest(unittest.TestCase):
         order = [body.index(s) for s in ("BROKEN: Stock V15", "penumbra v1.2", "orbit v2", "fmel v1.2", "x0x v1.3")]
         self.assertEqual(order, sorted(order))
         self.assertTrue(attention)
+
+    def test_a_broken_fixture_has_its_own_section(self):
+        bad = [("felucca-1.8.0.fwsc", "https://g/felucca-1.8.0.fwsc", "answered 404")]
+        body, _, attention = ec.build_report([], [], {}, FAM, {"seen": ["z"]}, "2026-11-05", fixtures_bad=bad)
+        links, fixtures = body.split("## Test fixtures")[0], body.split("## Test fixtures")[1].split("## New")[0]
+        self.assertIn("All answer with the files the installer expects.", links)
+        self.assertIn("BROKEN: felucca-1.8.0.fwsc** answered 404", fixtures)
+        self.assertIn("make test", fixtures)
+        self.assertTrue(attention)
+        comment = ec.attention_comment([], "chadthornton", bad)
+        self.assertIn("test fixture link is broken", comment)
+        self.assertNotIn("Installer", comment)
 
     def test_only_what_the_last_run_didnt_see_is_new(self):
         feed = [item("x0x", "v1.3"), item("x0x", "v1.2")]
