@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Publish the installer site on Cloudflare Pages (outrigger.music).
 
-    tools/deploy_site.py source <channel> [FULL]     refuse early; print "ci", "beta" or "check": where the site comes from
-    tools/deploy_site.py deploy-ci <channel>          stage, check and upload CI's build of HEAD, or HEAD pinned
-    tools/deploy_site.py deploy-beta production       upload beta's kept copy of HEAD, as checked there
+    tools/deploy_site.py source <channel> [FULL] [PIN]  refuse early; print "ci", "beta" or "check": where the site comes from
+    tools/deploy_site.py deploy-ci <channel> [PIN]      stage, check and upload CI's build of HEAD, or HEAD pinned
+    tools/deploy_site.py deploy-beta production [PIN]   upload beta's kept copy of HEAD, as checked there
     tools/deploy_site.py deploy <channel> <site dir>  stage, check and upload a site make check built
                                                      (build/checked/site; its commit in build/checked/commit)
     tools/deploy_site.py rollback <channel> [commit]  put the deploy before the live one back (or that commit's)
@@ -20,6 +20,9 @@ checkout of a committed, pushed HEAD goes live, built one of these ways:
   build (tools/check_pinned.mjs). It needs CI's green run of HEAD, but no CI
   artifact and no make check. "Since production" counts from production's
   firmware commit, so firmware a pinned deploy left out still counts as unshipped.
+  PIN=1 (make deploy-site ... PIN=1) pins even when firmware changed since production's: the
+  FIRMWARE_READERS then come from the kept copy too, and the firmware changes it leaves out are
+  printed and counted in the deploy log ("held"). PIN=1 with FULL=1 is refused.
 
 - CI's build (the usual way): GitHub CI's push run of exactly HEAD (or a run
   started by hand on its branch, gh workflow run CI --ref <branch>) built every
@@ -64,6 +67,7 @@ import http.client
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -448,16 +452,30 @@ def ci_firmware_problems(fw, head):
     return problems
 
 
-def choose_source(channel, full, run, crit, beta=None, fw=None, pinned=None):
+def choose_source(channel, full, run, crit, beta=None, fw=None, pinned=None, pin=""):
     """("ci", "check", "pinned" or "beta", why), or (None, why not). run: CI's green run of exactly HEAD,
     or None if CI never built HEAD itself; crit: the critical-list files changed since production's
     firmware commit; beta: how beta's verified kept copy of HEAD was built ("ci", "check" or "pinned"),
     or None; fw: the changes since production's firmware that need new firmware (firmware_paths), or
-    None if unknown; pinned: the kept copy of production's live firmware, or None."""
+    None if unknown; pinned: the kept copy of production's live firmware, or None; pin: "1" for PIN=1,
+    which keeps production's firmware even when firmware changed since it."""
     if full not in ("", "1"):
         return None, f"FULL={full}: use FULL=1, or leave it out"
+    if pin not in ("", "1"):
+        return None, f"PIN={pin}: use PIN=1, or leave it out"
+    if pin == "1" and full == "1":
+        return None, "PIN=1 keeps production's firmware and FULL=1 builds new firmware: pick one"
     if run is None and channel == "production":
         return None, "CI hasn't built origin/master's head yet; wait for its run"
+    if pin == "1":
+        # Only a pinned build: beta's make check or CI build carries the firmware PIN=1 holds back.
+        if channel == "production" and beta == "pinned":
+            return "beta", "PIN=1: beta's build of this commit, pinned to production's firmware, as checked there"
+        if run is None:
+            return None, "PIN=1 needs CI's green run of this commit, its only test run; start CI on the branch"
+        if pinned is None:
+            return None, "PIN=1 needs a kept copy of production's live firmware, and there's none (above)"
+        return "pinned", f"PIN=1: this commit's pages over production's firmware ({pinned})"
     if full == "1":
         return "check", "FULL=1: make check builds the site on the Mac"
     if channel == "production" and (beta in ("check", "pinned") or (beta == "ci" and not crit)):
@@ -501,6 +519,13 @@ def firmware_paths(files):
     return [f for f in files if f in FIRMWARE_READERS or not any(fnmatch.fnmatch(f, p) for p in SITE_ONLY)]
 
 
+def pin_notice(firmware, fw):
+    """What PIN=1 says: the firmware it keeps and how many firmware changes (fw) stay behind."""
+    n = len(fw)
+    return (f"PIN=1: keeping production firmware {firmware[:7]}; {n} firmware change{'' if n == 1 else 's'} "
+            "on master NOT shipped")
+
+
 def batch(since_firmware, since_pages):
     """(critical-list files, files that need new firmware) a deploy ships. since_firmware: the files changed
     since production's firmware commit; since_pages: since its pages' commit. Firmware a pinned deploy left
@@ -526,6 +551,51 @@ def assemble(commit, fw, dst):
     shutil.rmtree(dst / "site" / "firmware", ignore_errors=True)
     shutil.copytree(fw, dst / "site" / "firmware", ignore=lambda _, names: [n for n in names if n == "SHA256SUMS"])
     (dst / "commit").write_text(commit + "\n")
+
+
+IMPORT = re.compile(r"""import\s*\{([^}]*)\}\s*from\s*["']([^"']+)["']""")
+
+
+def exports(js, name):
+    """Whether the module source js exports name (the forms the installer uses)."""
+    return bool(re.search(rf"export\s+(?:async\s+)?(?:function\*?|const|let|var|class)\s+{re.escape(name)}\b", js)
+                or any(re.search(rf"(?:^|,)\s*(?:\w+\s+as\s+)?{re.escape(name)}\s*(?:,|$)", group)
+                       for group in re.findall(r"export\s*\{([^}]*)\}", js)))
+
+
+def reader_import_problems(site):
+    """Every name a module in site imports from another that it doesn't export. A pinned deploy's
+    FIRMWARE_READERS are older than its other modules, and a missing export breaks the page as it loads."""
+    root = site.resolve()
+    problems = []
+    for js in sorted(root.rglob("*.js")):
+        if "firmware" in js.relative_to(root).parts:
+            continue
+        for names, spec in IMPORT.findall(js.read_text(errors="replace")):
+            target = (js.parent / spec).resolve()
+            if not spec.startswith(".") or not target.is_relative_to(root) or not target.is_file():
+                continue
+            source = target.read_text(errors="replace")
+            for name in (n.split(" as ")[0].strip() for n in names.split(",")):
+                if name and not exports(source, name):
+                    problems.append(f"{js.relative_to(root)} imports {name} from {target.name}, which doesn't export it")
+    return problems
+
+
+def assemble_pinned(commit, pinned, dst):
+    """commit's pages over pinned (a kept copy of production's live firmware), with the FIRMWARE_READERS
+    taken from pinned too: the installer code that reads the firmware stays the version that shipped with
+    it. Returns what's missing, and the names the commit's other modules import that those readers lack."""
+    assemble(commit, pinned / "site" / "firmware", dst)
+    missing = []
+    for path in FIRMWARE_READERS:
+        src = pinned / path
+        if not src.is_file():
+            missing.append(f"production's kept copy {pinned.name[:7]} has no {path}")
+            continue
+        (dst / path).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(src, dst / path)
+    return missing + reader_import_problems(dst / "site")
 
 
 def git(*args, cwd=ROOT):
@@ -661,9 +731,10 @@ def live_firmware_file(name, cache={}):
     return cache[name]
 
 
-def plan(channel, full=""):
+def plan(channel, full="", pin=""):
     """(where the site comes from, HEAD, CI's run of it, production's firmware commit, the kept copy
-    of that firmware or None). Refuses what guard refuses and a red or running CI. Says why on stderr."""
+    of that firmware or None, the firmware changes it leaves out). Refuses what guard refuses and a red
+    or running CI. Says why on stderr. pin: "1" for PIN=1."""
     head = guard(channel)
     run = ci_build(head)
     entries = read_log(DEPLOYS / "deploys.jsonl")
@@ -673,11 +744,13 @@ def plan(channel, full=""):
     crit, fw = batch(git("diff", "--name-only", firmware, head).splitlines(),
                      git("diff", "--name-only", pages, head).splitlines())
     pinned = None
-    if fw:
-        more = ", ..." if len(fw) > 5 else ""
+    more = ", ..." if len(fw) > 5 else ""
+    if fw and pin == "1" and full == "":
+        print(f"{pin_notice(firmware, fw)} ({', '.join(fw[:5])}{more})", file=sys.stderr)
+    elif fw:
         print(f"firmware changed since production's {firmware[:7]} ({', '.join(fw[:5])}{more}): "
               "this deploy builds it", file=sys.stderr)
-    elif full == "":
+    if (not fw or pin == "1") and full == "":
         pinned, problem = pinned_copy([DEPLOYS / "production", DEPLOYS / "beta"], firmware, live_firmware_file)
         if problem:
             print(f"not pinning production's firmware: {problem}", file=sys.stderr)
@@ -687,17 +760,17 @@ def plan(channel, full=""):
         if problems:
             print(f"not reusing beta's build: {problems[0]}", file=sys.stderr)
             beta = None
-    kind, why = choose_source(channel, full, run, crit, beta, fw, pinned)
+    kind, why = choose_source(channel, full, run, crit, beta, fw, pinned, pin)
     if kind is None:
         fail(why)
     print(why, file=sys.stderr)
-    return kind, head, run, firmware, pinned
+    return kind, head, run, firmware, pinned, fw if kind in ("pinned", "beta") and pin == "1" else []
 
 
-def deploy_ci(channel):
-    kind, head, run, firmware, pinned = plan(channel)
+def deploy_ci(channel, pin=""):
+    kind, head, run, firmware, pinned, held = plan(channel, "", pin)
     if kind == "pinned":  # source prints "ci" for it, so the Makefile needn't change
-        return deploy_pinned(channel, head, firmware, pinned)
+        return deploy_pinned(channel, head, firmware, pinned, held)
     if kind != "ci":  # the same choice make deploy-site made, so this can't skip make check
         fail("this deploy needs make check; make deploy-site runs it")
     art, problem = site_artifact(json.loads(gh(f"repos/{REPO}/actions/runs/{run['id']}/artifacts"))["artifacts"])
@@ -718,19 +791,24 @@ def deploy_ci(channel):
     publish(channel, head, CI_CHECKED, "ci")
 
 
-def deploy_pinned(channel, head, firmware, pinned):
-    """HEAD's pages over the kept copy of production's live firmware, once HEAD's installer loads every build."""
-    assemble(head, pinned / "site" / "firmware", PINNED)
+def deploy_pinned(channel, head, firmware, pinned, held=()):
+    """HEAD's pages over the kept copy of production's live firmware, once HEAD's installer loads every build.
+    held: the firmware changes PIN=1 leaves out (the deploy log records them)."""
+    missing = assemble_pinned(head, pinned, PINNED)
+    if missing:
+        fail("refusing to pin:\n  " + "\n  ".join(missing))
     check = subprocess.run(["node", str(ROOT / "tools/check_pinned.mjs"), str(PINNED / "site")], cwd=ROOT)
     if check.returncode:
         fail(f"this commit's installer can't use production's firmware {firmware[:7]} (above); deploy with FULL=1")
     print(f"{head[:7]}'s pages over production's firmware {firmware[:7]} ({pinned}) check out", file=sys.stderr)
-    publish(channel, head, PINNED, "pinned", firmware)
+    publish(channel, head, PINNED, "pinned", firmware, **({"pin": True, "held": len(held)} if held else {}))
+    if held:
+        print(pin_notice(firmware, held))
 
 
-def deploy_beta(channel):
+def deploy_beta(channel, pin=""):
     """Production uploads beta's kept copy of HEAD: the bytes checked on beta, without building again."""
-    kind, head, _, firmware, _ = plan(channel)
+    kind, head, _, firmware, _, held = plan(channel, "", pin)
     if kind != "beta":  # the same choice make deploy-site made
         fail("this deploy doesn't reuse beta's build; make deploy-site picks the right one")
     entries = read_log(DEPLOYS / "deploys.jsonl")
@@ -738,7 +816,9 @@ def deploy_beta(channel):
     if problems:  # beta's copy changed since plan() looked
         fail("beta's build changed:\n  " + "\n  ".join(problems))
     publish(channel, head, DEPLOYS / "beta" / head, built, firmware_of(live_history(entries, "beta")[-1]),
-            reused="beta")
+            reused="beta", **({"pin": True, "held": len(held)} if held else {}))
+    if held:
+        print(pin_notice(firmware, held))
 
 
 def deploy(channel, site):
@@ -803,13 +883,13 @@ def main():
     args = sys.argv[1:]
     if len(args) == 2 and args[0] == "guard":
         guard(args[1])
-    elif len(args) in (2, 3) and args[0] == "source":
+    elif len(args) in (2, 3, 4) and args[0] == "source":
         kind = plan(*args[1:])[0]
         print("ci" if kind == "pinned" else kind)  # deploy-ci takes a pinned deploy
-    elif len(args) == 2 and args[0] == "deploy-ci":
-        deploy_ci(args[1])
-    elif len(args) == 2 and args[0] == "deploy-beta":
-        deploy_beta(args[1])
+    elif len(args) in (2, 3) and args[0] == "deploy-ci":
+        deploy_ci(*args[1:])
+    elif len(args) in (2, 3) and args[0] == "deploy-beta":
+        deploy_beta(*args[1:])
     elif len(args) == 3 and args[0] == "deploy":
         deploy(args[1], Path(args[2]).resolve())
     elif len(args) in (2, 3) and args[0] == "rollback":

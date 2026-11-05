@@ -581,8 +581,9 @@ class BetaBuildTest(unittest.TestCase):
         self.assertIn("firmware", deploy_site.beta_build(self.log, self.beta, HEAD, OTHER)[1][0])
 
 
-def kept_firmware(channel_dir, commit, firmware, dirty=False):
-    """A kept copy of a deploy of commit whose firmware was built from firmware."""
+def kept_firmware(channel_dir, commit, firmware, dirty=False, readers=False):
+    """A kept copy of a deploy of commit whose firmware was built from firmware; readers: with this commit's
+    FIRMWARE_READERS, each under a first line saying "// production's <name>"."""
     with tempfile.TemporaryDirectory() as tmp:
         staged = Path(tmp)
         out = staged / "site" / "firmware" / "b1" / "hub"
@@ -593,6 +594,10 @@ def kept_firmware(channel_dir, commit, firmware, dirty=False):
                     "builds": [{"parts": [{"path": "app.bin", "offset": 65536,
                                            "sha256": hashlib.sha256(b"app").hexdigest()}]}]}
         (out / "manifest.json").write_text(json.dumps(manifest))
+        if readers:
+            (staged / "site" / "installer").mkdir()
+            for path in deploy_site.FIRMWARE_READERS:
+                (staged / path).write_text(f"// production's {Path(path).name}\n" + (deploy_site.ROOT / path).read_text())
         return deploy_site.keep(staged, channel_dir, commit)
 
 
@@ -840,6 +845,47 @@ class BatchTest(unittest.TestCase):
                          (["functions/api/report.js"], []))
 
 
+class ChoosePinOverrideTest(unittest.TestCase):
+    """PIN=1 (Chad, 2026-11-05, option A): HEAD's pages over production's live firmware even when firmware
+    changed since it, so the pages can ship while unshipped firmware waits."""
+    def choose(self, channel="beta", full="", ran=True, crit=("lib/ota/x.cpp",), beta=None,
+               fw=("lib/ota/x.cpp",), pinned=Path("kept"), pin="1"):
+        return deploy_site.choose_source(channel, full, run() if ran else None, list(crit), beta,
+                                         None if fw is None else list(fw), pinned, pin)
+
+    def test_firmware_changes_go_up_pinned_on_both_channels(self):
+        for channel in ("beta", "production"):
+            self.assertEqual(self.choose(channel)[0], "pinned")
+
+    def test_without_pin_a_firmware_change_still_builds(self):
+        self.assertEqual(self.choose(pin="")[0], "check")
+
+    def test_pin_with_full_1_refused(self):
+        kind, why = self.choose(full="1")
+        self.assertIsNone(kind)
+        self.assertIn("PIN=1", why)
+        self.assertIn("FULL=1", why)
+
+    def test_other_pin_values_refused(self):
+        kind, why = self.choose(pin="yes")
+        self.assertIsNone(kind)
+        self.assertIn("PIN=yes", why)
+
+    def test_no_kept_copy_of_the_live_firmware_refused(self):
+        """Building instead would ship the firmware PIN=1 holds back."""
+        self.assertIsNone(self.choose(pinned=None)[0])
+
+    def test_a_commit_ci_never_built_refused(self):
+        self.assertIsNone(self.choose(ran=False)[0])
+
+    def test_production_never_reuses_betas_new_firmware(self):
+        for beta in ("check", "ci"):
+            self.assertEqual(self.choose("production", beta=beta)[0], "pinned")
+
+    def test_production_reuses_betas_pinned_build(self):
+        self.assertEqual(self.choose("production", beta="pinned")[0], "beta")
+
+
 class SourceCommandTest(unittest.TestCase):
     """make deploy-site runs deploy-ci for "ci": a pinned deploy goes that way, without make check."""
     def source(self, kind):
@@ -891,6 +937,56 @@ class AssembleTest(unittest.TestCase):
             self.assertEqual((dst / "commit").read_text().strip(), head)
 
 
+class PinnedReadersTest(unittest.TestCase):
+    """A pinned deploy's FIRMWARE_READERS come from production's kept copy: the installer code that reads the
+    firmware stays the version that shipped with it. The rest of the pages are this commit's."""
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.kept = kept_firmware(self.root / "production", OTHER, OTHER, readers=True)
+        self.head = deploy_site.git("rev-parse", "HEAD")
+        self.dst = self.root / "pages"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_readers_are_productions(self):
+        self.assertEqual(deploy_site.assemble_pinned(self.head, self.kept, self.dst), [])
+        for path in deploy_site.FIRMWARE_READERS:
+            self.assertTrue((self.dst / path).read_text().startswith(f"// production's {Path(path).name}\n"))
+
+    def test_the_rest_is_this_commits(self):
+        deploy_site.assemble_pinned(self.head, self.kept, self.dst)
+        ui = subprocess.run(["git", "show", f"{self.head}:site/installer/ui.js"], capture_output=True, check=True).stdout
+        self.assertEqual((self.dst / "site/installer/ui.js").read_bytes(), ui)
+        self.assertEqual((self.dst / "site/firmware/b1/hub/app.bin").read_bytes(), b"app")
+
+    def test_a_name_the_commit_imports_that_productions_reader_lacks_refused(self):
+        """add.js imports crc16 from store.js: an older store.js without it would break the page as it loads."""
+        store = self.kept / "site/installer/store.js"
+        store.write_text(store.read_text().replace("export function crc16", "function crc16"))
+        problems = deploy_site.assemble_pinned(self.head, self.kept, self.dst)
+        self.assertEqual(len(problems), 1)
+        self.assertIn("add.js imports crc16 from store.js", problems[0])
+
+    def test_a_kept_copy_missing_a_reader_refused(self):
+        shutil.rmtree(self.root / "production")
+        bare = kept_firmware(self.root / "production", OTHER, OTHER)
+        problems = deploy_site.assemble_pinned(self.head, bare, self.dst)
+        self.assertTrue(problems)
+        self.assertIn("install.js", " ".join(problems))
+
+
+class PinNoticeTest(unittest.TestCase):
+    """PIN=1 says plainly what stays behind."""
+    def test_names_the_firmware_kept_and_counts_whats_held_back(self):
+        self.assertEqual(deploy_site.pin_notice(OTHER, ["lib/ota/a.cpp", "firmware/b.cpp", "Makefile"]),
+                         "PIN=1: keeping production firmware bbbbbbb; 3 firmware changes on master NOT shipped")
+
+    def test_one_change(self):
+        self.assertIn("1 firmware change on master NOT shipped", deploy_site.pin_notice(OTHER, ["lib/x.cpp"]))
+
+
 class VersionFileTest(unittest.TestCase):
     """What goes up says which commit its pages and its firmware came from (version.json)."""
     def stage(self, firmware):
@@ -908,6 +1004,16 @@ class VersionFileTest(unittest.TestCase):
 
     def test_a_pinned_build_says_both(self):
         self.assertEqual(self.stage(OTHER)[1], {"site": HEAD, "firmware": OTHER})
+
+    def test_a_pin_1_build_says_both(self):
+        """HEAD's pages over production's kept copy, staged as publish stages it."""
+        with tempfile.TemporaryDirectory() as tmp:
+            kept = kept_firmware(Path(tmp, "production"), OTHER, OTHER, readers=True)
+            head = deploy_site.git("rev-parse", "HEAD")
+            deploy_site.assemble_pinned(head, kept, Path(tmp, "checked"))
+            self.assertEqual(deploy_site.stage_root(Path(tmp, "checked"), Path(tmp, "pages"), head, OTHER), [])
+            version = json.loads(Path(tmp, "pages", "site", "version.json").read_text())
+            self.assertEqual(version, {"site": head, "firmware": OTHER})
 
 
 if __name__ == "__main__":
