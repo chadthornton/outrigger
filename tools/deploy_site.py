@@ -1,21 +1,22 @@
 #!/usr/bin/env python3
 """Publish the installer site on Cloudflare Pages (outrigger.music).
 
-    tools/deploy_site.py source <channel> [FULL] [PIN]  refuse early; print "ci", "beta" or "check": where the site comes from
+    tools/deploy_site.py source <channel> [FULL] [PIN]  refuse early; print "ci", "preview" or "check": where the site comes from
     tools/deploy_site.py deploy-ci <channel> [PIN]      stage, check and upload CI's build of HEAD, or HEAD pinned
-    tools/deploy_site.py deploy-beta production [PIN]   upload beta's kept copy of HEAD, as checked there
+    tools/deploy_site.py deploy-preview production [PIN]  upload preview's kept copy of HEAD, as checked there
     tools/deploy_site.py deploy <channel> <site dir>  stage, check and upload a site make check built
                                                      (build/checked/site; its commit in build/checked/commit)
     tools/deploy_site.py rollback <channel> [commit]  put the deploy before the live one back (or that commit's)
 
-Channels: production (outrigger.music, from origin/master only) and beta
-(beta.outrigger.music, any pushed commit). Only a site built from a clean
+Channels: production (outrigger.music, from origin/master only) and preview
+(preview.outrigger.music, any pushed commit; called beta until 2026-11-05, and
+"beta" still names it). Only a site built from a clean
 checkout of a committed, pushed HEAD goes live, built one of these ways:
 
 - Pinned (when nothing since production's firmware commit needs new firmware:
   firmware_paths, by SITE_ONLY and FIRMWARE_READERS): HEAD's pages, functions/
   and wrangler.toml over production's live firmware, byte for byte, from a kept
-  copy (production's or beta's) checked against its sums and against the
+  copy (production's or preview's) checked against its sums and against the
   manifests outrigger.music serves. HEAD's own installer code then loads every
   build (tools/check_pinned.mjs). It needs CI's green run of HEAD, but no CI
   artifact and no make check. "Since production" counts from production's
@@ -33,14 +34,14 @@ checkout of a committed, pushed HEAD goes live, built one of these ways:
   The wl82loader.bin scan and the Pages limits run here, as for make check.
   Either way, a red or running CI run of HEAD refuses, and production needs one.
 - make check on the Mac: for FULL=1, for a batch (since the commit production
-  serves, firmware counted from its firmware commit, on either channel, so beta carries the build production will) that
+  serves, firmware counted from its firmware commit, on either channel, so preview carries the build production will) that
   touches the critical list's code or any firmware (CRITICAL; CONTRIBUTING.md, "Shipping to
   production"), and for a
   commit CI has no build of (a branch commit: CI builds a PR merged into master;
   start CI on the branch by hand to get one).
-- Beta's build, for production: production uploads beta's kept copy of HEAD
+- Preview's build, for production: production uploads preview's kept copy of HEAD
   (the bytes checked there, matching their SHA-256 sums) when the deploy log
-  says beta serves HEAD and how it was built: a make check build always, a CI
+  says preview serves HEAD and how it was built: a make check build always, a CI
   build if the batch needs no make check. A firmware ship runs make check once. Each upload carries its commit, so the Pages dashboard
 answers "which commit is live?"; its message, the deploy log's firmware field and
 the site's /version.json name the firmware's commit too. The Pages Functions (functions/) and their
@@ -52,8 +53,8 @@ Rollback: every deploy and rollback is a line in the deploy log (DEPLOYS, shared
 by every worktree), with its commit, Pages deployment ID, time and session.
 Production rolls back through Cloudflare's own rollback, which only takes
 production deployments: seconds, no upload, and the old Functions and firmware
-come back with the old site. Beta can't, so each deploy keeps what it uploaded
-(site, functions/, wrangler.toml, with SHA-256 sums) and a beta rollback uploads
+come back with the old site. Preview can't, so each deploy keeps what it uploaded
+(site, functions/, wrangler.toml, with SHA-256 sums) and a preview rollback uploads
 that copy again. Production keeps copies too, for pinned deploys to take its firmware from.
 Neither re-runs make check: what goes back up already passed it.
 
@@ -84,9 +85,12 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from build_site import APP_SETS, WL82_SHA256, load_wl82_blob, wl82_chunks, wl82_problem  # noqa: E402
 
 PROJECT = "outrigger"
-# Pages branch per channel. The project's production branch is master; beta.outrigger.music
-# is a custom domain on the beta branch alias (beta.outrigger.pages.dev).
-BRANCHES = {"production": "master", "beta": "beta"}
+# Pages branch per channel. The project's production branch is master; preview.outrigger.music
+# is a custom domain on the beta branch alias (beta.outrigger.pages.dev). The branch kept its name
+# when the channel was renamed: a new branch would start with no deployment for production's guard to find.
+BRANCHES = {"production": "master", "preview": "beta"}
+# The preview channel's old name: still accepted, and the deploy log's and kept copies' name before 2026-11-05.
+OLD_NAMES = {"beta": "preview"}
 # At least two weeks old: npm here refuses releases younger than a week.
 WRANGLER = "wrangler@4.151.1"
 ENV_FILE = Path.home() / ".config/cloudflare/outrigger-pages.env"
@@ -116,12 +120,12 @@ SITE_ONLY = ["site/*", "functions/*", "migrations/*", "wrangler.toml", "docs/*",
 # block list): it must stay the version that shipped with the firmware it reads.
 FIRMWARE_READERS = ["site/installer/install.js", "site/installer/plan.js", "site/installer/store.js",
                     "site/installer/board.js", "site/installer/families_gen.js"]
-# The deploy log and beta's kept copies, outside build/ so every worktree sees the same ones.
+# The deploy log and the kept copies, outside build/ so every worktree sees the same ones.
 DEPLOYS = Path.home() / "Library/Application Support/outrigger/deploys"
 KEEP = 3  # kept copies per channel
 SUMS = "SHA256SUMS"
 API = "https://api.cloudflare.com/client/v4/accounts/{account}/pages/projects/" + PROJECT
-URLS = {"production": "https://outrigger.music", "beta": "https://beta.outrigger.music"}
+URLS = {"production": "https://outrigger.music", "preview": "https://preview.outrigger.music"}
 # Cloudflare Pages limits (developers.cloudflare.com/pages/platform/limits/).
 MAX_FILE = 25 * 1024 * 1024
 MAX_FILES = 20000
@@ -134,11 +138,11 @@ def fail(msg):
 def refusal(channel, head, origin_master, pushed, dirty):
     """Why this commit may not go to this channel, or None."""
     if channel not in BRANCHES:
-        return f"unknown channel {channel!r}; use production or beta"
+        return f"unknown channel {channel!r}; use production or preview"
     if dirty:
         return "the tree has uncommitted changes; commit them first"
     if channel == "production" and head != origin_master:
-        return "production deploys only origin/master's commit; merge and push first, or deploy to beta"
+        return "production deploys only origin/master's commit; merge and push first, or deploy to preview"
     if not pushed:
         return "HEAD is on no remote branch; push it first"
     return None
@@ -256,7 +260,7 @@ def rollback_target(entries, channel, live, commit=None):
     """(entry to put back, None) or (None, why not). live: the commit Cloudflare says is live;
     commit: a full or 7+ character commit to go back to, instead of the one before live."""
     if channel not in BRANCHES:
-        return None, f"unknown channel {channel!r}; use production or beta"
+        return None, f"unknown channel {channel!r}; use production or preview"
     stack = live_history(entries, channel)
     if stack and stack[-1]["commit"] != live:
         return None, (f"{channel} serves {live[:7]}, but the deploy log's last {channel} deploy is "
@@ -278,17 +282,28 @@ def needs_baseline(entries, channel, live):
     return not stack or stack[-1]["commit"] != live
 
 
-def beta_first_problem(channel, head, beta):
-    """Production only takes the commit beta serves (CONTRIBUTING.md, "Shipping to production")."""
-    if channel == "production" and head != beta:
-        return f"beta serves {beta[:7]}, not {head[:7]}; deploy it to beta and check it there first"
+def preview_first_problem(channel, head, preview):
+    """Production only takes the commit preview serves (CONTRIBUTING.md, "Shipping to production")."""
+    if channel == "production" and head != preview:
+        return f"preview serves {preview[:7]}, not {head[:7]}; deploy it to preview and check it there first"
     return None
 
 
+def channel_named(name):
+    """The channel name stands for: an old name says what it's called now."""
+    if name in OLD_NAMES:
+        print(f"the {name} channel is called {OLD_NAMES[name]} now; deploying to {OLD_NAMES[name]}", file=sys.stderr)
+    return OLD_NAMES.get(name, name)
+
+
 def read_log(path):
+    """The deploy log's entries, with channels under their old names read as their current ones."""
     if not path.is_file():
         return []
-    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    entries = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+    for e in entries:
+        e["channel"] = OLD_NAMES.get(e["channel"], e["channel"])
+    return entries
 
 
 def append_log(path, entry):
@@ -316,6 +331,17 @@ def keep(staged, channel_dir, commit, count=KEEP):
     for _, old in copies[:-count]:
         shutil.rmtree(old)
     return dst
+
+
+def kept_copy(deploys, channel, commit):
+    """Where the channel's kept copy of commit is: under the channel's name, else under an old name of it."""
+    names = [channel] + [old for old, new in OLD_NAMES.items() if new == channel]
+    return next((deploys / n / commit for n in names if (deploys / n / commit / SUMS).is_file()), deploys / channel / commit)
+
+
+def kept_dirs(deploys):
+    """Every folder of kept copies, old names included, for a pinned deploy to look for production's firmware in."""
+    return [deploys / c for c in [*BRANCHES, *OLD_NAMES]]
 
 
 def kept_problems(kept):
@@ -452,10 +478,10 @@ def ci_firmware_problems(fw, head):
     return problems
 
 
-def choose_source(channel, full, run, crit, beta=None, fw=None, pinned=None, pin=""):
-    """("ci", "check", "pinned" or "beta", why), or (None, why not). run: CI's green run of exactly HEAD,
+def choose_source(channel, full, run, crit, preview=None, fw=None, pinned=None, pin=""):
+    """("ci", "check", "pinned" or "preview", why), or (None, why not). run: CI's green run of exactly HEAD,
     or None if CI never built HEAD itself; crit: the critical-list files changed since production's
-    firmware commit; beta: how beta's verified kept copy of HEAD was built ("ci", "check" or "pinned"),
+    firmware commit; preview: how preview's verified kept copy of HEAD was built ("ci", "check" or "pinned"),
     or None; fw: the changes since production's firmware that need new firmware (firmware_paths), or
     None if unknown; pinned: the kept copy of production's live firmware, or None; pin: "1" for PIN=1,
     which keeps production's firmware even when firmware changed since it."""
@@ -468,9 +494,9 @@ def choose_source(channel, full, run, crit, beta=None, fw=None, pinned=None, pin
     if run is None and channel == "production":
         return None, "CI hasn't built origin/master's head yet; wait for its run"
     if pin == "1":
-        # Only a pinned build: beta's make check or CI build carries the firmware PIN=1 holds back.
-        if channel == "production" and beta == "pinned":
-            return "beta", "PIN=1: beta's build of this commit, pinned to production's firmware, as checked there"
+        # Only a pinned build: preview's make check or CI build carries the firmware PIN=1 holds back.
+        if channel == "production" and preview == "pinned":
+            return "preview", "PIN=1: preview's build of this commit, pinned to production's firmware, as checked there"
         if run is None:
             return None, "PIN=1 needs CI's green run of this commit, its only test run; start CI on the branch"
         if pinned is None:
@@ -478,9 +504,9 @@ def choose_source(channel, full, run, crit, beta=None, fw=None, pinned=None, pin
         return "pinned", f"PIN=1: this commit's pages over production's firmware ({pinned})"
     if full == "1":
         return "check", "FULL=1: make check builds the site on the Mac"
-    if channel == "production" and (beta in ("check", "pinned") or (beta == "ci" and not crit)):
-        how = {"check": "make check", "ci": "CI", "pinned": "pinned to production's firmware"}[beta]
-        return "beta", f"beta's build of this commit ({how}), as checked there"
+    if channel == "production" and (preview in ("check", "pinned") or (preview == "ci" and not crit)):
+        how = {"check": "make check", "ci": "CI", "pinned": "pinned to production's firmware"}[preview]
+        return "preview", f"preview's build of this commit ({how}), as checked there"
     if fw == [] and pinned is not None and run is not None:
         return "pinned", f"no firmware change since production's: this commit's pages over production's firmware ({pinned})"
     if crit:
@@ -491,22 +517,22 @@ def choose_source(channel, full, run, crit, beta=None, fw=None, pinned=None, pin
     return "ci", f"CI's build (run {run['id']})"
 
 
-def beta_build(entries, beta_dir, head, firmware=None):
-    """(how beta's kept copy of head was built, its problems). Reusable for production when beta
+def preview_build(entries, deploys, head, firmware=None):
+    """(how preview's kept copy of head was built, its problems). Reusable for production when preview
     serves head (by the deploy log), the copy still matches its sums, and a pinned copy pinned
     firmware, production's live firmware commit."""
-    stack = live_history(entries, "beta")
+    stack = live_history(entries, "preview")
     if not stack or stack[-1]["commit"] != head:
-        return None, [f"beta doesn't serve {head[:7]} by the deploy log"]
-    deploys = [e for e in entries if e["channel"] == "beta" and e["action"] == "deploy"
-               and deployed(e) == deployed(stack[-1])]
-    built = deploys[-1].get("built") if deploys else None
+        return None, [f"preview doesn't serve {head[:7]} by the deploy log"]
+    ups = [e for e in entries if e["channel"] == "preview" and e["action"] == "deploy"
+           and deployed(e) == deployed(stack[-1])]
+    built = ups[-1].get("built") if ups else None
     if built not in ("ci", "check", "pinned"):
-        return None, [f"the deploy log doesn't say how beta's {head[:7]} was built"]
+        return None, [f"the deploy log doesn't say how preview's {head[:7]} was built"]
     if built == "pinned" and firmware_of(stack[-1]) != firmware:
-        return None, [f"beta's {head[:7]} is over firmware {firmware_of(stack[-1])[:7]}, production serves "
-                      f"{(firmware or '?')[:7]}'s; deploy beta again"]
-    return built, kept_problems(beta_dir / head)
+        return None, [f"preview's {head[:7]} is over firmware {firmware_of(stack[-1])[:7]}, production serves "
+                      f"{(firmware or '?')[:7]}'s; deploy preview again"]
+    return built, kept_problems(kept_copy(deploys, "preview", head))
 
 
 def critical_paths(files):
@@ -619,7 +645,7 @@ def guard(channel):
                       bool(git("branch", "-r", "--contains", head)),
                       bool(git("status", "--porcelain", "--untracked-files=no")))
     if not problem and channel == "production":
-        problem = beta_first_problem(channel, head, commit_of(live_deployment(load_credentials(), "beta")))
+        problem = preview_first_problem(channel, head, commit_of(live_deployment(load_credentials(), "preview")))
     if problem:
         fail(problem)
     return head
@@ -668,7 +694,7 @@ def commit_of(deployment):
 
 
 def live_deployment(env, channel):
-    """The deployment the channel serves: production's canonical one, or the beta branch's newest."""
+    """The deployment the channel serves: production's canonical one, or preview's branch's newest."""
     if channel == "production":
         return api(env)["canonical_deployment"]
     for d in api(env, "/deployments?env=preview&per_page=25"):
@@ -758,16 +784,16 @@ def plan(channel, full="", pin=""):
         print(f"firmware changed since production's {firmware[:7]} ({', '.join(fw[:5])}{more}): "
               "this deploy builds it", file=sys.stderr)
     if (not fw or pin == "1") and full == "":
-        pinned, problem = pinned_copy([DEPLOYS / "production", DEPLOYS / "beta"], firmware, live_firmware_file)
+        pinned, problem = pinned_copy(kept_dirs(DEPLOYS), firmware, live_firmware_file)
         if problem:
             print(f"not pinning production's firmware: {problem}", file=sys.stderr)
-    beta = None
+    preview = None
     if channel == "production":
-        beta, problems = beta_build(entries, DEPLOYS / "beta", head, firmware)
+        preview, problems = preview_build(entries, DEPLOYS, head, firmware)
         if problems:
-            print(f"not reusing beta's build: {problems[0]}", file=sys.stderr)
-            beta = None
-    kind, why = choose_source(channel, full, run, crit, beta, fw, pinned, pin)
+            print(f"not reusing preview's build: {problems[0]}", file=sys.stderr)
+            preview = None
+    kind, why = choose_source(channel, full, run, crit, preview, fw, pinned, pin)
     if kind is None:
         fail(why)
     print(why, file=sys.stderr)
@@ -811,17 +837,17 @@ def deploy_pinned(channel, head, firmware, pinned, held=None):
     publish(channel, head, PINNED, "pinned", firmware, held)
 
 
-def deploy_beta(channel, pin=""):
-    """Production uploads beta's kept copy of HEAD: the bytes checked on beta, without building again."""
+def deploy_preview(channel, pin=""):
+    """Production uploads preview's kept copy of HEAD: the bytes checked on preview, without building again."""
     kind, head, _, firmware, _, held = plan(channel, "", pin)
-    if kind != "beta":  # the same choice make deploy-site made
-        fail("this deploy doesn't reuse beta's build; make deploy-site picks the right one")
+    if kind != "preview":  # the same choice make deploy-site made
+        fail("this deploy doesn't reuse preview's build; make deploy-site picks the right one")
     entries = read_log(DEPLOYS / "deploys.jsonl")
-    built, problems = beta_build(entries, DEPLOYS / "beta", head, firmware)
-    if problems:  # beta's copy changed since plan() looked
-        fail("beta's build changed:\n  " + "\n  ".join(problems))
-    publish(channel, head, DEPLOYS / "beta" / head, built, firmware_of(live_history(entries, "beta")[-1]),
-            held, reused="beta")
+    built, problems = preview_build(entries, DEPLOYS, head, firmware)
+    if problems:  # preview's copy changed since plan() looked
+        fail("preview's build changed:\n  " + "\n  ".join(problems))
+    publish(channel, head, kept_copy(DEPLOYS, "preview", head), built,
+            firmware_of(live_history(entries, "preview")[-1]), held, reused="preview")
 
 
 def deploy(channel, site):
@@ -849,7 +875,7 @@ def publish(channel, head, checked, built, firmware=None, held=None, **extra):
     message = git("log", "-1", "--format=%s", head) + (f" (firmware {firmware[:7]})" if firmware != head else "")
     live = upload(env, STAGE, channel, head, message)
     append_log(log, log_entry("deploy", channel, live, built=built, firmware=firmware, **pin_fields(held), **extra))
-    # Beta rolls back from its copies (Cloudflare can't roll back a preview); production's are for pinning.
+    # Preview rolls back from its copies (Cloudflare can't roll back a preview); production's are for pinning.
     keep(STAGE, DEPLOYS / channel, head)
     print(f"deployed {head[:7]} (firmware {firmware[:7]}) to {channel}: {URLS[channel]} "
           f"(deployment {live['id']}; logged in {log})")
@@ -860,7 +886,7 @@ def publish(channel, head, checked, built, firmware=None, held=None, **extra):
 def rollback(channel, commit=None):
     """Put the deploy before the live one (or commit's) back on channel."""
     if channel not in BRANCHES:
-        fail(f"unknown channel {channel!r}; use production or beta")
+        fail(f"unknown channel {channel!r}; use production or preview")
     env = load_credentials()
     log = DEPLOYS / "deploys.jsonl"
     live = live_deployment(env, channel)
@@ -874,7 +900,7 @@ def rollback(channel, commit=None):
         if now["id"] != target["deployment"]:
             fail(f"rolled back, but production serves deployment {now['id']}; check the Pages dashboard")
     else:
-        kept = DEPLOYS / channel / target["commit"]
+        kept = kept_copy(DEPLOYS, channel, target["commit"])
         problems = kept_problems(kept)
         problems = problems or [p for p in [kept_firmware_problem(kept, firmware_of(target))] if p]
         if problems:
@@ -887,6 +913,8 @@ def rollback(channel, commit=None):
 
 def main():
     args = sys.argv[1:]
+    if len(args) >= 2:  # every command names its channel second
+        args[1] = channel_named(args[1])
     if len(args) == 2 and args[0] == "guard":
         guard(args[1])
     elif len(args) in (2, 3, 4) and args[0] == "source":
@@ -894,8 +922,8 @@ def main():
         print("ci" if kind == "pinned" else kind)  # deploy-ci takes a pinned deploy
     elif len(args) in (2, 3) and args[0] == "deploy-ci":
         deploy_ci(*args[1:])
-    elif len(args) in (2, 3) and args[0] == "deploy-beta":
-        deploy_beta(*args[1:])
+    elif len(args) in (2, 3) and args[0] == "deploy-preview":
+        deploy_preview(*args[1:])
     elif len(args) == 3 and args[0] == "deploy":
         deploy(args[1], Path(args[2]).resolve())
     elif len(args) in (2, 3) and args[0] == "rollback":

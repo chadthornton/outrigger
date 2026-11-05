@@ -1,7 +1,7 @@
 // POST /api/report: the installer's "Report this board" form
 // (site/installer/report_form.js) writes one row into D1 (binding DB:
-// outrigger-reports on outrigger.music, outrigger-reports-beta on beta and
-// previews; wrangler.toml). tools/reports.py reads them.
+// outrigger-reports on outrigger.music, outrigger-reports-beta on preview.outrigger.music
+// and the other previews; wrangler.toml). tools/reports.py reads them.
 //
 // Rate limit without keeping IP addresses: each visitor is a SHA-256 of
 // today's random salt and their address. The salt lives in D1 for the day it
@@ -15,8 +15,9 @@ export const ALL_PER_HOUR = 60;
 const HOUR = 3600 * 1000;
 const DAY = 24 * HOUR;
 
-// outrigger.music, beta, Pages previews (<hash>.outrigger.pages.dev), and wrangler pages dev on the Mac.
-export const ORIGIN = /^(https:\/\/((beta\.)?outrigger\.music|([a-z0-9-]+\.)?outrigger\.pages\.dev)|http:\/\/(localhost|127\.0\.0\.1)(:\d+)?)$/;
+// outrigger.music, preview (and beta, its old name, which redirects there), Pages previews
+// (<hash>.outrigger.pages.dev), and wrangler pages dev on the Mac.
+export const ORIGIN = /^(https:\/\/((preview\.|beta\.)?outrigger\.music|([a-z0-9-]+\.)?outrigger\.pages\.dev)|http:\/\/(localhost|127\.0\.0\.1)(:\d+)?)$/;
 
 export const reply = (status, data) => new Response(JSON.stringify(data), {
   status, headers: { "content-type": "application/json", "cache-control": "no-store" },

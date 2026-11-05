@@ -73,5 +73,16 @@ class SeenTest(unittest.TestCase):
             self.assertEqual((reports.seen("beta", path), reports.seen("production", path)), (4, 9))
 
 
+class ChannelArgTest(unittest.TestCase):
+    """`preview` (the channel's name) and `beta` (its database's) both pick the preview database; a stray word
+    must never fall through to production, where `new` would mark production's reports as seen."""
+    def test_preview_and_beta_pick_the_preview_database(self):
+        for word in ("preview", "beta"):
+            self.assertEqual(reports.channel_args(["new", word]), ("beta", ["new"]))
+
+    def test_no_channel_word_is_production(self):
+        self.assertEqual(reports.channel_args(["list", "5"]), ("production", ["list", "5"]))
+
+
 if __name__ == "__main__":
     unittest.main()
