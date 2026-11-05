@@ -109,7 +109,7 @@ VERSION_DIR := $(CACHE_ROOT)/version
 # screens ui-shots renders. Rewritten only when they change, like fw_version.h.
 BOARD_GEN := $(CACHE_ROOT)/boards
 
-.PHONY: check test ui-shots ui-mocks build build-all flash probe synth-bench flash-synth-bench site serve clean fixtures golden store-image flash-store store-add check-latest deploy-site rollback-site
+.PHONY: check test ui-shots ui-mocks build build-all flash recovery flash-recovery probe synth-bench flash-synth-bench site serve clean fixtures golden store-image flash-store store-add check-latest deploy-site rollback-site
 
 FM1_SRC := $(wildcard lib/fm1_loader/src/*.cpp)
 FM1_HDR := $(wildcard lib/fm1_loader/src/*.h) $(wildcard tests/support/*.h)
@@ -337,7 +337,7 @@ build:
 		--build-property "upload.maximum_size=$(APP_SLOT)" \
 		--build-property "compiler.cpp.extra_flags=-I$(VERSION_DIR) -I$(BOARD_GEN)/$(BOARD) -I$(BENCH_GEN) -DESP_USB_HOST_MAX_SERIAL_PORTS=0 $(APP_FLAGS_$(APPS)) $(WRITE_FLAGS) -DLV_CONF_INCLUDE_SIMPLE -I$(CURDIR)/firmware/config" \
 		--build-property "compiler.c.extra_flags=-DLV_CONF_INCLUDE_SIMPLE -I$(CURDIR)/firmware/config $(if $(filter synth,$(APPS)),$(SYNTH_C_FLAGS))" \
-		--library lib/midi_core --library lib/EspUsbHost --library lib/host_ui --library lib/board --library lib/platform $(APP_LIBS_$(APPS)) \
+		--library lib/midi_core --library lib/EspUsbHost --library lib/host_ui --library lib/board --library lib/platform --library lib/ota $(APP_LIBS_$(APPS)) \
 		--build-path $(CACHE_ROOT)/$(BOARD)/$(APPS)$(BUILD_SUFFIX) --output-dir $(BUILD) $(SKETCH)
 
 build-all:
@@ -345,6 +345,22 @@ build-all:
 
 flash: build
 	arduino-cli upload --fqbn $(FQBN) --input-dir $(BUILD) --port $(PORT) $(SKETCH)
+
+# The recovery app for the `recovery` slot (firmware/recovery, docs/ota-updates.md):
+# lib/ota's copy and rollback, nothing else. `make recovery` builds it;
+# `make flash-recovery` writes that slot alone over USB, so app0, NVS and the
+# store are untouched (board in download mode).
+RECOVERY_BUILD := build/$(BOARD)/recovery
+RECOVERY_OFFSET := 0x310000
+RECOVERY_SLOT := 786432
+recovery:
+	$(if $(filter $(BOARD),$(ALL_BOARDS)),,$(error BOARD=$(BOARD); known: $(ALL_BOARDS)))
+	arduino-cli compile --fqbn $(FQBN) --build-property "tools.ctags.path=$(CTAGS_DIR)" \
+		--build-property "upload.maximum_size=$(RECOVERY_SLOT)" \
+		--library lib/ota --build-path $(CACHE_ROOT)/$(BOARD)/recovery --output-dir $(RECOVERY_BUILD) firmware/recovery
+flash-recovery: recovery
+	$(firstword $(wildcard $(ESP32_CORE)/../../../tools/esptool_py/*/esptool)) --chip esp32s3 --port $(PORT) \
+		--after watchdog-reset write-flash $(RECOVERY_OFFSET) $(RECOVERY_BUILD)/recovery.ino.bin
 
 # A board profile's first check, on the board (firmware/board_probe/probe.cpp):
 # the same drivers, with the USB port left a serial device so PROBE_LOG shows

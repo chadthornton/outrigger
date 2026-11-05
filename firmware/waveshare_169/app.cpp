@@ -42,6 +42,7 @@
 #include "host_ui.h"
 #include "midi_core.h"
 #include "status.h"
+#include "update_app.h"
 #if APP_LOADER
 #include "add_firmware.h"
 #include "loader_app.h"
@@ -70,6 +71,9 @@ static Preferences prefs;
 extern "C" const platform::BuildTag kBuildTag __attribute__((section(".rodata_custom_desc"))) = {
     platform::kBuildTagMagic, platform::kBuildTagLayout, FW_DIRTY, BOARD_TAG_ID, FW_VERSION, APP_SET_LABEL};
 static bool host_running = false;
+// setup() reached Play or Computer mode, not safe mode: an update's new image
+// may confirm itself (update_app.h).
+static bool booted_ok = false;
 #if APP_LOADER && LOADER_SOAK
 static uint32_t soak_restart_at = 0;  // safe mode in a soak build: carry on after this
 #endif
@@ -611,6 +615,7 @@ static void hand_usb_to_serial_jtag() {
 
 void setup() {
   read_crumbs();
+  update_boot();
   // The board's profile: the one stored on it, else this build's (board_store.h).
   const char *board_from = board_select();
   // BOOT held 3 s soon after a start: forget it, then Computer mode.
@@ -668,6 +673,7 @@ void setup() {
     snprintf(info, sizeof info, "Firmware %s\nBoard profile: %s%s", firmware + 2, board_from,
              linked ? "" : "\nUSB serial didn't start: the installer can't reach this board");
     ui_show_computer_mode(info);
+    booted_ok = true;
     return;
   }
 #if APP_LOADER && LOADER_DIAG
@@ -679,6 +685,7 @@ void setup() {
   printf("diag: loader_begin\n");
   loader_begin(usb, {loader_owns_fm1_midi, device_refusal});
   printf("diag: loader_begin returned\n");
+  booted_ok = true;
   return;
 #endif
 #if APP_SYNTH
@@ -709,6 +716,7 @@ void setup() {
 #endif
   usb.begin();
   host_running = true;
+  booted_ok = true;
 }
 
 #if BENCH
@@ -734,6 +742,7 @@ static void probe_controllers() {
 void loop() {
   static uint32_t last_poll = 0, last_frame = 0, framed_changes = UINT32_MAX;
   static UiFrame frame;
+  update_loop(millis(), booted_ok);
 #if APP_WEB_UI
   CRUMB_LOOP("web_loop");
   web_loop(millis());

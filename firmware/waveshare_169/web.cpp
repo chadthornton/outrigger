@@ -29,6 +29,7 @@
 #include "log_ring.h"
 #include "request_guard.h"
 #include "routes.h"
+#include "update_app.h"
 #include <esp_mac.h>
 #include "bench.h"  // web_host_name in every build; the bench API only with BENCH=1
 #ifndef BENCH
@@ -405,6 +406,13 @@ static esp_err_t on_status(httpd_req_t *req) {
 #endif
         safe ? "true" : "false");
   o.raw(",\"uptime_ms\":%lu,\"published_ms_ago\":%lu", (unsigned long)millis(), (unsigned long)(millis() - at));
+  {
+    const UpdateStatus &u = update_status();
+    o.raw(",\"update\":{\"state\":\"%s\",\"result\":\"%s\",\"attempts\":%u,\"label\":", u.state, u.result,
+          unsigned(u.attempts));
+    o.str(u.label);
+    o.raw(",\"pending_verify\":%s,\"recovery\":\"%s\"}", u.pending_verify ? "true" : "false", u.recovery);
+  }
   o.raw(",\"heap\":{\"internal_free\":%u,\"internal_min\":%u,\"internal_largest\":%u,\"dma_free\":%u,"
         "\"dma_largest\":%u,\"dma_min\":%u,\"psram_free\":%u,\"psram_min\":%u}",
         heap_caps_get_free_size(MALLOC_CAP_INTERNAL), heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL),
@@ -561,6 +569,22 @@ static esp_err_t on_crash(httpd_req_t *req) {
   for (int i = 0; i < 3; ++i) {
     if (i) o.raw(",");
     o.str(last_crash[i]);
+  }
+  o.raw("],\"recovery_log\":[");
+  // The recovery app's NVS log (update_app.h), one string per line.
+  {
+    const char *log = update_recovery_log();
+    bool first_line = true;
+    while (*log) {
+      const char *nl = strchr(log, '\n');
+      const size_t n = nl ? size_t(nl - log) : strlen(log);
+      char line[100];
+      snprintf(line, sizeof line, "%.*s", int(n < sizeof line - 1 ? n : sizeof line - 1), log);
+      if (!first_line) o.raw(",");
+      first_line = false;
+      o.str(line);
+      log += n + (nl ? 1 : 0);
+    }
   }
   o.raw("],\"tail\":[");
   // Oldest first, read from RTC memory as it is now (this boot's lines too).
