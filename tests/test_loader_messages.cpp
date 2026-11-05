@@ -336,6 +336,67 @@ static void test_plan_uc25hq80() {
          "confirmed: the save note last, orange");
 }
 
+// A riskier family's first install on a unit: the Bluetooth warning, orange,
+// last, in 6 lines; the hold is the OK. A unit whose 0xE9000 may have changed:
+// the line naming it is the hold's confirmation, never cut.
+static void test_plan_riskier() {
+  UiPlan p{};
+  PlanInput in = plan_input();
+  in.preview.decision.id_risk = true;
+  describe_plan(in, p);
+  const char *risk[] = {"May change your FM-1's Bluetooth identity.", "Songs safe; phone pairings may need redoing.",
+                        "Switching back works through its backup."};
+  EXPECT(p.line_count <= kPlanLines && p.line_count >= 4, "riskier: fits");
+  for (int i = 0; i < 3; ++i)
+    EXPECT(p.line_count >= 3 && strcmp(p.lines[p.line_count - 3 + i], risk[i]) == 0, risk[i]);
+  EXPECT(p.warn_from == p.line_count - 3, "riskier: the warning is orange from its first line");
+  EXPECT(plan_has(p, "Switches from Skiff 1.4.") && plan_has(p, "Brings back Felucca's songs."), "riskier: the plan");
+  EXPECT(p.can_act, "riskier: the hold is the OK");
+  for (int i = 0; i < p.line_count; ++i) EXPECT(strlen(p.lines[i]) < sizeof p.lines[0], "riskier: no line cut");
+
+  in = plan_input();
+  in.fallback_backup = "b50";
+  describe_plan(in, p);
+  EXPECT(plan_has(p, "Same FM-1 as b50, even if its ID changed."), "fallback: names the unit");
+  EXPECT(p.warn_from < p.line_count && has(p.lines[p.warn_from], "Same FM-1 as b50"), "fallback: orange");
+
+  // Everything at once: riskier to riskier on a suspect unit, then a UC25HQ80 too.
+  in.preview.decision.id_risk = true;
+  in.preview.decision.stock_resources_warning = true;
+  describe_plan(in, p);
+  EXPECT(p.line_count == kPlanLines && plan_has(p, "Same FM-1 as b50") && plan_has(p, "Bluetooth identity"),
+         "fallback and riskier: both kept");
+  in.preview.decision.chip_risk = true;
+  in.preview.decision.chip_no_saves = true;
+  describe_plan(in, p);
+  EXPECT(p.line_count == kPlanLines && plan_has(p, "Same FM-1 as b50") && plan_has(p, "Bluetooth identity") &&
+             plan_has(p, "UC25HQ80") && plan_has(p, "taking a risk"),
+         "chip, riskier and fallback: every must-say line fits");
+}
+
+static void test_riskier_results() {
+  UiResult r = result(switch_failed(Failure::NeedsIdRiskOk));
+  EXPECT(has(r.why, "Bluetooth identity") && has(r.todo, "Open Felucca 1.6.1 again") && r.fix == UiAct::None,
+         "riskier OK: read the warning first");
+  EXPECT(r.safety == UiSafety::NothingWritten, "riskier OK: nothing written");
+  JobOutcome o = switch_failed(Failure::NeedsIdRiskOk);
+  o.chain = Chain::Install;
+  r = result(o);
+  EXPECT(has(r.why, "backed up now"), "riskier OK after the first backup");
+
+  JobOutcome b{};
+  b.kind = JobKind::Backup;
+  b.failure = Failure::UnitNotSure;
+  r = result(b);
+  EXPECT(has(r.why, "Bluetooth sector changed") && r.safety == UiSafety::NothingWritten && r.fix == UiAct::None,
+         "not sure which FM-1: nothing written, no blind retry");
+  EXPECT(has(r.todo, "beta guide"), "not sure which FM-1: where to look");
+  o = switch_failed(Failure::UnitNotSure);
+  o.chain = Chain::Backup;
+  r = result(o);
+  EXPECT(has(r.why, "Bluetooth sector changed") && r.fix == UiAct::None, "in a switch's backup too");
+}
+
 static void test_plan() {
   UiPlan p{};
   p.item = 2;
@@ -524,6 +585,8 @@ int main() {
   test_not_ready_and_unfinished();
   test_plan();
   test_plan_uc25hq80();
+  test_plan_riskier();
+  test_riskier_results();
   test_job_steps();
   test_hold_gate();
   test_backup_name();

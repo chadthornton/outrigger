@@ -9,7 +9,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { addableFirmwares, fetchHubPackage, fromMutant, loadCatalog, BoardLink, encodeFrame, FrameReader, WRITE_PIECE }
+import { addableFirmwares, fetchHubPackage, fromMutant, loadCatalog, BoardLink, encodeFrame, FrameReader, WRITE_PIECE,
+  RISKIER_LINE }
   from "../../site/installer/add.js";
 
 const root = new URL("../../", import.meta.url);
@@ -140,14 +141,17 @@ const catalog = {
 test("addableFirmwares: stock and the Hub list, most installed first, without the ones Outrigger can't take", () => {
   const { addable, held } = addableFirmwares(catalog);
   // sloopdx is built on SLOOP, but our survey cleared it by id (CLEARED): the base doesn't hold it.
-  assert.deepEqual(addable.map((f) => f.project), ["felucca", "sloopdx", "zp12", "stock"]);
-  assert.deepEqual(addable[0], { project: "felucca", name: "Felucca", version: "1.8.0", sha256: "bb", size: 610286,
-    url: "https://thefirmwarehub.com/fw/felucca-1.8.0.fwsc", installs: 2610, family: "", lic: "GPL-3.0" });
-  assert.equal(addable[3].name, "M-VAVE stock");
-  assert.equal(addable[3].version, "V15");
+  // SLOOP and Melodee are riskier (RISKIER): listed, marked.
+  assert.deepEqual(addable.map((f) => f.project), ["sloop", "felucca", "melodee", "sloopdx", "zp12", "stock"]);
+  assert.deepEqual(addable[1], { project: "felucca", name: "Felucca", version: "1.8.0", sha256: "bb", size: 610286,
+    url: "https://thefirmwarehub.com/fw/felucca-1.8.0.fwsc", installs: 2610, family: "", lic: "GPL-3.0", riskier: false });
+  assert.deepEqual(addable.filter((f) => f.riskier).map((f) => f.project), ["sloop", "melodee"]);
+  assert.equal(addable[5].name, "M-VAVE stock");
+  assert.equal(addable[5].version, "V15");
   const why = Object.fromEntries(held.map((h) => [h.project, h.why]));
-  assert.match(why.melodee, /Bluetooth/);
-  assert.match(why.sloop, /older Felucca/);
+  assert.equal(why.melodee, undefined);
+  assert.equal(why.sloop, undefined);
+  // A fork the snapshot doesn't know, built on SLOOP: nobody has read its flash map, so it's held.
   assert.match(why.newsloop, /older Felucca/);
   assert.match(why.emb, /licen[cs]e/);
   assert.match(why.amenity, /checks/);
@@ -186,7 +190,8 @@ test("fromMutant: FM-1 files only, through mutant.cloud's /dl, with the Hub's id
   // Choralroot's main file is the one named choralroot-0.29.2.fwsc (the Hub's), though its row id isn't
   // the entry; the one-core build, whose row id is the entry, gets a project of its own.
   assert.equal(addable.length, Object.keys(by).length);  // no two files share a project
-  assert.deepEqual(Object.keys(by).sort(), ["choralroot", "choralroot-choralroot-0.29.2-1core", "felucca", "fm1dock", "skiff", "stock"]);
+  assert.deepEqual(Object.keys(by).sort(), ["choralroot", "choralroot-choralroot-0.29.2-1core", "clipper", "felucca",
+    "fm1dock", "melodee", "melodee-bt", "skiff", "stock"]);
   assert.equal(by.choralroot.url, "https://mutant.cloud/dl/choralroot/choralroot-0.29.2.fwsc");
   // The entry is the project, as boards' shelves and the loader's tables know it ("skiff", not "skiff-fm-1-722").
   assert.equal(by.skiff.url, "https://mutant.cloud/dl/skiff/skiff-2.2.fwsc");
@@ -200,11 +205,18 @@ test("fromMutant: FM-1 files only, through mutant.cloud's /dl, with the Hub's id
   assert.equal(by.stock.version, "V15");
   const why = Object.fromEntries(held.map((h) => [h.project, h.why]));
   assert.match(why["orange-cat"], /Bluetooth/);  // blocked by its own id in the generated list
-  assert.match(why.clipper, /older Felucca/);
   assert.match(why.mycelium, /older Felucca/);  // the Hub says built on SLOOP too
-  // Melodee is listed as built on Felucca: its id holds it, and its other file too.
-  assert.match(why.melodee, /Bluetooth/);
-  assert.match(why["melodee-bt"], /Bluetooth/);
+  // Riskier by our survey: Clipper (built on SLOOP), Melodee (listed as built on Felucca) and its other file.
+  const risky = addableFirmwares(fromMutant(mutantCatalog, mutantFamilies)).addable.filter((f) => f.riskier);
+  assert.deepEqual(risky.map((f) => f.project).sort(), ["clipper", "melodee", "melodee-bt"]);
+  for (const p of ["clipper", "melodee", "melodee-bt"]) assert.equal(why[p], undefined);
+});
+
+test("RISKIER_LINE: the one-line consequence the page shows above the riskier ones", () => {
+  assert.match(RISKIER_LINE, /Bluetooth identity/);
+  assert.match(RISKIER_LINE, /songs are safe/i);
+  assert.match(RISKIER_LINE, /pairings/);
+  assert.match(RISKIER_LINE, /backup/);
 });
 
 test("fromMutant: without firmware.json the list still works, families blank", () => {
@@ -236,7 +248,7 @@ test("loadCatalog: the Hub when mutant.cloud fails, is slow or sends nothing", a
     const c = await loadCatalog(site({ "https://mutant.cloud/": down, [HUB_CAT]: catalog }), 50);
     assert.equal(c.from, "the Firmware Hub");
     const { addable } = addableFirmwares(c);
-    assert.equal(addable[0].url, "https://thefirmwarehub.com/fw/felucca-1.8.0.fwsc");
+    assert.equal(addable.find((f) => f.project === "felucca").url, "https://thefirmwarehub.com/fw/felucca-1.8.0.fwsc");
   }
 });
 

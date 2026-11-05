@@ -102,14 +102,30 @@ built on, `tools/fm1_lineage.json`). The board never reads a catalog, so a listi
 someone refreshes the snapshot, reviews the header's diff and ships a build. Our own survey's ids win where a
 catalog disagrees. The board refuses two kinds of firmware:
 
-- **Melodee, Tessera and firmwares built on Melodee** ("Not yet: it writes the FM-1's Bluetooth sector"). They can
-  write `0xE9000`, the sector whose hash is the unit ID. After one of their saves, the board would see a different
-  FM-1 and orphan its backups.
-- **SLOOP, firmwares built on it, and the Felucca 0.9 survey** ("Not yet: it's built on an older Felucca"). Going
-  from one of them to Felucca or Skiff could leave data that crashes them; the clean slate now erases that data.
-  What keeps SLOOP 2.4+ blocked is its fourth sample slot, `USR4` at `0xE7000–0xFAFFF`: clearing or filling it
-  erases `0xE9000`, the Melodee problem above. The same slot is in Clipper, SPAMPY, winampFM, Floyd, No Man's Sky
-  FM, Karma, SLOOP Banks 2.5 and FM-1 Quest.
+- **Firmwares built on Melodee that nobody has reviewed** ("Not yet: it writes the FM-1's Bluetooth sector").
+- **Firmwares built on SLOOP that nobody has reviewed, and the Felucca 0.9 survey's Jangada, Gator and Vector37
+  (they write outside the clean slate) and Mycelium (no source)** ("Not yet: it's built on an older Felucca").
+
+**Riskier, by family** (`riskier_ids`, generated into `kRiskierIdentity`; Chad, 2026-11-05). SLOOP 2.4+ and the
+forks with its fourth sample slot (`USR4` at `0xE7000–0xFAFFF`: Clipper, SPAMPY, winampFM, Floyd, No Man's Sky FM,
+Karma, SLOOP Banks 2.5, FM-1 Quest), Melodee and Tessera may overwrite `0xE9000`, the FM-1's Bluetooth-address
+record whose hash is the unit ID. They can't brick the FM-1: the worst case is a new Bluetooth address and lost
+phone pairings. So they install after the owner holds through a warning once per unit (`Unit::id_risk_ok`, as
+#91's UC25HQ80 OK), and the board copes when the sector changes:
+- **Validate.** `unit_record_ok`: `0xE9000` holds JieLi VM record 102, length 6, its check byte the low byte of
+  CRC-16/XMODEM of the address, then `0xFF` (Melodee `docs/BLE-HW-FACTS.md` §14.2; both of Chad's units). The unit
+  ID stays the hash of the whole sector, so no existing ID changes.
+- **Fall back, with the owner's OK.** A backup whose sector names no unit and doesn't parse falls back to the one
+  suspect unit: Outrigger put a riskier firmware on it, it runs one, or its baseline's record parsed and its latest's
+  doesn't. The plan and Backups row name it ("Same FM-1 as b50, even if its ID changed"), and the hold confirms it
+  (`InstallOptions::fallback_unit`). A non-blank confirmed sector becomes an alias of the unit. Without the OK, or
+  with two suspect units, the backup stops (`UnitNotSure`) with nothing written and no new unit. A valid record
+  Outrigger never saw stays a new FM-1, except on a suspect unit back on stock (stock writes a new address).
+- **Resume.** No one to ask in ROM boot: the unit whose unfinished install's before-backup holds this exact sector.
+- **Not done yet (Option A's restore, proposed separately):** putting the unit's own `0xE9000` back on the way
+  out. Until then a return to stock gets a new Bluetooth address. Melodee's presets at `0xE9000`, the `USR4` tail
+  past it and stock's resources (`0xEA000–0xFBFFF`) aren't saved or restored; a return to stock warns as after
+  Skiff 2.x.
 - **Cleared by our survey** (`cleared_ids` in `tools/fm1_families.json`): DX SLOOP, Salt, Hortator, MNM-1,
   Nauclerus and Hawk-Chua. Read at their catalog release tags (2026-11-04), their flash drivers erase and write only
   inside the clean slate, so they switch like any untested firmware even where a catalog says they're built on
@@ -129,7 +145,8 @@ V15 keeps resources the board can't put back. Switching to stock on a unit that 
 | A **different** catalog project with an empty shelf | **Fresh start** (the old project's data waits on its own shelf), on a clean slate unless the pair is tested |
 | A sideloaded file, or firmware no catalog entry matches | Clean slate; its shelf is its file hash |
 | Back to **stock** | Clean slate (stock saves are disabled, so nothing comes back): no pair to stock is tested yet |
-| **Melodee**, **Tessera**, **SLOOP** or their families, or the Felucca 0.9 survey, except the ids our survey cleared | Refused (above) |
+| **SLOOP**, its `USR4` forks, **Melodee** or **Tessera** | As any other project, after the riskier warning once per unit (above) |
+| Unreviewed firmwares built on SLOOP or Melodee; Jangada, Gator, Vector37, Mycelium | Refused (above) |
 
 - **No data is kept across projects at launch, not even Felucca ↔ Skiff** (Chad, 2026-10-31). A pair can
   later join an allowlist that keeps data across it, after a board test shows the data surviving both ways

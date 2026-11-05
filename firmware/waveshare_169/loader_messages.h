@@ -37,6 +37,9 @@ struct PlanInput {
   bool writes_enabled;  // FM1_LOADER_WRITES
   bool unfinished;      // an install stopped part-way: only the retry runs
   fm1_loader::InstallPreview preview;
+  // The unit's latest backup ("b50") when a backup would fall back to it
+  // (fallback_candidate): the plan says so, and the hold confirms it. "" none.
+  const char *fallback_backup = "";
 };
 void describe_plan(const PlanInput &in, UiPlan &out);
 

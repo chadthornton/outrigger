@@ -8,16 +8,17 @@ A living list. If you hit something that isn't here, email
 - **Stock V15 comes with it.** A new ESP32 gets M-VAVE stock V15 at install. Add Felucca, Skiff and others from
   the list on the homepage, which comes from [mutant.cloud](https://mutant.cloud) (or the Firmware Hub when
   mutant.cloud is down).
-- **SLOOP, and most firmwares built on it or on Felucca 0.9, are left out on purpose.** SLOOP's fourth sample slot
-  overwrites the part of the FM-1's memory Outrigger uses to tell FM-1s apart (and the FM-1's Bluetooth address),
-  the same problem as Melodee. It waits for the same fix. Six of the family (DX SLOOP, Salt, Hortator, MNM-1,
-  Nauclerus, Hawk-Chua) keep their data where Outrigger clears it, by a reading of their source (2026-11-04,
-  not yet run on an FM-1), and can be added.
+- **SLOOP, Melodee, Tessera and SLOOP's sample-slot forks are "Riskier".** These are Clipper, SPAMPY, winampFM,
+  Floyd, No Man's Sky FM, Karma, SLOOP Banks and FM-1 Quest. You can add them, but they can overwrite the FM-1's
+  Bluetooth address, the part of its memory Outrigger uses to tell FM-1s apart. See "Riskier firmwares"
+  below.
+- **Firmwares built on SLOOP or Melodee that nobody has checked are still left out,** and so are Jangada, Gator and
+  Vector37 (they write outside the part Outrigger clears) and Mycelium (no source to read). Six of the family keep
+  their data where Outrigger clears it, by a reading of their source (2026-11-04, not yet run on an FM-1), and can be
+  added: DX SLOOP, Salt, Hortator, MNM-1, Nauclerus and Hawk-Chua.
 - **Add firmwares from the Firmware Hub's list** on the homepage, up to ten in all: see
   [Adding a firmware](04a-adding-firmware.md). Files of your own (not on the Hub's list) can't be added yet, and
   there's no way to remove a firmware yet.
-- **Melodee, Tessera and the firmwares built on Melodee can't be added yet.** They write the part of the FM-1's
-  memory Outrigger uses to tell FM-1s apart.
 - **No Wi-Fi.** The Install button gives you Outrigger without Wi-Fi and without its own web page. Both are coming.
 
 ## Firmware switching
@@ -37,6 +38,29 @@ backup Outrigger takes before every switch.
 - **A factory-stock FM-1 may not be marked "running" in the firmware list after its first backup,** even though it is.
   Harmless; the fix is coming.
 - What can go wrong during a switch, and what to do, is on [Switching FM-1 firmware](04-switching-firmware.md).
+
+## Riskier firmwares
+
+**This firmware may change your FM-1's Bluetooth identity. Your songs are safe, but phone pairings may need redoing,
+and switching back works through Outrigger's backup.** That's the warning Outrigger shows the first time you put one
+of these on each FM-1. You hold through it once.
+
+- **Why.** SLOOP 2.4 and later keep a fourth sample slot that runs over the FM-1's Bluetooth address. Clearing that
+  slot, or loading a long sample into it, erases the address. Melodee and Tessera save presets there. Nothing
+  breaks the FM-1, but the address is gone.
+- **Switching back.** Outrigger can't recognise the FM-1 by that address any more. Instead it uses the FM-1 it last
+  put the firmware on: the switch page says "Same FM-1 as b50, even if its ID changed" (the number is that FM-1's
+  latest backup), and your hold confirms it. If you have two FM-1s both in this state, Outrigger can't tell them
+  apart and stops before writing anything. Plug in one, and email us.
+- **Not put back yet, on the way out:**
+  - **The Bluetooth address.** Back on stock, the FM-1 makes up a new one, so pair your phone or computer again.
+    Outrigger still knows it's the same FM-1, as long as you switch back with Outrigger.
+  - **Melodee's presets stored over the address.** They're in the backup, not on Melodee's shelf.
+  - **The part of a long SLOOP sample past the address.**
+  - **Stock's factory resources,** which those samples and Melodee's projects can overwrite, as with Skiff. Ask us
+    before switching one of these FM-1s back to stock.
+- **Not tried on an FM-1 yet.** This was built and tested against a simulated FM-1 while we were away from the
+  bench. Tell us how it goes.
 
 ## Setup
 
