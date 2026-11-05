@@ -7,6 +7,8 @@
 
 #include <algorithm>
 
+#include "app_scan.h"
+
 namespace fm1_loader {
 
 namespace {
@@ -298,6 +300,27 @@ Firmware Library::identify_app(const std::vector<Hash> &app) {
   }
   fw.app_sha256 = s.finish();
   return fw;
+}
+
+bool Library::recognise_stock(const std::vector<Hash> &app, std::string &identity, std::string &package_id) {
+  identity.clear();
+  package_id.clear();
+  StockScan scan;
+  std::vector<uint8_t> buf(kSector);
+  for (const Hash &h : app) {
+    if (!sectors_.get(h, buf.data())) return false;
+    scan.feed(buf.data(), buf.size());
+  }
+  identity = scan.identity();
+  if (identity.empty()) return false;
+  // The catalog's stock package wins over a sideloaded copy of the same build.
+  for (const std::string &id : package_ids()) {
+    PackageInfo p;
+    if (package(id, p) && p.identity == identity && p.family == Family::Stock &&
+        (package_id.empty() || p.project == "stock"))
+      package_id = id;
+  }
+  return true;
 }
 
 bool Library::unit(const std::string &id, Unit &out) {

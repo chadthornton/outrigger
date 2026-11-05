@@ -141,6 +141,11 @@ class Library {
   bool set_pinned(const std::string &id, bool pinned);
   // What an app area with these sector hashes is (identity empty if unknown).
   Firmware identify_app(const std::vector<Hash> &app);
+  // When identify_app() knows no package: true if the app reads as an M-VAVE
+  // stock build (app_scan.h), with its identity and the stored stock package of
+  // that identity ("" when none). Only for saying what runs: no package holds
+  // these exact bytes, so installs and backups still treat the app as unknown.
+  bool recognise_stock(const std::vector<Hash> &app, std::string &identity, std::string &package_id);
 
   bool unit(const std::string &id, Unit &out);
   bool put_unit(const Unit &u);  // writes and syncs

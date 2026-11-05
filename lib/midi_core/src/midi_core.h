@@ -28,6 +28,11 @@ void note_name(uint8_t note, char out[5]);
 enum class Role { Controller, Target };
 Role device_role(uint16_t vid, uint16_t pid);
 
+// Whether the Loader may send this FM-1 the ROM-boot key. Only firmwares the
+// key has been tried on: M-VAVE's Open firmware (3654:7756) plays through the
+// Router, but nobody has checked the key on it, so the Loader leaves it alone.
+bool can_switch_firmware(uint16_t vid, uint16_t pid);
+
 // Decides whether a message from a controller goes to the target and, if so,
 // writes the 4-byte USB-MIDI packet to send (cable 0). Only channel voice
 // messages (0x80-0xEF) from the controller's first cable pass, and only when

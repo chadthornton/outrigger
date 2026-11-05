@@ -20,6 +20,7 @@ enum class KeyStop : uint8_t {
   AlreadyInRom,  // a ROM device was already on the hub
   NoFm1,         // no FM-1 MIDI device on the hub
   NotReady,      // the FM-1 or the broker wasn't ready for the key
+  Unsupported,   // an FM-1 the key hasn't been tried on (M-VAVE Open firmware)
   Answer,        // the identity handshake: see KeyResult
 };
 
