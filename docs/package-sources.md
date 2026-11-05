@@ -84,7 +84,14 @@ catalog disagrees. The board refuses two kinds of firmware:
   write `0xE9000`, the sector whose hash is the unit ID. After one of their saves, the board would see a different
   FM-1 and orphan its backups.
 - **SLOOP, firmwares built on it, and the Felucca 0.9 survey** ("Not yet: it's built on an older Felucca"). Going
-  from one of them to Felucca or Skiff can leave data that crashes them.
+  from one of them to Felucca or Skiff could leave data that crashes them; the clean slate now erases that data.
+  What keeps SLOOP 2.4+ blocked is its fourth sample slot, `USR4` at `0xE7000–0xFAFFF`: clearing or filling it
+  erases `0xE9000`, the Melodee problem above. The same slot is in Clipper, SPAMPY, winampFM, Floyd, No Man's Sky
+  FM, Karma, SLOOP Banks 2.5 and FM-1 Quest.
+- **Cleared by our survey** (`cleared_ids` in `tools/fm1_families.json`): DX SLOOP, Salt, Hortator, MNM-1,
+  Nauclerus and Hawk-Chua. Read at their catalog release tags (2026-11-04), their flash drivers erase and write only
+  inside the clean slate, so they switch like any untested firmware even where a catalog says they're built on
+  SLOOP. A new release of one needs its flash map read again.
 
 Switching away from a blocked firmware works. A firmware's other files (a Bluetooth build, a one-core build) are
 blocked with it. A sideloaded copy (no catalog project) isn't caught: an accepted gap.
@@ -100,7 +107,7 @@ V15 keeps resources the board can't put back. Switching to stock on a unit that 
 | A **different** catalog project with an empty shelf | **Fresh start** (the old project's data waits on its own shelf), on a clean slate unless the pair is tested |
 | A sideloaded file, or firmware no catalog entry matches | Clean slate; its shelf is its file hash |
 | Back to **stock** | Clean slate (stock saves are disabled, so nothing comes back): no pair to stock is tested yet |
-| **Melodee**, **Tessera**, **SLOOP** or their families, or the Felucca 0.9 survey | Refused (above) |
+| **Melodee**, **Tessera**, **SLOOP** or their families, or the Felucca 0.9 survey, except the ids our survey cleared | Refused (above) |
 
 - **No data is kept across projects at launch, not even Felucca ↔ Skiff** (Chad, 2026-10-31). A pair can
   later join an allowlist that keeps data across it, after a board test shows the data surviving both ways

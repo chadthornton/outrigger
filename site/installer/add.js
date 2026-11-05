@@ -7,7 +7,7 @@
 // never hosts a firmware. Pure, so `make test` runs it against the board's own
 // receiver (tests/installer/add.test.mjs).
 import { crc16, parsePackage, sha256Hex } from "./store.js";
-import { BLOCKED, HUB_ID } from "./families_gen.js";
+import { BLOCKED, CLEARED, HUB_ID } from "./families_gen.js";
 
 export const HUB = "https://thefirmwarehub.com/";
 export const CATALOG_URL = `${HUB}catalog.json`;
@@ -27,7 +27,8 @@ const DOWNLOAD_TIMEOUT_MS = 30000;
 // firmwares built on Melodee write the FM-1's Bluetooth sector, whose hash is
 // how Outrigger tells FM-1s apart; SLOOP, firmwares built on it and our
 // Felucca 0.9 survey (fw-map-bench.md) can leave data that crashes Felucca or
-// Skiff. A firmware whose catalog "base" names one of these is held too.
+// Skiff. A firmware whose catalog "base" names one of these is held too, unless
+// our survey cleared it by id (CLEARED: its flash map stays inside the clean slate).
 // Firmwares added to a catalog since the snapshot aren't classified: they're
 // listed, and switch with a clean slate like every untested switch.
 
@@ -55,7 +56,8 @@ export function addableFirmwares(catalog) {
     // A variant file (fromMutant) answers for its entry too; built on a blocked
     // firmware (SLOOP and Melodee are in the list themselves): held with it.
     const own = [e.id, e.entry || e.id].map((i) => BLOCKED[i]).find(Boolean);
-    const block = own || base.map((b) => BLOCKED[b]).find(Boolean);
+    const cleared = [e.id, e.entry].some((i) => CLEARED.includes(i));
+    const block = own || (cleared ? null : base.map((b) => BLOCKED[b]).find(Boolean));
     const why = block === "bluetooth" ? (own ? WHY_BLOCKED : WHY_MELODEE)
       : block ? WHY_OLD
         : [e.id, e.entry].some((i) => FAILS_CHECKS.includes(i)) ? WHY_CHECKS : !e.lic ? WHY_LICENSE : null;

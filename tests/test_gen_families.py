@@ -30,10 +30,30 @@ class BlockTest(unittest.TestCase):
 
     def test_built_on_a_blocked_firmware_through_any_depth(self):
         b = self.blocked({"orange-cat": "melodee", "kitten": "orange-cat", "tribe": "x0x", "x0x": "felucca",
-                          "deep": "hortator"})
+                          "deep": "clipper"})
         self.assertEqual(b["kitten"], "bluetooth")
         self.assertEqual(b["deep"], "old-felucca")
         self.assertNotIn("tribe", b)
+
+    def test_a_cleared_id_beats_a_blocked_base(self):
+        # Our survey read their flash maps: SLOOP and Felucca 0.9 forks that write only inside the clean slate.
+        b = self.blocked({"sloopdx": "sloop", "hortator": "felucca", "mnm1": "hortator", "newfork": "hortator"},
+                         {"mnm1": ["hortator"]}, {"hortator-fm-1-900": "hortator"})
+        for i in ("sloopdx", "hortator", "mnm1", "newfork", "hortator-fm-1-900"):
+            self.assertNotIn(i, b)
+
+    def test_the_survey_sorts_the_snapshot(self):
+        b = g.blocked_projects(FAM, g.load(g.LINEAGE))
+        for i in ("sloopdx", "salt", "hortator", "mnm1", "nauclerus", "hawkchua"):
+            self.assertNotIn(i, b)
+        # SLOOP's sample slot USR4 (0xE7000-0xFAFFF) crosses 0xE9000; sloopbanks 2.5 and fm1quest 43 have it too.
+        for i in ("sloop", "clipper", "sloopbanks", "fm1quest", "jangada", "vector37", "gator", "mycelium"):
+            self.assertIn(i, b)
+
+    def test_an_id_cant_be_both_cleared_and_blocked(self):
+        fam = dict(FAM, cleared_ids=dict(FAM["cleared_ids"], sloop="no"))
+        with self.assertRaises(ValueError):
+            g.blocked_projects(fam, {"mutant": {}, "hub": {}, "variants": {}})
 
     def test_a_blocked_firmwares_other_files_are_blocked_too(self):
         b = self.blocked({"tessera": "melodee", "ctl": None}, variants={"tessera-fm-1-83773022": "tessera",
@@ -56,6 +76,7 @@ class BlockTest(unittest.TestCase):
         for project in ("sloop", "orbit", "mycelium", "tessera-fm-1-83773022"):
             self.assertIn(f'"{project}"', src)
         self.assertIn('"b1-drawbar-organ": "b1"', src)
+        self.assertRegex(src, r'CLEARED = \[[^\]]*"sloopdx"')
 
     def test_loops_and_unknown_bases_end(self):
         bases = {"fomni": ["fomni"], "a": ["b"], "b": ["a"], "new": ["brandnew"]}

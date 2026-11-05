@@ -130,6 +130,7 @@ const catalog = {
     { id: "melodee", name: "Melodee", version: "1.6.0-rc.7", pkg: "fw/melodee.fwsc", sha256: "dd", size: 1, lic: "GPL-3.0", installs: 1829, base: [] },
     { id: "sloop", name: "SLOOP", version: "2.8.4", pkg: "fw/sloop-2.8.4.fwsc", sha256: "ee", size: 1, lic: "GPL-3.0", installs: 6854, base: [] },
     { id: "newsloop", name: "New on SLOOP", version: "0.1", pkg: "fw/newsloop-0.1.fwsc", sha256: "ff", size: 1, lic: "GPL-3.0", installs: 1, base: ["sloop"] },
+    { id: "sloopdx", name: "DX SLOOP", version: "4.0.1", pkg: "fw/sloopdx-4.0.1.fwsc", sha256: "dx", size: 1, lic: "GPL-3.0", installs: 416, base: ["sloop"] },
     { id: "emb", name: "emb", version: "1", pkg: "fw/emb-1.fwsc", sha256: "11", size: 1, lic: null, installs: 5, base: [] },
     { id: "amenity", name: "Amenity", version: "1.0.0", pkg: "fw/amenity-1.0.0.fwsc", sha256: "22", size: 1, lic: "GPL-3.0", installs: 9, base: [] },
     { id: "nopkg", name: "No file", version: "1", pkg: null, sha256: null, size: 0, lic: "MIT", installs: 1, base: [] },
@@ -138,11 +139,12 @@ const catalog = {
 
 test("addableFirmwares: stock and the Hub list, most installed first, without the ones Outrigger can't take", () => {
   const { addable, held } = addableFirmwares(catalog);
-  assert.deepEqual(addable.map((f) => f.project), ["felucca", "zp12", "stock"]);
+  // sloopdx is built on SLOOP, but our survey cleared it by id (CLEARED): the base doesn't hold it.
+  assert.deepEqual(addable.map((f) => f.project), ["felucca", "sloopdx", "zp12", "stock"]);
   assert.deepEqual(addable[0], { project: "felucca", name: "Felucca", version: "1.8.0", sha256: "bb", size: 610286,
     url: "https://thefirmwarehub.com/fw/felucca-1.8.0.fwsc", installs: 2610, family: "", lic: "GPL-3.0" });
-  assert.equal(addable[2].name, "M-VAVE stock");
-  assert.equal(addable[2].version, "V15");
+  assert.equal(addable[3].name, "M-VAVE stock");
+  assert.equal(addable[3].version, "V15");
   const why = Object.fromEntries(held.map((h) => [h.project, h.why]));
   assert.match(why.melodee, /Bluetooth/);
   assert.match(why.sloop, /older Felucca/);

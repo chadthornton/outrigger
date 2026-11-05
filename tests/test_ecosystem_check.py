@@ -61,9 +61,14 @@ class FamilyTest(unittest.TestCase):
 
     def test_our_ids_beat_what_mutant_cloud_says(self):
         # Melodee and the Felucca 0.9 survey are listed as built on Felucca.
-        self.assertEqual(ec.group_of("melodee", ENTRIES, FAM), "blocked")
-        self.assertEqual(ec.group_of("hortator", ENTRIES, FAM), "blocked")
-        self.assertEqual(ec.group_of("mnm1", ENTRIES, FAM), "blocked")
+        entries = dict(ENTRIES, jangada={"id": "jangada", "base": "felucca"},
+                       sloopdx={"id": "sloopdx", "base": "sloop"})
+        self.assertEqual(ec.group_of("melodee", entries, FAM), "blocked")
+        self.assertEqual(ec.group_of("jangada", entries, FAM), "blocked")
+        # Cleared by the survey: a clean slate, whatever their base, and so are firmwares built on them.
+        self.assertEqual(ec.group_of("hortator", entries, FAM), "clean")
+        self.assertEqual(ec.group_of("mnm1", entries, FAM), "clean")
+        self.assertEqual(ec.group_of("sloopdx", entries, FAM), "clean")
 
     def test_a_block_from_the_hubs_base_counts_too(self):
         hub = {"firmwares": [{"id": "mycelium", "base": ["felucca", "sloop"]}]}
