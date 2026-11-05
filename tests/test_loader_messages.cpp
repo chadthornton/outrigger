@@ -120,22 +120,17 @@ static void test_nothing_written_rows() {
   r = result(retry);
   EXPECT(!has(r.why, "key") && !has(r.todo, "off and on") && r.fix == UiAct::Retry, "a retry sends no key");
 
-  r = result(switch_failed(Failure::UnsupportedFlash));
-  EXPECT(strcmp(r.why, "This FM-1 has a different flash chip (UC25HQ80).") == 0, "UC25HQ80: names the chip");
-  EXPECT(strcmp(r.todo, "Outrigger doesn't support it yet.") == 0, "UC25HQ80: not yet");
-  EXPECT(r.safety == UiSafety::NothingWritten && r.fix == UiAct::None, "UC25HQ80: nothing written, no retry");
-  JobOutcome uc{};
-  uc.kind = JobKind::Backup;
-  uc.failure = Failure::UnsupportedFlash;
+  // A UC25HQ80 unit whose owner hasn't taken the risk yet: open the plan, read
+  // the warning, hold. Directly, and after the backup a first switch runs.
+  r = result(switch_failed(Failure::NeedsChipRiskOk));
+  EXPECT(strcmp(r.why, "This FM-1 has a newer flash chip (UC25HQ80).") == 0, "UC25HQ80 OK: names the chip");
+  EXPECT(has(r.todo, "Open Felucca 1.6.1 again") && r.fix == UiAct::None, "UC25HQ80 OK: read the warning first");
+  EXPECT(r.safety == UiSafety::NothingWritten, "UC25HQ80 OK: nothing written");
+  JobOutcome uc = switch_failed(Failure::NeedsChipRiskOk);
+  uc.chain = Chain::Install;
   r = result(uc);
-  EXPECT(strcmp(r.headline, "Backup didn't finish") == 0 && has(r.why, "UC25HQ80") && r.fix == UiAct::None,
-         "UC25HQ80: a backup says the same");
-  uc.chain = Chain::Backup;  // a first switch backs up first: the path every UC25HQ80 unit takes
-  uc.firmware = "Felucca 1.6.1";
-  r = result(uc);
-  EXPECT(strcmp(r.headline, "Switch didn't start") == 0, "UC25HQ80 in a switch's backup: the switch didn't start");
-  EXPECT(strcmp(r.why, "This FM-1 has a different flash chip (UC25HQ80).") == 0 && r.fix == UiAct::None,
-         "UC25HQ80 in a switch's backup: the chip named in full, no retry");
+  EXPECT(has(r.why, "backed up now") && has(r.todo, "Open Felucca 1.6.1 again") && r.fix == UiAct::None,
+         "UC25HQ80 OK after the first backup: look first");
 
   r = result(switch_failed(Failure::IdentityMismatch));
   EXPECT(has(r.why, "Chip key") && strcmp(r.todo, "Try again.") == 0, "anything else: failure_text, try again");
@@ -290,6 +285,40 @@ static bool plan_has(const UiPlan &p, const char *part) {
   for (int i = 0; i < p.line_count; ++i)
     if (has(p.lines[i], part)) return true;
   return false;
+}
+
+// The UC25HQ80's first switch: its data line, then the risk, all of it orange
+// from the chip on, in 6 lines. Afterwards only the save note stays.
+static void test_plan_uc25hq80() {
+  UiPlan p{};
+  PlanInput in = plan_input();
+  in.preview.decision.chip_risk = true;
+  describe_plan(in, p);
+  const char *want[] = {"Brings back Felucca's songs.", "This FM-1 has a newer flash chip (UC25HQ80).",
+                        "Installs may fail or not save your songs.", "Untested by Outrigger: you're taking a risk."};
+  EXPECT(p.line_count == 4 && p.warn_from == 1, "risk: 4 lines, warnings from the chip on");
+  for (int i = 0; i < 4 && i < p.line_count; ++i) EXPECT(strcmp(p.lines[i], want[i]) == 0, want[i]);
+  EXPECT(p.can_act, "risk: the hold is the OK");
+
+  in.preview.decision.chip_no_saves = true;
+  describe_plan(in, p);
+  EXPECT(p.line_count == 5 && strcmp(p.lines[3], "Felucca 1.6.1 may not save on this FM-1.") == 0 &&
+             strcmp(p.lines[4], "Untested by Outrigger: you're taking a risk.") == 0,
+         "risk and no saves: 5 lines, the note before the risk");
+
+  in.preview.decision.stock_resources_warning = true;  // the most a plan can say
+  describe_plan(in, p);
+  EXPECT(p.line_count == 6 && plan_has(p, "lose stock resources") && plan_has(p, "taking a risk") &&
+             plan_has(p, "may not save on this FM-1"),
+         "every warning fits");
+
+  in = plan_input();
+  in.preview.decision.chip_no_saves = true;  // confirmed before: the normal plan, plus the note
+  describe_plan(in, p);
+  EXPECT(strcmp(p.lines[0], "Switches from Skiff 1.4.") == 0 && !plan_has(p, "taking a risk"), "confirmed: normal plan");
+  EXPECT(p.line_count <= kPlanLines && strcmp(p.lines[p.line_count - 1], "Felucca 1.6.1 may not save on this FM-1.") == 0 &&
+             p.warn_from == p.line_count - 1,
+         "confirmed: the save note last, orange");
 }
 
 static void test_plan() {
@@ -472,6 +501,7 @@ int main() {
   test_retry_and_success();
   test_not_ready_and_unfinished();
   test_plan();
+  test_plan_uc25hq80();
   test_job_steps();
   test_hold_gate();
   test_backup_name();

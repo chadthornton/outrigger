@@ -2,6 +2,7 @@
 
 #include "families_gen.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 
 #include <algorithm>
@@ -41,6 +42,45 @@ bool key_safe(const std::string &id) {
           c == '-' || c == '_' || c == '.'))
       return false;
   return true;
+}
+
+namespace {
+
+// "1.8.2-beta" -> {1, 8, 2} and "beta"; a leading "v" is dropped.
+void split_version(const std::string &v, std::vector<unsigned long> &nums, std::string &pre) {
+  size_t i = !v.empty() && (v[0] == 'v' || v[0] == 'V') ? 1 : 0;
+  while (i < v.size() && v[i] >= '0' && v[i] <= '9') {
+    char *end;
+    nums.push_back(strtoul(v.c_str() + i, &end, 10));
+    i = size_t(end - v.c_str());
+    if (i < v.size() && v[i] == '.') ++i;
+    else break;
+  }
+  pre = i < v.size() && v[i] == '-' ? v.substr(i + 1) : std::string();
+}
+
+// a >= b, semver-style: numbers first (missing ones are 0), then a release
+// beats its pre-releases, which compare as text.
+bool version_at_least(const std::string &a, const std::string &b) {
+  std::vector<unsigned long> na, nb;
+  std::string pa, pb;
+  split_version(a, na, pa);
+  split_version(b, nb, pb);
+  if (na.empty()) return false;
+  for (size_t i = 0; i < na.size() || i < nb.size(); ++i) {
+    const unsigned long x = i < na.size() ? na[i] : 0, y = i < nb.size() ? nb[i] : 0;
+    if (x != y) return x > y;
+  }
+  if (pa.empty() || pb.empty()) return pa.empty();
+  return pa >= pb;
+}
+
+}  // namespace
+
+bool saves_on_uc25hq80(const std::string &project, const std::string &version) {
+  for (const families::ChipSaves &c : families::kUc25hq80Saves)
+    if (project == c.project) return !c.since[0] || version_at_least(version, c.since);
+  return false;
 }
 
 std::string unit_id_of(const uint8_t *sector) {
@@ -256,6 +296,8 @@ bool Library::unit(const std::string &id, Unit &out) {
     out.pending.clean_slate = m.get("pending_clean") == "1";
     out.pending.before_backup = m.get("pending_backup");
   }
+  out.flash_id = uint32_t(strtoul(m.get("flash").c_str(), nullptr, 16));
+  out.chip_risk_ok = m.get("chip_ok") == "1";
   return true;
 }
 
@@ -274,6 +316,12 @@ bool Library::put_unit(const Unit &u) {
     if (u.pending.clean_slate) m.fields["pending_clean"] = "1";
     m.fields["pending_backup"] = u.pending.before_backup;
   }
+  if (u.flash_id) {
+    char id[12];
+    snprintf(id, sizeof id, "%06x", unsigned(u.flash_id));
+    m.fields["flash"] = id;
+  }
+  if (u.chip_risk_ok) m.fields["chip_ok"] = "1";
   // Empty values would serialize as "key " and parse back as empty: drop them.
   for (auto it = m.fields.begin(); it != m.fields.end();)
     it = it->second.empty() ? m.fields.erase(it) : std::next(it);
@@ -357,6 +405,10 @@ InstallPreview preview_install(Library &lib, const std::string &unit_id, const s
   std::vector<Hash> app(flash.begin() + kAppStart / kSector, flash.begin() + kAppEnd / kSector);
   p.current = lib.identify_app(app);
   p.decision = decide_data(unit_id, p.current, target, lib.saves_of(unit_id));
+  if (u.flash_id == kFlashIdUc25hq80) {
+    p.decision.chip_risk = !u.chip_risk_ok;
+    p.decision.chip_no_saves = !saves_on_uc25hq80(target.project, target.version);
+  }
   if (p.decision.blocked) {
     p.problem = p.decision.blocked;
     return p;

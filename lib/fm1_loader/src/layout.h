@@ -30,7 +30,9 @@ constexpr uint32_t kKeyMacStart = 0xFF000;     // erased at the factory, never w
 
 constexpr uint32_t kChipKey = 0x980F;
 constexpr uint32_t kFlashId = 0x856014;
-// The UC25HQ80 some FM-1s ship with: named on screen, never read or written yet.
+// The UC25HQ80 newer FM-1s ship with: the same commands as the FM-1's own flash
+// (both datasheets), untested by Outrigger, so the owner takes the risk once
+// per unit (InstallOptions::chip_risk_ok).
 constexpr uint32_t kFlashIdUc25hq80 = 0xB36014;
 
 struct Range {
