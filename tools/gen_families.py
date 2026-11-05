@@ -39,6 +39,13 @@ def load(path):
     return json.loads(Path(path).read_text())
 
 
+def check_table(fam):
+    """The reviewed table is consistent: no id both cleared and blocked."""
+    both = sorted(set(fam["cleared_ids"]) & set(fam["blocked_ids"]))
+    if both:
+        raise ValueError("both cleared and blocked: " + ", ".join(both))
+
+
 def category(entry_id, bases, fam):
     """bluetooth, old-felucca, keep, clean or unknown for a firmware, following
     "built on" through firmwares that are bases themselves (Tribe -> X0X -> Felucca).
@@ -87,9 +94,7 @@ def lineage_bases(lineage):
 def blocked_projects(fam, lineage):
     """{project: reason} for every project id a firmware can reach the board under:
     the catalogs' ids and mutant.cloud's per-file row ids of a blocked firmware."""
-    both = sorted(set(fam["cleared_ids"]) & set(fam["blocked_ids"]))
-    if both:
-        raise ValueError("both cleared and blocked: " + ", ".join(both))
+    check_table(fam)
     bases = lineage_bases(lineage)
     out = {i: fam["blocked_ids"][i] for i in fam["blocked_ids"]}
     for i in bases:

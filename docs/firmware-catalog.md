@@ -72,7 +72,8 @@ list (`lib/fm1_loader/src/families_gen.h`, generated with the page's `site/insta
   clean slate answers that now; SLOOP 2.4+ and the forks with its fourth sample slot (`0xE7000–0xFAFFF`) stay blocked
   because the slot erases `0xE9000`, Melodee's problem.
 - **Cleared by id:** six of that family write only inside the clean slate (read at their release tags, 2026-11-04),
-  so `cleared_ids` lets them through whatever their base says. A new release needs its flash map read again.
+  so `cleared_ids` lets them through whatever their base says. Each is cleared for the release tag we read; the daily
+  check flags a newer one.
 
 ## The daily ecosystem check
 
@@ -96,7 +97,8 @@ Actions tab. It needs no Claude session and no Mac, and it uses only the default
    - a broken link;
    - a newly missing file;
    - a family the table doesn't know;
-   - a listing renamed on mutant.cloud.
+   - a listing renamed on mutant.cloud;
+   - a new release of a firmware in `cleared_ids` (read its flash map again, or move it back to `blocked_ids`).
 
 What to do with what it reports:
 

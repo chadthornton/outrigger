@@ -85,6 +85,21 @@ class FamilyTest(unittest.TestCase):
         _, _, attention = ec.build_report([], [], {}, FAM, state, "2026-11-05", stale=stale)
         self.assertFalse(attention)  # said once
 
+    def test_a_cleared_firmwares_new_release_is_flagged(self):
+        # cleared_ids holds for the release whose flash map we read: a newer one
+        # (sloopbanks 2.3 -> 2.5 took SLOOP's USR4 slot) needs reading again.
+        read = FAM["cleared_ids"]["sloopdx"]["version"]
+        entries = {"sloopdx": {"id": "sloopdx", "base": "sloop", "release": {"version": "v9.9"}},
+                   "hortator": {"id": "hortator", "release": {"version": FAM["cleared_ids"]["hortator"]["version"]}},
+                   "salt": {"id": "salt"}}  # no release listed: nothing to compare
+        moved = ec.cleared_moved(FAM, entries)
+        self.assertEqual(moved, [f"sloopdx {read} -> v9.9"])
+        body, state, attention = ec.build_report([], [], {}, FAM, {"seen": ["z"]}, "2026-11-04", moved=moved)
+        self.assertTrue(attention)
+        self.assertIn("New release of a cleared firmware:** sloopdx", body)
+        _, _, attention = ec.build_report([], [], {}, FAM, state, "2026-11-05", moved=moved)
+        self.assertFalse(attention)  # said once
+
 
 class LinkTest(unittest.TestCase):
     def test_the_links_are_the_installers_pins(self):

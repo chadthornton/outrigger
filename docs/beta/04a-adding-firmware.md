@@ -39,7 +39,8 @@ The page lists these under **Not on the list yet**, with the reason:
 - **Melodee, Tessera and the firmwares built on Melodee.** They write the part of the FM-1's memory Outrigger uses to tell FM-1s apart.
 - **SLOOP and most firmwares built on it or on Felucca 0.9** (Clipper and others). SLOOP's fourth sample slot
   overwrites the same part of the FM-1's memory as Melodee. DX SLOOP, Salt, Hortator, MNM-1, Nauclerus and Hawk-Chua
-  are on the list: they keep everything where Outrigger clears it on a switch.
+  are on the list: by a reading of their source (not yet run on an FM-1), they keep everything where Outrigger
+  clears it on a switch.
 - **Firmwares without a license**, and one whose file doesn't pass Outrigger's checks.
 - **Files of your own** (an author's test build, V16, a firmware the Hub doesn't list). Only the Hub's list for now;
   your own files come later, behind a setting.

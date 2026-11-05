@@ -91,7 +91,7 @@ catalog disagrees. The board refuses two kinds of firmware:
 - **Cleared by our survey** (`cleared_ids` in `tools/fm1_families.json`): DX SLOOP, Salt, Hortator, MNM-1,
   Nauclerus and Hawk-Chua. Read at their catalog release tags (2026-11-04), their flash drivers erase and write only
   inside the clean slate, so they switch like any untested firmware even where a catalog says they're built on
-  SLOOP. A new release of one needs its flash map read again.
+  SLOOP. The daily ecosystem check flags a release newer than the one read.
 
 Switching away from a blocked firmware works. A firmware's other files (a Bluetooth build, a one-core build) are
 blocked with it. A sideloaded copy (no catalog project) isn't caught: an accepted gap.

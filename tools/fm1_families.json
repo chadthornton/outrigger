@@ -1,5 +1,5 @@
 {
-  "about": "How Outrigger treats each FM-1 firmware family, keyed by mutant.cloud firmware.json's `base`. Reviewed by hand: a listing's base is self-serve on mutant.cloud, so blocked_ids here override it. cleared_ids: Felucca 0.9 and SLOOP forks whose flash driver, read at the listed release tag, erases and writes only inside the clean slate (0x94000-0xE8FFF, 0xFC000-0xFEFFF); they beat a blocked base, and firmwares built on them are not blocked by them. A new release of one needs its map read again. tools/gen_families.py turns this and tools/fm1_lineage.json into the loader's lib/fm1_loader/src/families_gen.h and the Add firmware page's site/installer/families_gen.js. hub_ids: mutant.cloud entries the Hub (and boards' shelves) know by another id, matched by repo. docs/firmware-catalog.md explains the groups.",
+  "about": "How Outrigger treats each FM-1 firmware family, keyed by mutant.cloud firmware.json's `base`. Reviewed by hand: a listing's base is self-serve on mutant.cloud, so blocked_ids here override it. cleared_ids: Felucca 0.9 and SLOOP forks whose flash driver, read at the listed release tag, erases and writes only inside the clean slate (0x94000-0xE8FFF, 0xFC000-0xFEFFF); version is the release tag whose source was read; they beat a blocked base, and firmwares built on them are not blocked by them. The daily ecosystem check flags a newer release, whose map needs reading again (or the id moves back to blocked_ids). tools/gen_families.py turns this and tools/fm1_lineage.json into the loader's lib/fm1_loader/src/families_gen.h and the Add firmware page's site/installer/families_gen.js. hub_ids: mutant.cloud entries the Hub (and boards' shelves) know by another id, matched by repo. docs/firmware-catalog.md explains the groups.",
   "keep": [
     "felucca"
   ],
@@ -31,21 +31,17 @@
     "mycelium": "old-felucca"
   },
   "cleared_ids": {
-    "sloopdx": "v4.0.1: writes only 0x97000-0xDFFFF, 0xE0000-0xE4FFF, 0xFC000-0xFEFFF",
-    "salt": "v0.9-salt14: writes only 0x97000-0xDFFFF, 0xE0000-0xE4FFF, 0xFC000-0xFEFFF",
-    "hortator": "drum-v1.0.1: writes only 0x97000-0xDFFFF, 0xE0000-0xE4FFF, 0xFC000-0xFEFFF; its Bluetooth never writes the radio's sector",
-    "mnm1": "v1.0.1: as Hortator",
-    "nauclerus": "v0.25.0: as Hortator",
-    "hawkchua": "v1.7: writes only 0x97000-0xDFFFF, 0xE0000-0xE7FFF, 0xFC000-0xFEFFF"
+    "sloopdx": {"version": "v4.0.1", "why": "writes only 0x97000-0xDFFFF, 0xE0000-0xE4FFF, 0xFC000-0xFEFFF"},
+    "salt": {"version": "v0.9-salt14", "why": "writes only 0x97000-0xDFFFF, 0xE0000-0xE4FFF, 0xFC000-0xFEFFF"},
+    "hortator": {"version": "drum-v1.0.1", "why": "writes only 0x97000-0xDFFFF, 0xE0000-0xE4FFF, 0xFC000-0xFEFFF; its Bluetooth stores pairings at 0x9F000/0xFE000 and never writes the radio's sector"},
+    "mnm1": {"version": "v1.0.1", "why": "as Hortator"},
+    "nauclerus": {"version": "v0.25.0", "why": "as Hortator"},
+    "hawkchua": {"version": "v1.7", "why": "writes only 0x97000-0xDFFFF, 0xE0000-0xE7FFF, 0xFC000-0xFEFFF"}
   },
   "mutant_says": {
     "melodee": "listed as built on Felucca",
     "jangada": "mutant.cloud says Felucca",
-    "hortator": "mutant.cloud says Felucca",
-    "mnm1": "via Hortator",
-    "salt": "mutant.cloud says Felucca",
     "vector37": "mutant.cloud says its own code",
-    "nauclerus": "via Hortator",
     "gator": "mutant.cloud says its own code",
     "mycelium": "the Hub says Felucca and SLOOP; mutant.cloud says Felucca"
   },

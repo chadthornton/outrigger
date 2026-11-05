@@ -104,7 +104,9 @@ def check_link(link, fetch=get, keep=None):
 # ---------- Families ----------
 
 def load_families(root=ROOT):
-    return json.loads((root / "tools/fm1_families.json").read_text())
+    fam = json.loads((root / "tools/fm1_families.json").read_text())
+    gen_families.check_table(fam)
+    return fam
 
 
 def bases_of(entries, hub=None):
@@ -183,7 +185,18 @@ def renames(hub, mutant, mapped):
     return sorted(out)
 
 
-def build_report(links_bad, feed, entries, fam, state, today, renamed=(), hub=None, stale=()):
+def cleared_moved(fam, entries):
+    """"id read -> now" for each firmware our survey cleared (tools/fm1_families.json
+    cleared_ids) whose mutant.cloud release isn't the one whose flash map we read."""
+    out = []
+    for i, c in sorted(fam["cleared_ids"].items()):
+        now = ((entries.get(i) or {}).get("release") or {}).get("version")
+        if now and now != c["version"]:
+            out.append(f"{i} {c['version']} -> {now}")
+    return out
+
+
+def build_report(links_bad, feed, entries, fam, state, today, renamed=(), hub=None, stale=(), moved=()):
     """(markdown body, new state, needs attention). state is what the last run
     saw ({} on the first run: then only the last day's releases count as new)."""
     first = not state
@@ -194,6 +207,7 @@ def build_report(links_bad, feed, entries, fam, state, today, renamed=(), hub=No
     new_missing = sorted(k for k in missing if k not in set(state.get("missing", [])))
     new_renamed = [r for r in renamed if r not in set(state.get("renamed", []))]
     new_stale = [p for p in stale if p not in set(state.get("stale", []))]
+    new_moved = [m for m in moved if m not in set(state.get("moved", []))]
     bases = bases_of(entries, hub)
 
     grouped = {g: [] for g, _ in GROUPS}
@@ -212,7 +226,7 @@ def build_report(links_bad, feed, entries, fam, state, today, renamed=(), hub=No
     lines.append("")
 
     lines.append(f"## New FM-1 releases since {'yesterday' if first else state.get('date', 'the last run')}")
-    if not new and not new_missing and not new_renamed and not new_stale:
+    if not new and not new_missing and not new_renamed and not new_stale and not new_moved:
         lines.append("None.")
     for g, heading in GROUPS:
         items = grouped[g]
@@ -220,7 +234,10 @@ def build_report(links_bad, feed, entries, fam, state, today, renamed=(), hub=No
                  + [f"- **Renamed on mutant.cloud:** {md(r)}. Map it back in tools/fm1_families.json hub_ids, "
                     "or it starts a new shelf" for r in new_renamed]
                  + [f"- **Not blocked on the board yet:** {md(p)}. Run tools/gen_families.py --refresh and ship a build"
-                    for p in new_stale]) if g == "unknown" else []
+                    for p in new_stale]
+                 + [f"- **New release of a cleared firmware:** {md(m)}. Read its flash map again "
+                    "(tools/fm1_families.json cleared_ids), or move it to blocked_ids and ship a build"
+                    for m in new_moved]) if g == "unknown" else []
         if not items and not extra:
             continue
         lines += ["", f"### {heading}"] + extra
@@ -237,10 +254,11 @@ def build_report(links_bad, feed, entries, fam, state, today, renamed=(), hub=No
     # that list no base land in the first group without a comment.
     new_bases = sorted({entries[f["id"]]["base"] for f in grouped["unknown"]
                         if (entries.get(f["id"]) or {}).get("base")})
-    attention = bool(links_bad or new_missing or new_bases or new_renamed or new_stale)
+    attention = bool(links_bad or new_missing or new_bases or new_renamed or new_stale or new_moved)
     # The feed is the window: what it lists today is all a later run needs to remember.
     new_state = {"date": today, "seen": sorted({f["guid"] for f in feed}),
-                 "missing": sorted(missing), "renamed": list(renamed), "stale": list(stale)}
+                 "missing": sorted(missing), "renamed": list(renamed), "stale": list(stale),
+                 "moved": list(moved)}
     lines.append(f"<!-- ecosystem-state {json.dumps(new_state)} -->")
     return "\n".join(lines), new_state, attention
 
@@ -322,7 +340,8 @@ def main(argv=None):
         stale = unblocked_on_board(fam, entries, hub, variants, set(committed))
     else:
         stale = state.get("stale", [])
-    body, _, attention = build_report(links_bad, feed, entries, fam, state, today, renamed, hub, stale)
+    moved = cleared_moved(fam, entries) if entries else state.get("moved", [])
+    body, _, attention = build_report(links_bad, feed, entries, fam, state, today, renamed, hub, stale, moved)
     if not entries and state:
         # Keep what the last run saw, so tomorrow's run still lists today's releases.
         body = STATE_RE.sub(f"<!-- ecosystem-state {json.dumps(state)} -->", body)

@@ -11,7 +11,8 @@ A living list. If you hit something that isn't here, email
 - **SLOOP, and most firmwares built on it or on Felucca 0.9, are left out on purpose.** SLOOP's fourth sample slot
   overwrites the part of the FM-1's memory Outrigger uses to tell FM-1s apart (and the FM-1's Bluetooth address),
   the same problem as Melodee. It waits for the same fix. Six of the family (DX SLOOP, Salt, Hortator, MNM-1,
-  Nauclerus, Hawk-Chua) keep their data where Outrigger clears it, and can be added.
+  Nauclerus, Hawk-Chua) keep their data where Outrigger clears it, by a reading of their source (2026-11-04,
+  not yet run on an FM-1), and can be added.
 - **Add firmwares from the Firmware Hub's list** on the homepage, up to ten in all: see
   [Adding a firmware](04a-adding-firmware.md). Files of your own (not on the Hub's list) can't be added yet, and
   there's no way to remove a firmware yet.
