@@ -117,7 +117,7 @@ FM1_TESTS := build/test_fm1_package build/test_fm1_library build/test_fm1_instal
 	build/test_fm1_softkey build/test_fm1_posix build/test_fm1_locked build/test_fm1_library_posix \
 	build/test_fm1_receive
 
-test: build/check_package build/test_fm1_interop build/test_touch_map build/test_panel build/test_board_blob build/test_profile_link test-board-configs build/test_midi_core build/test_status build/test_boot_mode build/test_broker build/test_describe build/test_web_core build/test_store_json build/test_loader_messages build/test_bench_writer $(FM1_TESTS) build/receive_pipe fixtures $(TOOLS_PY)
+test: build/check_package build/test_fm1_interop build/test_touch_map build/test_panel build/test_board_blob build/test_profile_link test-board-configs build/test_midi_core build/test_status build/test_boot_mode build/test_broker build/test_describe build/test_web_core build/test_store_json build/test_loader_messages build/test_bench_writer build/test_ota $(FM1_TESTS) build/receive_pipe fixtures $(TOOLS_PY)
 	./build/test_touch_map
 	./build/test_panel
 	./build/test_board_blob tests/boards/blobs.tsv
@@ -125,6 +125,7 @@ test: build/check_package build/test_fm1_interop build/test_touch_map build/test
 	./build/test_midi_core
 	./build/test_status
 	./build/test_boot_mode
+	./build/test_ota
 	./build/test_broker
 	./build/test_describe
 	./build/test_web_core
@@ -244,6 +245,10 @@ build/test_status: tests/test_status.cpp lib/midi_core/src/status.cpp lib/midi_c
 build/test_boot_mode: tests/test_boot_mode.cpp lib/midi_core/src/boot_mode.cpp lib/midi_core/src/boot_mode.h
 	mkdir -p build
 	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -Ilib/midi_core/src -o $@ tests/test_boot_mode.cpp lib/midi_core/src/boot_mode.cpp
+
+build/test_ota: tests/test_ota.cpp tests/support/ota_sim.h lib/ota/src/ota.cpp lib/ota/src/ota.h lib/fm1_loader/src/crypto.cpp
+	mkdir -p build
+	$(TEST_CXX) -std=c++17 -O1 -Wall -Wextra -Werror -Ilib/ota/src -Ilib/fm1_loader/src -Itests -o $@ tests/test_ota.cpp lib/ota/src/ota.cpp lib/fm1_loader/src/crypto.cpp
 
 build/test_broker: tests/test_broker.cpp lib/platform/src/broker.cpp lib/platform/src/broker.h lib/midi_core/src/midi_core.cpp lib/midi_core/src/midi_core.h
 	mkdir -p build
