@@ -49,8 +49,8 @@ python3 tools/diag.py --device Big-S3 all        # everything into build/diag/<t
 ```
 
 **Switches and backups book the board first**, through the orchestrator, like the Mac's USB slot. `bench.py` also
-takes a lock shared by every worktree (`~/Library/Application Support/outrigger/bench.lock`), so a second run on this
-Mac fails at once instead of interleaving:
+takes one lock per board, shared by every worktree (`~/Library/Application Support/outrigger/bench-<board>.lock`): a
+second run on the same board fails at once instead of interleaving, and runs on different boards go side by side:
 
 ```bash
 python3 tools/bench.py backup --board Small-V2 --fm1 FM-B
@@ -58,7 +58,7 @@ python3 tools/bench.py switch "Skiff 2.1.1" --board Small-V1 --fm1 FM-A   # back
 ```
 
 A switch's JSON line carries `checks`, each read from the board: `result_ok` (the result page says it worked),
-`fm1_back` (the FM-1 re-enumerated within 60 s), `fm1_steady` (no USB changes in the next 60 s), `backup_ok` (the
+`fm1_back` (the FM-1 re-enumerated within 60 s), `fm1_steady` (the FM-1's USB face unchanged for the next 60 s; a controller on the same hub isn't watched, the FM-1 is picked out by its vendor IDs `4c4a`, `1209`, `3654`), `backup_ok` (the
 follow-up backup passed), and `running` (the board identifies the backed-up app as the firmware asked for, by its
 hash: `loader_app.cpp`, `known_unit`). The run passes when all five do. A factory-installed stock V15 may not be
 recognised as running (issue #39); a stock V15 the loader installed is.

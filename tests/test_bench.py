@@ -170,7 +170,42 @@ def test_lock():
         finally:
             held.close()
         bench.bench_lock(path).close()
-    expect(not str(bench.LOCK).startswith(str(ROOT)), "the default lock is outside the worktree, shared by all")
+    expect(not str(getattr(bench, "LOCK_DIR", ROOT)).startswith(str(ROOT)), "the default locks are outside the worktree, shared by all")
+
+
+def test_controller_on_the_hub():
+    b = FakeBoard()
+    b.controller = "late"
+    rec = switch(b, "Felucca 1.8.0")
+    expect(rec["ok"] and rec["checks"]["fm1_steady"], "a controller enumerating late isn't the FM-1 dropping: " + repr(rec["checks"]))
+    expect(all(d[2] != "Launchkey Mini MK4 37" for d in rec["devices"]), "only the FM-1 is watched: " + repr(rec["devices"]))
+    b = FakeBoard()
+    b.controller = "always"
+    b.boot_loops = True
+    rec = switch(b, "Felucca 1.8.0")
+    expect(not rec["checks"]["fm1_steady"], "a re-enumerating FM-1 still fails beside a steady controller")
+
+
+def test_controller_alone_isnt_the_fm1():
+    b = FakeBoard()
+    b.controller = "always"
+    b.fm1_gone = True
+    expect(raises(lambda: bench.watch_fm1(b), "the FM-1 on USB"), "a Launchkey alone doesn't count as the FM-1 coming back")
+
+
+def test_lock_per_board():
+    with tempfile.TemporaryDirectory() as d:
+        a = bench.bench_lock(bench.lock_path(pathlib.Path(d), "Small-V2"))
+        try:
+            bench.bench_lock(bench.lock_path(pathlib.Path(d), "Big-S3")).close()  # another board runs alongside
+            raised = False
+            try:
+                bench.bench_lock(bench.lock_path(pathlib.Path(d), "small-v2"))
+            except bench.BenchError:
+                raised = True
+            expect(raised, "the same board (any spelling) is refused while it's held")
+        finally:
+            a.close()
 
 
 def test_main_dry_run():
@@ -180,7 +215,8 @@ def test_main_dry_run():
 
 for t in [test_switch_ok, test_switch_refuses_other_board, test_switch_checks_the_fm1, test_switch_unknown_label, test_plan_blocked,
           test_install_stops, test_boot_loop, test_main_dry_run, test_refused_hold_fails_fast, test_post_offline,
-          test_stale_unit_is_reread, test_wrong_firmware_running, test_fm1_report, test_lock]:
+          test_stale_unit_is_reread, test_wrong_firmware_running, test_fm1_report, test_lock,
+          test_controller_on_the_hub, test_controller_alone_isnt_the_fm1, test_lock_per_board]:
     t()
 if failures:
     print(f"bench: {failures} failure(s)")

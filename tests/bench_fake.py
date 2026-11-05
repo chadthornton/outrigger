@@ -30,6 +30,8 @@ class FakeBoard:
         self.install_stops = False  # the install stops part-way: the FM-1 stays in ROM boot
         self.boot_loops = False     # the new firmware keeps re-enumerating
         self.plan_blocked = False   # the plan can't be held
+        self.controller = None      # None, "always" or "late": a Launchkey on the same hub
+        self.fm1_gone = False       # the FM-1 never comes back after a job
         self.posts = []
 
     # The clock bench.py runs on.
@@ -60,11 +62,19 @@ class FakeBoard:
                 self.result = {"headline": "Backed up", "ok": True, "seq": 1}
 
     def _devices(self):
+        # A controller on the same hub, as the real board lists it (vid/pid as hex strings).
+        ctl = [{"vid": "1235", "pid": "0142", "hub": False, "name": "Launchkey Mini MK4 37"}]
+        if self.controller == "late" and self.t - self.boot_at < 30:
+            ctl = []  # enumerates some seconds after the FM-1 (Big-S3, 2026-11-05)
+        if not self.controller:
+            ctl = []
         if self.job or self.unfinished:
-            return [{"vid": 0x4C4A, "pid": 0x8057, "hub": False, "name": "ROM"}] if self.unfinished else []
+            return [{"vid": 0x4C4A, "pid": 0x8057, "hub": False, "name": "ROM"}] if self.unfinished else ctl
         if self.boot_loops and int(self.t) % 8 < 4:
-            return []
-        return [{"vid": 0x4C4A, "pid": 0x4155, "hub": False, "name": "FM-1"}]
+            return ctl
+        if self.fm1_gone:
+            return ctl
+        return [{"vid": 0x4C4A, "pid": 0x4155, "hub": False, "name": "FM-1"}] + ctl
 
     def get(self, path):
         if self.t < self.offline_until:

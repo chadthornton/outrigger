@@ -21,8 +21,8 @@ FM-1 but the one --fm1 names, by its unit ID, both from the device registry
 (tools/devices.py): a check that the run has the devices it asked for. The
 store's last unit is only the FM-1 it last backed up, so every switch starts
 with a backup: that reads the FM-1 attached now. Switches and backups take a
-lock (--lock, one file for the whole Mac, not per worktree), so two sessions
-can't drive the board at once.
+lock per board (--lock-dir, shared by every worktree), so two sessions can't
+drive one board at once, while runs on different boards go side by side.
 
 A switch's record carries its checks, each read from the board, never from a
 person: result_ok (the result page says it worked), fm1_back (the FM-1
@@ -45,7 +45,12 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "tools"))
 import devices  # noqa: E402
 # Beside the device registry, outside every worktree's build/.
-LOCK = devices.DEFAULT.parent / "bench.lock"
+LOCK_DIR = devices.DEFAULT.parent
+
+
+def lock_path(lock_dir, board):
+    """One lock per board: runs on two boards go side by side, two on one board can't."""
+    return pathlib.Path(lock_dir) / f"bench-{str(board).lower()}.lock"
 JOB_TIMEOUT_S = 20 * 60          # a switch chain is a backup, then an install: minutes each
 REFUSED_S = 15                   # a hold the Loader accepts restarts the board within a second or two
 COME_BACK_S = 60                 # the FM-1 must re-enumerate as MIDI within this
@@ -101,9 +106,21 @@ def check_board(board, want, reg):
     return st
 
 
+# USB vendor IDs an FM-1 shows up under: JieLi's (stock and ROM boot), pid.codes
+# (Felucca, Skiff and their kin), FM-1 Open firmware's. A controller on the same
+# hub is none of them, so it can't stand in for the FM-1 or count as it dropping
+# (a Launchkey enumerating late failed fm1_steady, Big-S3, 2026-11-05).
+FM1_VIDS = {0x4C4A, 0x1209, 0x3654}
+
+
+def _usb_id(v):
+    return int(v, 16) if isinstance(v, str) else int(v)
+
+
 def fm1_devices(status):
-    """The FM-1's faces on USB as the board sees them: (vid, pid, name) for each non-hub device."""
-    return sorted((d["vid"], d["pid"], d.get("name", "")) for d in status.get("devices", []) if not d.get("hub"))
+    """The FM-1's faces on USB as the board sees them: (vid, pid, name), as 4-digit hex."""
+    return sorted((f"{_usb_id(d['vid']):04x}", f"{_usb_id(d['pid']):04x}", d.get("name", ""))
+                  for d in status.get("devices", []) if not d.get("hub") and _usb_id(d["vid"]) in FM1_VIDS)
 
 
 def fw(status):
@@ -284,7 +301,8 @@ def main(argv=None, board=None, reg=None):
     ap.add_argument("--devices", help="the device registry (default: tools/devices.py's)")
     ap.add_argument("--host", help="the board's address (default: --board's host in the registry)")
     ap.add_argument("--runs", default=str(ROOT / "build" / "bench" / "runs.jsonl"))
-    ap.add_argument("--lock", default=str(LOCK), help="one driver at a time; the default is shared by every worktree")
+    ap.add_argument("--lock-dir", default=str(LOCK_DIR),
+                    help="where the per-board locks live; the default is shared by every worktree")
     ap.add_argument("--dry-run", action="store_true", help="a fake board in-process; no network")
     a = ap.parse_args(argv)
     try:
@@ -323,7 +341,7 @@ def main(argv=None, board=None, reg=None):
             print(json.dumps(fm1_report(board, a.board, reg), indent=1))
             return 0
         if not a.dry_run:
-            lock = bench_lock(pathlib.Path(a.lock))
+            lock = bench_lock(lock_path(a.lock_dir, a.board))
         if a.command == "switch":
             rec = do_switch(board, a.firmware, a.board, a.fm1, reg)
         else:
