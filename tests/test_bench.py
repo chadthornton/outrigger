@@ -305,6 +305,21 @@ def test_update_rolls_back():
     expect(rec["recovery_log"], "the recovery app's log comes with a failed run")
 
 
+def test_update_board_goes_quiet():
+    b = updater()
+    b.update_ends = "never"  # it takes the upload, then never answers again
+    real_advance = b._advance
+
+    def quiet():
+        real_advance()
+        b.offline_until = b.t + 3600
+    b._advance = quiet
+    with tempfile.TemporaryDirectory() as tmp:
+        rec = bench.do_update(b, "Small-V2", REG, write(tmp, "app.bin", app_image()), None)
+    expect(not rec["ok"] and "timed out" in rec["error"], f"a timeout is a failed run: {rec}")
+    expect(rec["from"] == "abc1234" and "uploaded_s" in rec, "and keeps what it knew")
+
+
 def test_update_refuses_untagged_image():
     b = updater()
     with tempfile.TemporaryDirectory() as tmp:
@@ -337,7 +352,8 @@ for t in [test_switch_ok, test_switch_refuses_other_board, test_switch_checks_th
           test_controller_on_the_hub, test_controller_alone_isnt_the_fm1, test_lock_per_board,
           test_lock_with_an_old_bench_py, test_malformed_usb_ids,
           test_update, test_update_sends_recovery_first, test_update_without_recovery, test_update_rolls_back,
-          test_update_refuses_untagged_image, test_update_refuses_another_boards_image, test_update_dry_run]:
+          test_update_refuses_untagged_image, test_update_refuses_another_boards_image, test_update_dry_run,
+          test_update_board_goes_quiet]:
     t()
 if failures:
     print(f"bench: {failures} failure(s)")

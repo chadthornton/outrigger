@@ -393,7 +393,12 @@ def do_update(board, want, reg, image=None, recovery=None):
         u = update_info(s)
         return not u.get("pending_verify") and u.get("state") == "idle"
 
-    s = wait_status(board, settled, f"the board to settle on {label} or roll back", UPDATE_S)
+    try:
+        s = wait_status(board, settled, f"the board to settle on {label} or roll back", UPDATE_S)
+    except BenchError as e:
+        # Gone quiet: what got this far is still worth a record.
+        rec.update({"ok": False, "error": str(e), "last_status": board.get("/status")})
+        return rec
     u = update_info(s)
     rec.update({"result": u.get("result"), "attempts": u.get("attempts"), "running": s.get("build", {}).get("commit"),
                 "took_s": round(board.now() - t0, 1)})
