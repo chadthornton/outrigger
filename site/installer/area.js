@@ -25,7 +25,7 @@ import { PORT_FILTER, SERIAL_OPTIONS, port as lock, h } from "./ui.js";
 
 // Shown in the page footer and in Details, so a bug report says which
 // installer ran. Bump it with every change to site/installer/.
-export const INSTALLER_VERSION = "2026-11-04.2";
+export const INSTALLER_VERSION = "2026-11-05.1";
 
 // The page footer shows it (build.py), so a bug report says which installer ran.
 const versionLine = typeof document !== "undefined" && document.getElementById("installer-version");
@@ -117,7 +117,6 @@ class InstallArea {
         h("pre", {}, [`Installer ${INSTALLER_VERSION}`, ...LOG.slice(-25), "", ...this.trace.split("\n").slice(-40).map((l) => l.slice(0, 160))].join("\n"))) : null,
       expanded && this.boards.length > 1 ? this.boardPicker() : null,
       h("div", { class: "row" }, this.mainButton(expanded)),
-      this.profiles.length ? this.countBox() : null,
       this.links(),
     );
   }
@@ -134,7 +133,8 @@ class InstallArea {
     return h("button", { on: { click: () => many ? this.ready(undefined, true) : this.connect(this.builds[0]) } }, this.builds[0].label);
   }
 
-  // Ticked by default; unticking it sends nothing and is remembered in this browser.
+  // Ticked by default; unticking it sends nothing and is remembered in this browser. Shown only beside the Install
+  // button (confirm), and nothing is counted before that click, so no one is counted before they've seen it.
   countBox() {
     return h("label", { class: "install-count" },
       h("input", { type: "checkbox", checked: countingOn(storage()), on: { change: (e) => setCounting(storage(), e.target.checked) } }),
@@ -142,7 +142,7 @@ class InstallArea {
   }
 
   // Fire and forget, only for a board with a build: the count must never hold up or break an install.
-  // failure: where it stopped (install_event.js FAILURES), or none when it finished.
+  // failure: "write" when the install stopped, or none when it finished (run(), after the Install click).
   count(choice, failure = null) {
     if (!choice || !choice.profile || !choice.edition) return;
     const event = buildInstallEvent({ board: choice.profile, edition: choice.edition, installer: INSTALLER_VERSION, failure });
@@ -194,30 +194,25 @@ class InstallArea {
       try {
         build = await fetchBuild(choice.manifest);
       } catch (e) {
-        this.count(choice, "download");
         return this.ready(this.explain(e, "Couldn't download the firmware."));
       }
       const step = h("span", {});
       this.show(h("p", { class: "install-note", role: "status" }, "Reading the board… ", step));
       onLogLine = (text) => { if (!text.startsWith("Debug")) step.textContent = text; };
-      let stage = "read"; // for the install count: where it stopped
       try {
         // Only the board read is timed: a slow download isn't a cable problem.
         const reading = this.open(port, choice).then((loader) => readBoard(loader));
         reading.catch(() => {}); // after a timeout it fails against the closed port; nothing waits for it
         const board = await withTimeout(reading, READ_TIMEOUT_MS, "Reading the board");
-        stage = "store";
         if (build.template && !board.store) this.show(h("p", { class: "install-note", role: "status" }, "Checking the board's store…"));
         // The region's MD5 takes seconds and each download has its own deadline; this bounds them all.
         const store = await withTimeout(prepareStore({ loader: this.loader, board, build }), STORE_TIMEOUT_MS, "Checking the board's store");
         if (store.action === "unreadable") {
-          this.count(choice, "store");
           await this.close();
           return this.ready(UNREADABLE);
         }
         this.confirm(choice, build, board, store);
       } catch (e) {
-        this.count(choice, this.refused ? "chip" : stage);
         await this.close();
         this.ready(this.explain(e, "Couldn't read the board."));
       }
@@ -286,7 +281,6 @@ class InstallArea {
     const noStore = store.unfinished ? "Its store was being set up when the last install stopped, so it has no store yet."
       : store.previousFirmware ? "This board ran other firmware before, so it has no store." : "It has no store yet.";
     if (store.downloadProblem) {
-      this.count(choice, "store");
       // A store set up later would land on leftovers (store.js storeAction), so nothing installs without it.
       return this.show(
         h("p", { class: "install-read" }, words.board),

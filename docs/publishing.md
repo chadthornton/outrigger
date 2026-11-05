@@ -54,12 +54,12 @@ make deploy-site FULL=1              # build it with make check on the Mac inste
   for beta and previews (`wrangler.toml`, schema in `migrations/`). The function and `wrangler.toml` go up with the
   site, from the same checked commit (`build/checked/`). Read new reports with `python3 -I tools/reports.py new`
   (add `beta` for beta's); `forget <id>` deletes a report's email when someone asks.
-- **Install counts:** when an install started from the page finishes or fails, `site/installer/area.js` posts an
+- **Install counts:** when an install finishes or fails after the visitor pressed Install, `site/installer/area.js` posts an
   anonymous event (`site/installer/install_event.js`: board profile, edition, installer version, result and where it
   stopped) to `functions/api/install.js`, which stores it with the day only, in the same databases' `installs` table.
   No MAC, serial, IP, user agent or cookie. A finish counts once per board per browser (a localStorage flag);
-  failures count every attempt. The visitor can untick the box under the install button, and it stays unticked in
-  that browser. The FAQ entry "Does the installer send anything about me?" says the same, so change both together.
+  failures count every attempt. The box sits only beside the Install button (nothing is counted before that click); unticking it
+  is remembered in that browser. The FAQ entry "Does this site send anything about me?" says the same, so change both together.
   `python3 -I tools/installs.py` prints totals by board, edition and week for beta and production.
 - **Daily install email:** a separate Worker, `workers/install-email/` (Pages Functions can't run on a schedule), wakes
   at 15:00 UTC, reads both installs tables, and emails yesterday's counts to one address. It skips days production

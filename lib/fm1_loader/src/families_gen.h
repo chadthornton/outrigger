@@ -19,7 +19,7 @@ constexpr const char *kBlockedBluetooth[] = {
     "vintages",
 };
 
-// 45 projects.
+// 38 projects.
 constexpr const char *kBlockedOldFelucca[] = {
     "clipper",
     "floyd",
@@ -30,18 +30,13 @@ constexpr const char *kBlockedOldFelucca[] = {
     "fm1quest",
     "fm80s",
     "gator",
-    "hawkchua",
-    "hortator",
-    "hortator-fm-1-900",
     "hypno-1",
     "jangada",
     "karma",
     "launchparty",
     "maqam",
     "merthsloop",
-    "mnm1",
     "mycelium",
-    "nauclerus",
     "nmsfm",
     "notesorcery",
     "optimist",
@@ -49,7 +44,6 @@ constexpr const char *kBlockedOldFelucca[] = {
     "optimist-0-2-synths",
     "optimist-0-2-synths-usbaudio-btaudio-btmidi",
     "orbit",
-    "salt",
     "shifl",
     "sloop",
     "sloop-2-6-ja",
@@ -57,7 +51,6 @@ constexpr const char *kBlockedOldFelucca[] = {
     "sloop-alg",
     "sloop-lab",
     "sloopbanks",
-    "sloopdx",
     "spampy",
     "spiralfm1",
     "synthesthetic",

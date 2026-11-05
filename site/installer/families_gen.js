@@ -15,9 +15,6 @@ export const BLOCKED = {
   "fm1quest": "old-felucca",
   "fm80s": "old-felucca",
   "gator": "old-felucca",
-  "hawkchua": "old-felucca",
-  "hortator": "old-felucca",
-  "hortator-fm-1-900": "old-felucca",
   "hypno-1": "old-felucca",
   "jangada": "old-felucca",
   "karma": "old-felucca",
@@ -26,9 +23,7 @@ export const BLOCKED = {
   "melodee": "bluetooth",
   "melodee-waveloop-build": "bluetooth",
   "merthsloop": "old-felucca",
-  "mnm1": "old-felucca",
   "mycelium": "old-felucca",
-  "nauclerus": "old-felucca",
   "nmsfm": "old-felucca",
   "notesorcery": "old-felucca",
   "optimist": "old-felucca",
@@ -37,7 +32,6 @@ export const BLOCKED = {
   "optimist-0-2-synths-usbaudio-btaudio-btmidi": "old-felucca",
   "orange-cat": "bluetooth",
   "orbit": "old-felucca",
-  "salt": "old-felucca",
   "shifl": "old-felucca",
   "sloop": "old-felucca",
   "sloop-2-6-ja": "old-felucca",
@@ -45,7 +39,6 @@ export const BLOCKED = {
   "sloop-alg": "old-felucca",
   "sloop-lab": "old-felucca",
   "sloopbanks": "old-felucca",
-  "sloopdx": "old-felucca",
   "spampy": "old-felucca",
   "spiralfm1": "old-felucca",
   "synthesthetic": "old-felucca",
@@ -59,6 +52,17 @@ export const BLOCKED = {
   "vintages": "bluetooth",
   "winampfm": "old-felucca"
 };
+
+// Firmwares our survey cleared by id: a blocked catalog "base" doesn't hold them.
+export const CLEARED = [
+  "hawkchua",
+  "hortator",
+  "hortator-fm-1-900",
+  "mnm1",
+  "nauclerus",
+  "salt",
+  "sloopdx"
+];
 
 // mutant.cloud entries the Hub, and so boards' shelves, know by another id.
 export const HUB_ID = {

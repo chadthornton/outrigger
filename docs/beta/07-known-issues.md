@@ -8,8 +8,11 @@ A living list. If you hit something that isn't here, email
 - **Stock V15 comes with it.** A new ESP32 gets M-VAVE stock V15 at install. Add Felucca, Skiff and others from
   the list on the homepage, which comes from [mutant.cloud](https://mutant.cloud) (or the Firmware Hub when
   mutant.cloud is down).
-- **SLOOP, and the firmwares built on it or on Felucca 0.9, are left out on purpose.** SLOOP is built on an older Felucca, and going from SLOOP to Felucca or Skiff can leave
-  data that crashes them. It waits until we know where SLOOP keeps its data.
+- **SLOOP, and most firmwares built on it or on Felucca 0.9, are left out on purpose.** SLOOP's fourth sample slot
+  overwrites the part of the FM-1's memory Outrigger uses to tell FM-1s apart (and the FM-1's Bluetooth address),
+  the same problem as Melodee. It waits for the same fix. Six of the family (DX SLOOP, Salt, Hortator, MNM-1,
+  Nauclerus, Hawk-Chua) keep their data where Outrigger clears it, by a reading of their source (2026-11-04,
+  not yet run on an FM-1), and can be added.
 - **Add firmwares from the Firmware Hub's list** on the homepage, up to ten in all: see
   [Adding a firmware](04a-adding-firmware.md). Files of your own (not on the Hub's list) can't be added yet, and
   there's no way to remove a firmware yet.
