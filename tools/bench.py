@@ -114,13 +114,17 @@ FM1_VIDS = {0x4C4A, 0x1209, 0x3654}
 
 
 def _usb_id(v):
-    return int(v, 16) if isinstance(v, str) else int(v)
+    """A vid or pid as an int: the board sends hex strings, the fake ints; anything else is -1."""
+    try:
+        return int(v, 16) if isinstance(v, str) else int(v)
+    except (TypeError, ValueError):
+        return -1
 
 
 def fm1_devices(status):
     """The FM-1's faces on USB as the board sees them: (vid, pid, name), as 4-digit hex."""
     return sorted((f"{_usb_id(d['vid']):04x}", f"{_usb_id(d['pid']):04x}", d.get("name", ""))
-                  for d in status.get("devices", []) if not d.get("hub") and _usb_id(d["vid"]) in FM1_VIDS)
+                  for d in status.get("devices", []) if not d.get("hub") and _usb_id(d.get("vid")) in FM1_VIDS)
 
 
 def fw(status):
@@ -280,16 +284,28 @@ def fm1_report(board, want, reg):
             "latest_backup": unit.get("latest"), "ok": True}
 
 
-def bench_lock(path):
-    """One driver at a time on this Mac: a second switch or backup fails at once."""
+def bench_lock(path, mode=fcntl.LOCK_EX):
+    """One driver at a time: a second switch or backup on the lock fails at once."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    f = open(path, "w")
+    f = open(path, "a")
     try:
-        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        fcntl.flock(f, mode | fcntl.LOCK_NB)
     except OSError:
         f.close()
         raise BenchError(f"another bench run holds {path}: wait for it")
     return f
+
+
+def board_locks(lock_dir, board):
+    """The board's own lock, plus a shared hold on the old Mac-wide bench.lock:
+    a bench.py from before per-board locks takes that one exclusively, so it and
+    this one still exclude each other while worktrees catch up."""
+    legacy = bench_lock(pathlib.Path(lock_dir) / "bench.lock", fcntl.LOCK_SH)
+    try:
+        return [legacy, bench_lock(lock_path(lock_dir, board))]
+    except BenchError:
+        legacy.close()
+        raise
 
 
 def main(argv=None, board=None, reg=None):
@@ -331,7 +347,7 @@ def main(argv=None, board=None, reg=None):
             board = Board(host)
     if a.command == "switch" and not a.firmware:
         ap.error("switch needs a firmware label")
-    lock = None
+    locks = []
     try:
         if a.command == "state":
             rec = {"bench": check_board(board, a.board, reg), "status": board.get("/status")}
@@ -341,7 +357,7 @@ def main(argv=None, board=None, reg=None):
             print(json.dumps(fm1_report(board, a.board, reg), indent=1))
             return 0
         if not a.dry_run:
-            lock = bench_lock(lock_path(a.lock_dir, a.board))
+            locks = board_locks(a.lock_dir, a.board)
         if a.command == "switch":
             rec = do_switch(board, a.firmware, a.board, a.fm1, reg)
         else:
@@ -352,8 +368,8 @@ def main(argv=None, board=None, reg=None):
             print(json.dumps(rec))
             return 1
     finally:
-        if lock:
-            lock.close()
+        for f in locks:
+            f.close()
     rec["at"] = time.strftime("%Y-%m-%dT%H:%M:%S%z")
     rec["dry_run"] = a.dry_run
     line = json.dumps(rec)

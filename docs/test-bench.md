@@ -50,7 +50,8 @@ python3 tools/diag.py --device Big-S3 all        # everything into build/diag/<t
 
 **Switches and backups book the board first**, through the orchestrator, like the Mac's USB slot. `bench.py` also
 takes one lock per board, shared by every worktree (`~/Library/Application Support/outrigger/bench-<board>.lock`): a
-second run on the same board fails at once instead of interleaving, and runs on different boards go side by side:
+second run on the same board fails at once instead of interleaving, and runs on different boards go side by side.
+It also holds the old Mac-wide `bench.lock` shared, so an older `bench.py` in another worktree still waits its turn:
 
 ```bash
 python3 tools/bench.py backup --board Small-V2 --fm1 FM-B
