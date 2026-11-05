@@ -24,10 +24,12 @@ from store_template import LOADER_PATH, build_template, read_inputs, splice, wri
 PARTITIONS = ROOT / "firmware/waveshare_169/partitions.csv"
 FIXTURES = ROOT / "tests/fixtures"
 
-# What the catalog lists for each (thefirmwarehub.com/catalog.json, 2026-10-31),
-# named the way tools/store_add.py names them.
+# The starter set, named the way tools/store_add.py names catalog packages. Stock
+# comes from M-VAVE's own repo at a pinned commit: the Firmware Hub keeps only each
+# project's newest file, and M-VAVE's current download is V16 (2026-11-05).
 EXPECTED = [
-    ("stock-V15", "M-VAVE stock", "V15", "stock", "FM-1_015", "https://thefirmwarehub.com/fw/mvave/FM-1_015.fwsc"),
+    ("stock-V15", "M-VAVE stock", "V15", "stock", "FM-1_015",
+     "https://raw.githubusercontent.com/m-vave/fm1_open/b178ac43c25f010c60a878056fb5331fe693fd62/sdk/firmware/FM-1_015.fwsc"),
 ]
 
 
