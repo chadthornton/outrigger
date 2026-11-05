@@ -22,6 +22,7 @@ constexpr Route kBenchRoutes[] = {
     {"/bench/state", Method::Get, false},    // JSON: MAC verdict, boot count, last command and its answer
     {"/bench/select", Method::Post, false},  // ?index=N: open row N's plan, as tapping it does
     {"/bench/act", Method::Post, false},     // ?kind=switch|backup|retry[&index=N]: the 2-second hold
+    {"/bench/update", Method::Post, false},  // ?sha256=&label=[&slot=recovery], body: the image (docs/ota-updates.md)
 };
 constexpr int kBenchRouteCount = sizeof kBenchRoutes / sizeof kBenchRoutes[0];
 
@@ -43,6 +44,21 @@ struct BenchCommand {
 // path: "/bench/select" or "/bench/act"; query: the part after '?', or "".
 // False with *why set when the request names nothing the bench can do.
 bool parse_bench_command(const char *path, const char *query, BenchCommand &out, const char **why);
+
+// POST /bench/update: an image for app0 (the update runs through the recovery
+// app) or for the recovery slot itself (written in place).
+enum class UpdateSlot : uint8_t { App, Recovery };
+struct BenchUpdate {
+  UpdateSlot slot = UpdateSlot::App;
+  uint32_t size = 0;  // the body's Content-Length
+  uint8_t sha256[32] = {};
+  char label[16] = {};  // the build's commit, for /status (letters, digits, '+', '-', '.')
+};
+// query: "sha256=<64 hex>&label=<commit>[&slot=app|recovery]". length: the
+// body's Content-Length; slot_bytes: that slot's size (app0 or recovery). An
+// ESP32 image is at least a header, so anything under 256 bytes is refused.
+bool parse_bench_update(const char *query, size_t length, size_t app_bytes, size_t recovery_bytes, BenchUpdate &out,
+                        const char **why);
 const char *bench_kind_name(BenchKind k);
 
 }  // namespace web_core

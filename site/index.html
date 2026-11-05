@@ -6,7 +6,6 @@
 <title>Outrigger: a little companion for your FM-1</title>
 <meta name="description" content="Play the M-VAVE FM-1 from any MIDI controller with a USB connection, and switch between 100+ firmwares without a laptop.">
 <script type="module" src="installer/area.js"></script>
-<script type="module" src="installer/add_area.js"></script>
 <link rel="stylesheet" href="style.css">
 <style>
   /* Spacing steps: 4 8 12 16 24 32 48 64 96. Type: 13 / 15 / 17 / 20 / 28 / clamp(36-52). */
@@ -161,6 +160,9 @@
   .addfw summary span { color: var(--muted); }
   .addfw summary b { color: var(--accent); font-weight: 650; }
   .addfw-body { padding: 0 18px 18px; }
+  .addfw-link { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; padding: 14px 18px; font-size: .9375rem; text-decoration: none; }
+  .addfw-link span { color: var(--muted); }
+  .addfw-link b { color: var(--accent); font-weight: 650; }
   .addfw-body p { margin-top: 0; max-width: none; }
   footer .install { margin: 8px 0 12px; max-width: 320px; }
   footer .install button { padding: 8px 14px; font-size: .875rem; width: auto; }
@@ -206,7 +208,7 @@
 <nav class="wrap topnav">
   <a class="wordmark" href="#"><i></i>Outrigger</a><span class="beta">Beta</span>
   <span class="sp"></span>
-  <a class="link wide" href="#need">What you need</a><a class="link wide" href="#new">What's new</a><a class="link wide" href="#coming">What's coming</a><a class="link" href="#trouble">Help</a><a class="link" href="beta/">Beta testers</a>
+  <a class="link wide" href="#need">What you need</a><a class="link wide" href="#new">What's new</a><a class="link wide" href="#coming">What's coming</a><a class="link" href="library/">Firmware library</a><a class="link" href="#trouble">Help</a><a class="link" href="beta/">Beta testers</a>
 </nav>
 <div class="wrap">
   <div class="layout">
@@ -268,25 +270,7 @@
 <p>A groovebox tonight, a sampler tomorrow: switch between more than a hundred community firmwares in about a minute,
   right on Outrigger. It backs up before every switch, so your songs are waiting when you come back.</p>
 <div class="fwshots"><figure><img src="shots/fw/loom.png" alt="LOOM-8 on the FM-1's screen"><figcaption><b>LOOM-8</b> a groovebox inspired by the OP-XY</figcaption></figure><figure><img src="shots/fw/x0x.png" alt="X0X on the FM-1's screen"><figcaption><b>X0X</b> 909, 808 and two 303s</figcaption></figure><figure><img src="shots/fw/zp12.png" alt="zp12 on the FM-1's screen"><figcaption><b>zp12</b> a 12-bit sampler</figcaption></figure><figure><img src="shots/fw/winampfm.png" alt="winampFM on the FM-1's screen"><figcaption><b>winampFM</b> a synth that looks like Winamp</figcaption></figure><a class="fwmore" href="https://thefirmwarehub.com/" target="_blank" rel="noopener"><b>100+</b> more at the Firmware Hub ↗</a></div>
-  <details class="addfw" id="add">
-    <summary><span>Got Outrigger installed?</span> <b>Add custom FM-1 firmwares</b></summary>
-    <div class="addfw-body">
-      <div class="install add-firmware"><p class="install-note">Adding a firmware needs Chrome or Edge on a computer, with JavaScript on.</p></div>
-    </div>
-  </details>
-  <script>
-  (function () {
-    var d = document.getElementById("add");
-    if (!d) return;
-    function open() { d.open = true; }
-    document.addEventListener("outrigger-installed", open);
-    document.addEventListener("click", function (e) {
-      var a = e.target.closest && e.target.closest('a[href="#add"]');
-      if (a) { e.preventDefault(); open(); d.scrollIntoView({ behavior: "smooth" }); }
-    });
-    if (location.hash === "#add") open();
-  })();
-  </script></div>
+  <a class="addfw addfw-link" id="add" href="library/"><span>Got Outrigger installed?</span> <b>Add custom FM-1 firmwares in the library</b></a></div>
         </section>
       </div>
     </main>
@@ -297,7 +281,7 @@
     <div class="install" data-builds="[{&quot;label&quot;: &quot;Check my ESP32&quot;, &quot;manifest&quot;: &quot;firmware/waveshare-esp32-s3-touch-lcd-1.69/hub-loader/manifest.json&quot;, &quot;board&quot;: &quot;Waveshare 1.69\&quot;&quot;, &quot;profile&quot;: &quot;waveshare-esp32-s3-touch-lcd-1.69&quot;, &quot;edition&quot;: &quot;hub-loader&quot;, &quot;tag_id&quot;: 0, &quot;flash_mb&quot;: 16, &quot;psram_mb&quot;: 8, &quot;tested&quot;: true}, {&quot;label&quot;: &quot;Check my ESP32&quot;, &quot;manifest&quot;: &quot;firmware/waveshare-esp32-s3-touch-lcd-3.5/hub-loader/manifest.json&quot;, &quot;board&quot;: &quot;Waveshare 3.5\&quot;&quot;, &quot;profile&quot;: &quot;waveshare-esp32-s3-touch-lcd-3.5&quot;, &quot;edition&quot;: &quot;hub-loader&quot;, &quot;tag_id&quot;: 1, &quot;flash_mb&quot;: 16, &quot;psram_mb&quot;: 8, &quot;tested&quot;: true}, {&quot;label&quot;: &quot;Check my ESP32&quot;, &quot;manifest&quot;: null, &quot;board&quot;: &quot;Another ESP32-S3 board&quot;, &quot;tag_id&quot;: null}]" data-suggest="[&quot;Waveshare 1.69\&quot;&quot;, &quot;Waveshare 3.5\&quot;&quot;, &quot;Freenove 2.8\&quot;&quot;]" data-help="#no-port">
       <p class="install-note">Installing needs Chrome or Edge on a computer, with JavaScript on.</p>
     </div></div></li>
-  <li><div><b>Add firmwares</b><p>Add Felucca, Skiff and more <a href="#add">from this page</a>.</p></div></li>
+  <li><div><b>Add firmwares</b><p>Add Felucca, Skiff and more <a href="library/">from the firmware library</a>.</p></div></li>
 </ol>
 <details class="overview"><summary>Installation overview</summary>
   <dl>
@@ -431,7 +415,7 @@
       </ul></li>
       <li><time datetime="2026-11-04">Nov 4</time><ul>
         <li><b>Add firmware from the community catalog.</b> The list comes from mutant.cloud, about 190 FM-1 firmwares,
-          with the Firmware Hub as a fallback when it's slow. <a href="#add">Add one.</a></li>
+          with the Firmware Hub as a fallback when it's slow. <a href="library/">Add one.</a></li>
       </ul></li>
       <li><time>Since the first beta</time><ul>
         <li><b>Your FM-1 stays recoverable.</b> Outrigger backs it up before every switch and never writes the part of
@@ -441,7 +425,7 @@
     </ol>
   </section>
   <section class="section" id="coming"><h2>What's coming</h2>
-    <div class="cgroup"><div class="cgroup-head"><h3>Over Wi-Fi</h3><p>Set up, update and check on Outrigger from your phone or laptop, without plugging it in.</p></div><div class="coming"><article><span class="stage s-test">In testing</span><h4>Wi-Fi</h4><p>Join your network from Outrigger's screen, so updates, downloads and its web page need no cable.</p></article><article><span class="stage s-test">In testing</span><h4>outrigger.local</h4><p>Open Outrigger from any browser on your Wi-Fi: status, backups and settings.</p></article><article><span class="stage s-plan">Planned</span><h4>Firmware over Wi-Fi</h4><p>Browse the Firmware Hub on Outrigger's screen and download straight to Outrigger.</p></article><article><span class="stage s-plan">Planned</span><h4>Backups on your computer</h4><p>Copy any backup off Outrigger, and restore the one you choose.</p></article><article><span class="stage s-test">In testing</span><h4>Update Outrigger over Wi-Fi</h4><p>Install a new Outrigger without a USB cable. It's running on our bench now.</p></article></div></div><div class="cgroup"><div class="cgroup-head"><h3>Playing and recording</h3><p>More of your rig on one hub, and a way to capture what you play.</p></div><div class="coming"><article><span class="stage s-test">In testing</span><h4>Record the FM-1</h4><p>Capture its audio over USB at 44.1 kHz stereo and pull the takes off over Wi-Fi. Streaming comes after.</p></article><article><span class="stage s-plan">Planned</span><h4>A general-purpose MIDI hub</h4><p>Route any MIDI controller with a USB connection to any USB synth, not just the FM-1. The router is built; pointing it at other synths is a small change we haven't made or tested yet.</p></article><article><span class="stage s-plan">Planned</span><h4>More devices at once</h4><p>Several controllers together, Bluetooth MIDI, and twice the USB room on ESP32-P4 boards.</p></article><article><span class="stage s-plan">Planned</span><h4>The whole catalog on a TF card</h4><p>Boards with a card slot keep every firmware locally, about 60 MB in all.<span class="tip"><b>Pro tip:</b> buying an ESP32 now? Get one with a TF card slot, like the <a href="#board">1.8-inch AMOLED</a>.</span></p></article></div></div><div class="cgroup"><div class="cgroup-head"><h3>More firmwares</h3><p>More of the catalog, and an easier way to move between it.</p></div><div class="coming"><article><span class="stage s-plan">Planned</span><h4>A firmware library</h4><p>One page for every firmware on Outrigger, with favorites, search and a one-click change.</p></article><article><span class="stage s-plan">Planned</span><h4>Riskier firmwares, with a warning</h4><p>SLOOP 2.4 and later, and Melodee. They write the part of the FM-1's memory that holds its Bluetooth address, so Outrigger will warn you before it installs one.</p></article></div></div></section>
+    <div class="cgroup"><div class="cgroup-head"><h3>Over Wi-Fi</h3><p>Set up, update and check on Outrigger from your phone or laptop, without plugging it in.</p></div><div class="coming"><article><span class="stage s-test">In testing</span><h4>Wi-Fi</h4><p>Join your network from Outrigger's screen, so updates, downloads and its web page need no cable.</p></article><article><span class="stage s-test">In testing</span><h4>outrigger.local</h4><p>Open Outrigger from any browser on your Wi-Fi: status, backups and settings.</p></article><article><span class="stage s-plan">Planned</span><h4>Firmware over Wi-Fi</h4><p>Browse the Firmware Hub on Outrigger's screen and download straight to Outrigger.</p></article><article><span class="stage s-plan">Planned</span><h4>Backups on your computer</h4><p>Copy any backup off Outrigger, and restore the one you choose.</p></article><article><span class="stage s-test">In testing</span><h4>Update Outrigger over Wi-Fi</h4><p>Install a new Outrigger without a USB cable. It's running on our bench now.</p></article></div></div><div class="cgroup"><div class="cgroup-head"><h3>Playing and recording</h3><p>More of your rig on one hub, and a way to capture what you play.</p></div><div class="coming"><article><span class="stage s-test">In testing</span><h4>Record the FM-1</h4><p>Capture its audio over USB at 44.1 kHz stereo and pull the takes off over Wi-Fi. Streaming comes after.</p></article><article><span class="stage s-plan">Planned</span><h4>A general-purpose MIDI hub</h4><p>Route any MIDI controller with a USB connection to any USB synth, not just the FM-1. The router is built; pointing it at other synths is a small change we haven't made or tested yet.</p></article><article><span class="stage s-plan">Planned</span><h4>More devices at once</h4><p>Several controllers together, Bluetooth MIDI, and twice the USB room on ESP32-P4 boards.</p></article><article><span class="stage s-plan">Planned</span><h4>The whole catalog on a TF card</h4><p>Boards with a card slot keep every firmware locally, about 60 MB in all.<span class="tip"><b>Pro tip:</b> buying an ESP32 now? Get one with a TF card slot, like the <a href="#board">1.8-inch AMOLED</a>.</span></p></article></div></div><div class="cgroup"><div class="cgroup-head"><h3>More firmwares</h3><p>More of the catalog on your FM-1.</p></div><div class="coming"><article><span class="stage s-plan">Planned</span><h4>Riskier firmwares, with a warning</h4><p>SLOOP 2.4 and later, and Melodee. They write the part of the FM-1's memory that holds its Bluetooth address, so Outrigger will warn you before it installs one.</p></article></div></div></section>
   <section class="section" id="trouble" style="max-width:760px"><h2>Troubleshooting</h2><div class="faq">
   <details><summary>How do I update Outrigger?</summary><div class="answer">
     <p>Outrigger's USB port is busy running your MIDI gear, so first hand it to your computer: in Settings, open

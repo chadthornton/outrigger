@@ -33,6 +33,14 @@ class FakeBoard:
         self.controller = None      # None, "always" or "late": a Launchkey on the same hub
         self.fm1_gone = False       # the FM-1 never comes back after a job
         self.posts = []
+        # Updates (POST /bench/update): the commit it runs, its recovery app, and how the next update ends.
+        self.commit = "abc1234"
+        self.recovery = "none"
+        self.update = {"state": "idle", "result": "none", "attempts": 0, "label": "", "pending_verify": False}
+        self.update_ends = "updated"  # or "rolled-back"
+        self.uploads = []
+        self.pending_update = None  # (label, ends_at)
+        self.refused = RuntimeError  # what Board.upload raises on a 4xx: bench.py's BenchError, set by its user
 
     # The clock bench.py runs on.
     def now(self):
@@ -43,6 +51,15 @@ class FakeBoard:
         self._advance()
 
     def _advance(self):
+        if self.pending_update and self.t >= self.pending_update[1]:
+            label, _ = self.pending_update
+            self.pending_update = None
+            self.boot_at = self.t
+            ok = self.update_ends == "updated"
+            if ok:
+                self.commit = label.rstrip("+")
+            self.update = {"state": "idle", "result": self.update_ends, "attempts": 1 if ok else 3, "label": label,
+                           "pending_verify": False}
         if self.job and self.t >= self.job[2]:
             kind, label, _ = self.job
             self.job = None
@@ -82,6 +99,8 @@ class FakeBoard:
         if path == "/bench/state":
             return {"board": self.board, "mac": self.mac, "seq": len(self.posts), "taken": len(self.posts),
                     "pending": False, "last": ""}
+        if path == "/crash":
+            return {"recovery_log": ["recovery: trial boot 3 of 3"] if self.update_ends != "updated" else []}
         if path == "/store":
             return {"last_unit": self.last_unit, "units": self.units}
         if path != "/status":
@@ -92,7 +111,8 @@ class FakeBoard:
             l = self.labels[self.selected]
             plan = {"item": self.selected, "lines": [f"Switches from {self.running}.", "Keeps your data."],
                     "hold": f"switch to {l}", "can_act": not self.plan_blocked and l != self.running}
-        return {"uptime_ms": int((self.t - self.boot_at) * 1000), "build": {"commit": "abc1234"},
+        return {"uptime_ms": int((self.t - self.boot_at) * 1000), "build": {"commit": self.commit, "board_tag": 0},
+                "update": dict(self.update, recovery=self.recovery),
                 "usb": {"running": True, "mode": "load" if self.job else "play"},
                 "devices": self._devices(),
                 "firmware": {"title": self.title, "lines": [""] * 6, "items": items, "plan": plan,
@@ -116,3 +136,20 @@ class FakeBoard:
             self.job = ("backup", "", self.t + 60)
             self.offline_until = self.t + 80
         return {"seq": len(self.posts)}
+
+    def upload(self, path, data):
+        import hashlib
+        from urllib.parse import parse_qs, urlsplit
+        q = {k: v[0] for k, v in parse_qs(urlsplit(path).query).items()}
+        self.uploads.append((q.get("slot"), len(data)))
+        if hashlib.sha256(data).hexdigest() != q.get("sha256"):
+            raise AssertionError("bench.py sent a sha256 that doesn't match the body")
+        if q.get("slot") == "recovery":
+            self.recovery = data[-32:].hex()[:16]  # the digest ESP-IDF appends, as the board reports it
+            return {"accepted": True, "slot": "recovery", "restarting": False}
+        if self.recovery == "none":
+            raise self.refused("POST /bench/update: 409 no recovery app: send one first (slot=recovery)")
+        self.t += len(data) / 200000  # about 200 KB/s over Wi-Fi
+        self.pending_update = (q["label"], self.t + 45)  # prev saved, recovery copies, the new build boots and confirms
+        self.offline_until = self.t + 45 + 15
+        return {"accepted": True, "slot": "app", "restarting": True}
