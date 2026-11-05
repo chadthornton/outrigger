@@ -101,7 +101,7 @@ INSTALL_BTN = """<button class="btn" type="button" data-install="{out}">Install 
 SETUP = f"""<ol class="steps3">
   <li><div><b>Install Outrigger on your ESP32</b><p>Plug it into this computer.</p>
     {INSTALL_BTN.format(out="out-b")}</div></li>
-  <li><div><b>Add firmwares</b><p>Add Felucca, Skiff and more <a href="#add">from this page</a>.</p></div></li>
+  <li><div><b>Add firmwares</b><p>Add Felucca, Skiff and more <a href="library/">from the firmware library</a>.</p></div></li>
 </ol>
 <details class="overview"><summary>Installation overview</summary>
   <dl>
@@ -408,6 +408,9 @@ STYLE = """
   .addfw summary span { color: var(--muted); }
   .addfw summary b { color: var(--accent); font-weight: 650; }
   .addfw-body { padding: 0 18px 18px; }
+  .addfw-link { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; padding: 14px 18px; font-size: .9375rem; text-decoration: none; }
+  .addfw-link span { color: var(--muted); }
+  .addfw-link b { color: var(--accent); font-weight: 650; }
   .addfw-body p { margin-top: 0; max-width: none; }
   footer .install { margin: 8px 0 12px; max-width: 320px; }
   footer .install button { padding: 8px 14px; font-size: .875rem; width: auto; }
@@ -541,27 +544,8 @@ def install_area(label, app_set):
             '      <p class="install-note">Installing needs Chrome or Edge on a computer, with JavaScript on.</p>\n    </div>')
 
 
-# Adding a Firmware Hub firmware to a set-up Outrigger (site/installer/add_area.js), its own section under the hero.
-# Under "Pop in a new instrument": closed until clicked, and opened by a finished install (site/installer/area.js).
-ADD_BLOCK = """<details class="addfw" id="add">
-    <summary><span>Got Outrigger installed?</span> <b>Add custom FM-1 firmwares</b></summary>
-    <div class="addfw-body">
-      <div class="install add-firmware"><p class="install-note">Adding a firmware needs Chrome or Edge on a computer, with JavaScript on.</p></div>
-    </div>
-  </details>
-  <script>
-  (function () {
-    var d = document.getElementById("add");
-    if (!d) return;
-    function open() { d.open = true; }
-    document.addEventListener("outrigger-installed", open);
-    document.addEventListener("click", function (e) {
-      var a = e.target.closest && e.target.closest('a[href="#add"]');
-      if (a) { e.preventDefault(); open(); d.scrollIntoView({ behavior: "smooth" }); }
-    });
-    if (location.hash === "#add") open();
-  })();
-  </script>"""
+# The way to the firmware library (site/library/, site/installer/library_area.js), under "Pop in a new instrument".
+ADD_BLOCK = """<a class="addfw addfw-link" id="add" href="library/"><span>Got Outrigger installed?</span> <b>Add custom FM-1 firmwares in the library</b></a>"""
 
 
 BUILDERS = [
@@ -590,10 +574,10 @@ for a, b in [
     ('more at the Firmware Hub ↗</a></div>', 'more at the Firmware Hub ↗</a></div>\n  ' + ADD_BLOCK),
     ('<title>Outrigger: B3</title>', '<title>Outrigger: a little companion for your FM-1</title>\n'
      '<meta name="description" content="Play the M-VAVE FM-1 from any MIDI controller with a USB connection, and switch between 100+ firmwares without a laptop.">\n'
-     '<script type="module" src="installer/area.js"></script>\n<script type="module" src="installer/add_area.js"></script>'),
+     '<script type="module" src="installer/area.js"></script>'),
     ('<link rel="stylesheet" href="shared.css">', '<link rel="stylesheet" href="style.css">'),
     ('<a class="link" href="#trouble">Help</a>',
-     '<a class="link" href="#trouble">Help</a><a class="link" href="beta/">Beta testers</a>'),
+     '<a class="link" href="library/">Firmware library</a><a class="link" href="#trouble">Help</a><a class="link" href="beta/">Beta testers</a>'),
     ('<footer><div class="wrap fine">Firmware screenshots by their authors, via the Firmware Hub. Not affiliated with M-VAVE or Waveshare.</div></footer>',
      f"""<section class="nerd" id="builders"><div class="wrap">
   <p class="eyebrow">For builders</p>

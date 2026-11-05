@@ -107,6 +107,8 @@ export function fromMutant(catalog, families) {
       pkg: `dl/${e.entry}/${encodeURIComponent(e.file)}`,
       base: base ? [base] : [],
       family: base && base !== "original" ? (names[base]?.name || base) : "",
+      // For the library page's rows (library.js).
+      author: e.author || "", what: e.what || "", release: e.release || "", date: e.date || "",
     };
   });
   const s = catalog.stock;
