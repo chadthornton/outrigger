@@ -69,7 +69,7 @@ test("parsePackage refuses what isn't an FM-1 package", { skip }, () => {
   assert.throws(() => parsePackage(new Uint8Array(0x2000).fill(0xff)), /CRC|identity/);
 });
 
-// What the browser downloads: the loader from GitHub, the packages from the Firmware Hub.
+// What the browser downloads: the loader and stock V15, each from a pinned commit on GitHub.
 const realFiles = () => {
   const template = JSON.parse(readFileSync(templatePath));
   const files = new Map([[template.loader.url, fixture("wl82loader.bin")]]);
@@ -114,7 +114,7 @@ test("fetchStarter names the firmware that didn't download, and why", { skip }, 
   const felucca = template.packages.find((p) => p.id === "stock-V15").url;
   await assert.rejects(fetchStarter(template, serving(files, { [felucca]: async () => ({ ok: false, status: 404 }) })), /404 for M-VAVE stock V15/);
   await assert.rejects(fetchStarter(template, serving(files, { [felucca]: async () => { throw new TypeError("Failed to fetch"); } })),
-    /couldn't reach the Firmware Hub.*M-VAVE stock V15/i);
+    /couldn't reach GitHub.*M-VAVE stock V15/i);
   const wrong = fixture("felucca-1.6.1.fwsc");
   await assert.rejects(fetchStarter(template, serving(files, { [felucca]: async () => ({ ok: true, arrayBuffer: async () => wrong.buffer }) })),
     /M-VAVE stock V15.*didn't match/);

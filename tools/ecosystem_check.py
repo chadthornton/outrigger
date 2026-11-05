@@ -63,11 +63,11 @@ def _constants(path, names):
 def installer_links(root=ROOT):
     """[{name, url, sha256 or None, json}]: the files the live installer downloads, from the
     pins the site build uses (tools/store_template.py), and the catalogs Add firmware reads."""
-    t = _constants(root / "tools/store_template.py", {"LOADER_URL", "HUB", "STARTER"})
+    t = _constants(root / "tools/store_template.py", {"LOADER_URL", "STARTER"})
     blob = _constants(root / "tools/store_image.py", {"BLOB_SHA256"})["BLOB_SHA256"]
     links = [{"name": "JieLi's wl82loader.bin (GitHub)", "url": t["LOADER_URL"], "sha256": blob, "json": False}]
-    for _id, name, version, _project, _fixture, path, sha in t["STARTER"]:
-        links.append({"name": f"{name} {version} (Firmware Hub)", "url": t["HUB"] + path, "sha256": sha, "json": False})
+    for _id, name, version, _project, _fixture, url, sha, source in t["STARTER"]:
+        links.append({"name": f"{name} {version} ({source})", "url": url, "sha256": sha, "json": False})
     links.append({"name": "Firmware Hub catalog", "url": HUB_CATALOG, "sha256": None, "json": True})
     links.append({"name": "mutant.cloud catalog", "url": MUTANT_CATALOG, "sha256": None, "json": True})
     return links

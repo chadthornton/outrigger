@@ -5,15 +5,15 @@
 // The site publishes store-template.json (tools/store_template.py): a store
 // holding JieLi's loader and a starter set of FM-1 firmwares, without their
 // bytes. The visitor's browser downloads the loader from the pinned
-// jl-uboot-tool commit on GitHub and each package from the Firmware Hub,
-// checks every SHA-256, and fills the store in. This site never hosts the
+// jl-uboot-tool commit on GitHub and each package from its pinned URL (stock
+// V15 from M-VAVE's repo on GitHub), checks every SHA-256, and fills the store in. This site never hosts the
 // loader or any firmware.
 
 const hex = (bytes) => [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
 export const sha256Hex = async (bytes) => hex(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)));
 // GitHub gets this long before the page says the loader couldn't be downloaded.
 const LOADER_TIMEOUT_MS = 20000;
-// Each starter package is about 600 KB from the Firmware Hub.
+// Each starter package is about 700 KB.
 const PACKAGE_TIMEOUT_MS = 30000;
 const SECTOR = 0x1000;
 const fromHex = (s) => Uint8Array.from(s.match(/../g), (b) => parseInt(b, 16));
@@ -53,18 +53,20 @@ export async function fetchLoader(template, fetchFn = fetch) {
   return blob;
 }
 
-// One starter package from the Firmware Hub, checked and decoded to its app.
+// One starter package from its pinned URL, checked and decoded to its app.
+// p.from names the site for messages ("GitHub").
 async function fetchPackage(p, fetchFn) {
   const label = `${p.name} ${p.version}`;
+  const from = p.from || "the download site";
   let res;
   try {
     res = await fetchFn(p.url, { signal: AbortSignal.timeout(PACKAGE_TIMEOUT_MS) });
   } catch (e) {
-    throw new Error(`couldn't reach the Firmware Hub to download ${label} (${e.message})`);
+    throw new Error(`couldn't reach ${from} to download ${label} (${e.message})`);
   }
-  if (!res.ok) throw new Error(`the Firmware Hub answered ${res.status} for ${label}`);
+  if (!res.ok) throw new Error(`${from} answered ${res.status} for ${label}`);
   const data = new Uint8Array(await res.arrayBuffer());
-  if (await sha256Hex(data) !== p.sha256) throw new Error(`${label} downloaded from the Firmware Hub didn't match the one this installer expects`);
+  if (await sha256Hex(data) !== p.sha256) throw new Error(`${label} downloaded from ${from} didn't match the one this installer expects`);
   const { app } = parsePackage(data);
   if (await sha256Hex(app) !== p.app_sha256) throw new Error(`${label} didn't decode to the firmware this installer expects`);
   return app;

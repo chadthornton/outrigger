@@ -106,7 +106,7 @@ class LinkTest(unittest.TestCase):
         links = ec.installer_links()
         urls = [l["url"] for l in links]
         self.assertTrue(any(u.endswith("/wl82loader.bin") for u in urls))
-        self.assertIn("https://thefirmwarehub.com/fw/mvave/FM-1_015.fwsc", urls)
+        self.assertIn("https://raw.githubusercontent.com/m-vave/fm1_open/b178ac43c25f010c60a878056fb5331fe693fd62/sdk/firmware/FM-1_015.fwsc", urls)
         self.assertIn(ec.HUB_CATALOG, urls)
         self.assertIn(ec.MUTANT_CATALOG, urls)
         self.assertTrue(all(l["sha256"] for l in links if not l["json"]))
