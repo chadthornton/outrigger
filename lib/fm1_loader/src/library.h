@@ -79,6 +79,11 @@ struct Unit {
   uint32_t next_seq = 1;
   bool has_pending = false;
   PendingInstall pending;
+  // The flash chip its last backup read (layout.h kFlashId or kFlashIdUc25hq80;
+  // 0: recorded before the board read it, so the FM-1's own flash).
+  uint32_t flash_id = 0;
+  // A UC25HQ80 unit: the owner held through the risk warning once.
+  bool chip_risk_ok = false;
 };
 
 struct SaveState {
@@ -101,6 +106,21 @@ struct SectorOp {
   Family family;  // for Right::SaveRestore
 };
 
+// Whether this release of a project is known to save on the UC25HQ80 flash
+// (families_gen.h kUc25hq80Saves): from the listed release on, versions
+// compared as numbers, a pre-release before its release ("v" ignored).
+bool saves_on_uc25hq80(const std::string &project, const std::string &version);
+// Which boot head a backup holds, by CRC-32 (layout.h). Only V15 takes
+// installs: V15-based firmwares and the clean slate are untested on any other,
+// and V16 keeps its Bluetooth address where a clean slate erases. A head sector
+// missing from the store counts as Other.
+enum class Head { V15, V16, Other };
+class Library;
+Head head_of(Library &lib, const FlashHashes &flash);
+// What the screen says about a head that isn't V15: two lines.
+const char *head_problem(Head h);
+extern const char *const kHeadProblem2;
+
 // Unit ID from the 0xE9000 sector. Empty if the sector is blank (all 0xFF or
 // 0x00): such units would all collide, so they can't be identified.
 std::string unit_id_of(const uint8_t *sector);
@@ -121,6 +141,11 @@ class Library {
   bool set_pinned(const std::string &id, bool pinned);
   // What an app area with these sector hashes is (identity empty if unknown).
   Firmware identify_app(const std::vector<Hash> &app);
+  // When identify_app() knows no package: true if the app reads as an M-VAVE
+  // stock build (app_scan.h), with its identity and the stored stock package of
+  // that identity ("" when none). Only for saying what runs: no package holds
+  // these exact bytes, so installs and backups still treat the app as unknown.
+  bool recognise_stock(const std::vector<Hash> &app, std::string &identity, std::string &package_id);
 
   bool unit(const std::string &id, Unit &out);
   bool put_unit(const Unit &u);  // writes and syncs
@@ -167,6 +192,11 @@ struct DataDecision {
   bool stock_resources_warning = false;
   // Why this firmware can't be installed yet, for the screen; null when it can.
   const char *blocked = nullptr;
+  // A UC25HQ80 unit (preview_install): its owner hasn't taken the risk yet, so
+  // the plan warns and the hold is the OK (InstallOptions::chip_risk_ok).
+  bool chip_risk = false;
+  // A UC25HQ80 unit, and the target isn't known to save on that chip.
+  bool chip_no_saves = false;
 };
 
 // Why a project can't be installed yet, for the screen; null when it can. The
@@ -193,7 +223,8 @@ DataDecision decide_data(const std::string &unit_id, const Firmware &current,
 // shown before the hold. The install itself plans again from a fresh backup.
 struct InstallPreview {
   bool ok = false;
-  const char *problem = "";  // when !ok
+  const char *problem = "";   // when !ok
+  const char *problem2 = "";  // its second line, when it has one
   Firmware current;          // what the unit ran at its latest backup
   DataDecision decision;
   uint32_t app_sectors = 0, data_sectors = 0;

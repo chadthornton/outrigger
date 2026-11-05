@@ -18,14 +18,14 @@ import { ESPLoader } from "../vendor/esptool-js-0.7.0/bundle.js";
 import { ChunkedTransport, readFlashInPieces } from "./serial.js";
 import { describeBoard, buildName } from "./board.js";
 import { checkChip, USB_BRIDGES } from "./chip.js";
-import { openReportForm, openRequestChoice } from "./report_form.js";
+import { openReportForm, openRequestChoice, openLogForm } from "./report_form.js";
 import { readBoard, fetchBuild, install, finish, prepareStore } from "./install.js";
 import { buildInstallEvent, sendInstallEvent, countingOn, setCounting } from "./install_event.js";
 import { PORT_FILTER, SERIAL_OPTIONS, port as lock, h } from "./ui.js";
 
 // Shown in the page footer and in Details, so a bug report says which
 // installer ran. Bump it with every change to site/installer/.
-export const INSTALLER_VERSION = "2026-11-05.1";
+export const INSTALLER_VERSION = "2026-11-05.2";
 
 // The page footer shows it (build.py), so a bug report says which installer ran.
 const versionLine = typeof document !== "undefined" && document.getElementById("installer-version");
@@ -113,6 +113,10 @@ class InstallArea {
       note ? h("p", { class: "install-error", role: "alert" }, note) : null,
       note && this.refused ? h("div", { class: "row" }, h("button", { class: "alt",
         on: { click: () => openReportForm({ ...this.refused, installer: INSTALLER_VERSION }) } }, "Ask us to add this board")) : null,
+      // Opt-in, one click: the visitor sees what goes first (report_form.js openLogForm). Never the trace.
+      note && LOG.length && !this.refused ? h("div", { class: "row" }, h("button", { class: "alt",
+        on: { click: () => openLogForm({ log: LOG.slice(-40), error: note,
+          picked: this.board || "Not asked", installer: INSTALLER_VERSION }) } }, "Send this log to Outrigger")) : null,
       note && LOG.length ? h("details", { class: "install-log" }, h("summary", {}, "Details"),
         h("pre", {}, [`Installer ${INSTALLER_VERSION}`, ...LOG.slice(-25), "", ...this.trace.split("\n").slice(-40).map((l) => l.slice(0, 160))].join("\n"))) : null,
       expanded && this.boards.length > 1 ? this.boardPicker() : null,
@@ -291,7 +295,7 @@ class InstallArea {
     }
     const storeWords = store.action !== "create" ? null
       : `${noStore} Installing also sets up a fresh one with ${listOf(store.starter)}; add Felucca, Skiff and others after. ` +
-        "It downloads from thefirmwarehub.com, and the file the loader needs from the FM-1's chip maker from GitHub, straight into this browser.";
+        "It downloads both from GitHub, straight into this browser: M-VAVE's stock firmware, and the file the loader needs from the FM-1's chip maker.";
     this.show(
       h("p", { class: "install-read" }, words.board),
       words.warning ? h("p", { class: "install-error", role: "alert" }, words.warning) : null,

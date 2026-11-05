@@ -251,7 +251,8 @@ TROUBLE = """<div class="faq">
   <details id="counts"><summary>Does this site send anything about me?</summary><p>One anonymous count when you press Install,
     unless you untick the box beside that button: which board profile, which edition, the installer's version, whether
     it finished, and the day. No MAC address, chip serial, IP address, browser details or cookies. A
-    finished install counts once per board in each browser. Page visits are counted by
+    finished install counts once per board in each browser. If an install fails, you can send us its log with
+    "Send this log to Outrigger": you see all of it first, and your board's MAC address is taken out. Page visits are counted by
     <a href="https://www.cloudflare.com/web-analytics/" target="_blank" rel="noopener">Cloudflare Web Analytics</a>, which uses
     no cookies and doesn't fingerprint visitors.</p></details>
   <details><summary>Where do my backups live?</summary><p>On Outrigger itself, never online. Copying them to a computer is
@@ -418,6 +419,7 @@ STYLE = """
   .report h2 { margin: 0; font-size: 1.25rem; }
   .report p { margin: 0; font-size: .9375rem; line-height: 1.5; }
   .report-read { background: var(--soft); border-radius: 10px; padding: 12px 14px; display: grid; gap: 8px; }
+  .report-log { background: var(--soft); border-radius: 10px; padding: 12px 14px; margin: 0; max-height: 14em; overflow: auto; white-space: pre-wrap; font: .75rem ui-monospace, "SF Mono", Menlo, monospace; }
   .report-read summary { cursor: pointer; font-size: .875rem; color: var(--muted); }
   .report-read dl { display: grid; grid-template-columns: auto 1fr; gap: 2px 14px; margin: 8px 0 0; font-size: .875rem; }
   .report-read dt { color: var(--muted); }

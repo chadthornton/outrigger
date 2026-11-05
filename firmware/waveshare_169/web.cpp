@@ -10,6 +10,7 @@
 #include <WiFi.h>
 #include <esp_core_dump.h>
 #include <esp_heap_caps.h>
+#include <esp_memory_utils.h>
 #include <esp_http_server.h>
 #include <esp_partition.h>
 #include <esp_random.h>
@@ -91,8 +92,8 @@ struct Lock {
   ~Lock() { xSemaphoreGive(state_mutex); }
 };
 
-static DiagState *published;    // PSRAM
-static DiagState *status_copy;  // PSRAM, server task only
+static DiagState *published;    // internal RAM when it fits (app.cpp, publish_diag: PSRAM writes tick the buzzer)
+static DiagState *status_copy;  // likewise; server task only
 static uint32_t published_at = 0;
 struct TaskLine {
   char name[configMAX_TASK_NAME_LEN];
@@ -949,8 +950,15 @@ void web_begin(bool safe_mode) {
 
   state_mutex = xSemaphoreCreateMutex();
   auto psram = [](size_t n) { return heap_caps_calloc(1, n, MALLOC_CAP_SPIRAM); };
+  // The two status copies are rewritten every publish: internal RAM keeps
+  // that traffic off PSRAM (see publish_diag). The log rings and history are
+  // written a line at a time and stay in PSRAM.
+  auto internal = [&](size_t n) {
+    void *p = heap_caps_calloc(1, n, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    return p ? p : psram(n);
+  };
   void *a = psram(sizeof *usb_ring), *b = psram(sizeof *loader_ring), *c = psram(sizeof *loop_ring),
-       *d = psram(sizeof *history), *e = psram(sizeof *published), *f = psram(sizeof *status_copy);
+       *d = psram(sizeof *history), *e = internal(sizeof *published), *f = internal(sizeof *status_copy);
   if (!state_mutex || !a || !b || !c || !d || !e || !f) return;
   usb_ring = new (a) web_core::LineRing<32>();
   loader_ring = new (b) web_core::LineRing<64>();
@@ -959,6 +967,10 @@ void web_begin(bool safe_mode) {
   published = new (e) DiagState();
   status_copy = new (f) DiagState();
   store_body = new std::string();
+  DLOG_LOOP("web: status copies in %s, internal free %u KB (largest %u KB)",
+            esp_ptr_external_ram(e) || esp_ptr_external_ram(f) ? "PSRAM" : "internal RAM",
+            unsigned(heap_caps_get_free_size(MALLOC_CAP_INTERNAL) / 1024),
+            unsigned(heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL) / 1024));
   started = true;
   DLOG_LOOP("boot: %07lx%s %s, reset %s%s", (unsigned long)FW_VERSION, FW_DIRTY ? "+" : "", platform::kAppSetLabel,
             reset_name(r), safe_mode ? ", safe mode" : "");
@@ -1144,7 +1156,7 @@ void web_loop(uint32_t now) {
 void web_publish(const DiagState &s) {
   if (!started) return;
   Lock l;
-  *published = s;
+  if (memcmp(published, &s, sizeof s) != 0) *published = s;  // nothing changed: no write
   published_at = millis();
 }
 

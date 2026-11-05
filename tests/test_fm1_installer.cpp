@@ -6,6 +6,7 @@
 #include "switch_chain.h"
 #include "installer.h"
 #include "support/check.h"
+#include "support/heads.h"
 #include "support/mock_rom.h"
 
 using namespace fm1_loader;
@@ -48,6 +49,7 @@ static const Image &sloop() { return pkg("sloop-2.8.1.fwsc").app; }
 static Image base_flash(const Image &app, const char *unit = "unit-A") {
   Image f = synth("fm1-mock", kAppEnd);
   f.resize(kFlashSize, 0xFF);
+  memcpy(f.data(), v15_head().data(), kHeadEnd);  // stock V15's: the only head the board installs on
   memcpy(f.data() + kAppStart, app.data(), kAppLen);
   Image u = synth(unit, kSector);
   memcpy(f.data() + kUnitSector, u.data(), kSector);
@@ -93,11 +95,12 @@ struct Rig {
     rom.reads_before_first_erase = -1;
     host.keys = 0;
   }
-  void install(const char *id, bool fresh_ok = true, bool layout_ok = false) {
+  void install(const char *id, bool fresh_ok = true, bool layout_ok = false, bool chip_ok = false) {
     InstallOptions o;
     o.confirmed = true;
     o.fresh_start_ok = fresh_ok;
     o.layout_change_ok = layout_ok;
+    o.chip_risk_ok = chip_ok;
     inst.start_install(id, o);
     inst.run();
   }
@@ -213,6 +216,89 @@ static void test_golden_identity() {
     CHECK(r.inst.failure() == Failure::IdentityMismatch);
     check_golden("wrong_flash_id", r, "identity");
   }
+  {
+    // A chip key that isn't the FM-1's stays a plain mismatch, whatever the flash.
+    Rig r(base_flash(sloop()));
+    r.back_up();
+    r.rom.key = 0x1234;
+    r.rom.id = 0xB36014;
+    r.install("skiff-1.4");
+    CHECK(r.inst.failure() == Failure::IdentityMismatch);
+  }
+}
+
+// The UC25HQ80 (0xB36014): backed up and installed like the FM-1's own flash,
+// the same commands (gen_golden.py), once the owner has taken the risk. The OK
+// is asked before the key and kept on the unit.
+static void test_uc25hq80() {
+  {
+    Rig r(base_flash(skiff()));
+    r.rom.id = kFlashIdUc25hq80;
+    r.fresh_rom();
+    InstallOptions o;
+    o.confirmed = true;
+    r.inst.start_backup(o);
+    r.inst.run();
+    CHECK(r.inst.current() == Step::Done);
+    check_golden("backup_uc25hq80", r, "done");
+    CHECK(r.unit().flash_id == kFlashIdUc25hq80 && !r.unit().chip_risk_ok);
+  }
+  {
+    Rig r(base_flash(sloop()));
+    r.rom.id = kFlashIdUc25hq80;
+    r.back_up();
+    // What it runs already: nothing to write, and the plan showed no warning, so
+    // the hold isn't the OK even if it carried one.
+    r.install("sloop-2.8.1", true, false, true);
+    CHECK(r.inst.current() == Step::Done && !r.unit().chip_risk_ok && r.host.keys == 0);
+    r.install("skiff-1.4");  // no OK yet: nothing reaches the FM-1
+    CHECK(r.inst.failure() == Failure::NeedsChipRiskOk);
+    CHECK(r.host.keys == 0 && r.rom.commands == 0 && !r.unit().has_pending && !r.unit().chip_risk_ok);
+    r.install("skiff-1.4", true, false, true);
+    CHECK(r.inst.current() == Step::Done);
+    check_golden("install_uc25hq80", r, "done");
+    CHECK(r.unit().chip_risk_ok);
+    r.fresh_rom();
+    r.install("sloop-2.8.1");  // asked once per unit
+    CHECK(r.inst.current() == Step::Done);
+  }
+  {
+    // A unit recorded on the FM-1's own flash that answers 0xB36014 at install:
+    // stopped in ROM boot before anything is written, and sent home.
+    Rig r(base_flash(sloop()));
+    r.back_up();
+    r.rom.id = kFlashIdUc25hq80;
+    r.install("skiff-1.4");
+    CHECK(r.inst.failure() == Failure::NeedsChipRiskOk);
+    CHECK(r.rom.was_reset && !r.inst.danger() && r.rom.lowest_touched < 0 && r.rom.writes == 0);
+  }
+  CHECK(strstr(failure_text(Failure::NeedsChipRiskOk), "UC25HQ80"));
+}
+
+// Any head but stock V15's: the backup works, every install stops before the
+// key, so the FM-1 never leaves its firmware.
+static void test_heads_backup_only() {
+  const struct {
+    uint32_t crc;
+    Failure failure;
+  } cases[] = {{kHeadCrcV16, Failure::V16Head}, {0x12345678, Failure::UnknownHead}};
+  for (const auto &c : cases) {
+    Image f = base_flash(sloop());
+    Image h = forged_head(c.crc);
+    memcpy(f.data(), h.data(), kHeadEnd);
+    Rig r(f);
+    r.back_up();
+    CHECK(r.unit().latest_backup.size() > 0);
+    r.install("skiff-1.4");
+    CHECK(r.inst.failure() == c.failure);
+    CHECK(r.host.keys == 0 && r.rom.commands == 0 && !r.inst.danger());
+    Unit u = r.unit();
+    CHECK(!u.has_pending);
+    r.install("sloop-2.8.1");  // even what it runs now
+    CHECK(r.inst.failure() == c.failure);
+  }
+  CHECK(strstr(failure_text(Failure::V16Head), "V16"));
+  CHECK(strstr(failure_text(Failure::UnknownHead), "unknown start-up code"));
 }
 
 static void test_golden_backup_mismatch() {
@@ -1026,6 +1112,8 @@ int main() {
   test_golden_retry_once();
   test_golden_retry_fails();
   test_golden_identity();
+  test_uc25hq80();
+  test_heads_backup_only();
   test_golden_backup_mismatch();
   test_golden_stale_backup();
   test_switch_unchanged_backs_up_nothing();

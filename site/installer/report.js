@@ -6,10 +6,15 @@
 // The report is built from a fixed list of fields, never by copying esptool's
 // facts: the chip's MAC is in those facts and in the log, and must not leave
 // the page. The server refuses any field not listed here.
+//
+// "Send this log to Outrigger" (a failed install, report_form.js openLogForm)
+// uses the same report with a log: esptool's progress lines only, never the
+// serial trace (MAC bytes hide in its hex), with every MAC spelling replaced
+// (scrubLog). The server scrubs again before storing.
 import { chipFamily, flashBytesFromId, psramMbFromFeatures, USB_BRIDGES } from "./chip.js";
 
 // Longest text each field may hold, in characters.
-export const LIMITS = { chip: 200, picked: 100, verdict: 1500, installer: 40, board: 300, note: 4000, email: 254 };
+export const LIMITS = { chip: 200, picked: 100, verdict: 1500, installer: 40, board: 300, note: 4000, email: 254, log: 6000 };
 // Their range; null when the chip didn't say. Whole numbers, except flash: some chips have 256 KB.
 const NUMBERS = { flash_mb: 1024, psram_mb: 64, usb_vid: 0xffff };
 // Left empty by people, filled in by form-filling bots (the page hides it).
@@ -18,6 +23,28 @@ const FIELDS = new Set([...Object.keys(LIMITS), ...Object.keys(NUMBERS), HONEYPO
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const text = (v) => String(v ?? "").trim();
+
+// A MAC as colons, dashes, Cisco dots or 12 bare hex digits.
+const MACS = /\b(?:[0-9a-f]{2}[:-]){5}[0-9a-f]{2}\b|\b[0-9a-f]{4}\.[0-9a-f]{4}\.[0-9a-f]{4}\b|\b[0-9a-f]{12}\b/gi;
+export const scrubLog = (s) => String(s ?? "").replace(MACS, "[MAC removed]");
+
+// A failed install's log report. log: area.js's progress lines (LOG), newest last; only the newest that fit go.
+// error: the words the page showed; picked: the board chosen. The board field is the board picked.
+export function buildLogReport({ log, error, picked, installer, note, email }) {
+  const lines = [];
+  let size = 0;
+  for (const line of [...log].reverse().map(scrubLog)) {
+    if (size + line.length + 1 > LIMITS.log) break;
+    lines.unshift(line);
+    size += line.length + 1;
+  }
+  return {
+    chip: "", flash_mb: null, psram_mb: null, usb_vid: null,
+    picked: text(picked).slice(0, LIMITS.picked), verdict: scrubLog(text(error)).slice(0, LIMITS.verdict),
+    installer: text(installer), board: text(picked).slice(0, LIMITS.board) || "Not picked",
+    note: scrubLog(text(note)), email: text(email), website: "", log: lines.join("\n"),
+  };
+}
 
 // The chip has everything Outrigger needs (chip.js checkChip's bar), so the
 // only thing missing is this board's profile. The pop-up says so.
