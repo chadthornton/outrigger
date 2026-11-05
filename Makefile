@@ -126,6 +126,8 @@ test: build/check_package build/test_fm1_interop build/test_touch_map build/test
 	./build/test_status
 	./build/test_boot_mode
 	./build/test_ota
+	@# The recovery app's .ino stays comments only: Arduino rewrites .ino files (firmware/recovery/recovery.ino says how that broke it).
+	@! grep -vqE '^[[:space:]]*(//.*)?$$' firmware/recovery/recovery.ino || { echo 'firmware/recovery/recovery.ino has code: move it to recovery_app.cpp'; exit 1; }
 	./build/test_broker
 	./build/test_describe
 	./build/test_web_core
