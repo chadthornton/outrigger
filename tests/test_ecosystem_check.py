@@ -112,6 +112,21 @@ class LinkTest(unittest.TestCase):
         self.assertIn(ec.MUTANT_CATALOG, urls)
         self.assertTrue(all(l["sha256"] for l in links if not l["json"]))
 
+    def test_fixtures_are_checked_without_cors(self):
+        # Fixtures are downloaded by Python (tools/fetch_fixtures.py), not a page,
+        # so a GitHub release link with no CORS header is fine for them.
+        blob, shared = b"fixture", b"stock"
+        links = [{"name": "f", "url": "release/f", "sha256": hashlib.sha256(blob).hexdigest(), "json": False},
+                 {"name": "s", "url": "raw/stock", "sha256": hashlib.sha256(shared).hexdigest(), "json": False}]
+        fetched = []
+        def fetch(u):
+            fetched.append(u)
+            return blob
+        self.assertEqual(ec.check_fixtures(links, {"raw/stock": shared}, fetch), [])
+        self.assertEqual(fetched, ["release/f"])  # the installer's copy is reused
+        bad = ec.check_fixtures(links, {"raw/stock": b"changed"}, fetch)
+        self.assertEqual([(n, why[:20]) for n, _, why in bad], [("s", "answered, but the fi")])
+
     def test_the_fixture_links_are_fetch_fixtures_pins(self):
         links = ec.fixture_links()
         names = [l["name"] for l in links]

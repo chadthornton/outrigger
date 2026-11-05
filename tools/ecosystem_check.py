@@ -92,6 +92,19 @@ def installer_links(root=ROOT):
     return links
 
 
+def check_fixtures(links, got, fetch=None):
+    """[(name, url, why)] for fixture links that don't answer with their pinned bytes.
+    Python downloads them (tools/fetch_fixtures.py), so no CORS is needed. A fixture
+    that's also an installer file reuses got's bytes, checked against its own pin."""
+    fetch = fetch or get
+    bad = []
+    for link in links:
+        why = check_link(link, fetch=lambda u: (got[u] if u in got else fetch(u), {}), browser=False)
+        if why:
+            bad.append((link["name"], link["url"], why))
+    return bad
+
+
 def fixture_links(root=ROOT):
     """[{name, url, sha256, json}]: the files a fresh `make test` downloads
     (tools/fetch_fixtures.py), each with its pin."""
@@ -112,10 +125,11 @@ def get_for_browser(url):
         return r.read(), dict(r.headers.items())
 
 
-def check_link(link, fetch=get_for_browser, keep=None):
+def check_link(link, fetch=get_for_browser, keep=None, browser=True):
     """None when the link answers with what the installer expects, else why not.
-    Every link is read by the visitor's browser, so it must allow any origin.
-    keep (a dict), when given, gets the downloaded bytes by URL."""
+    fetch returns (bytes, headers). A link the visitor's browser reads (browser)
+    must allow outrigger.music's origin. keep (a dict), when given, gets the
+    downloaded bytes by URL."""
     try:
         data, headers = fetch(link["url"])
         if keep is not None:
@@ -125,7 +139,7 @@ def check_link(link, fetch=get_for_browser, keep=None):
     except Exception as e:  # noqa: BLE001 - any failure to fetch is the finding
         return f"couldn't be reached ({e})"
     allow = {k.lower(): v for k, v in headers.items()}.get("access-control-allow-origin", "")
-    if allow.strip() not in ("*", "https://outrigger.music"):
+    if browser and allow.strip() not in ("*", "https://outrigger.music"):
         return "answered, but a web page can't read it (no CORS header for outrigger.music)"
     if link["sha256"] and hashlib.sha256(data).hexdigest() != link["sha256"]:
         return "answered, but the file changed (SHA-256 differs from the installer's pin)"
@@ -362,12 +376,7 @@ def main(argv=None):
         why = check_link(link, keep=got)
         if why:
             links_bad.append((link["name"], link["url"], why))
-    # Some fixtures are installer files too: check those bytes against the fixture's own pin, without a second download.
-    fixtures_bad = []
-    for link in fixture_links():
-        why = check_link(link, fetch=lambda u: got[u] if u in got else get(u))
-        if why:
-            fixtures_bad.append((link["name"], link["url"], why))
+    fixtures_bad = check_fixtures(fixture_links(), got)
     try:
         hub, mutant_cat = json.loads(got[HUB_CATALOG]), json.loads(got[MUTANT_CATALOG])
         renamed = renames(hub, mutant_cat, fam.get("hub_ids", {}))
