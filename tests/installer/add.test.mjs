@@ -197,7 +197,7 @@ test("fromMutant: FM-1 files only, through mutant.cloud's /dl, with the Hub's id
   assert.equal(by.stock.url, mutantCatalog.stock.pkg);
   assert.equal(by.stock.version, "V15");
   const why = Object.fromEntries(held.map((h) => [h.project, h.why]));
-  assert.match(why["orange-cat"], /Melodee/);
+  assert.match(why["orange-cat"], /Bluetooth/);  // blocked by its own id in the generated list
   assert.match(why.clipper, /older Felucca/);
   assert.match(why.mycelium, /older Felucca/);  // the Hub says built on SLOOP too
   // Melodee is listed as built on Felucca: its id holds it, and its other file too.

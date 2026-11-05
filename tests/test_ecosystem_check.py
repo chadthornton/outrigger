@@ -65,14 +65,20 @@ class FamilyTest(unittest.TestCase):
         self.assertEqual(ec.group_of("hortator", ENTRIES, FAM), "blocked")
         self.assertEqual(ec.group_of("mnm1", ENTRIES, FAM), "blocked")
 
-    def test_the_table_holds_everything_the_add_page_holds(self):
-        src = (ROOT / "site/installer/add.js").read_text()
-        held = set()
-        for name in ("BLOCKED", "OLD_FELUCCA"):
-            body = re.search(name + r" = \[(.*?)\];", src, re.S).group(1)
-            held |= set(re.findall(r'"([a-z0-9-]+)"', body))
-        self.assertTrue(held, "add.js lists moved")
-        self.assertEqual(held - set(FAM["blocked_ids"]), set())
+    def test_a_block_from_the_hubs_base_counts_too(self):
+        hub = {"firmwares": [{"id": "mycelium", "base": ["felucca", "sloop"]}]}
+        entries = dict(ENTRIES, mycelium={"id": "mycelium", "base": "felucca"})
+        self.assertEqual(ec.group_of("mycelium", entries, FAM, ec.bases_of(entries, hub)), "blocked")
+
+    def test_the_board_snapshot_going_stale_is_flagged(self):
+        entries = {"newfork": {"id": "newfork", "base": "sloop"}, "x0x": {"id": "x0x", "base": "felucca"}}
+        stale = ec.unblocked_on_board(FAM, entries, {"firmwares": []}, {}, committed=set(FAM["blocked_ids"]))
+        self.assertEqual(stale, ["newfork"])
+        body, state, attention = ec.build_report([], [], {}, FAM, {"seen": ["z"]}, "2026-11-04", stale=stale)
+        self.assertTrue(attention)
+        self.assertIn("Not blocked on the board yet:** newfork", body)
+        _, _, attention = ec.build_report([], [], {}, FAM, state, "2026-11-05", stale=stale)
+        self.assertFalse(attention)  # said once
 
 
 class LinkTest(unittest.TestCase):
@@ -110,8 +116,8 @@ class RenameTest(unittest.TestCase):
                                 {"id": "new", "entry": "new", "repo": "y/new"}]}
         self.assertEqual(ec.renames(hub, mutant, {"fm1-sid": "fm1sid"}), ["b1-drawbar-organ (Hub: b1)"])
 
-    def test_the_page_map_is_read_from_add_js(self):
-        self.assertIsInstance(ec.hub_ids_in_page(), dict)
+    def test_the_page_map_lives_in_the_families_table(self):
+        self.assertEqual(FAM["hub_ids"]["b1-drawbar-organ"], "b1")
 
 
 class ReportTest(unittest.TestCase):

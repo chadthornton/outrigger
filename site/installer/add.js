@@ -7,6 +7,7 @@
 // never hosts a firmware. Pure, so `make test` runs it against the board's own
 // receiver (tests/installer/add.test.mjs).
 import { crc16, parsePackage, sha256Hex } from "./store.js";
+import { BLOCKED, HUB_ID } from "./families_gen.js";
 
 export const HUB = "https://thefirmwarehub.com/";
 export const CATALOG_URL = `${HUB}catalog.json`;
@@ -20,24 +21,15 @@ export const MUTANT_FIRMWARE_URL = `${MUTANT}firmware.json?device=fm1&kind=firmw
 // How long mutant.cloud gets before the page asks the Hub instead.
 const CATALOG_TIMEOUT_MS = 5000;
 const DOWNLOAD_TIMEOUT_MS = 30000;
-// mutant.cloud entries the Hub (and so boards' stores and shelves) knows by
-// another id, matched by repo on 2026-11-04. The daily ecosystem check flags new ones.
-const HUB_ID = { "b1-drawbar-organ": "b1", "demake-synth": "demake", "fm1-dock": "fm1dock", "fm1-sid": "fm1sid" };
 
-// Projects the board's loader blocks (library.cpp kBlocked): they write the
-// FM-1's Bluetooth sector, whose hash is how Outrigger tells FM-1s apart.
-const BLOCKED = ["melodee", "tessera"];
-// Built on Felucca 0.9 (SLOOP and its family), from the 2026-11-01 survey of
-// every Hub firmware's source (fw-map-bench.md). Going from one of these to
-// Felucca or Skiff can leave data that crashes them (Chad, 2026-11-01: SLOOP
-// waits until a store dump shows where it keeps its data). A firmware whose
-// catalog "base" names one of these is held too. Firmwares added to the Hub
-// after the survey aren't classified: they're listed, and switch with a clean
-// slate like every untested switch.
-const OLD_FELUCCA = ["sloop", "clipper", "spampy", "winampfm", "floyd", "jangada", "nmsfm", "karma", "sloopdx",
-  "hortator", "sloopbanks", "fm1quest", "mnm1", "salt", "vector37", "nauclerus", "gator", "hawkchua",
-  // The Hub lists it on Felucca and SLOOP; mutant.cloud on Felucca only, so mutant.cloud's base alone wouldn't hold it.
-  "mycelium"];
+// Projects the board's loader refuses (families_gen.js, generated with the
+// board's families_gen.h from tools/fm1_families.json): Melodee, Tessera and
+// firmwares built on Melodee write the FM-1's Bluetooth sector, whose hash is
+// how Outrigger tells FM-1s apart; SLOOP, firmwares built on it and our
+// Felucca 0.9 survey (fw-map-bench.md) can leave data that crashes Felucca or
+// Skiff. A firmware whose catalog "base" names one of these is held too.
+// Firmwares added to a catalog since the snapshot aren't classified: they're
+// listed, and switch with a clean slate like every untested switch.
 
 // Files that fail Outrigger's package checks (make check-latest LATEST_ALL=1,
 // 2026-11-01: 1 of 143). Any other that fails is caught at download.
@@ -60,13 +52,13 @@ export function addableFirmwares(catalog) {
   for (const e of catalog.firmwares || []) {
     if (!e.pkg || !e.sha256) continue;
     const base = e.base || [];
-    // A variant file (fromMutant) answers for its entry too.
-    const ids = [e.id, e.entry || e.id];
-    const is = (list) => ids.some((i) => list.includes(i));
-    const why = is(BLOCKED) ? WHY_BLOCKED
-      : base.includes("melodee") ? WHY_MELODEE
-        : is(OLD_FELUCCA) || base.some((b) => OLD_FELUCCA.includes(b)) ? WHY_OLD
-          : is(FAILS_CHECKS) ? WHY_CHECKS : !e.lic ? WHY_LICENSE : null;
+    // A variant file (fromMutant) answers for its entry too; built on a blocked
+    // firmware (SLOOP and Melodee are in the list themselves): held with it.
+    const own = [e.id, e.entry || e.id].map((i) => BLOCKED[i]).find(Boolean);
+    const block = own || base.map((b) => BLOCKED[b]).find(Boolean);
+    const why = block === "bluetooth" ? (own ? WHY_BLOCKED : WHY_MELODEE)
+      : block ? WHY_OLD
+        : [e.id, e.entry].some((i) => FAILS_CHECKS.includes(i)) ? WHY_CHECKS : !e.lic ? WHY_LICENSE : null;
     if (why) held.push({ project: e.id, name: e.name, why });
     else addable.push({ project: e.id, name: e.name, version: e.version || "", sha256: e.sha256, size: e.size,
       url: new URL(e.pkg, home).href, installs: e.installs || 0, family: e.family || "", lic: e.lic });

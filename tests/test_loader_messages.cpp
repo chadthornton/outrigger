@@ -161,7 +161,8 @@ static void test_chained_backup_failed() {
   b.failure = Failure::Blocked;
   b.firmware = "Melodee 1.6";
   r = result(b);
-  EXPECT(r.safety == UiSafety::NothingWritten && has(r.why, "Bluetooth"), "blocked: why");
+  EXPECT(r.safety == UiSafety::NothingWritten && has(r.why, "can't switch to this firmware yet") &&
+         !has(r.why, "Bluetooth"), "blocked: why, true for every reason");
   EXPECT(r.fix == UiAct::None && !has(r.todo, "Try again"), "blocked: no retry");
 
   // A stale check that isn't right after the switch's own backup.

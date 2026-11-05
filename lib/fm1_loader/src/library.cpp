@@ -1,5 +1,7 @@
 #include "library.h"
 
+#include "families_gen.h"
+
 #include <stdlib.h>
 
 #include <algorithm>
@@ -99,10 +101,13 @@ constexpr TestedPair kTestedPairs[] = {
     {"stock", "FM-1_015", "felucca", "FM-1_918", false},  // V15 <-> Felucca 1.8.0, bench test 2
 };
 
-// Projects the loader can't take a unit to yet: they write 0xE9000, the sector
-// whose hash is the unit ID (fw-map-bench.md finding 2).
-constexpr const char *kBlocked[] = {"melodee", "tessera"};
-constexpr const char *kBlockedReason = "Not yet: it writes the FM-1's Bluetooth sector";
+// Projects the loader can't take a unit to yet (families_gen.h, from the
+// reviewed tools/fm1_families.json): Melodee, Tessera and firmwares built on
+// Melodee write 0xE9000, the sector whose hash is the unit ID
+// (fw-map-bench.md finding 2); SLOOP, firmwares built on it and our Felucca
+// 0.9 survey can leave data that crashes Felucca or Skiff.
+constexpr const char *kBluetoothReason = "Not yet: it writes the FM-1's Bluetooth sector";
+constexpr const char *kOldFeluccaReason = "Not yet: it's built on an older Felucca";
 }  // namespace
 
 bool tested_pair(const std::string &from_project, const std::string &from_identity,
@@ -119,8 +124,10 @@ bool tested_pair(const std::string &from_project, const std::string &from_identi
 }
 
 const char *blocked_reason(const std::string &project) {
-  for (const char *p : kBlocked)
-    if (project == p) return kBlockedReason;
+  for (const char *p : families::kBlockedBluetooth)
+    if (project == p) return kBluetoothReason;
+  for (const char *p : families::kBlockedOldFelucca)
+    if (project == p) return kOldFeluccaReason;
   return nullptr;
 }
 
