@@ -246,6 +246,32 @@ class RollbackTargetTest(unittest.TestCase):
         self.assertIn("unknown commit", self.target(log, "b", commit="a")[1])
 
 
+class LiveFirmwareTest(unittest.TestCase):
+    """The firmware commit a channel serves: a pinned deploy's pages are newer than its firmware."""
+    def test_a_deploy_from_before_pinning_serves_its_own_firmware(self):
+        self.assertEqual(deploy_site.live_firmware([entry("deploy", "a")], "production", "a" * 40), "a" * 40)
+
+    def test_a_pinned_deploy_serves_the_firmware_it_pinned(self):
+        log = [entry("deploy", "a"), entry("deploy", "b", firmware="a" * 40)]
+        self.assertEqual(deploy_site.live_firmware(log, "production", "b" * 40), "a" * 40)
+
+    def test_a_rollback_brings_back_its_targets_firmware(self):
+        log = [entry("deploy", "a"), entry("deploy", "b", firmware="a" * 40), entry("deploy", "c"),
+               entry("rollback", "b", firmware="a" * 40, **{"from": "c" * 40})]
+        self.assertEqual(deploy_site.live_firmware(log, "production", "b" * 40), "a" * 40)
+
+    def test_a_live_commit_the_log_does_not_know_serves_its_own_firmware(self):
+        log = [entry("deploy", "b", firmware="a" * 40)]
+        self.assertEqual(deploy_site.live_firmware(log, "production", "z" * 40), "z" * 40)
+
+    def test_the_same_pages_with_other_firmware_are_another_deploy(self):
+        """A rollback from b over firmware b goes back to b over firmware a, not past it."""
+        log = [entry("deploy", "a"), entry("deploy", "b", firmware="a" * 40),
+               entry("deploy", "b", deployment="dep-b2", firmware="b" * 40)]
+        target = deploy_site.rollback_target(log, "production", "b" * 40)[0]
+        self.assertEqual((target["deployment"], target["firmware"]), ("dep-b", "a" * 40))
+
+
 class BaselineTest(unittest.TestCase):
     """Before each deploy, the log notes what is live if it doesn't already know it."""
     def test_empty_log_needs_a_baseline(self):
@@ -462,6 +488,41 @@ class ChooseSourceTest(unittest.TestCase):
         self.assertEqual(self.choose("beta", ran=False)[0], "check")
 
 
+class ChoosePinnedTest(unittest.TestCase):
+    """With no firmware change since production's firmware, the pages go up over the live firmware."""
+    def choose(self, channel="beta", full="", ran=True, crit=(), beta=None, fw=(), pinned=Path("kept")):
+        return deploy_site.choose_source(channel, full, run() if ran else None, list(crit), beta,
+                                         None if fw is None else list(fw), pinned)
+
+    def test_no_firmware_change_goes_up_pinned_on_both_channels(self):
+        for channel in ("beta", "production"):
+            self.assertEqual(self.choose(channel)[0], "pinned")
+
+    def test_server_code_and_deploy_tooling_ride_pinned(self):
+        """Chad, 2026-11-05: make check would only rebuild firmware for them."""
+        self.assertEqual(self.choose(crit=["functions/api/report.js", "tools/deploy_site.py"])[0], "pinned")
+
+    def test_a_firmware_change_builds_as_before(self):
+        self.assertEqual(self.choose(crit=["lib/x.cpp"], fw=["lib/x.cpp"])[0], "check")
+        self.assertEqual(self.choose(fw=["site/installer/install.js"])[0], "ci")
+
+    def test_no_kept_copy_of_the_live_firmware_builds_as_before(self):
+        self.assertEqual(self.choose(pinned=None)[0], "ci")
+
+    def test_unknown_firmware_changes_build_as_before(self):
+        self.assertEqual(self.choose(fw=None)[0], "ci")
+
+    def test_full_1_builds_everything(self):
+        self.assertEqual(self.choose(full="1")[0], "check")
+
+    def test_a_commit_ci_never_built_builds_as_before(self):
+        """Pinning skips make check, so CI's green run of HEAD is its test run."""
+        self.assertEqual(self.choose(ran=False)[0], "check")
+
+    def test_production_reuses_betas_pinned_build(self):
+        self.assertEqual(self.choose("production", beta="pinned")[0], "beta")
+
+
 class BetaBuildTest(unittest.TestCase):
     """Beta's kept copy of HEAD, if production may upload it instead of building again."""
     def setUp(self):
@@ -507,6 +568,111 @@ class BetaBuildTest(unittest.TestCase):
     def test_deploy_from_before_the_log_said_how_refused(self):
         del self.log[-1]["built"]
         self.assertTrue(self.built()[1])
+
+    def test_pinned_build_over_productions_firmware_is_reusable(self):
+        self.log[-1].update(built="pinned", firmware=OTHER)
+        self.assertEqual(deploy_site.beta_build(self.log, self.beta, HEAD, OTHER), ("pinned", []))
+
+    def test_pinned_build_over_other_firmware_refused(self):
+        """Production's firmware moved since beta pinned it: production would ship firmware beta never had."""
+        self.log[-1].update(built="pinned", firmware="c" * 40)
+        self.assertIn("firmware", deploy_site.beta_build(self.log, self.beta, HEAD, OTHER)[1][0])
+
+
+def kept_firmware(channel_dir, commit, firmware, dirty=False):
+    """A kept copy of a deploy of commit whose firmware was built from firmware."""
+    with tempfile.TemporaryDirectory() as tmp:
+        staged = Path(tmp)
+        out = staged / "site" / "firmware" / "b1" / "hub"
+        out.mkdir(parents=True)
+        (staged / "site" / "index.html").write_text("page")
+        (out / "app.bin").write_bytes(b"app")
+        manifest = {"version": firmware[:7], "build": {"commit": firmware[:7], "dirty": dirty},
+                    "builds": [{"parts": [{"path": "app.bin", "offset": 65536,
+                                           "sha256": hashlib.sha256(b"app").hexdigest()}]}]}
+        (out / "manifest.json").write_text(json.dumps(manifest))
+        return deploy_site.keep(staged, channel_dir, commit)
+
+
+class PinnedCopyTest(unittest.TestCase):
+    """The kept copy whose firmware a pinned deploy puts up: production's live firmware, byte for byte."""
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.kept = kept_firmware(self.root / "beta", OTHER, OTHER)
+        self.live = {"b1/hub/manifest.json": (self.kept / "site/firmware/b1/hub/manifest.json").read_bytes()}
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def pick(self, firmware=OTHER, dirs=None):
+        dirs = [self.root / "production", self.root / "beta"] if dirs is None else dirs
+        return deploy_site.pinned_copy(dirs, firmware, self.live.get)
+
+    def test_a_kept_copy_of_the_live_firmware(self):
+        self.assertEqual(self.pick(), (self.kept, None))
+
+    def test_a_copy_of_other_firmware_is_no_pin(self):
+        copy, why = self.pick(firmware=HEAD)
+        self.assertIsNone(copy)
+        self.assertIn(OTHER[:7], why)
+
+    def test_a_copy_of_pages_newer_than_their_firmware_counts(self):
+        """A pinned deploy's copy holds the firmware it pinned."""
+        shutil.rmtree(self.kept)
+        kept = kept_firmware(self.root / "production", HEAD, OTHER)
+        self.assertEqual(self.pick(), (kept, None))
+
+    def test_a_changed_copy_refused(self):
+        (self.kept / "site/firmware/b1/hub/app.bin").write_bytes(b"tampered")
+        self.assertIn("app.bin", self.pick()[1])
+
+    def test_a_dirty_build_refused(self):
+        shutil.rmtree(self.kept)
+        self.kept = kept_firmware(self.root / "beta", OTHER, OTHER, dirty=True)
+        self.live = {"b1/hub/manifest.json": (self.kept / "site/firmware/b1/hub/manifest.json").read_bytes()}
+        self.assertIn("dirty", self.pick()[1])
+
+    def test_a_manifest_production_does_not_serve_refused(self):
+        self.live["b1/hub/manifest.json"] = b'{"other": 1}'
+        self.assertIn("outrigger.music", self.pick()[1])
+
+    def test_a_manifest_production_has_no_copy_of_refused(self):
+        del self.live["b1/hub/manifest.json"]
+        self.assertIn("outrigger.music", self.pick()[1])
+
+    def test_a_copy_with_no_firmware_refused(self):
+        shutil.rmtree(self.kept / "site" / "firmware")
+        self.assertIsNone(self.pick()[0])
+
+    def test_no_copies_at_all(self):
+        self.assertIn("no kept copy", self.pick(dirs=[self.root / "nowhere"])[1])
+
+    def test_a_good_copy_wins_over_a_bad_one(self):
+        good = kept_firmware(self.root / "production", HEAD, OTHER)
+        (self.kept / "site/firmware/b1/hub/app.bin").write_bytes(b"tampered")
+        self.assertEqual(self.pick(), (good, None))
+
+
+class KeptFirmwareTest(unittest.TestCase):
+    """A beta rollback uploads the kept copy of a commit; it must hold the firmware the target deploy had."""
+    def kept(self, firmware=None):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        staged = Path(tmp.name, "pages")
+        (staged / "site").mkdir(parents=True)
+        if firmware:
+            (staged / "site" / "version.json").write_text(json.dumps({"site": HEAD, "firmware": firmware}))
+        return deploy_site.keep(staged, Path(tmp.name, "beta"), HEAD)
+
+    def test_the_copy_of_the_targets_firmware(self):
+        self.assertIsNone(deploy_site.kept_firmware_problem(self.kept(OTHER), OTHER))
+
+    def test_a_copy_of_the_same_pages_over_other_firmware_refused(self):
+        self.assertIn(OTHER[:7], deploy_site.kept_firmware_problem(self.kept(OTHER), HEAD))
+
+    def test_a_copy_from_before_version_json_built_its_own_firmware(self):
+        self.assertIsNone(deploy_site.kept_firmware_problem(self.kept(), HEAD))
 
 
 class ArtifactTest(unittest.TestCase):
@@ -628,6 +794,34 @@ class CriticalPathsTest(unittest.TestCase):
             self.assertEqual(deploy_site.critical_paths([path]), [path], path)
 
 
+class FirmwarePathsTest(unittest.TestCase):
+    """Which changes since production's firmware need new firmware; any other change can go up pinned."""
+    def test_site_server_and_doc_changes_keep_the_live_firmware(self):
+        for path in ("site/index.html", "site/style.css", "site/beta/index.html", "site/installer/area.js",
+                     "site/installer/add.js", "functions/api/report.js", "wrangler.toml", "migrations/0002_x.sql",
+                     "docs/publishing.md", "CONTRIBUTING.md", "firmware/README.md", "tests/test_deploy_site.py",
+                     "workers/install-email/index.js", "tools/deploy_site.py", "tools/check_pinned.mjs",
+                     "tools/ecosystem_check.py"):
+            self.assertEqual(deploy_site.firmware_paths([path]), [], path)
+
+    def test_firmware_and_what_builds_it_need_new_firmware(self):
+        for path in ("firmware/waveshare_169/loader_app.cpp", "lib/fm1_loader/src/families_gen.h",
+                     "firmware/waveshare_169/partitions.csv", "Makefile", ".github/workflows/ci.yml",
+                     "tools/build_site.py", "tools/store_template.py", "tools/boards.py", "tools/gen_families.py",
+                     "tools/fm1_families.json", "tools/check.py"):
+            self.assertEqual(deploy_site.firmware_paths([path]), [path], path)
+
+    def test_installer_code_that_reads_the_firmware_needs_new_firmware(self):
+        """These read the manifests, the store template, the build tag and the loader's block list."""
+        for name in ("install.js", "plan.js", "store.js", "board.js", "families_gen.js"):
+            path = "site/installer/" + name
+            self.assertEqual(deploy_site.firmware_paths([path]), [path], path)
+
+    def test_a_path_nobody_listed_needs_new_firmware(self):
+        self.assertEqual(deploy_site.firmware_paths(["sdkconfig.defaults", "newdir/x.c"]),
+                         ["sdkconfig.defaults", "newdir/x.c"])
+
+
 class AssembleTest(unittest.TestCase):
     """CI's firmware plus the commit's own files, laid out as make check leaves build/checked."""
     def test_layout_matches_make_checks(self):
@@ -646,6 +840,35 @@ class AssembleTest(unittest.TestCase):
             self.assertTrue((dst / "site" / "index.html").is_file())
             self.assertTrue((dst / "functions" / "api" / "report.js").is_file())
             self.assertTrue((dst / "wrangler.toml").is_file())
+
+    def test_pinned_layout_is_this_commits_pages_over_the_kept_firmware(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            kept = kept_firmware(Path(tmp, "beta"), OTHER, OTHER)
+            dst = Path(tmp, "pages")
+            head = deploy_site.git("rev-parse", "HEAD")
+            deploy_site.assemble(head, kept / "site" / "firmware", dst)
+            self.assertEqual((dst / "site/firmware/b1/hub/app.bin").read_bytes(), b"app")
+            self.assertTrue((dst / "site" / "installer" / "install.js").is_file())
+            self.assertEqual((dst / "commit").read_text().strip(), head)
+
+
+class VersionFileTest(unittest.TestCase):
+    """What goes up says which commit its pages and its firmware came from (version.json)."""
+    def stage(self, firmware):
+        with tempfile.TemporaryDirectory() as tmp:
+            checked = Path(tmp, "checked")
+            (checked / "site").mkdir(parents=True)
+            (checked / "site" / "index.html").write_text("page")
+            (checked / "functions").mkdir()
+            (checked / "wrangler.toml").write_text("toml")
+            missing = deploy_site.stage_root(checked, Path(tmp, "pages"), HEAD, firmware)
+            return missing, json.loads(Path(tmp, "pages", "site", "version.json").read_text())
+
+    def test_a_full_build_says_one_commit(self):
+        self.assertEqual(self.stage(HEAD), ([], {"site": HEAD, "firmware": HEAD}))
+
+    def test_a_pinned_build_says_both(self):
+        self.assertEqual(self.stage(OTHER)[1], {"site": HEAD, "firmware": OTHER})
 
 
 if __name__ == "__main__":
