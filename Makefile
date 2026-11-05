@@ -116,7 +116,7 @@ VERSION_DIR := $(CACHE_ROOT)/version
 # screens ui-shots renders. Rewritten only when they change, like fw_version.h.
 BOARD_GEN := $(CACHE_ROOT)/boards
 
-.PHONY: check test ui-shots ui-mocks build build-all flash recovery flash-recovery probe synth-bench flash-synth-bench site serve clean fixtures golden store-image flash-store store-add check-latest deploy-site rollback-site
+.PHONY: check test ui-shots ui-mocks build build-all flash recovery flash-recovery probe synth-bench flash-synth-bench site serve clean fixtures golden store-image flash-store store-add check-latest deploy-site rollback-site deploy-email
 
 FM1_SRC := $(wildcard lib/fm1_loader/src/*.cpp)
 FM1_HDR := $(wildcard lib/fm1_loader/src/*.h) $(wildcard tests/support/*.h)
@@ -462,6 +462,10 @@ deploy-site:
 	if [ "$$src" = ci ]; then python3 -I tools/deploy_site.py deploy-ci $(CHANNEL); \
 	elif [ "$$src" = beta ]; then python3 -I tools/deploy_site.py deploy-beta $(CHANNEL); \
 	else $(MAKE) check && python3 -I tools/deploy_site.py deploy $(CHANNEL) build/checked/site; fi
+
+# The daily install email Worker (workers/install-email/): origin/master only, like production.
+deploy-email:
+	python3 -I tools/deploy_email.py deploy
 
 # Put the deploy before the live one back on CHANNEL (or COMMIT=<sha>'s), in seconds,
 # without make check: production through Cloudflare's rollback, beta from the kept copy.

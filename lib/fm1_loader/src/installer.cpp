@@ -43,6 +43,8 @@ const char *failure_text(Failure f) {
     case Failure::LoaderBlobBad: return "wl82loader.bin doesn't match its SHA-256";
     case Failure::LoaderFailed: return "loader upload failed";
     case Failure::IdentityMismatch: return "chip key or flash ID isn't an FM-1's";
+    case Failure::V16Head: return "this FM-1 has M-VAVE's V16 start-up code: backup only";
+    case Failure::UnknownHead: return "this FM-1 has unknown start-up code: backup only";
     case Failure::DeviceLost: return "the FM-1 stopped answering";
     case Failure::BackupMismatch: return "the two backup reads differ";
     case Failure::NoBackupForInstall: return "back up this FM-1 first";
@@ -52,6 +54,7 @@ const char *failure_text(Failure f) {
     case Failure::StorageFailed: return "the Waveshare's storage failed";
     case Failure::PackageMissing: return "package missing or damaged in the library";
     case Failure::NeedsFreshStartOk: return "the new firmware needs a fresh start: confirm it";
+    case Failure::NeedsChipRiskOk: return "the newer flash chip (UC25HQ80) needs your OK first";
     case Failure::NeedsLayoutChangeOk: return "old settings may crash the new firmware: confirm it";
     case Failure::RestoreRefused: return "save state doesn't match this unit and firmware";
     case Failure::GuardRefused: return "refused: outside the allowed flash areas";
@@ -69,6 +72,7 @@ void Installer::reset_state(const InstallOptions &opts) {
   opts_ = opts;
   resume_ = false;
   backup_only_ = false;
+  flash_id_ = 0;
   backup_id_.clear();
   detail_.clear();
   package_id_.clear();
@@ -251,7 +255,12 @@ void Installer::do_read_ids() {
     detail_ = "read chip key / flash ID";
     return fail(Failure::DeviceLost);
   }
-  if (key != kChipKey || id != kFlashId) return fail(Failure::IdentityMismatch, true);
+  if (key != kChipKey || (id != kFlashId && id != kFlashIdUc25hq80)) return fail(Failure::IdentityMismatch, true);
+  flash_id_ = id;
+  // An install planned for the FM-1's own flash that finds the UC25HQ80: the
+  // owner never saw the warning. Nothing is written yet.
+  if (!backup_only_ && !resume_ && id == kFlashIdUc25hq80 && !unit_.chip_risk_ok)
+    return fail(Failure::NeedsChipRiskOk, true);
   index_ = 0;
   pass_ = 1;
   if (resume_) {
@@ -303,6 +312,7 @@ void Installer::do_backup() {
     unit_.id = id;
     unit_.name = opts_.unit_name;
   }
+  unit_.flash_id = flash_id_;
   if (!lib_.add_backup(unit_, flash_, backup_id_)) return fail(Failure::StorageFailed, true);
   if (!autosave()) return;
   step_ = Step::Reset;
@@ -331,8 +341,18 @@ bool Installer::prepare_install() {
   if (id.empty() || !lib_.unit(id, unit_) || !lib_.backup(unit_.latest_backup, flash_) ||
       flash_.size() != kSectors)
     return fail(Failure::NoBackupForInstall), false;
+  switch (head_of(lib_, flash_)) {  // the backup's head is the FM-1's: installs never write it
+    case Head::V15: break;
+    case Head::V16: return fail(Failure::V16Head), false;
+    case Head::Other: return fail(Failure::UnknownHead), false;
+  }
   if (!autosave() || !plan_ops()) return false;
-  if (total_ == 0) return true;
+  if (total_ == 0) return true;  // nothing to write: the plan showed no warning, so no OK either
+  if (unit_.flash_id == kFlashIdUc25hq80 && !unit_.chip_risk_ok) {
+    if (!opts_.chip_risk_ok) return fail(Failure::NeedsChipRiskOk), false;
+    unit_.chip_risk_ok = true;  // asked once per unit
+    if (!lib_.put_unit(unit_)) return fail(Failure::StorageFailed), false;
+  }
   unit_.has_pending = true;
   unit_.pending.package_id = package_id_;
   unit_.pending.action = decision_.action;

@@ -3,7 +3,7 @@
 // what the installer read, takes the board's name, a note and an optional
 // email, and posts them to /api/report (functions/api/report.js). What goes
 // out is built by report.js, from a fixed list of fields: never the MAC.
-import { buildReport, validateReport, boardFits, LIMITS } from "./report.js";
+import { buildReport, buildLogReport, validateReport, boardFits, LIMITS } from "./report.js";
 import { flashBytesFromId, psramMbFromFeatures, USB_BRIDGES } from "./chip.js";
 import { h } from "./ui.js";
 
@@ -30,6 +30,55 @@ export function openRequestChoice({ installer, onRead }) {
         h("button", { type: "button", class: "alt", on: { click: close } }, "Cancel"))));
   document.body.append(dialog);
   dialog.showModal();
+}
+
+// "Send this log to Outrigger", from a failed install (area.js): shows exactly what goes, takes an optional note
+// and email, and posts it to /api/report with the log. {log, error, picked, installer}: area.js's progress lines,
+// the words it showed, the board picked, the installer version.
+export function openLogForm({ log, error, picked, installer }) {
+  const preview = buildLogReport({ log, error, picked, installer, note: "", email: "" });
+  const note = h("textarea", { name: "note", rows: 3, maxlength: LIMITS.note, placeholder: "Optional: what you were doing, what you saw" });
+  const email = h("input", { name: "email", type: "email", maxlength: LIMITS.email, autocomplete: "email", placeholder: "you@example.com" });
+  const field = (label, input, help) => h("label", { class: "report-field" }, h("span", {}, label), input, help ? h("small", {}, help) : null);
+  const status = h("p", { class: "report-status", role: "status" });
+  const send = h("button", { type: "submit" }, "Send");
+  const form = h("form", { method: "dialog", on: { submit: (e) => { e.preventDefault(); submit(); } } },
+    h("h2", {}, "Send this log to Outrigger"),
+    h("p", {}, "It shows each step the installer took and where it stopped, so we can see what went wrong. This is " +
+      "everything that's sent. Your board's MAC address is taken out."),
+    h("pre", { class: "report-log" }, [`Board picked: ${preview.picked || "none"}`, `Installer ${preview.installer}`,
+      `The page said: ${preview.verdict}`, "", preview.log].join("\n")),
+    field("Anything else we should know?", note),
+    field("Your email (optional)", email, `So we can reply. Used for nothing else; we'll delete it if you ask (${FEEDBACK}).`),
+    status,
+    h("div", { class: "row" }, send, h("button", { type: "button", class: "alt", on: { click: () => dialog.close() } }, "Cancel")));
+  const dialog = h("dialog", { class: "report", "aria-label": "Send this log to Outrigger", on: { close: () => dialog.remove() } }, form);
+  document.body.append(dialog);
+  dialog.showModal();
+
+  async function submit() {
+    const report = buildLogReport({ log, error, picked, installer, note: note.value, email: email.value });
+    const check = validateReport(report);
+    if (!check.ok) {
+      status.textContent = check.problems.join(" ");
+      return;
+    }
+    send.disabled = true;
+    status.textContent = "Sending…";
+    let res;
+    try {
+      res = await fetch("/api/report", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(report) });
+    } catch {
+      res = null;
+    }
+    if (res && res.ok) {
+      return form.replaceChildren(h("h2", {}, "Thanks!"),
+        h("p", {}, report.email ? `We'll look at it and write to ${report.email}.` : "We'll look at it."),
+        h("div", { class: "row" }, h("button", { type: "button", on: { click: () => dialog.close() } }, "Close")));
+    }
+    send.disabled = false;
+    status.textContent = `${res?.status === 429 ? "Too many tries from here. Try again in an hour" : "It didn't send"}, or email ${FEEDBACK}.`;
+  }
 }
 
 // {facts, picked, verdict, installer}: what the area read and decided. facts null: listed by hand, no chip data.

@@ -340,7 +340,8 @@ the Felucca-family installers, and The Firmware Hub. It's documented in
    FM-1 untouched:
    - SCSI inquiry reads `WL82` / `UBOOT1.00`.
    - The flash loader blob matches its SHA-256 (`d41da612…ca5376`).
-   - The flash ID is `0x856014`.
+   - The flash ID is `0x856014`, or `0xB36014`: the UC25HQ80 newer FM-1s ship with, which takes the same
+     commands but is untested by Outrigger (`docs/package-sources.md`, "The UC25HQ80 flash").
    - The chip key is `0x980F`.
 3. **Backup first, verified.**
    - **Taking it:** read the full 1 MiB twice and compare the two reads.

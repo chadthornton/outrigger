@@ -2,8 +2,10 @@
 // the sector planners.
 #include <string.h>
 
+#include "app_scan.h"
 #include "library.h"
 #include "support/check.h"
+#include "support/heads.h"
 #include "support/temp_storage.h"
 
 using namespace fm1_loader;
@@ -42,7 +44,7 @@ static void apply(Library &lib, Image &img, const std::vector<SectorOp> &ops) {
 
 static Image unit_image(uint8_t seed) {
   Image img = blank_image();
-  fill(img, 0, kHeadEnd, 1);
+  memcpy(img.data(), v15_head().data(), kHeadEnd);  // the only head the board installs on
   fill(img, kUnitSector, kSector, seed);
   return img;
 }
@@ -406,6 +408,95 @@ static void test_family_blocks() {
   CHECK(d.blocked && strstr(d.blocked, "older Felucca"));
 }
 
+// The app area of a package's flash.bin, as the installer writes it.
+static Image app_of(Library &lib, const PackageInfo &p) {
+  Image app(kAppLen);
+  for (uint32_t i = 0; i < kAppSectors; ++i) CHECK(lib.sectors().get(p.app[i], app.data() + i * kSector));
+  return app;
+}
+
+static std::vector<Hash> hashes_of(Library &lib, const Image &app) {
+  std::vector<Hash> out(kAppSectors);
+  for (uint32_t i = 0; i < kAppSectors; ++i) CHECK(lib.sectors().put(app.data() + i * kSector, out[i]));
+  return out;
+}
+
+static std::string scan(const Image &app, size_t chunk) {
+  StockScan s;
+  for (size_t at = 0; at < app.size(); at += chunk) s.feed(app.data() + at, chunk);
+  return s.identity();
+}
+
+// A synthetic app area: a file table whose first entry ends its files at
+// table_end, then the plaintext given, then encrypted as flash holds it.
+static Image synthetic_app(uint32_t table_end, const std::vector<std::pair<uint32_t, std::string>> &text) {
+  Image app(kAppLen, 0);
+  memcpy(app.data() + 16, "app_area_head", 13);
+  const uint32_t off = 0x2000120, len = table_end - 0x120;
+  for (int i = 0; i < 4; ++i) app[8 + i] = uint8_t(off >> (8 * i)), app[12 + i] = uint8_t(len >> (8 * i));
+  for (const auto &t : text) memcpy(app.data() + t.first, t.second.data(), t.second.size());
+  decrypt_app(app.data(), app.size(), 0);
+  return app;
+}
+
+static void test_stock_scan_edges() {
+  // A FELUCCA marker that ends on a block's last byte still counts.
+  CHECK_EQ(scan(synthetic_app(0x8e000, {{0x1000, "FM-1_015"}, {0x2000 - 7, "FELUCCA"}}), kSector), std::string());
+  CHECK_EQ(scan(synthetic_app(0x8e000, {{0x1000, "FM-1_015"}, {0x2000 - 7, "FELUCCA"}}), 32), std::string());
+  CHECK_EQ(scan(synthetic_app(0x8e000, {{0x1000, "FM-1_015"}}), kSector), std::string("FM-1_015"));
+  // Past the file table's last file is build data, not the firmware's names.
+  CHECK_EQ(scan(synthetic_app(0x8e000, {{0x1000, "FM-1_015"}, {0x8e010, "FM-1_013"}, {0x8e100, "FELUCCA"}}), kSector),
+           std::string("FM-1_015"));
+  // An id that straddles the table's end belongs to neither side: ignored.
+  CHECK_EQ(scan(synthetic_app(0x8e004, {{0x1000, "FM-1_015"}, {0x8e000, "FM-1_013"}}), kSector),
+           std::string("FM-1_015"));
+}
+
+// Issue #39: a factory-stock FM-1 whose app area isn't byte-identical to the V15
+// package is still stock V15, and only stock reads as stock.
+static void test_recognise_stock() {
+  TestStorage st;
+  Library lib(st);
+  PackageInfo v15 = load(lib, "stock-v15", "FM-1_015.fwsc", "stock");
+  PackageInfo felucca = load(lib, "felucca-1.8.0", "felucca-1.8.0.fwsc", "felucca");
+  PackageInfo skiff = load(lib, "skiff-2.1.1", "skiff-2.1.1.fwsc", "skiff");
+  PackageInfo sloop = load(lib, "sloop-2.8.1", "sloop-2.8.1.fwsc", "sloop");
+
+  // The plaintext names the build, whatever the chunking.
+  Image stock = app_of(lib, v15);
+  CHECK_EQ(scan(stock, kSector), std::string("FM-1_015"));
+  CHECK_EQ(scan(stock, 32), std::string("FM-1_015"));
+  for (const PackageInfo *p : {&felucca, &skiff, &sloop}) CHECK_EQ(scan(app_of(lib, *p), kSector), std::string());
+  CHECK_EQ(scan(Image(kAppLen, 0xFF), kSector), std::string());
+
+  // Factory V15: the same build, a different byte past its file table (0x9237b).
+  Image factory = stock;
+  factory[0x92400 - kAppStart] ^= 0x5A;
+  const std::vector<Hash> factory_app = hashes_of(lib, factory);
+  CHECK(!lib.identify_app(factory_app).known());  // no package holds these bytes: the backup stays
+  std::string identity, package_id;
+  CHECK(lib.recognise_stock(factory_app, identity, package_id));
+  CHECK_EQ(identity, std::string("FM-1_015"));
+  CHECK_EQ(package_id, std::string("stock-v15"));
+
+  // An older factory build: stock, but no package to mark running.
+  Image older = stock;
+  const uint32_t at = 0x4eb84, block = at & ~31u;  // V15's identity, plaintext offset
+  decrypt_app(older.data() + block, 64, block);
+  CHECK(memcmp(older.data() + at, "FM-1_015", 8) == 0);
+  older[at + 7] = '3';
+  decrypt_app(older.data() + block, 64, block);  // its own inverse
+  CHECK(lib.recognise_stock(hashes_of(lib, older), identity, package_id));
+  CHECK_EQ(identity, std::string("FM-1_013"));
+  CHECK(package_id.empty());
+
+  // Felucca-lineage builds, and what no package knows, aren't stock.
+  for (const PackageInfo *p : {&felucca, &skiff, &sloop}) CHECK(!lib.recognise_stock(p->app, identity, package_id));
+  Image random(kAppLen);
+  fill(random, 0, kAppLen, 9);
+  CHECK(!lib.recognise_stock(hashes_of(lib, random), identity, package_id));
+}
+
 // Projects of packages and saves recorded before projects existed.
 static void test_projects() {
   CHECK(family_of_project("stock", "FM-1_015") == Family::Stock);
@@ -700,6 +791,107 @@ static void test_install_preview() {
   CHECK(!lib.set_pinned("nope", true));
 }
 
+// The UC25HQ80 (0xB36014): the unit remembers its chip and the owner's OK to
+// take the risk; firmwares not known to save on it get a note, not a block.
+static void test_uc25hq80() {
+  // Known to save from these releases on (families_gen.h kUc25hq80Saves).
+  CHECK(saves_on_uc25hq80("stock", "V15") && saves_on_uc25hq80("stock", ""));
+  CHECK(!saves_on_uc25hq80("felucca", "1.8.0") && saves_on_uc25hq80("felucca", "1.8.2-beta"));
+  CHECK(saves_on_uc25hq80("felucca", "1.8.2") && saves_on_uc25hq80("felucca", "1.10.0"));
+  CHECK(!saves_on_uc25hq80("felucca", "1.8.2-alpha"));  // an earlier pre-release
+  CHECK(!saves_on_uc25hq80("skiff", "2.1.1") && saves_on_uc25hq80("skiff", "2.2") && saves_on_uc25hq80("skiff", "v2.2"));
+  CHECK(!saves_on_uc25hq80("sloop", "2.8.4") && saves_on_uc25hq80("sloop", "2.8.5"));
+  CHECK(!saves_on_uc25hq80("melodee", "1.6.0-rc.7") && saves_on_uc25hq80("melodee", "1.6.0"));
+  CHECK(!saves_on_uc25hq80("felucca", "") && !saves_on_uc25hq80("sha:0123456789abcdef", "1.0"));
+
+  TestStorage st;
+  Library lib(st);
+  PackageInfo skiff = load(lib, "skiff-1.4", "skiff-1.4.fwsc", "skiff");
+  std::vector<uint8_t> raw = read_file("tests/fixtures/sloop-2.8.1.fwsc");
+  CHECK(lib.add_package("felucca-1.8.2", raw.data(), raw.size(), nullptr, "Felucca", "1.8.2-beta", "felucca") ==
+        PackageError::None);
+  Image img = unit_image(11);
+  put_app(lib, img, skiff);
+  Unit u;
+  u.id = unit_id_of(img.data() + kUnitSector);
+  u.flash_id = kFlashIdUc25hq80;
+  std::string b;
+  CHECK(lib.add_backup(u, store_image(lib, img), b));
+  Unit back;
+  CHECK(lib.unit(u.id, back) && back.flash_id == kFlashIdUc25hq80 && !back.chip_risk_ok);
+
+  // Not confirmed yet: the plan carries the warning; it isn't a problem.
+  InstallPreview p = preview_install(lib, u.id, "felucca-1.8.2");
+  CHECK(p.ok && p.decision.chip_risk && !p.decision.chip_no_saves);
+  back.chip_risk_ok = true;
+  CHECK(lib.put_unit(back));
+  CHECK(lib.unit(u.id, back) && back.chip_risk_ok && back.flash_id == kFlashIdUc25hq80);
+  p = preview_install(lib, u.id, "felucca-1.8.2");
+  CHECK(p.ok && !p.decision.chip_risk && !p.decision.chip_no_saves);
+  // Skiff 1.4 runs on it but isn't known to save there: a note.
+  Image on_felucca = img;
+  PackageInfo fel;
+  CHECK(lib.package("felucca-1.8.2", fel));
+  put_app(lib, on_felucca, fel);
+  CHECK(lib.add_backup(back, store_image(lib, on_felucca), b));
+  p = preview_install(lib, u.id, "skiff-1.4");
+  CHECK(p.ok && !p.decision.chip_risk && p.decision.chip_no_saves);
+
+  // The FM-1's own flash: neither.
+  Image puya = unit_image(12);
+  put_app(lib, puya, skiff);
+  Unit up;
+  up.id = unit_id_of(puya.data() + kUnitSector);
+  up.flash_id = kFlashId;
+  CHECK(lib.add_backup(up, store_image(lib, puya), b));
+  p = preview_install(lib, up.id, "felucca-1.8.2");
+  CHECK(p.ok && !p.decision.chip_risk && !p.decision.chip_no_saves);
+}
+
+// Any head but stock V15's is backup-only (Chad, 2026-11-05): V15-based
+// firmwares and the clean slate are untested on it, and V16 keeps its
+// Bluetooth address where a clean slate erases.
+static void test_heads_backup_only() {
+  TestStorage st;
+  Library lib(st);
+  PackageInfo skiff = load(lib, "skiff-1.4", "skiff-1.4.fwsc");
+  load(lib, "sloop-2.8.1", "sloop-2.8.1.fwsc");
+  Image img = unit_image(9);
+  put_app(lib, img, skiff);
+  CHECK(head_of(lib, store_image(lib, img)) == Head::V15);
+  Unit v15;
+  v15.id = unit_id_of(img.data() + kUnitSector);
+  std::string b15;
+  CHECK(lib.add_backup(v15, store_image(lib, img), b15));
+  CHECK(preview_install(lib, v15.id, "sloop-2.8.1").ok);
+
+  const struct {
+    std::vector<uint8_t> head;
+    Head kind;
+    const char *says;
+  } cases[] = {
+      {forged_head(kHeadCrcV16), Head::V16, "This FM-1 has M-VAVE's V16 start-up code."},
+      {forged_head(0x12345678), Head::Other, "This FM-1 has unknown start-up code."},
+  };
+  for (const auto &c : cases) {
+    memcpy(img.data(), c.head.data(), kHeadEnd);
+    FlashHashes flash = store_image(lib, img);
+    CHECK(head_of(lib, flash) == c.kind);
+    Unit u;
+    u.id = unit_id_of(img.data() + kUnitSector);
+    std::string b;
+    CHECK(lib.add_backup(u, flash, b));  // backing it up still works
+    InstallPreview p = preview_install(lib, u.id, "sloop-2.8.1");
+    CHECK(!p.ok && strcmp(p.problem, c.says) == 0);
+    CHECK(strcmp(p.problem2, "Outrigger can back it up but not switch it yet.") == 0);
+    CHECK(!preview_install(lib, u.id, "skiff-1.4").ok);  // even what it runs now
+  }
+  // A head sector missing from the store can't be checked: not V15.
+  FlashHashes flash = store_image(lib, img);
+  flash[0] = Hash{};
+  CHECK(head_of(lib, flash) == Head::Other);
+}
+
 int main() {
   test_sector_store();
   test_manifest();
@@ -707,6 +899,8 @@ int main() {
   test_unit_ids();
   test_remove_package();
   test_install_preview();
+  test_uc25hq80();
+  test_heads_backup_only();
   test_backups();
   test_diff_planner();
   test_capture_save();
@@ -714,6 +908,8 @@ int main() {
   test_clean_slate();
   test_restore_old_save();
   test_family_blocks();
+  test_stock_scan_edges();
+  test_recognise_stock();
   test_projects();
   test_save_restore_round_trip();
   test_fresh_start();

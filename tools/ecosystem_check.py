@@ -1,6 +1,7 @@
 """The daily ecosystem check (.github/workflows/ecosystem-check.yml).
 
-Test-fetches every file and list the live installer depends on, then lists the
+Test-fetches every file and list the live installer depends on, and every
+pinned test fixture (tools/fetch_fixtures.py), then lists the
 FM-1 releases mutant.cloud has seen since the last run, grouped by how
 Outrigger treats their family (tools/fm1_families.json). The report is the body
 of one GitHub issue, labelled `ecosystem-check`; what the last run saw rides in
@@ -10,6 +11,8 @@ that body as a hidden comment, so the check needs no storage of its own.
     python3 -I tools/ecosystem_check.py               # in CI: GITHUB_TOKEN, GITHUB_REPOSITORY
 
 Exit 1 when an installer link is broken, so the run goes red and GitHub emails.
+A broken fixture link only breaks a fresh `make test`, so it gets the @mention
+comment but not the red run.
 Standard library only: the workflow runs it with the runner's python3.
 """
 import argparse
@@ -51,26 +54,62 @@ GROUPS = [
 
 # ---------- What the installer depends on ----------
 
+def _value(node, env):
+    """A literal, a name assigned above it, or strings joined with +."""
+    if isinstance(node, ast.Name):
+        return env[node.id]
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        return _value(node.left, env) + _value(node.right, env)
+    if isinstance(node, (ast.List, ast.Tuple)):
+        items = [_value(e, env) for e in node.elts]
+        return items if isinstance(node, ast.List) else tuple(items)
+    return ast.literal_eval(node)
+
+
 def _constants(path, names):
-    """Top-level literal assignments from a Python source file, without importing it."""
-    out = {}
+    """Top-level literal assignments from a Python source file, without importing it.
+    They may use names assigned above them and join strings with + (HUB + "fw/...")."""
+    env = {}
     for node in ast.parse(Path(path).read_text()).body:
-        if isinstance(node, ast.Assign) and len(node.targets) == 1 and getattr(node.targets[0], "id", None) in names:
-            out[node.targets[0].id] = ast.literal_eval(node.value)
-    return out
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            try:
+                env[node.targets[0].id] = _value(node.value, env)
+            except (ValueError, KeyError, TypeError):
+                pass  # not a constant: a call, a comprehension
+    return {k: v for k, v in env.items() if k in names}
 
 
 def installer_links(root=ROOT):
     """[{name, url, sha256 or None, json}]: the files the live installer downloads, from the
     pins the site build uses (tools/store_template.py), and the catalogs Add firmware reads."""
-    t = _constants(root / "tools/store_template.py", {"LOADER_URL", "HUB", "STARTER"})
+    t = _constants(root / "tools/store_template.py", {"LOADER_URL", "STARTER"})
     blob = _constants(root / "tools/store_image.py", {"BLOB_SHA256"})["BLOB_SHA256"]
     links = [{"name": "JieLi's wl82loader.bin (GitHub)", "url": t["LOADER_URL"], "sha256": blob, "json": False}]
-    for _id, name, version, _project, _fixture, path, sha in t["STARTER"]:
-        links.append({"name": f"{name} {version} (Firmware Hub)", "url": t["HUB"] + path, "sha256": sha, "json": False})
+    for _id, name, version, _project, _fixture, url, sha, source in t["STARTER"]:
+        links.append({"name": f"{name} {version} ({source})", "url": url, "sha256": sha, "json": False})
     links.append({"name": "Firmware Hub catalog", "url": HUB_CATALOG, "sha256": None, "json": True})
     links.append({"name": "mutant.cloud catalog", "url": MUTANT_CATALOG, "sha256": None, "json": True})
     return links
+
+
+def check_fixtures(links, got, fetch=None):
+    """[(name, url, why)] for fixture links that don't answer with their pinned bytes.
+    Python downloads them (tools/fetch_fixtures.py), so no CORS is needed. A fixture
+    that's also an installer file reuses got's bytes, checked against its own pin."""
+    fetch = fetch or get
+    bad = []
+    for link in links:
+        why = check_link(link, fetch=lambda u: (got[u] if u in got else fetch(u), {}), browser=False)
+        if why:
+            bad.append((link["name"], link["url"], why))
+    return bad
+
+
+def fixture_links(root=ROOT):
+    """[{name, url, sha256, json}]: the files a fresh `make test` downloads
+    (tools/fetch_fixtures.py), each with its pin."""
+    fixtures = _constants(root / "tools/fetch_fixtures.py", {"FIXTURES"})["FIXTURES"]
+    return [{"name": name, "url": url, "sha256": sha, "json": False} for name, _cid, url, sha in fixtures]
 
 
 def get(url):
@@ -79,17 +118,29 @@ def get(url):
         return r.read()
 
 
-def check_link(link, fetch=get, keep=None):
+def get_for_browser(url):
+    """(bytes, headers) as a page on outrigger.music would ask for them."""
+    req = urllib.request.Request(url, headers={"User-Agent": UA, "Origin": "https://outrigger.music"})
+    with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+        return r.read(), dict(r.headers.items())
+
+
+def check_link(link, fetch=get_for_browser, keep=None, browser=True):
     """None when the link answers with what the installer expects, else why not.
-    keep (a dict), when given, gets the downloaded bytes by URL."""
+    fetch returns (bytes, headers). A link the visitor's browser reads (browser)
+    must allow outrigger.music's origin. keep (a dict), when given, gets the
+    downloaded bytes by URL."""
     try:
-        data = fetch(link["url"])
+        data, headers = fetch(link["url"])
         if keep is not None:
             keep[link["url"]] = data
     except urllib.error.HTTPError as e:
         return f"answered {e.code}"
     except Exception as e:  # noqa: BLE001 - any failure to fetch is the finding
         return f"couldn't be reached ({e})"
+    allow = {k.lower(): v for k, v in headers.items()}.get("access-control-allow-origin", "")
+    if browser and allow.strip() not in ("*", "https://outrigger.music"):
+        return "answered, but a web page can't read it (no CORS header for outrigger.music)"
     if link["sha256"] and hashlib.sha256(data).hexdigest() != link["sha256"]:
         return "answered, but the file changed (SHA-256 differs from the installer's pin)"
     if link["json"]:
@@ -196,7 +247,8 @@ def cleared_moved(fam, entries):
     return out
 
 
-def build_report(links_bad, feed, entries, fam, state, today, renamed=(), hub=None, stale=(), moved=()):
+def build_report(links_bad, feed, entries, fam, state, today, renamed=(), hub=None, stale=(), moved=(),
+                 fixtures_bad=()):
     """(markdown body, new state, needs attention). state is what the last run
     saw ({} on the first run: then only the last day's releases count as new)."""
     first = not state
@@ -225,6 +277,16 @@ def build_report(links_bad, feed, entries, fam, state, today, renamed=(), hub=No
         lines.append("All answer with the files the installer expects.")
     lines.append("")
 
+    lines.append("## Test fixtures")
+    if fixtures_bad:
+        lines += [f"- **BROKEN: {name}** {why}. <{url}>" for name, url, why in fixtures_bad]
+        lines.append("")
+        lines.append("A fresh `make test` fails until this is fixed (tools/fetch_fixtures.py). "
+                     "Installs are not affected.")
+    else:
+        lines.append("All answer with the files tools/fetch_fixtures.py pins.")
+    lines.append("")
+
     lines.append(f"## New FM-1 releases since {'yesterday' if first else state.get('date', 'the last run')}")
     if not new and not new_missing and not new_renamed and not new_stale and not new_moved:
         lines.append("None.")
@@ -249,12 +311,12 @@ def build_report(links_bad, feed, entries, fam, state, today, renamed=(), hub=No
                          f"built on: {md(base)}")
     lines.append("")
 
-    # A comment (a notification) only for what Chad should act on: a broken link,
+    # A comment (a notification) only for what Chad should act on: a broken link or fixture,
     # a file gone missing, or a family the table has never heard of. Releases
     # that list no base land in the first group without a comment.
     new_bases = sorted({entries[f["id"]]["base"] for f in grouped["unknown"]
                         if (entries.get(f["id"]) or {}).get("base")})
-    attention = bool(links_bad or new_missing or new_bases or new_renamed or new_stale or new_moved)
+    attention = bool(links_bad or fixtures_bad or new_missing or new_bases or new_renamed or new_stale or new_moved)
     # The feed is the window: what it lists today is all a later run needs to remember.
     new_state = {"date": today, "seen": sorted({f["guid"] for f in feed}),
                  "missing": sorted(missing), "renamed": list(renamed), "stale": list(stale),
@@ -263,9 +325,11 @@ def build_report(links_bad, feed, entries, fam, state, today, renamed=(), hub=No
     return "\n".join(lines), new_state, attention
 
 
-def attention_comment(links_bad, owner):
+def attention_comment(links_bad, owner, fixtures_bad=()):
     # The bot opened the issue, so only a mention reaches the repo's owner.
-    first = "Installer links are broken" if links_bad else "Something new needs a look"
+    first = ("Installer links are broken" if links_bad
+             else "A test fixture link is broken" if fixtures_bad
+             else "Something new needs a look")
     return f"@{owner} **{first}.** Today's report is in the issue body above."
 
 
@@ -312,6 +376,7 @@ def main(argv=None):
         why = check_link(link, keep=got)
         if why:
             links_bad.append((link["name"], link["url"], why))
+    fixtures_bad = check_fixtures(fixture_links(), got)
     try:
         hub, mutant_cat = json.loads(got[HUB_CATALOG]), json.loads(got[MUTANT_CATALOG])
         renamed = renames(hub, mutant_cat, fam.get("hub_ids", {}))
@@ -341,7 +406,8 @@ def main(argv=None):
     else:
         stale = state.get("stale", [])
     moved = cleared_moved(fam, entries) if entries else state.get("moved", [])
-    body, _, attention = build_report(links_bad, feed, entries, fam, state, today, renamed, hub, stale, moved)
+    body, _, attention = build_report(links_bad, feed, entries, fam, state, today, renamed, hub, stale, moved,
+                                      fixtures_bad)
     if not entries and state:
         # Keep what the last run saw, so tomorrow's run still lists today's releases.
         body = STATE_RE.sub(f"<!-- ecosystem-state {json.dumps(state)} -->", body)
@@ -358,10 +424,12 @@ def main(argv=None):
             gh("PATCH", f"/repos/{repo}/issues/{issue['number']}", token, {"body": body, "state": "open"})
         if attention:
             gh("POST", f"/repos/{repo}/issues/{issue['number']}/comments", token,
-               {"body": attention_comment(links_bad, repo.split("/")[0])})
+               {"body": attention_comment(links_bad, repo.split("/")[0], fixtures_bad)})
         print(f"updated issue #{issue['number']}; needs attention: {attention}")
     for name, url, why in links_bad:
         print(f"::error::{name} {why}: {url}")
+    for name, url, why in fixtures_bad:
+        print(f"::warning::test fixture {name} {why}: {url}")
     return 1 if links_bad else 0
 
 

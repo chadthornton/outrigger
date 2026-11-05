@@ -17,7 +17,7 @@ rebuild it:
   block of a run as written, so an install cut short mid-store can be told
   from anything else and finished.
 The browser downloads the loader from the pinned jl-uboot-tool commit and
-each package from the Firmware Hub, checks their SHA-256, decodes each
+each package from its pinned URL, checks their SHA-256, decodes each
 package to its app (site/installer/store.js), and fills the blocks in. If
 the SHA-256 of what it built isn't the template's, it writes nothing.
 
@@ -48,7 +48,6 @@ LOADER_SIZE = 24064
 LOADER_URL = ("https://raw.githubusercontent.com/kagaimiq/jl-uboot-tool/"
               "adb3f18889e88ac512ce0a3c4d8cc3d3cb30696a/data/loaderblobs/usb/wl82loader.bin")
 MARK = 0xA5000000
-HUB = "https://thefirmwarehub.com/"
 
 # The starter set (Chad, 2026-10-31, tracker ask fw-add-browser): stock and
 # Felucca-family projects, at the catalog's versions that day. SLOOP is left
@@ -56,17 +55,22 @@ HUB = "https://thefirmwarehub.com/"
 # and the board only clears Felucca 1.x's data map when switching, so SLOOP
 # then Felucca or Skiff could brick an FM-1 until a store dump shows where
 # SLOOP keeps its data. Named
-# as tools/store_add.py names catalog packages. The Firmware Hub keeps only
-# each project's latest file, so when one releases, its URL here stops
-# answering and the installer sets up no store until these are bumped (with
-# tools/fetch_fixtures.py's pins) and the site deployed again.
+# as tools/store_add.py names catalog packages. A URL here that stops
+# answering stops the installer setting up a store until it's bumped (with
+# tools/fetch_fixtures.py's pins) and the site deployed again; the daily
+# ecosystem check (tools/ecosystem_check.py) tests it.
 # Stock only since 2026-11-04 (Chad): the Hub dropped Felucca 1.8.0 and Skiff
-# 2.1.1, which broke fresh installs, and M-VAVE's stock file is the one stable
-# link. Every community firmware is added from the Hub list on equal footing.
+# 2.1.1, which broke fresh installs. Every community firmware is added from the
+# Add firmware list on equal footing. Stock comes from M-VAVE's own repo at a
+# pinned commit since 2026-11-05 (Chad): the Hub keeps only each project's
+# newest file, and M-VAVE's current download is V16, so the Hub's V15 link is
+# next to go. raw.githubusercontent.com sends CORS, like the loader's link.
 STARTER = [
-    # id, name, version, project, fixture, Firmware Hub path, sha256
-    ("stock-V15", "M-VAVE stock", "V15", "stock", "FM-1_015.fwsc", "fw/mvave/FM-1_015.fwsc",
-     "db1642b2b6fa5c2cccb11ffd13878068bb28601678d3644049f99dc40e7edb8a"),
+    # id, name, version, project, fixture, URL, sha256, where it comes from (for messages)
+    ("stock-V15", "M-VAVE stock", "V15", "stock", "FM-1_015.fwsc",
+     "https://raw.githubusercontent.com/m-vave/fm1_open/"
+     "b178ac43c25f010c60a878056fb5331fe693fd62/sdk/firmware/FM-1_015.fwsc",
+     "db1642b2b6fa5c2cccb11ffd13878068bb28601678d3644049f99dc40e7edb8a", "GitHub"),
 ]
 
 
@@ -157,11 +161,11 @@ def build_template(store_size, loader, packages):
 
     sectors = set()
     meta = []
-    for pkg_id, name, version, project, _, path, sha in STARTER:
+    for pkg_id, name, version, project, _, url, sha, source in STARTER:
         ident, app = fm1lib.parse_package(packages[pkg_id])
         sectors |= {hashlib.sha256(app[i:i + BLOCK]).hexdigest() for i in range(0, len(app), BLOCK)}
         meta.append({"id": pkg_id, "name": name, "version": version, "project": project, "identity": ident,
-                     "url": HUB + path, "sha256": sha, "app_sha256": hashlib.sha256(app).hexdigest()})
+                     "url": url, "from": source, "sha256": sha, "app_sha256": hashlib.sha256(app).hexdigest()})
 
     used = [off for off in range(0, store_size, BLOCK) if real[off:off + BLOCK] != b"\xff" * BLOCK]
     blocks = []

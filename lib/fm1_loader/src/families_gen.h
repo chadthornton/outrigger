@@ -61,5 +61,18 @@ constexpr const char *kBlockedOldFelucca[] = {
     "winampfm",
 };
 
+// Known to save on the UC25HQ80 flash (0xB36014) from this release on
+// ("": every release); older ones run RAM-only (library.cpp saves_on_uc25hq80).
+struct ChipSaves {
+  const char *project, *since;
+};
+constexpr ChipSaves kUc25hq80Saves[] = {
+    {"felucca", "1.8.2-beta"},
+    {"melodee", "1.6.0"},
+    {"skiff", "2.2"},
+    {"sloop", "2.8.5"},
+    {"stock", ""},
+};
+
 }  // namespace families
 }  // namespace fm1_loader

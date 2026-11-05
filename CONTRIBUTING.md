@@ -132,10 +132,14 @@ key, and its build flag ([docs/architecture.md](docs/architecture.md), "How an a
 Agents ship production themselves (Chad, 2026-11-03) when all of these hold:
 
 1. The commit is `origin/master`'s head, and its CI (`ci-ok`) is green.
-2. Beta serves the same commit (`make deploy-site` from it), checked by content: the page and
-   `firmware/<board>/<app set>/manifest.json`'s `version` show the commit, and what the batch changed works there.
-3. Nothing since the commit production serves is on the critical list. Read the batch with
-   `git log --stat <live>..origin/master` (the live commit: the deploy log's last production line).
+2. Beta serves the same commit (`make deploy-site` from it), checked by content: `/version.json`'s `site` shows the
+   commit, `firmware/<board>/<app set>/manifest.json`'s `version` shows `/version.json`'s `firmware` (the same commit
+   unless the deploy was pinned, [docs/publishing.md](docs/publishing.md)), and what the batch changed works there.
+3. Nothing in the batch is on the critical list. The batch is firmware changes since production's firmware commit and
+   everything else since its pages' commit (the same unless production's last deploy was pinned): read
+   `git log --stat <firmware>..origin/master` for `firmware/`, `lib/` and the build files, and
+   `git log --stat <site>..origin/master` for the rest (production's `/version.json`, or the deploy log's last
+   production line: `commit`, and `firmware` or `commit` if it has none).
 
 Then `make deploy-site CHANNEL=production`, check outrigger.music the same way, and say what shipped in the
 session's chat. A broken production gets `make rollback-site CHANNEL=production` first and questions after.
