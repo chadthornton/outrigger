@@ -451,17 +451,17 @@ site: build-all fixtures $(TOOLS_PY)
 serve: site
 	python3 -m http.server $(SITE_PORT) --bind 127.0.0.1 --directory site
 
-# Publish the site on Cloudflare Pages: CHANNEL=beta (beta.outrigger.music, any
-# pushed commit) or CHANNEL=production (outrigger.music, origin/master only).
+# Publish the site on Cloudflare Pages: CHANNEL=preview (preview.outrigger.music, any
+# pushed commit; CHANNEL=beta still works) or CHANNEL=production (outrigger.music, origin/master only).
 # Uploads CI's build of this commit (its push run's site-firmware), or, for FULL=1, a
 # batch touching the critical list since production's commit, or a commit CI never built itself,
 # the site make check builds here (build/checked/site). PIN=1 keeps production's firmware
 # even when firmware changed since it (pages only). docs/publishing.md.
-CHANNEL ?= beta
+CHANNEL ?= preview
 deploy-site:
 	@src=$$(python3 -I tools/deploy_site.py source $(CHANNEL) "$(FULL)" "$(PIN)") || exit 1; \
 	if [ "$$src" = ci ]; then python3 -I tools/deploy_site.py deploy-ci $(CHANNEL) "$(PIN)"; \
-	elif [ "$$src" = beta ]; then python3 -I tools/deploy_site.py deploy-beta $(CHANNEL) "$(PIN)"; \
+	elif [ "$$src" = preview ]; then python3 -I tools/deploy_site.py deploy-preview $(CHANNEL) "$(PIN)"; \
 	else $(MAKE) check && python3 -I tools/deploy_site.py deploy $(CHANNEL) build/checked/site; fi
 
 # The daily install email Worker (workers/install-email/): origin/master only, like production.
@@ -469,7 +469,7 @@ deploy-email:
 	python3 -I tools/deploy_email.py deploy
 
 # Put the deploy before the live one back on CHANNEL (or COMMIT=<sha>'s), in seconds,
-# without make check: production through Cloudflare's rollback, beta from the kept copy.
+# without make check: production through Cloudflare's rollback, preview from the kept copy.
 rollback-site:
 	python3 -I tools/deploy_site.py rollback $(CHANNEL) $(COMMIT)
 

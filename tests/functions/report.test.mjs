@@ -57,12 +57,12 @@ test("no IP address is stored anywhere", async () => {
   }
 });
 
-test("reports come only from outrigger.music, beta and Pages previews", async () => {
-  for (const origin of ["https://outrigger.music", "https://beta.outrigger.music", "https://beta.outrigger.pages.dev",
+test("reports come only from outrigger.music, preview (and its old name, beta) and Pages previews", async () => {
+  for (const origin of ["https://outrigger.music", "https://preview.outrigger.music", "https://beta.outrigger.music", "https://beta.outrigger.pages.dev",
     "https://3f2a1b.outrigger.pages.dev", "http://localhost:8788", "http://127.0.0.1:8788"]) {
     assert.equal((await send(fakeD1(), body(), { origin })).status, 200, origin);
   }
-  for (const origin of ["https://evil.example", "https://outrigger.music.evil.example", "https://xoutrigger.music",
+  for (const origin of ["https://evil.example", "https://outrigger.music.evil.example", "https://xoutrigger.music", "https://staging.outrigger.music",
     "https://outrigger.pages.dev.evil.example", null]) {
     assert.equal((await send(fakeD1(), body(), { origin })).status, 403, String(origin));
   }

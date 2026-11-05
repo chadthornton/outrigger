@@ -30,13 +30,18 @@ def wrangler(env, *args, **kw):
     return subprocess.run(["npx", "--yes", WRANGLER, *args, "--config", str(CONFIG)], cwd=ROOT, env=env, **kw).returncode
 
 
+def email_refusal(problem):
+    """Production's refusal, said of the install email, without the advice to deploy the site to preview."""
+    return problem.replace(", or deploy to preview", "").replace("production deploys", "the install email deploys")
+
+
 def deploy():
     git("fetch", "-q", "origin")
     head = git("rev-parse", "HEAD")
     problem = refusal("production", head, git("rev-parse", "origin/master"), bool(git("branch", "-r", "--contains", head)),
                       bool(git("status", "--porcelain", "--untracked-files=no")))
     if problem:
-        fail(problem.replace(", or deploy to beta", "").replace("production deploys", "the install email deploys"))
+        fail(email_refusal(problem))
     env = load_credentials()
     if wrangler(env, "deploy", "--message", f"commit {head}"):
         fail("wrangler deploy failed; nothing logged")

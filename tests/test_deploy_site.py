@@ -6,6 +6,7 @@ import contextlib
 import hashlib
 import io
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -30,14 +31,14 @@ class RefusalTest(unittest.TestCase):
     def test_production_refuses_a_commit_not_on_origin_master(self):
         self.assertIn("origin/master", self.refusal("production", master=OTHER))
 
-    def test_beta_takes_any_pushed_commit(self):
-        self.assertIsNone(self.refusal("beta", master=OTHER))
+    def test_preview_takes_any_pushed_commit(self):
+        self.assertIsNone(self.refusal("preview", master=OTHER))
 
-    def test_beta_refuses_an_unpushed_commit(self):
-        self.assertIn("push", self.refusal("beta", master=OTHER, pushed=False))
+    def test_preview_refuses_an_unpushed_commit(self):
+        self.assertIn("push", self.refusal("preview", master=OTHER, pushed=False))
 
     def test_dirty_tree_refused_on_both_channels(self):
-        for channel in ("production", "beta"):
+        for channel in ("production", "preview"):
             self.assertIn("uncommitted", self.refusal(channel, dirty=True))
 
     def test_unknown_channel_refused(self):
@@ -200,7 +201,7 @@ class RollbackTargetTest(unittest.TestCase):
         self.assertIn("no previous", self.target([], "a")[1])
 
     def test_other_channels_deploys_do_not_count(self):
-        log = [entry("deploy", "a", channel="beta"), entry("deploy", "b")]
+        log = [entry("deploy", "a", channel="preview"), entry("deploy", "b")]
         self.assertIn("no previous", self.target(log, "b")[1])
 
     def test_unknown_channel_refused(self):
@@ -290,13 +291,13 @@ class BaselineTest(unittest.TestCase):
         self.assertEqual(deploy_site.rollback_target(log, "production", "c" * 40)[0]["commit"], "z" * 40)
 
 
-class BetaFirstTest(unittest.TestCase):
-    def test_production_needs_beta_on_the_same_commit(self):
-        self.assertIsNone(deploy_site.beta_first_problem("production", HEAD, HEAD))
-        self.assertIn("beta", deploy_site.beta_first_problem("production", HEAD, OTHER))
+class PreviewFirstTest(unittest.TestCase):
+    def test_production_needs_preview_on_the_same_commit(self):
+        self.assertIsNone(deploy_site.preview_first_problem("production", HEAD, HEAD))
+        self.assertIn("preview", deploy_site.preview_first_problem("production", HEAD, OTHER))
 
-    def test_beta_itself_needs_nothing(self):
-        self.assertIsNone(deploy_site.beta_first_problem("beta", HEAD, OTHER))
+    def test_preview_itself_needs_nothing(self):
+        self.assertIsNone(deploy_site.preview_first_problem("preview", HEAD, OTHER))
 
 
 class DeployLogTest(unittest.TestCase):
@@ -312,7 +313,7 @@ class DeployLogTest(unittest.TestCase):
 
 
 class KeptCopyTest(unittest.TestCase):
-    """Beta can't use Cloudflare's rollback, so each deploy keeps what it uploaded, with SHA-256 sums."""
+    """Preview can't use Cloudflare's rollback, so each deploy keeps what it uploaded, with SHA-256 sums."""
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
@@ -327,7 +328,7 @@ class KeptCopyTest(unittest.TestCase):
         self.tmp.cleanup()
 
     def keep(self, commit):
-        return deploy_site.keep(self.staged, self.root / "kept" / "beta", commit * 40)
+        return deploy_site.keep(self.staged, self.root / "kept" / "preview", commit * 40)
 
     def test_kept_copy_checks_out(self):
         kept = self.keep("a")
@@ -351,7 +352,7 @@ class KeptCopyTest(unittest.TestCase):
         self.assertTrue(any("extra.js" in p for p in deploy_site.kept_problems(kept)))
 
     def test_no_kept_copy_refused(self):
-        self.assertTrue(deploy_site.kept_problems(self.root / "kept" / "beta" / ("c" * 40)))
+        self.assertTrue(deploy_site.kept_problems(self.root / "kept" / "preview" / ("c" * 40)))
 
     def test_wranglers_cache_is_neither_kept_nor_checked(self):
         """wrangler writes .wrangler/ into the folder it uploads from, and again on a rollback upload."""
@@ -374,7 +375,7 @@ class KeptCopyTest(unittest.TestCase):
     def test_keeps_only_the_newest_few(self):
         for c in "abcd":
             self.keep(c)
-        kept = sorted(p.name[0] for p in (self.root / "kept" / "beta").iterdir())
+        kept = sorted(p.name[0] for p in (self.root / "kept" / "preview").iterdir())
         self.assertEqual(kept, ["b", "c", "d"])
 
     def test_keeping_a_commit_again_replaces_its_copy(self):
@@ -442,32 +443,32 @@ class CiRunTest(unittest.TestCase):
 
 class ChooseSourceTest(unittest.TestCase):
     """Where the site comes from, once CI's run of HEAD is known green (or absent)."""
-    def choose(self, channel="production", full="", ran=True, crit=(), beta=None):
-        return deploy_site.choose_source(channel, full, run() if ran else None, list(crit), beta)
+    def choose(self, channel="production", full="", ran=True, crit=(), preview=None):
+        return deploy_site.choose_source(channel, full, run() if ran else None, list(crit), preview)
 
-    def test_production_reuses_betas_checked_build(self):
-        """A firmware ship runs make check once, for beta, not again for production."""
-        self.assertEqual(self.choose(crit=["firmware/x.cpp"], beta="check")[0], "beta")
+    def test_production_reuses_previews_checked_build(self):
+        """A firmware ship runs make check once, for preview, not again for production."""
+        self.assertEqual(self.choose(crit=["firmware/x.cpp"], preview="check")[0], "preview")
 
-    def test_production_reuses_betas_ci_build_of_a_plain_batch(self):
-        self.assertEqual(self.choose(beta="ci")[0], "beta")
+    def test_production_reuses_previews_ci_build_of_a_plain_batch(self):
+        self.assertEqual(self.choose(preview="ci")[0], "preview")
 
-    def test_critical_batch_does_not_reuse_a_ci_build_on_beta(self):
-        self.assertEqual(self.choose(crit=["firmware/x.cpp"], beta="ci")[0], "check")
+    def test_critical_batch_does_not_reuse_a_ci_build_on_preview(self):
+        self.assertEqual(self.choose(crit=["firmware/x.cpp"], preview="ci")[0], "check")
 
-    def test_full_1_does_not_reuse_beta(self):
-        self.assertEqual(self.choose(full="1", beta="check")[0], "check")
+    def test_full_1_does_not_reuse_preview(self):
+        self.assertEqual(self.choose(full="1", preview="check")[0], "check")
 
-    def test_beta_never_reuses_itself(self):
-        self.assertEqual(self.choose("beta", crit=["firmware/x.cpp"], beta="check")[0], "check")
+    def test_preview_never_reuses_itself(self):
+        self.assertEqual(self.choose("preview", crit=["firmware/x.cpp"], preview="check")[0], "check")
 
     def test_green_ci_build_of_a_plain_batch_goes_up(self):
         self.assertEqual(self.choose()[0], "ci")
-        self.assertEqual(self.choose("beta")[0], "ci")
+        self.assertEqual(self.choose("preview")[0], "ci")
 
     def test_critical_batch_gets_make_check_on_both_channels(self):
-        """Beta then carries the same Mac build production will ship."""
-        for channel in ("production", "beta"):
+        """Preview then carries the same Mac build production will ship."""
+        for channel in ("production", "preview"):
             kind, why = self.choose(channel, crit=["functions/api/report.js"])
             self.assertEqual(kind, "check")
             self.assertIn("functions/api/report.js", why)
@@ -486,18 +487,18 @@ class ChooseSourceTest(unittest.TestCase):
     def test_production_without_a_ci_run_refused_even_with_full(self):
         self.assertIsNone(self.choose(ran=False, full="1")[0])
 
-    def test_beta_branch_commit_without_a_ci_build_gets_make_check(self):
-        self.assertEqual(self.choose("beta", ran=False)[0], "check")
+    def test_preview_branch_commit_without_a_ci_build_gets_make_check(self):
+        self.assertEqual(self.choose("preview", ran=False)[0], "check")
 
 
 class ChoosePinnedTest(unittest.TestCase):
     """With no firmware change since production's firmware, the pages go up over the live firmware."""
-    def choose(self, channel="beta", full="", ran=True, crit=(), beta=None, fw=(), pinned=Path("kept")):
-        return deploy_site.choose_source(channel, full, run() if ran else None, list(crit), beta,
+    def choose(self, channel="preview", full="", ran=True, crit=(), preview=None, fw=(), pinned=Path("kept")):
+        return deploy_site.choose_source(channel, full, run() if ran else None, list(crit), preview,
                                          None if fw is None else list(fw), pinned)
 
     def test_no_firmware_change_goes_up_pinned_on_both_channels(self):
-        for channel in ("beta", "production"):
+        for channel in ("preview", "production"):
             self.assertEqual(self.choose(channel)[0], "pinned")
 
     def test_server_code_and_deploy_tooling_ride_pinned(self):
@@ -521,42 +522,43 @@ class ChoosePinnedTest(unittest.TestCase):
         """Pinning skips make check, so CI's green run of HEAD is its test run."""
         self.assertEqual(self.choose(ran=False)[0], "check")
 
-    def test_production_reuses_betas_pinned_build(self):
-        self.assertEqual(self.choose("production", beta="pinned")[0], "beta")
+    def test_production_reuses_previews_pinned_build(self):
+        self.assertEqual(self.choose("production", preview="pinned")[0], "preview")
 
 
-class BetaBuildTest(unittest.TestCase):
-    """Beta's kept copy of HEAD, if production may upload it instead of building again."""
+class PreviewBuildTest(unittest.TestCase):
+    """Preview's kept copy of HEAD, if production may upload it instead of building again."""
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         staged = Path(self.tmp.name) / "pages"
         (staged / "site").mkdir(parents=True)
         (staged / "site" / "index.html").write_text("page")
         (staged / "wrangler.toml").write_text("toml")
-        self.beta = Path(self.tmp.name) / "beta"
-        self.kept = deploy_site.keep(staged, self.beta, HEAD)
-        self.log = [entry("deploy", "b", channel="beta", built="check"),
-                    entry("deploy", "a", channel="beta", built="check")]
+        self.root = Path(self.tmp.name)
+        self.preview = Path(self.tmp.name) / "preview"
+        self.kept = deploy_site.keep(staged, self.preview, HEAD)
+        self.log = [entry("deploy", "b", channel="preview", built="check"),
+                    entry("deploy", "a", channel="preview", built="check")]
 
     def tearDown(self):
         self.tmp.cleanup()
 
     def built(self, log=None):
-        return deploy_site.beta_build(self.log if log is None else log, self.beta, HEAD)
+        return deploy_site.preview_build(self.log if log is None else log, self.root, HEAD)
 
-    def test_kept_build_of_head_on_beta_is_reusable(self):
+    def test_kept_build_of_head_on_preview_is_reusable(self):
         self.assertEqual(self.built(), ("check", []))
 
-    def test_how_beta_built_it_comes_from_the_log(self):
+    def test_how_preview_built_it_comes_from_the_log(self):
         self.log[-1]["built"] = "ci"
         self.assertEqual(self.built()[0], "ci")
 
-    def test_beta_serving_another_commit_refused(self):
-        self.assertIn("beta", self.built(self.log[:1])[1][0])
+    def test_preview_serving_another_commit_refused(self):
+        self.assertIn("preview", self.built(self.log[:1])[1][0])
 
-    def test_beta_rolled_back_to_head_still_reusable(self):
-        log = self.log + [entry("deploy", "c", channel="beta", built="ci"),
-                          entry("rollback", "a", channel="beta", **{"from": "c" * 40})]
+    def test_preview_rolled_back_to_head_still_reusable(self):
+        log = self.log + [entry("deploy", "c", channel="preview", built="ci"),
+                          entry("rollback", "a", channel="preview", **{"from": "c" * 40})]
         self.assertEqual(self.built(log), ("check", []))
 
     def test_changed_kept_copy_refused(self):
@@ -573,12 +575,12 @@ class BetaBuildTest(unittest.TestCase):
 
     def test_pinned_build_over_productions_firmware_is_reusable(self):
         self.log[-1].update(built="pinned", firmware=OTHER)
-        self.assertEqual(deploy_site.beta_build(self.log, self.beta, HEAD, OTHER), ("pinned", []))
+        self.assertEqual(deploy_site.preview_build(self.log, self.root, HEAD, OTHER), ("pinned", []))
 
     def test_pinned_build_over_other_firmware_refused(self):
-        """Production's firmware moved since beta pinned it: production would ship firmware beta never had."""
+        """Production's firmware moved since preview pinned it: production would ship firmware preview never had."""
         self.log[-1].update(built="pinned", firmware="c" * 40)
-        self.assertIn("firmware", deploy_site.beta_build(self.log, self.beta, HEAD, OTHER)[1][0])
+        self.assertIn("firmware", deploy_site.preview_build(self.log, self.root, HEAD, OTHER)[1][0])
 
 
 def kept_firmware(channel_dir, commit, firmware, dirty=False, readers=False):
@@ -606,14 +608,14 @@ class PinnedCopyTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.root = Path(self.tmp.name)
-        self.kept = kept_firmware(self.root / "beta", OTHER, OTHER)
+        self.kept = kept_firmware(self.root / "preview", OTHER, OTHER)
         self.live = {"b1/hub/manifest.json": (self.kept / "site/firmware/b1/hub/manifest.json").read_bytes()}
 
     def tearDown(self):
         self.tmp.cleanup()
 
     def pick(self, firmware=OTHER, dirs=None):
-        dirs = [self.root / "production", self.root / "beta"] if dirs is None else dirs
+        dirs = [self.root / "production", self.root / "preview"] if dirs is None else dirs
         return deploy_site.pinned_copy(dirs, firmware, self.live.get)
 
     def test_a_kept_copy_of_the_live_firmware(self):
@@ -636,7 +638,7 @@ class PinnedCopyTest(unittest.TestCase):
 
     def test_a_dirty_build_refused(self):
         shutil.rmtree(self.kept)
-        self.kept = kept_firmware(self.root / "beta", OTHER, OTHER, dirty=True)
+        self.kept = kept_firmware(self.root / "preview", OTHER, OTHER, dirty=True)
         self.live = {"b1/hub/manifest.json": (self.kept / "site/firmware/b1/hub/manifest.json").read_bytes()}
         self.assertIn("dirty", self.pick()[1])
 
@@ -662,7 +664,7 @@ class PinnedCopyTest(unittest.TestCase):
 
 
 class KeptFirmwareTest(unittest.TestCase):
-    """A beta rollback uploads the kept copy of a commit; it must hold the firmware the target deploy had."""
+    """A preview rollback uploads the kept copy of a commit; it must hold the firmware the target deploy had."""
     def kept(self, firmware=None):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
@@ -670,7 +672,7 @@ class KeptFirmwareTest(unittest.TestCase):
         (staged / "site").mkdir(parents=True)
         if firmware:
             (staged / "site" / "version.json").write_text(json.dumps({"site": HEAD, "firmware": firmware}))
-        return deploy_site.keep(staged, Path(tmp.name, "beta"), HEAD)
+        return deploy_site.keep(staged, Path(tmp.name, "preview"), HEAD)
 
     def test_the_copy_of_the_targets_firmware(self):
         self.assertIsNone(deploy_site.kept_firmware_problem(self.kept(OTHER), OTHER))
@@ -848,13 +850,13 @@ class BatchTest(unittest.TestCase):
 class ChoosePinOverrideTest(unittest.TestCase):
     """PIN=1 (Chad, 2026-11-05, option A): HEAD's pages over production's live firmware even when firmware
     changed since it, so the pages can ship while unshipped firmware waits."""
-    def choose(self, channel="beta", full="", ran=True, crit=("lib/ota/x.cpp",), beta=None,
+    def choose(self, channel="preview", full="", ran=True, crit=("lib/ota/x.cpp",), preview=None,
                fw=("lib/ota/x.cpp",), pinned=Path("kept"), pin="1"):
-        return deploy_site.choose_source(channel, full, run() if ran else None, list(crit), beta,
+        return deploy_site.choose_source(channel, full, run() if ran else None, list(crit), preview,
                                          None if fw is None else list(fw), pinned, pin)
 
     def test_firmware_changes_go_up_pinned_on_both_channels(self):
-        for channel in ("beta", "production"):
+        for channel in ("preview", "production"):
             self.assertEqual(self.choose(channel)[0], "pinned")
 
     def test_without_pin_a_firmware_change_still_builds(self):
@@ -878,12 +880,12 @@ class ChoosePinOverrideTest(unittest.TestCase):
     def test_a_commit_ci_never_built_refused(self):
         self.assertIsNone(self.choose(ran=False)[0])
 
-    def test_production_never_reuses_betas_new_firmware(self):
-        for beta in ("check", "ci"):
-            self.assertEqual(self.choose("production", beta=beta)[0], "pinned")
+    def test_production_never_reuses_previews_new_firmware(self):
+        for preview in ("check", "ci"):
+            self.assertEqual(self.choose("production", preview=preview)[0], "pinned")
 
-    def test_production_reuses_betas_pinned_build(self):
-        self.assertEqual(self.choose("production", beta="pinned")[0], "beta")
+    def test_production_reuses_previews_pinned_build(self):
+        self.assertEqual(self.choose("production", preview="pinned")[0], "preview")
 
 
 class SourceCommandTest(unittest.TestCase):
@@ -891,7 +893,7 @@ class SourceCommandTest(unittest.TestCase):
     def source(self, kind):
         real, argv, out = deploy_site.plan, sys.argv, io.StringIO()
         deploy_site.plan = lambda *a: (kind, HEAD, None, HEAD, None)
-        sys.argv = ["deploy_site.py", "source", "beta"]
+        sys.argv = ["deploy_site.py", "source", "preview"]
         try:
             with contextlib.redirect_stdout(out):
                 deploy_site.main()
@@ -903,7 +905,7 @@ class SourceCommandTest(unittest.TestCase):
         self.assertEqual(self.source("pinned"), "ci")
 
     def test_the_others_say_themselves(self):
-        for kind in ("ci", "check", "beta"):
+        for kind in ("ci", "check", "preview"):
             self.assertEqual(self.source(kind), kind)
 
 
@@ -927,9 +929,101 @@ class PinArgumentsTest(unittest.TestCase):
     def test_source_passes_full_and_pin(self):
         self.assertEqual(self.call("source", "production", "", "1"), ("production", "", "1"))
 
-    def test_deploy_ci_and_deploy_beta_pass_pin(self):
-        self.assertEqual(self.call("deploy-ci", "beta", "1"), ("beta", "", "1"))
-        self.assertEqual(self.call("deploy-beta", "production", "1"), ("production", "", "1"))
+    def test_deploy_ci_and_deploy_preview_pass_pin(self):
+        self.assertEqual(self.call("deploy-ci", "preview", "1"), ("preview", "", "1"))
+        self.assertEqual(self.call("deploy-preview", "production", "1"), ("production", "", "1"))
+
+
+class LegacyBetaTest(unittest.TestCase):
+    """The preview channel was called beta until 2026-11-05: deploys logged and copies kept under that name
+    still count as preview's, and nothing on disk is rewritten."""
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        self.staged = self.root / "pages"
+        (self.staged / "site").mkdir(parents=True)
+        (self.staged / "site" / "index.html").write_text("page")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_the_log_reads_beta_entries_as_previews(self):
+        log = self.root / "deploys.jsonl"
+        deploy_site.append_log(log, entry("deploy", "a", channel="beta", built="check"))
+        before = log.read_text()
+        self.assertEqual(deploy_site.read_log(log)[0]["channel"], "preview")
+        self.assertEqual(log.read_text(), before)
+
+    def test_production_reuses_a_build_kept_and_logged_as_beta(self):
+        deploy_site.keep(self.staged, self.root / "beta", HEAD)
+        log = self.root / "deploys.jsonl"
+        deploy_site.append_log(log, entry("deploy", "a", channel="beta", built="check"))
+        self.assertEqual(deploy_site.preview_build(deploy_site.read_log(log), self.root, HEAD), ("check", []))
+
+    def test_a_copy_kept_as_preview_wins_over_one_kept_as_beta(self):
+        deploy_site.keep(self.staged, self.root / "beta", HEAD)
+        self.assertEqual(deploy_site.kept_copy(self.root, "preview", HEAD), self.root / "beta" / HEAD)
+        deploy_site.keep(self.staged, self.root / "preview", HEAD)
+        self.assertEqual(deploy_site.kept_copy(self.root, "preview", HEAD), self.root / "preview" / HEAD)
+
+    def test_no_copy_names_the_preview_one(self):
+        self.assertEqual(deploy_site.kept_copy(self.root, "preview", HEAD), self.root / "preview" / HEAD)
+
+    def test_production_never_takes_betas_copies_as_its_own(self):
+        deploy_site.keep(self.staged, self.root / "beta", HEAD)
+        self.assertEqual(deploy_site.kept_copy(self.root, "production", HEAD), self.root / "production" / HEAD)
+
+    def test_pinning_looks_in_betas_copies_too(self):
+        self.assertIn(self.root / "beta", deploy_site.kept_dirs(self.root))
+
+    def test_a_preview_rollback_can_go_back_to_a_deploy_logged_as_beta(self):
+        log = self.root / "deploys.jsonl"
+        deploy_site.append_log(log, entry("deploy", "a", channel="beta"))
+        deploy_site.append_log(log, entry("deploy", "b", channel="preview"))
+        target, problem = deploy_site.rollback_target(deploy_site.read_log(log), "preview", "b" * 40)
+        self.assertIsNone(problem)
+        self.assertEqual(target["commit"], "a" * 40)
+
+    def test_beta_is_still_a_name_for_preview(self):
+        out = io.StringIO()
+        with contextlib.redirect_stderr(out):
+            self.assertEqual(deploy_site.channel_named("beta"), "preview")
+        self.assertIn("preview", out.getvalue())
+        self.assertEqual(deploy_site.channel_named("production"), "production")
+
+    def test_main_passes_beta_on_as_preview(self):
+        seen = []
+        real, argv = deploy_site.plan, sys.argv
+        deploy_site.plan = lambda *a: seen.append(a) or ("check", HEAD, None, HEAD, None, None)
+        sys.argv = ["deploy_site.py", "source", "beta", "", ""]
+        try:
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                deploy_site.main()
+        finally:
+            deploy_site.plan, sys.argv = real, argv
+        self.assertEqual(seen, [("preview", "", "")])
+
+
+class EmailRefusalTest(unittest.TestCase):
+    """The install email deploys like production, so it borrows production's refusal, minus the site-only advice."""
+    def test_drops_the_advice_to_deploy_to_preview(self):
+        import deploy_email
+        problem = deploy_site.refusal("production", HEAD, OTHER, True, False)
+        self.assertIn("preview", problem)
+        self.assertEqual(deploy_email.email_refusal(problem),
+                         "the install email deploys only origin/master's commit; merge and push first")
+
+
+class MakefileTest(unittest.TestCase):
+    """make deploy-site turns what `source` prints into a deploy-<kind> command. If the two ever disagree,
+    production silently falls through to make check and builds again instead of reusing checked bytes."""
+    def test_every_reused_source_has_a_makefile_case(self):
+        makefile = (deploy_site.ROOT / "Makefile").read_text()
+        cases = dict(re.findall(r'"\$\$src" = (\w+) \]; then python3 -I tools/deploy_site.py (deploy-\w+)', makefile))
+        self.assertEqual(cases, {"ci": "deploy-ci", "preview": "deploy-preview"})
+
+    def test_the_makefile_defaults_to_preview(self):
+        self.assertIn("CHANNEL ?= preview", (deploy_site.ROOT / "Makefile").read_text())
 
 
 class AssembleTest(unittest.TestCase):
@@ -953,7 +1047,7 @@ class AssembleTest(unittest.TestCase):
 
     def test_pinned_layout_is_this_commits_pages_over_the_kept_firmware(self):
         with tempfile.TemporaryDirectory() as tmp:
-            kept = kept_firmware(Path(tmp, "beta"), OTHER, OTHER)
+            kept = kept_firmware(Path(tmp, "preview"), OTHER, OTHER)
             dst = Path(tmp, "pages")
             head = deploy_site.git("rev-parse", "HEAD")
             deploy_site.assemble(head, kept / "site" / "firmware", dst)

@@ -60,8 +60,8 @@ test("a MAC, an extra field, or a field outside its fixed values is a 400 that s
   assert.equal(rows(db).length, 0);
 });
 
-test("installs come only from outrigger.music, beta and Pages previews", async () => {
-  for (const origin of ["https://outrigger.music", "https://beta.outrigger.music", "https://3f2a1b.outrigger.pages.dev",
+test("installs come only from outrigger.music, preview (and its old name, beta) and Pages previews", async () => {
+  for (const origin of ["https://outrigger.music", "https://preview.outrigger.music", "https://beta.outrigger.music", "https://3f2a1b.outrigger.pages.dev",
     "http://localhost:8788"]) {
     assert.equal((await send(fakeD1(), event(), { origin })).status, 200, origin);
   }
