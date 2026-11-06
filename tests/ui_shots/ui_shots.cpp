@@ -220,6 +220,15 @@ static void check_labels(lv_obj_t *o) {
   }
 }
 
+// Some page under o is scrolled down from its top.
+static bool any_scrolled_down(lv_obj_t *o) {
+  for (uint32_t i = 0; i < lv_obj_get_child_count(o); ++i) {
+    lv_obj_t *ch = lv_obj_get_child(o, i);
+    if (lv_obj_get_scroll_y(ch) > 0 || any_scrolled_down(ch)) return true;
+  }
+  return false;
+}
+
 static bool any_scrolls(lv_obj_t *o) {
   for (uint32_t i = 0; i < lv_obj_get_child_count(o); ++i) {
     lv_obj_t *ch = lv_obj_get_child(o, i);
@@ -480,6 +489,9 @@ static void play_pages(bool fm1) {
   ui_update(frame(5));
   run(100);
   if (!shows("ARP  port 1.3")) fail("the controller's problem didn't open Controllers");
+  // A problem that opens its stage leaves Play at its top: after a restart the
+  // nav stayed scrolled off (2026-11-05).
+  if (any_scrolled_down(lv_screen_active())) fail("a problem scrolled Play down from its nav");
   shoot("play5_open");
   tap_on("Controllers");
   if (shows("ARP  port 1.3")) fail("Controllers didn't close");
@@ -496,6 +508,7 @@ static void play_pages(bool fm1) {
   ui_update(frame(1, false));
   run(100);
   if (!shows("MIDI not opened")) fail("the FM-1's problem didn't open its stage");
+  if (any_scrolled_down(lv_screen_active())) fail("the FM-1's problem scrolled Play down from its nav");
   shoot("problem");
   tap_on("FM-1");
   ui_update(frame(1, false));

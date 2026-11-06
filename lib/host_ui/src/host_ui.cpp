@@ -805,6 +805,7 @@ struct StageLine {
 static StageLine stages[kStages];
 static lv_obj_t *play_page;
 static int open_stage = -1;
+static bool stage_tapped_open;  // the user opened open_stage: Play may scroll to it
 static uint32_t problem_seen;  // what the last problem was, so a new one opens its stage once
 static UiFrame last_frame;
 static bool have_frame;
@@ -820,6 +821,7 @@ static void fit_play();
 static void stage_tapped(lv_event_t *e) {
   const int i = int(reinterpret_cast<intptr_t>(lv_event_get_user_data(e)));
   open_stage = open_stage == i ? -1 : i;
+  stage_tapped_open = open_stage >= 0;
   if (have_frame) ui_update(last_frame);
   refresh_group();
 }
@@ -924,9 +926,11 @@ static void fit_play() {
   }
   size_play(play_shrink);
   if (!play_overflows()) return;
-  // Still too tall: the open stage goes to the top, so its lines show and
-  // the nav isn't left half cut. A swipe down brings the rest back.
-  if (open_stage < 0) return;
+  // Still too tall: a stage the user opened goes to the top, so its lines show
+  // and the nav isn't left half cut. A swipe down brings the rest back. One a
+  // problem opened stays put, with the nav at the top: after a restart Play
+  // came up scrolled past it (2026-11-05).
+  if (open_stage < 0 || !stage_tapped_open) return;
   lv_area_t page, head;
   lv_obj_get_coords(play_page, &page);
   lv_obj_get_coords(stages[open_stage].head, &head);
@@ -955,7 +959,10 @@ void ui_update(const UiFrame &f) {
   }
   if (key != problem_seen) {
     problem_seen = key;
-    if (v.has_problem && v.problem_stage < kStages) open_stage = v.problem_stage;
+    if (v.has_problem && v.problem_stage < kStages) {
+      open_stage = v.problem_stage;
+      stage_tapped_open = false;
+    }
   }
 
   const Level levels[kStages] = {v.hub, v.controllers, v.router, v.target};
