@@ -42,6 +42,9 @@
   .box.banner { flex-direction: row; align-items: center; gap: 16px; flex-wrap: wrap; }
   .box.banner > div { flex: 1 1 320px; display: grid; gap: 2px; }
   .box .btn { min-height: 44px; padding: 0 18px; justify-content: center; }
+  /* Connecting or applying: one job on the board at a time (as the home page's installer). */
+  .btn:disabled { opacity: .45; cursor: default; }
+  main[aria-busy] { opacity: .6; }
   .box .error { color: var(--warn); font-weight: 600; }
   .box .done { color: var(--link); font-weight: 600; }
 
@@ -100,6 +103,7 @@
   .note { font-size: .8125rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .note.warn { color: var(--warn); font-weight: 400; font-size: .8125rem; }
   .note.ok { color: var(--link); }
+  .note.warn, .note.ok { white-space: normal; }  /* a reason or a replace: read whole, on a phone too */
   .acts { flex: 0 0 auto; display: flex; gap: 6px; align-items: center; }
   .acts button { min-height: 36px; padding: 0 14px; border-radius: 10px; border: 0; font: inherit; font-weight: 600; font-size: .875rem; cursor: pointer; }
   .acts .go { min-width: 84px; background: var(--accent); color: var(--accent-fg); }

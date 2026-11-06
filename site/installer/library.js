@@ -132,8 +132,37 @@ export const canAdd = (hello, cart, removes = []) => cart.length < room(hello, r
 // A row the page offers to remove: on the board, not stock, not what the FM-1 runs.
 export const removable = (row) => !!row && !row.running && ["current", "update", "old", "unknown"].includes(row.state);
 
-// Apply's order: removes first, so the adds have their room.
+// Apply's order: removes first, so the adds have their room. The page
+// downloads every add before it sends the first step, so a failed download
+// never leaves a board with an old copy removed and its update missing.
 export const steps = (removes, adds) => [...removes.map((id) => ({ remove: id })), ...adds.map((fw) => ({ add: fw }))];
+
+// Update on a board row: queues the newer version and, unless the FM-1 runs
+// the stored copy, a remove of that copy, so updates don't pile up versions.
+// Again (Undo) takes both back out. Returns the new {cart, removes}.
+export function queueUpdate({ cart, removes }, row) {
+  if (cart.includes(row.fw)) return { cart: cart.filter((f) => f !== row.fw), removes: removes.filter((id) => id !== row.key) };
+  return { cart: [...cart, row.fw], removes: removable(row) && !removes.includes(row.key) ? [...removes, row.key] : removes };
+}
+
+// A board row is being replaced: its update is in the cart and its remove queued.
+export const replacing = (row, cart, removes) => !!row.fw && cart.includes(row.fw) && removes.includes(row.key);
+
+// Why a board row can't go, on that row: what the board said when it refused
+// (refused: {id: words}, from Apply), or that the FM-1 runs it. null when it can.
+export function removeWhy(row, refused = {}) {
+  if (refused[row.key]) return refused[row.key];
+  if (row.running) return "Running now. Switch the FM-1 to another firmware to remove it.";
+  return null;
+}
+
+// The words a remove's refusal puts on its row (receive.h InUse), or null for
+// a failure that stops Apply.
+export const refusedWhy = (e) => (e.code === 13 ? "Outrigger kept it: your FM-1 runs it, or an install of it isn't finished." : null);
+
+// The step line while one runs, with how long it has run, so a slow remove or
+// store still shows it's working.
+export const elapsed = (step, ms) => (ms < 3000 ? step : `${step} ${Math.floor(ms / 1000)} s`);
 
 // One cell per package the board can hold: stock, the others stored, those
 // queued to go ("removing"), the cart, free, and slots the count allows but
@@ -159,35 +188,17 @@ export function storageLine(hello, cart, removes = []) {
   return `${hello.packages} of ${hello.maxPackages} firmwares · about ${mb(after)} MB free · room for ${Math.max(0, left)} more`;
 }
 
-// Applying the cart one add at a time over one connection: results[i] is
-// "added", "already" or an Error for cart[i], and stops at the first Error.
-// Returns what landed, what's left in the cart (the failed one and every one
-// after it), and the error.
-export function applyOutcome(cart, results) {
+// Applying the plan one step at a time over one connection: results[i] is
+// "removed", "added", "already", "kept" (a remove the board refused because
+// the FM-1 needs it: nothing changed, so the rest still run) or an Error for
+// plan[i], and stops at the first Error. Returns what landed, what the board
+// kept, what's left (the failed one and every one after it), and the error.
+export function applyOutcome(plan, results) {
   const at = results.findIndex((r) => r instanceof Error);
   const done = at < 0 ? results.length : at;
-  return { landed: cart.slice(0, done), left: cart.slice(done), error: at < 0 ? null : results[at] };
-}
-
-// "Your FM-1" from 'I' (BoardLink.info) and the board's rows: what it runs, and
-// [label, words] facts. The board has no clock, so a backup has no time.
-const HEADS = { V15: "M-VAVE V15", V16: "M-VAVE V16", other: "Not M-VAVE's" };
-// JEDEC ids (layout.h): 0x85 is Puya's manufacturer byte; the UC25HQ80 newer FM-1s ship with.
-const CHIPS = { 0x856014: "Puya P25Q80H", 0xb36014: "UC25HQ80" };
-export function fm1Facts(info, boardRows) {
-  if (!info.known) return null;
-  const row = boardRows.find((r) => r.key === info.installed);
-  const running = info.installed ? { name: row?.name || info.installed, version: row?.version || "" } : null;
-  return {
-    name: info.name,
-    running,
-    facts: [
-      ["Last backup", info.backup ? "Kept on Outrigger, from its last switch" : "None yet: Outrigger takes one at the first switch"],
-      ["Start-up code", info.head ? HEADS[info.head] : "Not read yet"],
-      ["Flash chip", CHIPS[info.flashId] || (info.flashId ? `0x${info.flashId.toString(16)}` : "Not read yet")],
-      ...(info.pending ? [["Install", "Unfinished: switch the FM-1 on with it plugged in, and Outrigger finishes it"]] : []),
-    ],
-  };
+  const ran = plan.slice(0, done);
+  return { landed: ran.filter((_, i) => results[i] !== "kept"), kept: ran.filter((_, i) => results[i] === "kept"),
+    left: plan.slice(done), error: at < 0 ? null : results[at] };
 }
 
 // The board's refusals (receive.h ReceiveError) in the page's words, when its
@@ -199,6 +210,5 @@ export function addError(e, label) {
 }
 
 export function removeError(e, label) {
-  if (e.code === 13) return `${label} wasn't removed: your FM-1 runs it, or an install of it isn't finished. Switch the FM-1 to another firmware first.`;
   return `${label} wasn't removed. ${e.message}`;
 }
