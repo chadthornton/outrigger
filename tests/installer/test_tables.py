@@ -129,6 +129,11 @@ def check_manifest():
         failures.append(f"manifest build {m.get('build')} != {tag}")
     if "store_template" in m:
         failures.append("a MIDI Hub manifest names a store template; only loader builds set up a store")
+    # No history: the page says neither "updates" nor "newer" (board.js compareBuilds), so none is better than [].
+    if "ancestors" in m:
+        failures.append("a manifest made without history lists ancestors")
+    if make_manifest(BOARD, "hub", "def5678", tag, parts, history=["def5678", "abc1234"]).get("ancestors") != ["def5678", "abc1234"]:
+        failures.append("the manifest drops the build's ancestors")
     template = b'{"size": 1}\n'
     loader = make_manifest(BOARD, "hub-loader", "def5678", dict(tag, app_set="hub+L"), parts, store_template=template)
     if loader.get("store_template") != "store-template.json":

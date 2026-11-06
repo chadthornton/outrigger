@@ -25,7 +25,7 @@ import { PORT_FILTER, SERIAL_OPTIONS, port as lock, h } from "./ui.js";
 
 // Shown in the page footer and in Details, so a bug report says which
 // installer ran. Bump it with every change to site/installer/.
-export const INSTALLER_VERSION = "2026-11-05.2";
+export const INSTALLER_VERSION = "2026-11-05.3";
 
 // The page footer shows it (build.py), so a bug report says which installer ran.
 const versionLine = typeof document !== "undefined" && document.getElementById("installer-version");
@@ -66,7 +66,9 @@ async function withTimeout(promise, ms, what) {
 // Chad's wording (2026-10-31) for a store region that holds data but no store.
 const UNREADABLE = "Your ESP32 has storage we can't read. Email feedback@outrigger.music before continuing. Nothing was installed.";
 
-const KEEPS = "Your settings and FM-1 backups stay.";
+// The board restarts after an install; a board that stays dark needs RST. Its USB port hosts the hub once it runs,
+// so this computer can't see it come back: the hint shows after the restart should have finished.
+const RST_HINT_MS = 20000;
 
 // The anonymous install count (install_event.js). Reading localStorage itself can throw; then nothing is remembered.
 function storage() {
@@ -280,33 +282,33 @@ class InstallArea {
   }
 
   confirm(choice, build, board, store) {
-    const words = describeBoard(board, build.manifest.build, this.names);
+    const words = describeBoard(board, build.manifest.build, this.names, build.manifest.ancestors);
     const name = buildName(build.manifest.build.app_set);
-    const noStore = store.unfinished ? "Its store was being set up when the last install stopped, so it has no store yet."
-      : store.previousFirmware ? "This board ran other firmware before, so it has no store." : "It has no store yet.";
+    const cancel = (label, cls) => h("button", { class: cls, on: { click: async () => { await this.close(); this.ready(); } } }, label);
     if (store.downloadProblem) {
       // A store set up later would land on leftovers (store.js storeAction), so nothing installs without it.
       return this.show(
         h("p", { class: "install-read" }, words.board),
         words.warning ? h("p", { class: "install-error", role: "alert" }, words.warning) : null,
-        h("p", {}, `${noStore} Installing sets one up with ${listOf(store.starter)}, but a download didn't come through: ${store.downloadProblem}. Nothing was written. Try again in a few minutes.`),
-        h("div", { class: "row" }, h("button", { class: "alt", on: { click: async () => { await this.close(); this.ready(); } } }, "Close")),
+        h("p", {}, `A download for its store didn't come through: ${store.downloadProblem}. Nothing was written. Try again in a few minutes.`),
+        h("div", { class: "row" }, cancel("Close", "alt")),
       );
     }
-    const storeWords = store.action !== "create" ? null
-      : `${noStore} Installing also sets up a fresh one with ${listOf(store.starter)}; add Felucca, Skiff and others after. ` +
-        "It downloads both from GitHub, straight into this browser: M-VAVE's stock firmware, and the file the loader needs from the FM-1's chip maker.";
+    // The store's downloads come from GitHub, straight into this browser: M-VAVE's stock firmware and the loader file.
+    const storeWords = store.action !== "create" ? ""
+      : ` It also sets up a store with ${listOf(store.starter)}, downloaded from GitHub.`;
+    // The chip check's words matter only when the visitor picked the board, or nobody has tried this one.
+    const chipWords = this.chipWords && (this.boards.length > 1 || choice.tested === false) ? this.chipWords : null;
+    const install = h("button", { class: words.newer ? "alt" : null, on: { click: () => this.run(choice, build, board, store) } },
+      words.newer ? "Install the older build" : `Install ${name}`);
     this.show(
       h("p", { class: "install-read" }, words.board),
       words.warning ? h("p", { class: "install-error", role: "alert" }, words.warning) : null,
-      this.chipWords ? h("p", {}, this.chipWords) : null,
-      h("p", {}, words.install),
-      storeWords ? h("p", {}, storeWords) : null,
-      h("div", { class: "row" },
-        h("button", { on: { click: () => this.run(choice, build, board, store) } }, `Install ${name}`),
-        h("button", { class: "alt", on: { click: async () => { await this.close(); this.ready(); } } }, "Cancel")),
+      chipWords ? h("p", {}, chipWords) : null,
+      h("p", {}, words.install + storeWords),
+      // A newer build stays unless the visitor means to go back: keeping it comes first.
+      h("div", { class: "row" }, ...(words.newer ? [cancel("Keep it"), install] : [install, cancel("Cancel", "alt")])),
       this.countBox(),
-      h("p", { class: "install-note" }, KEEPS),
     );
   }
 
@@ -344,13 +346,15 @@ class InstallArea {
 
   done(build, store, storeProblem) {
     const name = `${buildName(build.manifest.build.app_set)} ${build.manifest.build.commit}`;
-    const storeWords = store.action !== "create" ? null
+    const next = store.action !== "create" ? "Unplug it and plug it into the hub."
       : storeProblem ? `Firmware switching isn't set up: ${storeProblem}.`
-        : `Its store is set up with ${listOf(store.starter)}. Add more from the Firmware library, linked at the top of this page, then switch between them from the loader on the board.`;
+        : h("span", {}, "Next: add firmwares in the ", h("a", { href: "/library/" }, "Firmware library"), ".");
+    const rst = h("p", { class: "install-note", hidden: true }, "Screen still dark? Tap RST once.");
+    setTimeout(() => { rst.hidden = false; }, RST_HINT_MS);
     this.show(h("div", { class: "install-done", role: "status" },
-      h("p", {}, h("b", {}, `Installed ${name}.`), " The board restarts by itself. If its screen stays dark, tap RST once."),
-      storeWords ? h("p", {}, storeWords) : null,
-      h("p", {}, "Then unplug it from this computer and plug it back into the hub.")));
+      h("p", {}, h("b", {}, `Installed ${name}.`)),
+      h("p", {}, next),
+      rst));
   }
 
   explain(e, lead) {
