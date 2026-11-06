@@ -181,6 +181,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # build_site.py lists the build's ancestors, so the page can tell an update from a downgrade
       - uses: actions/cache@v4
         with:
           path: tests/fixtures

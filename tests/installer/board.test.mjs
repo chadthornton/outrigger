@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { readBuildTag, hasStore, describeBoard, buildName, classifyLayout, TAG_OFFSET } from "../../site/installer/board.js";
+import { readBuildTag, hasStore, describeBoard, compareBuilds, buildName, classifyLayout, TAG_OFFSET } from "../../site/installer/board.js";
 
 const root = new URL("../../", import.meta.url);
 const tags = JSON.parse(readFileSync(new URL("tests/installer/tags.json", root)));
@@ -42,12 +42,13 @@ test("buildName: the installer's words for each app set label", () => {
   assert.equal(buildName("something new"), "a custom build");
 });
 
+const boardNames = { 0: 'Waveshare 1.69"', 1: 'Waveshare 3.5"' };
 const hubDef = { app_set: "hub", commit: "def5678", dirty: false };
 const loaderAbc = { app_set: "hub+L", commit: "abc1234", dirty: false };
 
 test("describeBoard: a tagged build with a store, switching app sets", () => {
-  const d = describeBoard({ tag: loaderAbc, layout: "ours", store: true }, hubDef);
-  assert.equal(d.board, "This board runs Hub + Loader abc1234 and has a backup store, where the loader keeps FM-1 backups.");
+  const d = describeBoard({ tag: loaderAbc, layout: "ours", store: true }, hubDef, {}, ["abc1234"]);
+  assert.equal(d.board, "This board runs Hub + Loader abc1234.");
   assert.equal(d.install, "Installing MIDI Hub def5678 replaces Hub + Loader. Your settings, Wi-Fi and backups stay.");
 });
 
@@ -57,9 +58,45 @@ test("describeBoard: the same build again", () => {
   assert.equal(d.install, "It already runs this build. Installing it again changes nothing. Your settings and Wi-Fi stay.");
 });
 
-test("describeBoard: a newer commit of the same app set", () => {
-  const d = describeBoard({ tag: { ...hubDef, commit: "1111111" }, layout: "ours", store: false }, hubDef);
+test("describeBoard: an older commit of the same app set updates", () => {
+  const d = describeBoard({ tag: { ...hubDef, commit: "1111111" }, layout: "ours", store: false }, hubDef, {}, ["2222222", "1111111"]);
   assert.equal(d.install, "Installing MIDI Hub def5678 updates it. Your settings and Wi-Fi stay.");
+  assert.equal(d.newer, undefined);
+});
+
+// Tonight's bug (2026-11-05): a board on a91874d was offered e49a1aa, an ancestor, as "updates it".
+const e49 = { app_set: "hub+LW", commit: "e49a1aa", dirty: false };
+const onA91 = { tag: { app_set: "hub+LW", commit: "a91874d", dirty: false }, layout: "ours", store: true };
+
+test("describeBoard: a board on a newer build says so, and isn't offered an update", () => {
+  const d = describeBoard(onA91, e49, {}, ["0f940f7", "6f95342"]);
+  assert.equal(d.newer, true);
+  assert.equal(d.board, "This board runs Hub + Loader with the Wi-Fi page a91874d, a newer build than this page installs.");
+  assert.equal(d.install, "Installing puts the older e49a1aa on it. Your settings, Wi-Fi and backups stay.");
+});
+
+test("describeBoard: newer wins over a different app set and a wrong-board pick", () => {
+  const d = describeBoard({ ...onA91, tag: { ...onA91.tag, board: 1 } }, { ...hubDef, board: 0 }, boardNames, []);
+  assert.equal(d.newer, true);
+  assert.match(d.install, /^Installing puts the older MIDI Hub def5678 on it\./);
+  assert.match(d.warning, /^This board runs the build for the Waveshare 3\.5"/);
+});
+
+test("describeBoard: without the build's history it can't tell, so it neither updates nor warns", () => {
+  const d = describeBoard(onA91, e49);
+  assert.equal(d.newer, undefined);
+  assert.equal(d.install, "Installing Hub + Loader with the Wi-Fi page e49a1aa replaces it. Your settings, Wi-Fi and backups stay.");
+});
+
+test("compareBuilds: same, older (in the history), newer (not in it), unknown (no history)", () => {
+  const tag = (commit, dirty = false) => ({ app_set: "hub+L", commit, dirty });
+  assert.equal(compareBuilds(tag("abc1234"), tag("abc1234"), []), "same");
+  assert.equal(compareBuilds(tag("abc1234", true), tag("abc1234"), []), "older");
+  assert.equal(compareBuilds(tag("1111111"), tag("abc1234"), ["1111111"]), "older");
+  assert.equal(compareBuilds(tag("9999999"), tag("abc1234"), ["1111111"]), "newer");
+  assert.equal(compareBuilds(tag("9999999"), tag("abc1234"), undefined), "unknown");
+  assert.equal(compareBuilds(tag("11111112"), tag("abc1234"), ["1111111"]), "older"); // an 8-character short commit
+  assert.equal(compareBuilds(tag("abc1234"), tag("abc1234")), "same");
 });
 
 test("describeBoard: a dirty build shows its plus sign", () => {
@@ -69,8 +106,8 @@ test("describeBoard: a dirty build shows its plus sign", () => {
 
 test("describeBoard: our layout without a tag is an earlier build", () => {
   const d = describeBoard({ tag: null, layout: "ours", store: true }, hubDef);
-  assert.equal(d.board, "This board runs an earlier usb-midi-host build and has a backup store, where the loader keeps FM-1 backups.");
-  assert.equal(d.install, "Installing MIDI Hub def5678 replaces it. Your settings, Wi-Fi and backups stay.");
+  assert.equal(d.board, "This board runs an earlier Outrigger build.");
+  assert.equal(d.install, "Installing MIDI Hub def5678 updates it. Your settings, Wi-Fi and backups stay.");
 });
 
 test("describeBoard: other firmware", () => {
@@ -81,7 +118,7 @@ test("describeBoard: other firmware", () => {
 
 test("describeBoard: a blank board", () => {
   const d = describeBoard({ tag: null, layout: "blank", store: false }, hubDef);
-  assert.equal(d.board, "This board is empty.");
+  assert.equal(d.board, "Nothing on it yet: ready for Outrigger.");
   assert.equal(d.install, "Installing puts MIDI Hub def5678 on it.");
 });
 
@@ -97,13 +134,11 @@ test("describeBoard: a dirty build of the same commit can't promise nothing chan
   assert.equal(d.install, "It already runs this commit. Installing it again rewrites the program. Your settings and Wi-Fi stay.");
 });
 
-const boardNames = { 0: 'Waveshare 1.69"', 1: 'Waveshare 3.5"' };
-
 test("describeBoard: a build for another board than the one picked warns", () => {
   const d = describeBoard({ tag: { ...loaderAbc, board: 1 }, layout: "ours", store: true }, { ...hubDef, board: 0 }, boardNames);
   assert.equal(d.warning, 'This board runs the build for the Waveshare 3.5", and you picked the Waveshare 1.69". ' +
     "Pick the board you have: the wrong build leaves its screen dark or garbled. Installing again with the right pick fixes that.");
-  assert.equal(d.board, "This board runs Hub + Loader abc1234 and has a backup store, where the loader keeps FM-1 backups.");
+  assert.equal(d.board, "This board runs Hub + Loader abc1234.");
 });
 
 test("describeBoard: the same board, or builds from before the board byte, don't warn", () => {

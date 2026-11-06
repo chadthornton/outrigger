@@ -57,20 +57,35 @@ export function buildName(label) {
 
 const version = (tag) => `${tag.commit}${tag.dirty ? "+" : ""}`;
 
+// How the board's build stands against the one about to be installed: "same",
+// "older" (the board's commit is in ancestors, the offered build's history),
+// "newer" (it isn't: a later commit or a branch this page doesn't hold), or
+// "unknown" (no history: a manifest from before it was recorded). The tag holds
+// only the short commit, so ancestors are 7-character prefixes (build_site.py).
+export function compareBuilds(tag, build, ancestors) {
+  if (version(tag) === version(build)) return "same";
+  if (tag.commit === build.commit) return "older"; // a dirty build of this commit
+  if (!Array.isArray(ancestors)) return "unknown";
+  // git's --short=7 is a minimum: a colliding prefix gives the tag 8 characters.
+  return ancestors.includes(tag.commit.slice(0, 7)) ? "older" : "newer";
+}
+
 // board: {tag, layout, store}; build: the tag of the build about to be
-// installed (manifest.json "build"); names: tag_id -> the boards' short names.
-// Returns two sentences: what the board holds, and what installing does to it;
-// plus a warning when it runs the build for another board than the one picked.
-// The chip can't say which board it sits on, so the pick is the user's.
-export function describeBoard(board, build, names = {}) {
-  const words = describeBuild(board, build);
+// installed (manifest.json "build"); names: tag_id -> the boards' short names;
+// ancestors: manifest.json "ancestors". Returns two lines: what the board holds
+// (board), and what installing does to it (install); newer when the board runs
+// a later build than this one, so Install isn't offered first; and a warning
+// when it runs the build for another board than the one picked. The chip
+// can't say which board it sits on, so the pick is the user's.
+export function describeBoard(board, build, names = {}, ancestors) {
+  const words = describeBuild(board, build, ancestors);
   const theirs = board.tag ? board.tag.board ?? 0 : null;
   const picked = build.board ?? 0;
   if (theirs === null || theirs === picked) return words;
   const name = (id) => (names[id] ? `the ${names[id]}` : "another board");
   return {
-    board: words.board,
-    install: `Installing ${buildName(build.app_set)} ${version(build)} replaces it. ${keepsFor(board)}`,
+    ...words,
+    install: words.newer ? words.install : `Installing ${buildName(build.app_set)} ${version(build)} replaces it. ${keepsFor(board)}`,
     warning: `This board runs the build for ${name(theirs)}, and you picked ${name(picked)}. ` +
       "Pick the board you have: the wrong build leaves its screen dark or garbled. Installing again with the right pick fixes that.",
   };
@@ -78,26 +93,29 @@ export function describeBoard(board, build, names = {}) {
 
 const keepsFor = (board) => (board.store ? "Your settings, Wi-Fi and backups stay." : "Your settings and Wi-Fi stay.");
 
-function describeBuild(board, build) {
+function describeBuild(board, build, ancestors) {
   const next = `${buildName(build.app_set)} ${version(build)}`;
-  const storeClause = board.store ? " and has a backup store, where the loader keeps FM-1 backups" : "";
   const keeps = keepsFor(board);
 
-  if (board.layout === "blank") return { board: "This board is empty.", install: `Installing puts ${next} on it.` };
+  if (board.layout === "blank") return { board: "Nothing on it yet: ready for Outrigger.", install: `Installing puts ${next} on it.` };
   if (board.layout === "other") {
     return { board: "This board runs other firmware.", install: `Installing ${next} replaces it. Settings from that firmware may not carry over.` };
   }
-  if (!board.tag) {
-    return { board: `This board runs an earlier usb-midi-host build${storeClause}.`, install: `Installing ${next} replaces it. ${keeps}` };
-  }
+  // Our layout without a tag: a build from before tags, so older than any this page offers.
+  if (!board.tag) return { board: "This board runs an earlier Outrigger build.", install: `Installing ${next} updates it. ${keeps}` };
   const now = buildName(board.tag.app_set);
-  const said = `This board runs ${now} ${version(board.tag)}${storeClause}.`;
+  const said = `This board runs ${now} ${version(board.tag)}.`;
+  const relation = compareBuilds(board.tag, build, ancestors);
+  if (relation === "newer") {
+    return { board: `This board runs ${now} ${version(board.tag)}, a newer build than this page installs.`, newer: true,
+      install: `Installing puts the older ${board.tag.app_set === build.app_set ? version(build) : next} on it. ${keeps}` };
+  }
   if (board.tag.app_set !== build.app_set) return { board: said, install: `Installing ${next} replaces ${now}. ${keeps}` };
-  if (version(board.tag) === version(build)) {
+  if (relation === "same") {
     // Two dirty builds of one commit can differ, so only a clean one is "this build".
     const same = build.dirty ? "It already runs this commit. Installing it again rewrites the program."
       : "It already runs this build. Installing it again changes nothing.";
     return { board: said, install: `${same} ${keeps}` };
   }
-  return { board: said, install: `Installing ${next} updates it. ${keeps}` };
+  return { board: said, install: `Installing ${next} ${relation === "older" ? "updates" : "replaces"} it. ${keeps}` };
 }

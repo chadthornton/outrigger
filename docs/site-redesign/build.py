@@ -49,7 +49,7 @@ RIG = """<figure class="rig-fig" data-rig aria-label="The setup: your MIDI contr
     <button type="button" data-show="fm1">FM-1</button>
   </div>
   <section class="panel" data-panel="outrigger">
-    <h3>Outrigger runs the show</h3>
+    <h3>Outrigger</h3>
     <p>A palm-sized touchscreen on the hub. It sends your playing to the FM-1, shows you what's connected, and handles
       every firmware switch, backup first.</p>
     <div class="shots">
@@ -61,15 +61,15 @@ RIG = """<figure class="rig-fig" data-rig aria-label="The setup: your MIDI contr
   </section>
   <section class="panel" data-panel="hub">
     <h3>One hub, one charger</h3>
-    <p>Outrigger, the FM-1 and your MIDI controller all plug in here, and one charger powers the lot. The trick is a hub that
-      can charge a laptop through it: Outrigger sits where the laptop would.</p>
+    <p>Outrigger, the FM-1 and your MIDI controller all plug in here, and one charger powers them all. Pick a hub that can
+      charge a laptop through it, and plug Outrigger in where the laptop would go.</p>
     <svg viewBox="0 0 500 190" role="img" aria-label="Hub wiring: charger into the power input, Outrigger on the host port, FM-1 and controller on USB-C data ports"><use href="art.svg#hub-wiring"/></svg>
     <div class="row"><a class="need-link" href="#hub">What to look for ↓</a><button class="close" type="button" data-reset>Back to the whole setup</button></div>
   </section>
   <section class="panel" data-panel="fm1">
     <h3>The FM-1</h3>
-    <p>M-VAVE's $60 pocket FM synth, with 27 keys, a speaker and a battery. Its players have written more than a hundred
-      alternative firmwares for it, which turn it into a groovebox, a sampler, a drum machine and more.</p>
+    <p>M-VAVE's pocket FM synth, with 27 keys, a speaker and a battery. Its players have written more than a hundred
+      alternative firmwares for it, from grooveboxes to samplers.</p>
     <div class="row"><a class="need-link" href="#fm1">Get one ↓</a><button class="close" type="button" data-reset>Back to the whole setup</button></div>
   </section>
   <section class="panel" data-panel="controller">
@@ -87,12 +87,12 @@ SCREEN_STRIP = '<div class="fwshots">' + "".join(
 ) + f'<a class="fwmore" href="{HUB_SITE}" target="_blank" rel="noopener"><b>100+</b> more at the Firmware Hub ↗</a></div>'
 
 PLAY = """<h2>Plug in your keys</h2>
-<p>Any MIDI controller with a USB connection plays the FM-1: full-size keys, pads and knobs on a pocket synth. No laptop on the table, no
-  MIDI adapters, one charger for everything.</p>"""
+<p>Any MIDI controller with a USB connection plays the FM-1: full-size keys, pads and knobs on a pocket synth. No laptop or MIDI adapters, and
+  one charger runs it all.</p>"""
 
 SWITCH = f"""<h2>Pop in a new instrument</h2>
-<p>A groovebox tonight, a sampler tomorrow: switch between more than a hundred community firmwares in about a minute,
-  right on Outrigger. It backs up before every switch, so your songs are waiting when you come back.</p>
+<p>Over a hundred community firmwares, and switching should be easy and safe. Outrigger does it in about a minute and
+  backs up first.</p>
 {SCREEN_STRIP}"""
 
 INSTALL_BTN = """<button class="btn" type="button" data-install="{out}">Install Outrigger</button>
@@ -101,25 +101,22 @@ INSTALL_BTN = """<button class="btn" type="button" data-install="{out}">Install 
 SETUP = f"""<ol class="steps3">
   <li><div><b>Install Outrigger on your ESP32</b><p>Plug it into this computer.</p>
     {INSTALL_BTN.format(out="out-b")}</div></li>
-  <li><div><b>Add firmwares</b><p>Add Felucca, Skiff and more <a href="library/">from the firmware library</a>.</p></div></li>
 </ol>
 <details class="overview"><summary>Installation overview</summary>
   <dl>
-    <dt>In your browser</dt>
-    <dd>Chrome and Edge can talk to a USB device directly. Install writes Outrigger onto your ESP32's own memory, then
-      restarts it. Nothing goes near your FM-1, and your backups are never touched.</dd>
-    <dt>Firmware switching</dt>
-    <dd>Switching needs a 24 KB file from the FM-1's chip maker that we can't host ourselves. The installer fetches it
-      from the open-source tool that already publishes it, checks it, and stores it on your ESP32.</dd>
+    <dt>Install</dt>
+    <dd>Chrome or Edge writes Outrigger onto the ESP32 over USB. It never touches your FM-1 or your backups.</dd>
+    <dt>First install</dt>
+    <dd>The installer also fetches two files from GitHub and checks both: a 24 KB file from the FM-1's chip maker,
+      which we can't host, and M-VAVE's stock V15. If a download fails, nothing is written.</dd>
     <dt>On the hub</dt>
-    <dd>Outrigger runs on power from the hub's host port. It finds the FM-1 and your MIDI controller by itself, and its
-      Play screen turns green when notes are getting through.</dd>
-    <dt>Switching firmware</dt>
-    <dd>Pick one on Outrigger's FM-1 screen and hold to confirm. It backs up the FM-1, writes the new firmware, checks
-      every byte and restarts it, in about a minute.</dd>
-    <dt>Updating later</dt>
-    <dd>Put Outrigger in Computer mode from its Settings, plug it into a computer, and click Install again. Your
-      backups stay.</dd>
+    <dd>Outrigger runs on the hub's host port and finds the FM-1 and your controller by itself. Its Play screen turns
+      green when notes get through.</dd>
+    <dt>Switch firmware</dt>
+    <dd>Pick one on the FM-1 screen and hold to confirm. Outrigger backs up the FM-1, writes the new firmware, checks
+      every byte and restarts it. About a minute.</dd>
+    <dt>Update Outrigger</dt>
+    <dd>Settings, then Computer mode. Plug it into a computer and click Install. Your backups stay.</dd>
   </dl>
 </details>"""
 
@@ -133,21 +130,24 @@ NEED = f"""<div class="need-items">
     <svg class="ico" viewBox="0 0 120 140" aria-hidden="true"><use href="art.svg#board"/></svg>
     <div>
       <h3>ESP32-S3 board with a screen</h3>
-      <p>This runs Outrigger, on the boards below. Other ESP32-S3 boards with native USB need a board profile first:
-        <a href="{FEEDBACK}">tell us which board</a>, or pick "Another ESP32-S3 board" in the installer and send
-        <b>Report this board</b>.</p>
+      <p>This runs Outrigger. We've tested two:</p>
       <ul class="picks">
         {pick("Tested", BUY_BOARD, "Waveshare ESP32-S3 Touch LCD 1.69 ↗")}
         {pick("Tested", BUY_35, "Waveshare ESP32-S3 Touch LCD 3.5 ↗")}
-        {pick("Likely", BUY_AMOLED, "Waveshare ESP32-S3 1.8-inch AMOLED ↗")}
-        {pick("Likely", BUY_43B, "Waveshare ESP32-S3 4.3-inch Touch, Board B ↗")}
       </ul>
-      <details class="nitpick"><summary>The nitpicky part: picking the right ESP32</summary>
+      <p><b>Other ESP32-S3 touchscreen boards should work</b> if their USB-C goes straight to the chip, with no USB-serial
+        converter in between. Adding one is usually a short board profile, not new code. Got one?
+        <a href="#install" data-request>Request support here</a>.</p>
+      <details class="nitpick"><summary>The nitpicky part: will my board work?</summary>
         <ul>
-          <li><b>ESP32-S3 or ESP32-P4.</b> A plain ESP32 can't connect USB devices.</li>
+          <li><b>An ESP32-S3.</b> A plain ESP32, C3 or C6 can't connect USB devices. The S2 and P4 can, but Outrigger
+            has no build for them yet.</li>
           <li><b>Native USB.</b> The USB-C port goes straight to the chip. Listings say "native USB" or "OTG".</li>
           <li><b>No "one-click download".</b> Those boards route USB through a converter chip that can't host.</li>
-          <li><b>A TF card slot is worth having</b> for a coming version. The tested board doesn't have one.</li>
+          <li><b>16 MB flash and 8 MB PSRAM.</b> Listings say "N16R8". The installer stops on smaller boards.</li>
+          <li><b>A screen chip Outrigger knows:</b> ST7789, ST7796 or ILI9341, with CST816 or FT6336 touch. Another
+            chip needs driver code as well as a profile.</li>
+          <li><b>A TF card slot is worth having</b> for a coming version. The 3.5" has one. The 1.69" doesn't.</li>
           <li><b>Touch helps</b>, but isn't required.</li>
         </ul>
         <p>Tried another board? <a href="{FEEDBACK}">Tell us how it went</a>.</p>
@@ -158,7 +158,8 @@ NEED = f"""<div class="need-items">
     <svg class="ico" viewBox="0 0 120 50" aria-hidden="true"><use href="art.svg#hub"/></svg>
     <div>
       <h3>Powered USB-C hub</h3>
-      <p>Most hubs that can charge a laptop through them work. Outrigger plugs in where the laptop would.</p>
+      <p>We've tested one hub, so check the listing before you buy: it needs its own power and USB-C data ports.
+        Outrigger plugs in where a laptop would.</p>
       <ol class="hubsteps">
         <li><b>Power first:</b> the charger into the hub's charging input. The hub needs its own power.</li>
         <li><b>Outrigger on the hub's host cable</b> (or host port): the one a laptop would plug into.</li>
@@ -166,13 +167,10 @@ NEED = f"""<div class="need-items">
           didn't work.</li>
       </ol>
       <svg class="hubfig" viewBox="0 0 500 190" role="img" aria-label="Hub wiring: charger into the power input, Outrigger on the host cable, FM-1 and controller on USB-C data ports"><use href="art.svg#hub-wiring"/></svg>
-      <ul class="picks">
-        {pick("Likely", BUY_HUB, "Aceele 4-Port USB-C Hub with 100W PD ↗")}
-      </ul>
-      <details class="nitpick"><summary>The nitpicky part: picking the right hub</summary>
+      <details class="nitpick"><summary>The nitpicky part: what to look for in the listing</summary>
         <ul>
           <li><b>A charging input</b>, marked "PD in" or "pass-through". A 30 W USB-C charger is plenty.</li>
-          <li><b>Host charging.</b> The hub powers the laptop port; that's what Outrigger runs on.</li>
+          <li><b>Host charging.</b> The hub powers the laptop port, and Outrigger runs on it.</li>
           <li><b>Two data ports</b>, for the FM-1 and your MIDI controller.</li>
           <li><b>Four data ports or fewer.</b> Bigger hubs hide a second hub chip that Outrigger can't reach.</li>
           <li><b>No card reader or Ethernet.</b> Each takes one of Outrigger's eight USB connections.</li>
@@ -186,10 +184,11 @@ NEED = f"""<div class="need-items">
     <svg class="ico" viewBox="0 0 162 97" aria-hidden="true"><use href="art.svg#fm1"/></svg>
     <div>
       <h3>FM-1</h3>
-      <p>M-VAVE's pocket FM synth, about $60–70.</p>
+      <p>M-VAVE's pocket FM synth, usually $60–100 depending on the seller.</p>
       <ul class="picks">
         {pick("Buy", BUY_FM1, "Amazon ↗")}
         {pick("Buy", BUY_FM1_ALI, "AliExpress ↗")}
+        {pick("Specs", "https://www.m-vave.com/product.html?id=fm-1", "M-VAVE's FM-1 page ↗")}
       </ul>
     </div>
   </section>
@@ -206,7 +205,10 @@ BEFORE = """<div class="faq">
   <details><summary>What's an ESP32?</summary><p>A small, cheap computer on a chip, found in lots of maker gadgets.
     Outrigger runs on one that comes with a touchscreen and a USB-C port, so there's no soldering.</p></details>
   <details><summary>What's an FM-1?</summary><p>A pocket FM synthesizer from M-VAVE, with 27 keys, a speaker and a
-    battery. Its players write their own firmware for it, which is what Outrigger switches between.</p></details>
+    battery. Its players write their own firmware for it, which is what Outrigger switches between.</p>
+    <p><b>Where to buy:</b> M-VAVE's site has <a href="https://www.m-vave.com/product.html?id=fm-1" target="_blank" rel="noopener">the FM-1's specs ↗</a>
+    but no shop. Amazon and AliExpress sell it, usually $60–100. <a href="#fm1">Links are under What you need</a>. Be wary of
+    sellers asking much more.</p></details>
   <details><summary>What does "firmware" mean here?</summary><p>The software the FM-1 runs. Swap it and the same
     hardware becomes a different instrument: a groovebox, a sampler, a chord machine. Browse them at
     <a href="https://thefirmwarehub.com/" target="_blank" rel="noopener">the Firmware Hub ↗</a>.</p></details>
@@ -227,9 +229,9 @@ COMING = [
     ]),
     ("Playing and recording", "More of your rig on one hub, and a way to capture what you play.", [
         ("Record the FM-1", "Capture its audio over USB at 44.1 kHz stereo and pull the takes off over Wi-Fi. Streaming comes after.", "In testing", "test"),
-        ("A general-purpose MIDI hub", "Route any MIDI controller with a USB connection to any USB synth, not just the FM-1. The router is built; pointing it at other synths is a small change we haven't made or tested yet.", "Planned", "plan"),
+        ("A general-purpose MIDI hub", "Route any MIDI controller with a USB connection to any USB synth, not just the FM-1. The router is built. Pointing it at other synths is a small change we haven't made or tested yet.", "Planned", "plan"),
         ("More devices at once", "Several controllers together, Bluetooth MIDI, and twice the USB room on ESP32-P4 boards.", "Planned", "plan"),
-        ("The whole catalog on a TF card", 'Boards with a card slot keep every firmware locally, about 60 MB in all.<span class="tip"><b>Pro tip:</b> buying an ESP32 now? Get one with a TF card slot, like the <a href="#board">1.8-inch AMOLED</a>.</span>', "Planned", "plan"),
+        ("The whole catalog on a TF card", 'Boards with a card slot keep every firmware locally, about 60 MB in all.<span class="tip"><b>Pro tip:</b> buying an ESP32 now? Get one with a TF card slot, like the <a href="#board">3.5"</a>.</span>', "Planned", "plan"),
     ]),
     ("More firmwares", "More of the catalog on your FM-1.", [
         ("Riskier firmwares, with a warning", "SLOOP 2.4 and later, and Melodee. They write the part of the FM-1's memory that holds its Bluetooth address, so Outrigger will warn you before it installs one.", "Planned", "plan"),
@@ -334,6 +336,7 @@ STYLE = """
   .need-item h3 { font-size: 1.25rem; line-height: 1.3; margin-bottom: 8px; }
   .need-item p, .need-item li { color: var(--muted); max-width: 36em; }
   .need-item p + p { margin-top: 8px; }
+  .need-item .picks + p { margin-top: 16px; }
   .need-item b { color: var(--fg); font-weight: 600; }
   @media (max-width: 560px) { .need-item { grid-template-columns: 48px minmax(0, 1fr); gap: 16px; } .need-item .ico { width: 48px; } }
   .picks { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 6px; }
@@ -346,11 +349,6 @@ STYLE = """
   .nitpick { margin-top: 20px; border: 1px solid var(--line); border-radius: 10px; padding: 12px 16px; }
   .nitpick summary { cursor: pointer; font-weight: 550; font-size: .9375rem; }
   .nitpick ul { margin: 12px 0 4px; padding-left: 1.1em; display: grid; gap: 8px; font-size: .9375rem; line-height: 1.5; }
-  .likely-h { margin-top: 20px !important; font-size: .9375rem; }
-  .nitpick ul.likely { list-style: none; padding: 0; margin-top: 8px; gap: 6px; }
-  .likely li { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
-  .likely a { font-weight: 550; color: var(--fg); }
-  .likely small { color: var(--muted); white-space: nowrap; font-size: .8125rem; }
 
   .coming { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
   @media (max-width: 860px) { .coming { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
@@ -418,7 +416,18 @@ STYLE = """
   .nerd { --link: var(--accent); }
   .nerd:not(footer) { padding-bottom: 24px; }
   footer.nerd { margin-top: 0; padding-block: 0 48px; }
+  footer.nerd .fine { margin-top: 0; padding-top: 24px; }
   .nerd .fine { margin-top: 24px; max-width: 760px; }
+  /* Installs with / Licenses / Built on: label left, content right; stacked on a phone. */
+  .credits { margin: 48px 0 0; display: grid; border-top: 1px solid var(--line); }
+  .credits > div { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 8px 32px; padding-block: 20px; border-bottom: 1px solid var(--line); }
+  .credits dt { font: 500 .6875rem/1.9 var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+  .credits dd { margin: 0; font-size: .9375rem; line-height: 1.55; max-width: 40em; }
+  .credits dd p + p { margin-top: 4px; color: var(--muted); }
+  .credits ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+  .credits li span { color: var(--muted); }
+  .credits li span::before { content: "· "; }
+  @media (max-width: 560px) { .credits > div { grid-template-columns: 1fr; } }
   .addfw { margin-top: 24px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); }
   .addfw summary { cursor: pointer; padding: 14px 18px; display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; font-size: .9375rem; }
   .addfw summary span { color: var(--muted); }
@@ -480,8 +489,8 @@ BODY = f"""<nav class="wrap topnav">
   <div class="layout">
     <main>
       <section class="hero">
-        <h1>A little companion for your FM&#8209;1</h1>
-        <p class="sub">Any MIDI controller in, any firmware on</p>
+        <h1>FM&#8209;1's little companion</h1>
+        <p class="sub">Your keys, any firmware, <span>one cheap ESP32</span></p>
         {RIG}
       </section>
       <div class="features">
@@ -513,28 +522,28 @@ BODY = f"""<nav class="wrap topnav">
   <section class="section" id="need">
     <div class="needwrap">
       <div><h2>What you need</h2>{NEED}</div>
-      <aside><p class="eyebrow">Before you buy</p>{BEFORE}</aside>
+      <aside><p class="eyebrow">FAQ</p>{BEFORE}</aside>
     </div>
   </section>
   <section class="section" id="new"><h2>What's new</h2>
     <ol class="news">
       <li><time datetime="2026-11-05">Nov 5</time><ul>
-        <li><b>Send this log to Outrigger.</b> When an install fails, one button sends us its log. You see exactly what
-          goes before you send it, and MAC addresses are removed.</li>
+        <li><b>Six more firmwares can be added:</b> DX SLOOP, Salt, Hortator, MNM-1, Nauclerus and Hawk-Chua, from the
+          SLOOP and Felucca 0.9 family. We cleared them by reading their source. None has run on an FM-1 yet.</li>
         <li><b>Newer FM-1s with the UC25HQ80 flash chip can switch firmware.</b> Outrigger warns you first: we haven't
           tested that chip, and a switch may fail or not keep your songs.</li>
         <li><b>M-VAVE's Open firmware is recognised.</b> An FM-1 running it plays from your keys. Backing it up and
           switching away from it come next.</li>
         <li><b>A factory FM-1 on stock V15 shows as running</b> in the firmware list.</li>
-        <li><b>Stock V15 comes from M-VAVE's own repo,</b> at a fixed version, so it can't vanish when a newer one
-          comes out.</li>
-        <li><b>Six more firmwares can be added:</b> DX SLOOP, Salt, Hortator, MNM-1, Nauclerus and Hawk-Chua, from the
-          SLOOP and Felucca 0.9 family. We cleared them by reading their source; they haven't run on an FM-1 yet.</li>
         <li><b>Remote diagnostics,</b> off unless you turn it on in Setup. Then Outrigger shows its status, log and any
           crash on a read-only page over Wi-Fi, so we can help without guessing.</li>
+        <li><b>Send this log to Outrigger.</b> When an install fails, one button sends us its log. You see exactly what
+          goes before you send it, and MAC addresses are removed.</li>
+        <li><b>Stock V15 comes from M-VAVE's own repo,</b> at a fixed version, so it can't vanish when a newer one
+          comes out.</li>
       </ul></li>
       <li><time datetime="2026-11-04">Nov 4</time><ul>
-        <li><b>Add firmware from the community catalog.</b> The list comes from mutant.cloud, about 190 FM-1 firmwares,
+        <li><b>Add firmware from the community catalog.</b> The list comes from <a href="https://mutant.cloud/" target="_blank" rel="noopener">mutant.cloud ↗</a>, about 190 FM-1 firmwares,
           with the Firmware Hub as a fallback when it's slow. <a href="library/">Add one.</a></li>
       </ul></li>
       <li><time>Since the first beta</time><ul>
@@ -597,30 +606,56 @@ ADD_BLOCK = """<a class="addfw addfw-link" id="add" href="library/"><span>Got Ou
 
 
 BUILDERS = [
-    ("Many boards, one firmware",
-     "Each ESP32 board gets a profile, so the screens, installer checks and tests adapt to it. Two boards "
-     "today, the 1.69\" and 3.5\", with more coming. "
-     '<a href="https://github.com/chadthornton/outrigger/blob/master/docs/boards.md">See the board list.</a>'),
-    ("Only the parts you need",
-     "One shared base with apps on top, built into editions. Today that's Hub or Hub + Loader."
-     "A general MIDI hub for any USB synth is planned."),
-    ("Open source",
-     "Outrigger's core and apps are open source. Build your own edition with only what you need. "
-     '<a href="https://github.com/chadthornton/outrigger">Source on GitHub.</a>'),
+    ('Many boards, one firmware',
+     'Each board is a profile: its pins, screen and touch. Screens, installer checks and tests adapt to it. Two tested today. <a href="https://github.com/chadthornton/outrigger/blob/master/docs/boards.md">Board list</a>'),
+    ('Only the parts you need',
+     'A shared base with apps on top, built into editions: Hub, or Hub + Loader. A general MIDI hub for any USB synth is planned.'),
+    ('Open source',
+     'GPL-3.0, core and apps. Build your own edition with only what you need. <a href="https://github.com/chadthornton/outrigger">Source on GitHub</a>'),
 ]
 BUILDERS_HTML = '<div class="coming">' + "".join(f"<article><h4>{t}</h4><p>{d}</p></article>" for t, d in BUILDERS) + "</div>"
 
 
+
+# The "For builders" credits, the footer, and the script that sends "Request support here" to the installer's dialog.
+CREDITS = """  <dl class="credits">
+    <div><dt>Installs with</dt><dd>
+      <p><a href="https://github.com/espressif/esptool-js">esptool-js</a> 0.7.0 (Apache-2.0), served from this site.</p>
+      <p>It writes only the program and its startup parts, never your settings or the backup store.</p></dd></div>
+    <div><dt>Licenses</dt><dd>
+      <p>Outrigger is <a href="LICENSE.txt">GPL-3.0</a>. The firmware includes LVGL and EspUsbHost (MIT), Arduino_GFX (BSD)
+        and the Arduino ESP32 core (LGPL-2.1). <a href="NOTICE.txt">Licenses and credits</a></p></dd></div>
+    <div><dt>Built on</dt><dd><ul>
+      <li><a href="https://github.com/Quixotic7/MvaveFM1Unbricker">MvaveFM1Unbricker</a> <span>Quixotic7. Its FM-1 install handshake and package parsing, ported</span></li>
+      <li><a href="https://github.com/kagaimiq/jl-uboot-tool">jl-uboot-tool</a> <span>kagaimiq. The FM-1 chip's boot commands and cipher, ported</span></li>
+      <li><a href="https://github.com/hugelton/felucca">Felucca</a> <span>Hügelton Instruments. The firmware package format, by way of the Unbricker</span></li>
+    </ul></dd></div>
+    <div><dt>Thanks to</dt><dd><ul>
+      <li><a href="https://github.com/charlesvestal/fm1-base">fm1-base</a>, <a href="https://github.com/charlesvestal/fm1-x0x">X0X</a>, <a href="https://github.com/charlesvestal/fm1-amb">AMB-1</a> and more firmwares <span><a href="https://github.com/charlesvestal">Charles Vestal</a></span></li>
+      <li><a href="https://github.com/Quixotic7/RemoteFM1">RemoteFM1</a> <span>Quixotic7</span></li>
+      <li><a href="https://github.com/hugelton/felucca-bsp">felucca-bsp</a> <span>Hügelton Instruments</span></li>
+    </ul></dd></div>
+    <div><dt>Related</dt><dd><ul>
+      <li><a href="https://github.com/konsumer/fm1buddy">fm1buddy</a> <span>David Konsumer</span></li>
+    </ul></dd></div>
+  </dl>"""
+FOOTER = """<footer class="nerd"><div class="wrap"><div class="fine">
+  <p>Firmware screenshots by their authors, via the Firmware Hub. Not affiliated with M-VAVE or Waveshare.</p>
+  <p id="installer-version" hidden></p>
+</div></div></footer>"""
+REQUEST_JS = """<script>
+  // "Request support here" opens the installer's own request dialog; without one (no Chrome/Edge) it scrolls to the installer.
+  for (const a of document.querySelectorAll("[data-request]")) a.addEventListener("click", (e) => {
+    const req = [...document.querySelectorAll("#install .install-links a")].find((l) => l.textContent.startsWith("Request support"));
+    if (req) { e.preventDefault(); req.click(); }
+  });
+</script>"""
+
 real = MOCK
 for a, b in [
     (INSTALL_BTN.format(out="out-b"), install_area("Check my ESP32", "hub-loader")),
-    ("""<dd>Switching needs a 24 KB file from the FM-1's chip maker that we can't host ourselves. The installer fetches it
-      from the open-source tool that already publishes it, checks it, and stores it on your ESP32.</dd>""",
-     """<dd>Switching needs a 24 KB file from the FM-1's chip maker that we can't host ourselves. On a new ESP32 the
-      installer downloads it and M-VAVE's stock V15 straight from GitHub into your browser, checks both, and puts
-      them on Outrigger. If a download fails, nothing is written.</dd>"""),
     ('more at the Firmware Hub ↗</a></div>', 'more at the Firmware Hub ↗</a></div>\n  ' + ADD_BLOCK),
-    ('<title>Outrigger: B3</title>', '<title>Outrigger: a little companion for your FM-1</title>\n'
+    ('<title>Outrigger: B3</title>', '<title>Outrigger: FM-1\'s little companion</title>\n'
      '<meta name="description" content="Play the M-VAVE FM-1 from any MIDI controller with a USB connection, and switch between 100+ firmwares without a laptop.">\n'
      '<script type="module" src="installer/area.js"></script>'),
     ('<link rel="stylesheet" href="shared.css">', '<link rel="stylesheet" href="style.css">'),
@@ -631,22 +666,10 @@ for a, b in [
   <p class="eyebrow">For builders</p>
   <h2>Under the hood</h2>
   {BUILDERS_HTML}
-  <p class="fine">Installs with <a href="https://github.com/espressif/esptool-js">esptool-js</a> 0.7.0 (Apache-2.0), served from this site.
-    It writes only the program and its startup parts, never your settings or the backup store. Outrigger is
-    <a href="LICENSE.txt">GPL-3.0</a> (<a href="https://github.com/chadthornton/outrigger">source</a>); the firmware includes
-    LVGL and EspUsbHost (MIT), Arduino_GFX (BSD) and the Arduino ESP32 core (LGPL-2.1):
-    <a href="NOTICE.txt">licenses and credits</a>.</p>
+{CREDITS}
 </div></section>
-<footer class="nerd"><div class="wrap fine">
-  <p>Built on and alongside the FM-1 community's work:
-    <a href="https://github.com/hugelton/felucca">Felucca</a> and <a href="https://github.com/hugelton/felucca-bsp">felucca-bsp</a> (H\u00fcgelton Instruments),
-    <a href="https://github.com/charlesvestal/fm1-base">fm1-base</a>, <a href="https://github.com/charlesvestal/fm1-x0x">X0X</a>, <a href="https://github.com/charlesvestal/fm1-amb">AMB-1</a> and more FM-1 firmwares by <a href="https://github.com/charlesvestal">Charles Vestal</a>,
-    <a href="https://github.com/Quixotic7/MvaveFM1Unbricker">MvaveFM1Unbricker</a> and <a href="https://github.com/Quixotic7/RemoteFM1">RemoteFM1</a> by Quixotic7,
-    <a href="https://github.com/pfkellogg/fm1-mirror">fm1-mirror</a> by Patrick Kellogg, and, a related project,
-    <a href="https://github.com/konsumer/fm1buddy">fm1buddy</a> by David Konsumer.</p>
-  <p>Firmware screenshots by their authors, via the Firmware Hub. Not affiliated with M-VAVE or Waveshare.</p>
-  <p id="installer-version" hidden></p>
-</div></footer>"""),
+{FOOTER}"""),
+    ('<script src="rig.js"></script>', '<script src="rig.js"></script>\n' + REQUEST_JS),
 ]:
     assert a in real, a[:70]
     real = real.replace(a, b, 1)

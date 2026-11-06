@@ -34,6 +34,7 @@ import json
 import os
 import shutil
 import struct
+import subprocess
 import sys
 from pathlib import Path
 
@@ -196,9 +197,21 @@ def check_build_tag(app, app_set, board):
 LOADER_APP_SETS = ("hub-loader", "everything")
 
 
-def make_manifest(board, app_set, version, tag, parts, store_template=None):
+def ancestors(commit, cwd=ROOT):
+    """Every commit the build holds (itself included), as the tag's 7-character prefix, so the page can tell an
+    update from a downgrade (site/installer/board.js compareBuilds). All parents, not the first: a board flashed
+    from preview runs a branch commit, and once merged it's older. A shallow clone would make every board in the
+    field read as newer, so it's refused."""
+    git = lambda *args: subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=True).stdout
+    if git("rev-parse", "--is-shallow-repository").strip() != "false":
+        fail("this clone is shallow: the page needs the build's whole history (fetch-depth: 0 in CI)")
+    return [sha[:7] for sha in git("rev-list", commit).split()]
+
+
+def make_manifest(board, app_set, version, tag, parts, store_template=None, history=None):
     """manifest.json for one app set. parts: offset -> bytes; store_template:
-    the bytes of store-template.json for an app set that runs the loader."""
+    the bytes of store-template.json for an app set that runs the loader;
+    history: ancestors() of the build's commit."""
     manifest = {
         "name": f"{board['name']}: {APP_SETS[app_set]}",
         "version": version,
@@ -213,6 +226,8 @@ def make_manifest(board, app_set, version, tag, parts, store_template=None):
                        "sha256": hashlib.sha256(parts[offset]).hexdigest()} for offset, name, _ in PARTS],
         }],
     }
+    if history is not None:
+        manifest["ancestors"] = history
     if store_template is not None:
         # Written onto a factory-blank store, with the loader fetched from GitHub (site/installer/store.js).
         manifest["store_template"] = "store-template.json"
@@ -329,7 +344,8 @@ def main():
     template_bytes = template.read_bytes() if app_set in LOADER_APP_SETS else None
     if template_bytes is not None:
         (out / "store-template.json").write_bytes(template_bytes)
-    manifest = make_manifest(board, app_set, version, tag, parts, store_template=template_bytes)
+    manifest = make_manifest(board, app_set, version, tag, parts, store_template=template_bytes,
+                             history=ancestors(tag["commit"]))
     (out / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
 
     try:
