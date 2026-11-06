@@ -107,7 +107,7 @@ function describeBuild(board, build, ancestors) {
   const relation = compareBuilds(board.tag, build, ancestors);
   if (relation === "newer") {
     return { board: `This board runs ${now} ${version(board.tag)}, a newer build than this page installs.`, newer: true,
-      install: `Installing puts the older ${next} on it. ${keeps}` };
+      install: `Installing puts the older ${board.tag.app_set === build.app_set ? version(build) : next} on it. ${keeps}` };
   }
   if (board.tag.app_set !== build.app_set) return { board: said, install: `Installing ${next} replaces ${now}. ${keeps}` };
   if (relation === "same") {

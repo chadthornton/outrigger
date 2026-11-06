@@ -72,7 +72,7 @@ test("describeBoard: a board on a newer build says so, and isn't offered an upda
   const d = describeBoard(onA91, e49, {}, ["0f940f7", "6f95342"]);
   assert.equal(d.newer, true);
   assert.equal(d.board, "This board runs Hub + Loader with the Wi-Fi page a91874d, a newer build than this page installs.");
-  assert.equal(d.install, "Installing puts the older Hub + Loader with the Wi-Fi page e49a1aa on it. Your settings, Wi-Fi and backups stay.");
+  assert.equal(d.install, "Installing puts the older e49a1aa on it. Your settings, Wi-Fi and backups stay.");
 });
 
 test("describeBoard: newer wins over a different app set and a wrong-board pick", () => {
