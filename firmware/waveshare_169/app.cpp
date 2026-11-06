@@ -662,8 +662,8 @@ void setup() {
     // board can be reflashed without BOOT+RST, and the screen says where it died.
     hand_usb_to_serial_jtag();
     char info[160];
-    snprintf(info, sizeof info, "%s\n%s\n%s\nRST to try again.", last_crash[0], last_crash[1], last_crash[2]);
-    ui_show_computer_mode(info);
+    snprintf(info, sizeof info, "%s\n%s\n%s", last_crash[0], last_crash[1], last_crash[2]);
+    ui_show_safe_mode(info);
 #if APP_WEB_UI
     web_begin(true);  // so /crash and /coredump can be read without the screen
 #endif

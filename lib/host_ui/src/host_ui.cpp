@@ -1426,6 +1426,21 @@ static lv_obj_t *build_computer_screen(const char *info) {
   return t.scr;
 }
 
+// Safe mode: not Computer mode, though the port goes to the computer here too
+// (so a crash loop can be reflashed). Its own title, so a reset mid-install
+// doesn't read as "it switched me into Computer mode" (2026-11-05).
+static lv_obj_t *build_safe_mode_screen(const char *info) {
+  lv_obj_t *title;
+  Page t = sub_page(&title, nullptr, false);
+  lv_label_set_text(title, LV_SYMBOL_WARNING " Safe mode");
+  set_colour(title, kRed);
+  text(t.content, "A fault stopped the board, so MIDI is off. Where:", kWhite, Role::Body);
+  text(t.content, info, kGrey, Role::Detail);
+  network_labels[1] = network_label(t.content);  // /crash and /coredump are on the Web UI
+  plain_button(foot_box(t), "Restart", back_to_host_tapped);
+  return t.scr;
+}
+
 static lv_obj_t *build_switching_screen(const char *title_text) {
   lv_obj_t *title;
   Page t = sub_page(&title, nullptr, false);
@@ -1536,6 +1551,11 @@ bool ui_begin(const BoardProfile &b, const UiSettings &s, const UiHooks &h, cons
 void ui_show_computer_mode(const char *info) {
   depth = 0;
   show(build_computer_screen(info));
+}
+
+void ui_show_safe_mode(const char *info) {
+  depth = 0;
+  show(build_safe_mode_screen(info));
 }
 
 void ui_show_switching(const char *title) {

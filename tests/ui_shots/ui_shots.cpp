@@ -774,6 +774,9 @@ static void run_computer(const SimBoard &b) {
   run(100);
   shoot("computer_adding");
   ui_set_computer_status("");
+  ui_show_safe_mode("reset watchdog\nlast: loader job install\nbuild e49a1aa hub+LW");
+  run(100);
+  shoot("safe_mode");
 }
 
 // ---------- Contact sheets ----------
@@ -784,7 +787,7 @@ static const char *const kColumns[] = {
     "fm1_list",   "fm1_list_focus", "plan_wait", "plan",    "plan_fresh", "backups",  "job_switch", "job_backup", "job_chain_backup", "job_chain_write",
     "switched",   "err_retry", "err_norom",  "err_stale",   "not_ready",  "unfinished", "setup",   "setup_hotspot", "computer_confirm",
     "diagnostics",
-    "switching",  "computer", "computer_adding"};
+    "switching",  "computer", "computer_adding", "safe_mode"};
 constexpr int kCols = sizeof kColumns / sizeof *kColumns, kGap = 8, kCaption = 18;
 static uint8_t caption_rgb[480 * kCaption * 3];
 static int caption_w;
