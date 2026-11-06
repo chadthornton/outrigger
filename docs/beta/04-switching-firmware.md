@@ -12,7 +12,7 @@ do. Nothing happens until you hold the yellow button for two seconds. Then, in a
 1. The board restarts and sends your FM-1 into its built-in install mode. **The FM-1's screen goes dark. That's
    normal.**
 2. It checks the FM-1 against its latest backup. If anything changed since (a new song, say), it backs the FM-1 up
-   first. Your very first backup comes from the board's **Backups** screen, before your first switch.
+   first. On the first switch there's no backup yet, so it always takes one.
 3. It saves the current firmware's songs and settings on the board.
 4. It writes the new firmware, and reads back every piece it writes to check it.
 5. It sorts out your songs (next section), then restarts the FM-1 into the new firmware.
