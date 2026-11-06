@@ -19,7 +19,7 @@ bool SetupJoin::tick(uint32_t now, bool connected) {
     online_at_ = now;
     return false;
   }
-  if (now - started_ <= kGiveUpMs) return false;
+  if (int32_t(now - started_) <= int32_t(kGiveUpMs)) return false;  // started_ may be after the loop's now
   // 15 4WAY_HANDSHAKE_TIMEOUT, 202 AUTH_FAIL, 204 HANDSHAKE_TIMEOUT: the
   // password; 201 NO_AP_FOUND: the network isn't in range.
   state_ = reason_ == 15 || reason_ == 202 || reason_ == 204 ? State::WrongPassword
@@ -29,7 +29,7 @@ bool SetupJoin::tick(uint32_t now, bool connected) {
 }
 
 bool SetupJoin::showing_online(uint32_t now) const {
-  return state_ == State::Online && now - online_at_ <= kShowOnlineMs;
+  return state_ == State::Online && int32_t(now - online_at_) <= int32_t(kShowOnlineMs);
 }
 
 const char *setup_join_name(SetupJoin::State s) {

@@ -24,6 +24,7 @@
 #include "crumbs.h"
 #include "diag.h"
 #include "hotspot_channel.h"
+#include "setup_join.h"
 #include "wifi_fallback.h"
 #include "wifi_qr.h"
 #include "json_field.h"
@@ -119,15 +120,17 @@ static char join_qr[64] = "";       // the hotspot as a Wi-Fi QR code, while the
 static char scan_json[1200] = "{\"nets\":[]}";
 static char creds_ssid[33], creds_pass[65];
 static bool creds_pending = false;
+static const char *join_state = "idle";  // the setup page's join (web_core::setup_join_name), for /setup/state
 
 // ---------- Loop-only state ----------
 static bool started = false, safe = false;
 static Preferences wifi_prefs;
 static httpd_handle_t server = nullptr;
 static DNSServer dns;
-static bool mdns_on = false, joining_from_setup = false;
+static bool mdns_on = false;
+static web_core::SetupJoin setup_join;  // a network from the setup page, while the hotspot is up
 static web_core::WifiFallback fallback;  // nudges, the hotspot and retries of the saved network
-static uint32_t join_at = 0, connect_started = 0, online_since = 0, last_drain = 0;
+static uint32_t join_at = 0, last_drain = 0;
 // The station's last disconnect reason, from Wi-Fi's event task; the loop logs
 // it. The first join after a boot sometimes stalls with no reason at all
 // (2026-10-30), and these lines say which kind of failure a slow boot was.
@@ -347,16 +350,23 @@ static const char kSetupHtml[] = R"HTML(<!doctype html>
 <button id="go">Join</button><p id="msg">The hub saves this network and joins it. Your phone may drop off this
 hotspot; then open <b>http://@HOST@.local</b> on the same Wi-Fi as the hub.</p>
 <script>
-const $=id=>document.getElementById(id);
+const $=id=>document.getElementById(id),say=t=>$('msg').textContent=t,wait=ms=>new Promise(r=>setTimeout(r,ms));
+const dropped='Your phone left the hotspot. Join your Wi-Fi again and open http://@HOST@.local.';
 fetch('/setup/scan').then(r=>r.json()).then(j=>{for(const n of j.nets){const o=document.createElement('option');
  o.value=n.ssid;o.textContent=`${n.ssid} (${n.rssi} dBm)`;$('ssid').appendChild(o)}});
-$('go').onclick=async()=>{$('msg').textContent='Joining...';try{const r=await fetch('/setup/join',{method:'POST',
- body:JSON.stringify({ssid:$('ssid').value,pass:$('pass').value})});$('msg').textContent=(await r.json()).msg}
- catch(e){$('msg').textContent='The hotspot dropped, as expected. Open http://@HOST@.local on your Wi-Fi.'}};
+$('go').onclick=async()=>{const net=$('ssid').value;$('go').disabled=true;say(`Joining ${net}...`);
+ try{await fetch('/setup/join',{method:'POST',body:JSON.stringify({ssid:net,pass:$('pass').value})});
+  for(let i=0;i<40;++i){await wait(1000);const j=await(await fetch('/setup/state')).json();
+   if(j.state==='joining'||j.state==='idle')continue;
+   if(j.state==='online')return say(`Connected to ${net}. On that Wi-Fi, open http://@HOST@.local (${j.ip}).`);
+   say(j.state==='wrong_password'?`Wrong password for ${net}. Try again.`:j.state==='not_found'?
+    `${net} is out of the hub's range.`:`Couldn't join ${net}. Try again.`);break}}
+ catch(e){say(dropped)}$('go').disabled=false};
 </script></body></html>
 )HTML";
 
 // ---------- Handlers (server task) ----------
+
 static esp_err_t on_index(httpd_req_t *req) {
   if (!guard(req)) return ESP_OK;
   httpd_resp_set_type(req, "text/html; charset=utf-8");
@@ -659,6 +669,18 @@ static esp_err_t on_setup_scan(httpd_req_t *req) {
   return send_json(req, buf, strlen(buf));
 }
 
+// How the setup page's join is going, for the page to poll.
+static esp_err_t on_setup_state(httpd_req_t *req) {
+  if (!guard(req)) return ESP_OK;
+  if (!via_hotspot(req)) return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "setup is on the hotspot only");
+  char buf[80];
+  {
+    Lock l;
+    snprintf(buf, sizeof buf, "{\"state\":\"%s\",\"ip\":\"%s\"}", join_state, own_ip);
+  }
+  return send_json(req, buf, strlen(buf));
+}
+
 // The one write: a Wi-Fi network from the setup page, on the hotspot only.
 static esp_err_t on_setup_join(httpd_req_t *req) {
   if (!guard(req)) return ESP_OK;
@@ -681,10 +703,8 @@ static esp_err_t on_setup_join(httpd_req_t *req) {
     memcpy(creds_pass, pass, sizeof creds_pass);
     creds_pending = true;
   }
-  char ok[160];
-  snprintf(ok, sizeof ok, "{\"msg\":\"Joining. If it works, the hub's settings page shows its address; open http://%s.\"}",
-           mdns_name);
-  return send_json(req, ok, strlen(ok));
+  static const char kOk[] = "{\"joining\":true}";  // the page polls /setup/state for how it goes
+  return send_json(req, kOk, sizeof kOk - 1);
 }
 
 #if BENCH
@@ -844,7 +864,7 @@ static void start_server() {
   }
   // Same order as web_core::kRoutes, whose methods the tests check.
   esp_err_t (*const handlers[])(httpd_req_t *) = {on_index, on_status, on_log, on_crash,
-                                                  on_coredump, on_store, on_setup_scan, on_setup_join};
+                                                  on_coredump, on_store, on_setup_scan, on_setup_state, on_setup_join};
   static_assert(sizeof handlers / sizeof handlers[0] == web_core::kRouteCount, "a handler per route");
   for (int i = 0; i < web_core::kRouteCount; ++i) {
     httpd_uri_t u{};
@@ -974,7 +994,6 @@ static void join(const char *ssid, const char *pass) {
   const Seen *n = find_seen(ssid);
   if (n) WiFi.begin(ssid, pass, n->channel, n->bssid);
   else WiFi.begin(ssid, pass);
-  connect_started = millis();
   net = Net::Connecting;
   DLOG_LOOP("wifi: joining %s", ssid);
 }
@@ -1101,9 +1120,9 @@ void web_loop(uint32_t now) {
   if (join_at && int32_t(now - join_at) >= 0) {
     join_at = 0;
     if (ap_on) WiFi.mode(WIFI_AP_STA);
-    joining_from_setup = ap_on;
     WiFi.disconnect();
     join(trial_ssid, trial_pass);
+    if (ap_on) setup_join.start(millis());  // after the loop's now: SetupJoin allows for it
   }
   if (ap_on) dns.processNextRequest();
   static uint32_t logged_redirects = 0;
@@ -1127,13 +1146,13 @@ void web_loop(uint32_t now) {
   if (disconnects.load() != logged_disconnects) {
     logged_disconnects = disconnects.load();
     const uint8_t r = disconnect_reason.load();
+    setup_join.disconnected(r);
     DLOG_LOOP("wifi: station disconnected, reason %u %s (%lu so far)", r,
               WiFi.disconnectReasonName(wifi_err_reason_t(r)), (unsigned long)logged_disconnects);
   }
   const bool connected = status == WL_CONNECTED;
   if (connected && net != Net::Online) {
     net = Net::Online;
-    online_since = now;
     if (trial_ssid[0] && WiFi.SSID() == trial_ssid) {  // they work: keep them
       memcpy(saved_ssid, trial_ssid, sizeof saved_ssid);
       memcpy(saved_pass, trial_pass, sizeof saved_pass);
@@ -1149,35 +1168,31 @@ void web_loop(uint32_t now) {
     DLOG_LOOP("wifi: online %s %s %d dBm", ssid_now, own_ip, rssi);
   } else if (!connected && net == Net::Online) {
     net = Net::Connecting;
-    connect_started = now;
     if (mdns_on) MDNS.end();
     mdns_on = false;
     set_ips();
     DLOG_LOOP("wifi: lost the network");
   }
 
-  if (ap_on) {
-    if (connected) {
-      // Joined from the setup page: keep the hotspot a minute so the phone can
-      // show the result; a background retry closes it at once.
-      if (!joining_from_setup || now - online_since > 60000) {
-        joining_from_setup = false;
-        stop_hotspot();
-      }
-    } else if (joining_from_setup && connect_started && now - connect_started > 15000) {
-      // A join from the setup page that didn't work. Stop the station retrying:
-      // its channel hops would drag the hotspot (and the phone) around.
-      WiFi.disconnect();
-      connect_started = 0;
-      joining_from_setup = false;
-      DLOG_LOOP("wifi: join failed");
-    }
+  if (setup_join.tick(now, connected)) {
+    // A join from the setup page that didn't work. Stop the station retrying:
+    // its channel hops would drag the hotspot (and the phone) around.
+    WiFi.disconnect();
+    DLOG_LOOP("wifi: join failed: %s", web_core::setup_join_name(setup_join.state()));
   }
+  {
+    const char *state = web_core::setup_join_name(setup_join.state());
+    Lock l;
+    join_state = state;
+  }
+  // Joined from the setup page: keep the hotspot a minute so the phone can
+  // show the result; a background retry closes it at once.
+  if (ap_on && connected && !setup_join.showing_online(now)) stop_hotspot();
   // Not associated. Status 6 also covers a join still under way, but by the
   // first nudge (20 s) a working join has long finished (~1-5 s).
   const bool stalled = status == WL_DISCONNECTED || status == WL_CONNECT_FAILED || status == WL_NO_SSID_AVAIL;
   const int phones = ap_on ? WiFi.softAPgetStationNum() : 0;
-  switch (fallback.tick(now, {saved_ssid[0] != 0, connected, stalled, ap_on, phones, joining_from_setup})) {
+  switch (fallback.tick(now, {saved_ssid[0] != 0, connected, stalled, ap_on, phones, setup_join.joining()})) {
     case web_core::WifiFallback::Do::Nothing:
       break;
     case web_core::WifiFallback::Do::Nudge: {
@@ -1194,7 +1209,6 @@ void web_loop(uint32_t now) {
       break;
     case web_core::WifiFallback::Do::StopJoin:
       WiFi.disconnect();  // as above: a retry still hopping would drag the hotspot along
-      connect_started = 0;
       DLOG_LOOP("wifi: join failed");
       break;
   }
