@@ -34,8 +34,11 @@ backup Outrigger takes before every switch.
   resources. After many Skiff pattern saves, those resources may be gone, and the board can't put them back. Nobody has
   tested what stock does without them. Email us before switching from Skiff to stock.
 - **During a firmware switch the board restarts 2–3 times, and the FM-1 goes dark for about a minute.** That's normal.
-  A crash looks different: a safe-mode screen that says where it stopped and "RST to try again". If you see that,
-  email us.
+  A crash looks different: a safe-mode screen that says where it stopped and "RST to try again".
+- **A switch can stop at a screen that looks like Computer mode, with "RST to try again" at the bottom.** That's
+  safe mode after a restart that hung, and on this build it happens on some switches. Press **RST** once: the board
+  picks up where it stopped, backs up, installs and checks, and the switch finishes. Nothing is lost, and the FM-1
+  doesn't need anything. A fix is in testing. If RST doesn't finish the switch, email us.
 - **After a firmware switch, your MIDI controller may stop sending.** Unplug it and plug it back in.
 - What can go wrong during a switch, and what to do, is on [Switching FM-1 firmware](04-switching-firmware.md).
 
