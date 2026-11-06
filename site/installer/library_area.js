@@ -2,12 +2,12 @@
 // tabs, browsable without a board; with an Outrigger in Computer mode, what its
 // store holds, and a cart of adds that Apply sends over one connection
 // (library.js has the logic, add.js the catalog and the link); on protocol 2,
-// removes too, and what the loader knows about the FM-1. The board stays in
+// removes too, and which package the FM-1 runs. The board stays in
 // its running program, and the FM-1 isn't touched: switching happens on the
 // board, which backs up first.
 import { addableFirmwares, fetchHubPackage, loadCatalog, BoardLink } from "./add.js";
-import { applyOutcome, addError, canAdd, countLine, fm1Facts, libraryRows, meter, removable, removeError, room, shownRows, steps,
-  storageLine, toggle } from "./library.js";
+import { applyOutcome, addError, canAdd, countLine, elapsed, libraryRows, meter, queueUpdate, refusedWhy, removable, removeError,
+  removeWhy, replacing, room, shownRows, steps, storageLine, toggle } from "./library.js";
 import { PORT_FILTER, SERIAL_OPTIONS, port as lock, h } from "./ui.js";
 
 const BAUD = 115200;  // ignored by USB-Serial-JTAG, but Web Serial needs one
@@ -57,7 +57,7 @@ class Library {
     this.main = document.getElementById("main");
     this.side = document.getElementById("side");
     this.s = {
-      tab: "board", q: "", favs: loadFavs(), open: new Set(), cart: [], removes: [], info: null,
+      tab: "board", q: "", favs: loadFavs(), open: new Set(), cart: [], removes: [], info: null, refused: {},
       board: "none",  // none | steps | talking | connected | silent
       hello: null, stored: null, catalog: null, lists: null, catalogError: null,
       applying: null, result: null, connectError: null,
@@ -108,7 +108,7 @@ class Library {
       const stored = await this.link.list();
       // Protocol 1 boards (before Remove) add only and say nothing about the FM-1.
       const info = hello.protocol >= 2 ? await this.link.info() : null;
-      this.set({ board: "connected", hello, stored, info, tab: "board", cart: [], removes: [], result: null });
+      this.set({ board: "connected", hello, stored, info, tab: "board", cart: [], removes: [], refused: {}, result: null });
     } catch (e) {
       await this.close();
       // No answer: an ESP32 without Outrigger, or one not in Computer mode. Over Web Serial they look the same.
@@ -125,35 +125,57 @@ class Library {
     if (io) await Promise.race([io.close().catch(() => {}), new Promise((r) => setTimeout(r, 2000))]);
   }
 
-  // Every queued remove, then every add, in order, over this one connection;
-  // stops at the first that fails.
+  // Every add downloaded and checked first, then every queued remove, then
+  // every add, in order, over this one connection; stops at the first that
+  // fails. A slow step shows how long it has run.
   async apply() {
     if (lock.busy || !this.link) return;
     lock.busy = true;
     const plan = steps(this.s.removes, this.s.cart);
     const results = [];
+    const refused = { ...this.s.refused };
+    let tick = null;
+    const step = (words, got = 0, total = 0) => this.set({ applying: { step: words, got, total, words, since: Date.now() } });
     try {
+      tick = setInterval(() => {
+        const a = this.s.applying;
+        if (a && !a.total) { a.step = elapsed(a.words, Date.now() - a.since); this.renderSide(); }
+      }, 1000);
+      const data = new Map();
+      for (const fw of this.s.cart) {
+        step(`Downloading ${label(fw)} from ${this.s.catalog.from}…`);
+        try {
+          data.set(fw, await fetchHubPackage(fw, fetch, this.s.catalog.from));
+        } catch (e) {
+          this.set({ applying: null, result: { error: e, names: [] } });
+          return;
+        }
+      }
       for (const st of plan) {
         if (st.remove) {
           const name = this.nameOf(st.remove);
-          this.set({ applying: { step: `Removing ${name}…`, got: 0, total: 0 } });
+          step(`Removing ${name}…`);
           try {
             await this.link.remove(st.remove);
+            delete refused[st.remove];
             results.push("removed");
           } catch (e) {
+            // The FM-1 needs it: nothing changed, so the rest go on, and its row says why.
+            if (refusedWhy(e)) { refused[st.remove] = refusedWhy(e); results.push("kept"); continue; }
             results.push(Object.assign(e, { message: removeError(e, name) }));
             break;
           }
           continue;
         }
         const fw = st.add;
-        this.set({ applying: { step: `Downloading ${label(fw)} from ${this.s.catalog.from}…`, got: 0, total: 0 } });
+        const bytes = data.get(fw);
+        step(`Sending ${label(fw)} to Outrigger. Keep the cable in.`, 0, bytes.length);
         try {
-          const data = await fetchHubPackage(fw, fetch, this.s.catalog.from);
-          this.set({ applying: { step: `Sending ${label(fw)} to Outrigger. Keep the cable in.`, got: 0, total: data.length } });
-          results.push(await this.link.add(fw, data, (got, total) => {
-            this.s.applying = { step: got === total ? `Outrigger is storing ${label(fw)}…` : this.s.applying.step, got, total };
-            this.renderSide();
+          // The last data frame's answer waits for the store: show that while it does.
+          const storing = `Outrigger is storing ${label(fw)}…`;
+          results.push(await this.link.add(fw, bytes, (got, total) => {
+            if (got + this.link.dataMax >= total) { if (this.s.applying.words !== storing) step(storing); }
+            else { this.s.applying.got = got; this.renderSide(); }
           }));
         } catch (e) {
           results.push(Object.assign(e, { message: addError(e, label(fw)) }));
@@ -161,19 +183,21 @@ class Library {
         }
       }
       const out = applyOutcome(plan, results);
-      const names = out.landed.map((st) => (st.remove ? `removed ${this.nameOf(st.remove)}` : `added ${label(st.add)}`));
+      const names = [...out.landed.map((st) => (st.remove ? `removed ${this.nameOf(st.remove)}` : `added ${label(st.add)}`)),
+        ...out.kept.map((st) => `kept ${this.nameOf(st.remove)} (its row says why)`)];
       const left = { removes: out.left.filter((st) => st.remove).map((st) => st.remove), cart: out.left.filter((st) => st.add).map((st) => st.add) };
       try {
         const hello = await this.link.hello();
         const stored = await this.link.list();
         const info = hello.protocol >= 2 ? await this.link.info() : null;
-        this.set({ ...left, applying: null, hello, stored, info, result: { error: out.error, names } });
+        this.set({ ...left, refused, applying: null, hello, stored, info, result: { error: out.error, names } });
       } catch {
         await this.close();
-        this.set({ ...left, applying: null, board: "none", hello: null, stored: null, info: null, result: { error: out.error, names },
+        this.set({ ...left, refused, applying: null, board: "none", hello: null, stored: null, info: null, result: { error: out.error, names },
           connectError: "Outrigger's connection closed. Connect again to see what it has." });
       }
     } finally {
+      clearInterval(tick);
       lock.busy = false;
     }
   }
@@ -190,6 +214,10 @@ class Library {
 
   queueRemove(id) {
     this.set({ removes: [...this.s.removes, id], result: null });
+  }
+
+  update(row) {
+    this.set({ ...queueUpdate(this.s, row), result: null });
   }
 
   queue(fw) {
@@ -223,9 +251,16 @@ class Library {
       h("button", { class: "btn", disabled: board === "talking", on: { click: () => this.set({ board: "steps", connectError: null }) } }, "Connect")));
   }
 
+  // Connecting or applying: one job on the board at a time, so nothing else on the page answers.
+  busy() {
+    return this.s.board === "talking" || !!this.s.applying;
+  }
+
   renderMain() {
     const s = this.s;
     const rows = this.rows();
+    this.main.toggleAttribute("aria-busy", s.board === "talking");
+    this.main.toggleAttribute("inert", s.board === "talking");
     const tab = (id, text, cls) => h("button", { role: "tab", class: cls, "aria-selected": String(s.tab === id),
       on: { click: () => this.set({ tab: id }) } }, text);
     this.main.replaceChildren(...[
@@ -249,15 +284,15 @@ class Library {
       h("div", { class: "shots" },
         shot("../shots/M_setup.png", "Outrigger's Settings, with Computer mode", "Settings"),
         shot("../shots/M_computer_confirm.png", "Computer mode screen: hold to restart in Computer mode", "Hold to restart")),
-      h("div", {}, h("button", { class: "btn", on: { click: () => this.connect() } }, "Choose my Outrigger")));
+      h("div", {}, h("button", { class: "btn", on: { click: () => this.connect() } }, "Choose my Outrigger")),
+      h("p", {}, "No Outrigger on it yet? ", h("a", { href: "../#install" }, "Install it first"), ": about 2 minutes."));
   }
 
   silentBox() {
     return h("section", { class: "box banner", "aria-label": "Install Outrigger first" },
       h("div", {},
-        h("h2", {}, "This ESP32 didn't answer as Outrigger"),
-        h("p", {}, "If it doesn't have Outrigger yet, install it first (about 2 minutes), then come back here to pick firmwares. " +
-          "If it does, open Settings, then Computer mode on it, hold the button, and connect again. You can browse the library in the meantime.")),
+        h("h2", {}, "That port isn't Outrigger in Computer mode"),
+        h("p", {}, "No Outrigger on it yet? Install it, then come back. Already installed? Open Settings, then Computer mode, and try again.")),
       h("a", { class: "btn", href: "../#install" }, "Install Outrigger"),
       h("button", { class: "btn ghost", on: { click: () => this.set({ board: "steps" }) } }, "Try again"));
   }
@@ -322,34 +357,44 @@ class Library {
     const full = connected && !canAdd(s.hello, s.cart, s.removes);
     const stop = (fn) => (e) => { e.preventDefault(); e.stopPropagation(); fn(); };
     // Without a board, Add asks for one: the room it has decides what fits.
-    const go = (text) => h("button", { class: "go", disabled: full || !!s.applying,
+    const busy = this.busy();
+    const go = (text, fn = () => this.queue(r.fw), more = []) => h("button", { class: "go", disabled: (full && !canAdd(s.hello, s.cart, more)) || busy,
       title: full ? "Outrigger has no room for more" : null,
-      on: { click: stop(() => (connected ? this.queue(r.fw) : this.askToConnect())) } }, text);
-    const undo = h("button", { class: "undo", disabled: !!s.applying, on: { click: stop(() => this.queue(r.fw)) } }, "Undo");
+      on: { click: stop(() => (connected ? fn() : this.askToConnect())) } }, text);
+    const undo = h("button", { class: "undo", disabled: busy, on: { click: stop(() => (r.state === "update" ? this.update(r) : this.queue(r.fw))) } }, "Undo");
     // Remove: protocol 2 boards only, and never what the FM-1 runs or stock.
     const canRemove = connected && s.info !== null && removable(r);
     const removing = s.removes.includes(r.key);
-    const rm = canRemove ? h("button", { class: "undo", disabled: !!s.applying, on: { click: stop(() => this.queueRemove(r.key)) } }, "Remove") : null;
+    const rm = canRemove ? h("button", { class: "undo", disabled: busy, on: { click: stop(() => this.queueRemove(r.key)) } }, "Remove") : null;
     // Undoing a remove whose place the cart has taken would leave an add the board refuses.
     const taken = connected && s.cart.length > room(s.hello, s.removes.length - 1);
-    const keep = h("button", { class: "undo", disabled: !!s.applying || taken,
+    const keep = h("button", { class: "undo", disabled: busy || taken,
       title: taken ? "An add in your changes uses its place: undo that first" : null,
       on: { click: stop(() => this.unqueueRemove(r.key)) } }, "Undo");
     let note = "", tone = "", acts = [];
-    if (removing) {
+    const why = connected ? removeWhy(r, s.refused) : null;
+    if (r.state === "update" && replacing(r, s.cart, s.removes)) {
+      note = `Will update to ${r.fw.version}, replacing this copy`;
+      tone = "warn";
+      acts = [undo];
+    } else if (removing) {
       note = "Will be removed. Its songs stay saved on the board.";
       tone = "warn";
       acts = [keep];
     } else if (r.running) {
-      note = "Running now";
+      note = r.state === "update" && queued ? `Will add ${r.fw.version}. This copy stays: your FM-1 runs it.` : why;
       tone = "ok";
+      if (r.state === "update") acts = [queued ? undo : go("Update", () => this.update(r))];
+    } else if (why) {
+      note = why;
+      tone = "warn";
     } else if (r.state === "current") {
       note = "On your Outrigger";
       acts = [rm];
     } else if (r.state === "update") {
-      note = queued ? `Will update to ${r.fw.version}` : `Update available: ${r.fw.version}`;
+      note = queued ? `Will add ${r.fw.version}. This copy stays.` : `Update available: ${r.fw.version}`;
       tone = "warn";
-      acts = [queued ? undo : go("Update"), rm];
+      acts = [queued ? undo : go("Update", () => this.update(r), [...s.removes, r.key]), rm];
     } else if (r.state === "old") {
       note = "An older version: the newest is on your Outrigger too";
       acts = [rm];
@@ -442,7 +487,7 @@ class Library {
   renderSide() {
     const s = this.s;
     const parts = [];
-    if (s.board === "connected") parts.push(s.info ? this.fm1Box() : this.outriggerBox());
+    if (s.board === "connected") parts.push(this.outriggerBox());
     if (s.cart.length || s.removes.length || s.applying || s.result) parts.push(this.cartBox());
     parts.push(h("section", { class: "box", "aria-label": "Need more space" },
       h("h2", {}, "Need more space?"),
@@ -451,7 +496,7 @@ class Library {
     this.side.replaceChildren(...parts);
   }
 
-  // A protocol 1 board: what 'H' says.
+  // What 'H' says.
   outriggerBox() {
     const { hello } = this.s;
     return h("section", { class: "box", "aria-label": "Your Outrigger" },
@@ -459,25 +504,13 @@ class Library {
       h("dl", { class: "facts" },
         h("dt", {}, "Firmwares"), h("dd", {}, `${hello.packages} of ${hello.maxPackages}`),
         h("dt", {}, "Free memory"), h("dd", {}, mb(hello.free)),
-        h("dt", {}, "Build"), h("dd", {}, hello.build.replace(/^v /, ""))),
-      h("p", {}, "Switch the FM-1 from Outrigger's Firmware screen. It backs up the FM-1 first."));
+        h("dt", {}, "Build"), h("dd", {}, hello.build.replace(/^v /, ""))));
   }
 
-  // A protocol 2 board: what 'I' says about the FM-1 it saw last.
-  fm1Box() {
-    const f = fm1Facts(this.s.info, this.rows().board);
-    if (!f) {
-      return h("section", { class: "box", "aria-label": "Your FM-1" },
-        h("h2", {}, "Your FM-1"),
-        h("p", {}, "Outrigger hasn't seen an FM-1 yet. Plug one into the hub with Outrigger, and it backs it up before the first switch."));
-    }
-    return h("section", { class: "box", "aria-label": "Your FM-1" },
-      h("div", { class: "fm1head" },
-        h("h2", {}, f.name ? `Your FM-1 · ${f.name}` : "Your FM-1"),
-        f.running ? h("span", {}, "Running ", h("b", {}, f.running.name), f.running.version ? " " : null,
-          f.running.version ? h("span", { class: "ver" }, f.running.version) : null)
-          : h("span", { class: "note" }, "Running a firmware Outrigger didn't install")),
-      h("dl", { class: "facts" }, f.facts.flatMap(([dt, dd]) => [h("dt", {}, dt), h("dd", {}, dd)])));
+  // The slot for PR 4's "Done: back to MIDI" (protocol 3: a frame that
+  // restarts the board into Play). connect() refuses protocol > 2 until then.
+  doneButton() {
+    return null;
   }
 
   cartBox() {
@@ -493,10 +526,9 @@ class Library {
         s.cart.map((f) => h("div", {},
           h("span", {}, f.name, " ", h("span", { class: "ver" }, f.version)), h("span", {}, f.size ? mb(f.size) : "")))) : null,
       r && r.error ? h("p", { class: "error", role: "alert" }, did + r.error.message) : null,
-      r && !r.error ? h("p", { class: "done", role: "status" },
-        `${did}Done. Press Back to MIDI on Outrigger, then switch the FM-1 from its Firmware screen.`) : null,
+      r && !r.error ? [h("p", { class: "done", role: "status" }, `${did}Done.`), this.doneButton()] : null,
       s.applying ? [h("p", { role: "status" }, s.applying.step),
-        s.applying.total ? h("progress", { max: s.applying.total, value: s.applying.got }) : null] : null,
+        s.applying.total ? h("progress", { max: s.applying.total, value: s.applying.got }) : h("progress")] : null,
       count && !s.applying ? [
         h("p", {}, [
           s.cart.length ? `Adds use about ${mb(total)}. ` : "",

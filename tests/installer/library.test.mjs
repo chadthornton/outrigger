@@ -3,8 +3,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { addableFirmwares } from "../../site/installer/add.js";
-import { BACKUP_RESERVE, PACKAGE_ROOM, applyOutcome, addError, boardId, canAdd, countLine, fm1Facts, libraryRows, meter,
-  removable, removeError, room, shownRows, steps, storageLine, toggle } from "../../site/installer/library.js";
+import { BACKUP_RESERVE, PACKAGE_ROOM, applyOutcome, addError, boardId, canAdd, countLine, elapsed, libraryRows, meter,
+  queueUpdate, refusedWhy, removable, removeError, removeWhy, replacing, room, shownRows, steps, storageLine, toggle } from "../../site/installer/library.js";
 
 const catalog = {
   stock: { pkg: "fw/mvave/FM-1_015.fwsc", sha256: "aa", size: 699956, product: "FM-1_015" },
@@ -123,8 +123,8 @@ test("meter: stock, stored, cart, free, and slots memory can't fill", () => {
 
 test("applyOutcome: stops at the first failure and keeps it and the rest in the cart", () => {
   const bad = new Error("too full");
-  assert.deepEqual(applyOutcome(["a", "b", "c"], ["added", bad]), { landed: ["a"], left: ["b", "c"], error: bad });
-  assert.deepEqual(applyOutcome(["a", "b"], ["added", "already"]), { landed: ["a", "b"], left: [], error: null });
+  assert.deepEqual(applyOutcome(["a", "b", "c"], ["added", bad]), { landed: ["a"], kept: [], left: ["b", "c"], error: bad });
+  assert.deepEqual(applyOutcome(["a", "b"], ["added", "already"]), { landed: ["a", "b"], kept: [], left: [], error: null });
 });
 
 test("addError: the board's refusals in words that say what to do", () => {
@@ -167,20 +167,54 @@ test("meter: removes show until Apply, and the cart fills the places they free",
   assert.match(storageLine(full, ["a"], ["x", "y"]), /room for 1 more$/);
 });
 
-test("fm1Facts: what 'I' says, in words; none before Outrigger has seen an FM-1", () => {
+test("queueUpdate: an update replaces the stored copy, unless the FM-1 runs it; Undo takes both back", () => {
+  const { board } = libraryRows(lists, catalog, stored);
+  const old = board.find((r) => r.key === "felucca-1.8.0");
+  const q = queueUpdate({ cart: [], removes: [] }, old);
+  assert.deepEqual(q.cart, [old.fw]);
+  assert.deepEqual(q.removes, ["felucca-1.8.0"]);
+  assert.equal(replacing(old, q.cart, q.removes), true);
+  // Apply downloads first, then removes the old copy, then adds the new one.
+  assert.deepEqual(steps(q.removes, q.cart), [{ remove: "felucca-1.8.0" }, { add: old.fw }]);
+  assert.deepEqual(queueUpdate(q, old), { cart: [], removes: [] });
+  // Other queued removes stay when the update is undone.
+  assert.deepEqual(queueUpdate({ cart: q.cart, removes: ["my-own-thing", ...q.removes] }, old).removes, ["my-own-thing"]);
+
+  const running = libraryRows(lists, catalog, stored, "felucca-1.8.0").board.find((r) => r.key === "felucca-1.8.0");
+  const r = queueUpdate({ cart: [], removes: [] }, running);
+  assert.deepEqual(r, { cart: [running.fw], removes: [] });
+  assert.equal(replacing(running, r.cart, r.removes), false);
+});
+
+test("queueUpdate: on a full board the replaced copy's place is the update's room", () => {
+  const full = { packages: 10, maxPackages: 10, free: 12 * 1048576 };
+  const old = libraryRows(lists, catalog, stored).board.find((r) => r.key === "felucca-1.8.0");
+  assert.equal(canAdd(full, [], []), false);
+  const q = queueUpdate({ cart: [], removes: [] }, old);
+  assert.equal(room(full, q.removes.length) >= q.cart.length, true);
+});
+
+test("removeWhy: the running row and a row the board refused say why; others say nothing", () => {
   const { board } = libraryRows(lists, catalog, stored, "skiff-2.2");
-  assert.equal(fm1Facts({ known: false }, board), null);
-  const f = fm1Facts({ known: true, backup: true, pending: false, head: "V15", flashId: 0x856014, installed: "skiff-2.2", name: "Studio" }, board);
-  assert.deepEqual(f.running, { name: "Skiff", version: "2.2" });
-  assert.equal(f.name, "Studio");
-  assert.deepEqual(Object.fromEntries(f.facts), { "Last backup": "Kept on Outrigger, from its last switch",
-    "Start-up code": "M-VAVE V15", "Flash chip": "Puya P25Q80H" });
-  const g = fm1Facts({ known: true, backup: false, pending: true, head: null, flashId: 0xb36014, installed: "", name: "" }, board);
-  assert.equal(g.running, null);
-  const facts = Object.fromEntries(g.facts);
-  assert.match(facts["Last backup"], /None yet/);
-  assert.equal(facts["Start-up code"], "Not read yet");
-  assert.equal(facts["Flash chip"], "UC25HQ80");
-  assert.match(facts.Install, /Unfinished/);
-  assert.match(removeError(Object.assign(new Error("x"), { code: 13 }), "Skiff 2.2"), /Switch the FM-1/);
+  const by = Object.fromEntries(board.map((r) => [r.key, r]));
+  assert.match(removeWhy(by["skiff-2.2"]), /^Running now\. Switch the FM-1/);
+  assert.equal(removeWhy(by["felucca-1.8.0"]), null);
+  const inUse = Object.assign(new Error("in use"), { code: 13 });
+  const refused = { "felucca-1.8.0": refusedWhy(inUse) };
+  assert.match(removeWhy(by["felucca-1.8.0"], refused), /install of it isn't finished/);
+  assert.equal(removeWhy(by["my-own-thing"], refused), null);
+  assert.equal(refusedWhy(new Error("Cable out.")), null);
+  // A refused remove changes nothing on the board, so Apply goes on: a replaced copy is never left without its update.
+  const plan = steps(["skiff-2.1.1", "felucca-1.8.0"], [{ project: "skiff" }]);
+  const out = applyOutcome(plan, ["removed", "kept", "added"]);
+  assert.deepEqual(out.landed, [plan[0], plan[2]]);
+  assert.deepEqual(out.kept, [plan[1]]);
+  assert.deepEqual(out.left, []);
+  assert.equal(out.error, null);
+  assert.equal(removeError(new Error("Cable out."), "Felucca 1.8.0"), "Felucca 1.8.0 wasn't removed. Cable out.");
+});
+
+test("elapsed: a step that runs past a few seconds shows how long", () => {
+  assert.equal(elapsed("Removing Skiff 2.2…", 1500), "Removing Skiff 2.2…");
+  assert.equal(elapsed("Removing Skiff 2.2…", 12400), "Removing Skiff 2.2… 12 s");
 });
