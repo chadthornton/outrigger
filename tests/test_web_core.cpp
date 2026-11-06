@@ -1,5 +1,5 @@
 // Host-side tests for lib/web_core: the diagnostics log, the route table (read
-// only), the request guard, the setup page's JSON fields, the Wi-Fi fallback and the hotspot's QR code. Run with `make test`.
+// only), the request guard, the setup page's JSON fields, the Wi-Fi fallback, the setup page's join and the hotspot's QR code. Run with `make test`.
 #include <stdio.h>
 #include <string.h>
 
@@ -14,6 +14,7 @@
 #include "log_ring.h"
 #include "request_guard.h"
 #include "routes.h"
+#include "setup_join.h"
 #include "wifi_fallback.h"
 #include "wifi_qr.h"
 
@@ -444,6 +445,56 @@ static void test_fallback_no_saved_network() {
   EXPECT(a.empty(), "no saved network: nothing to nudge or retry");
 }
 
+// ---------- SetupJoin: a network from the setup page ----------
+using SJ = SetupJoin;
+
+// The loop samples `now`, then join() runs and records millis(), a few ms
+// later: the same pass must not read that as 15 s gone (2026-11-05, "wifi:
+// join failed" 1 ms after "joining scooterbot", then online 4.6 s later).
+static void test_setup_join_not_failed_at_once() {
+  SJ j;
+  j.start(100003);
+  EXPECT(!j.tick(100000, false), "a join started after the loop's now hasn't timed out");
+  EXPECT(j.joining(), "still joining in the same pass");
+  EXPECT(!j.tick(104600, true) && j.state() == SJ::State::Online, "online 4.6 s later");
+  EXPECT(j.showing_online(104600) && j.showing_online(164600), "the hotspot stays a minute for the phone");
+  EXPECT(!j.showing_online(164601), "then it goes");
+}
+
+static void test_setup_join_gives_up() {
+  SJ j;
+  j.start(1000);
+  EXPECT(!j.tick(16000, false), "not before 15 s");
+  EXPECT(j.tick(16001, false), "gives up after 15 s");
+  EXPECT(j.state() == SJ::State::Failed && !j.joining(), "failed, no reason seen");
+  EXPECT(!j.tick(17000, false), "gives up once");
+  EXPECT(!j.showing_online(17000), "a failed join doesn't hold the hotspot");
+}
+
+static void test_setup_join_says_why() {
+  struct Case {
+    uint8_t reason;
+    SJ::State want;
+    const char *name;
+  } cases[] = {{202, SJ::State::WrongPassword, "wrong_password"},
+               {15, SJ::State::WrongPassword, "wrong_password"},
+               {204, SJ::State::WrongPassword, "wrong_password"},
+               {201, SJ::State::NotFound, "not_found"},
+               {8, SJ::State::Failed, "failed"}};
+  for (const Case &c : cases) {
+    SJ j;
+    j.start(0);
+    j.disconnected(c.reason);
+    EXPECT(j.tick(15001, false), "gives up");
+    EXPECT(j.state() == c.want, c.name);
+    EXPECT(strcmp(setup_join_name(j.state()), c.name) == 0, "the page's word");
+  }
+  SJ idle;
+  idle.disconnected(202);
+  EXPECT(idle.state() == SJ::State::Idle && strcmp(setup_join_name(idle.state()), "idle") == 0,
+         "a drop outside a join changes nothing");
+}
+
 int main() {
   test_ring_order_and_drop();
   test_ring_truncates();
@@ -469,6 +520,9 @@ int main() {
   test_fallback_setup_join_holds_retries();
   test_fallback_no_saved_network();
   test_fallback_refused_nudge_not_spent();
+  test_setup_join_not_failed_at_once();
+  test_setup_join_gives_up();
+  test_setup_join_says_why();
   if (failures) {
     printf("web_core: %d failure(s)\n", failures);
     return 1;
