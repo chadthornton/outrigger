@@ -95,6 +95,7 @@ test("compareBuilds: same, older (in the history), newer (not in it), unknown (n
   assert.equal(compareBuilds(tag("1111111"), tag("abc1234"), ["1111111"]), "older");
   assert.equal(compareBuilds(tag("9999999"), tag("abc1234"), ["1111111"]), "newer");
   assert.equal(compareBuilds(tag("9999999"), tag("abc1234"), undefined), "unknown");
+  assert.equal(compareBuilds(tag("11111112"), tag("abc1234"), ["1111111"]), "older"); // an 8-character short commit
   assert.equal(compareBuilds(tag("abc1234"), tag("abc1234")), "same");
 });
 

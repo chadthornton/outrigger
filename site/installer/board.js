@@ -66,7 +66,8 @@ export function compareBuilds(tag, build, ancestors) {
   if (version(tag) === version(build)) return "same";
   if (tag.commit === build.commit) return "older"; // a dirty build of this commit
   if (!Array.isArray(ancestors)) return "unknown";
-  return ancestors.includes(tag.commit) ? "older" : "newer";
+  // git's --short=7 is a minimum: a colliding prefix gives the tag 8 characters.
+  return ancestors.includes(tag.commit.slice(0, 7)) ? "older" : "newer";
 }
 
 // board: {tag, layout, store}; build: the tag of the build about to be
