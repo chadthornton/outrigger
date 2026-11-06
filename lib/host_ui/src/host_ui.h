@@ -45,8 +45,10 @@ constexpr int kLoaderItems = 10;
 constexpr int kLoaderLines = 6;
 
 // What a 2-second hold runs. The Loader refuses a hold whose kind (and, for a
-// switch, firmware) isn't what it last previewed.
-enum class UiAct : uint8_t { None, Switch, Backup, Retry };
+// switch, firmware) isn't what it last previewed. Continue is the one tap: a
+// switch whose own backup found a fresh start to agree to, which the result
+// page has just described (UiLoader::can_continue).
+enum class UiAct : uint8_t { None, Switch, Backup, Retry, Continue };
 
 enum class UiNote : uint8_t { None, Running, YourSongs, NotYet };
 struct UiLoaderItem {
@@ -94,7 +96,7 @@ struct UiResult {
   char why[72];
   char todo[64];
   char detail[96];
-  UiAct fix;             // None: an OK button
+  UiAct fix;             // None: an OK button; Continue: a button, not a hold
   char fix_label[40];    // after "Hold: ", "retry Felucca 1.6.1"
 };
 
@@ -108,6 +110,7 @@ struct UiLoader {
   char running[28];         // what the FM-1 runs, for Play ("Skiff 1.4"), or ""
   char backups_note[40];    // the Backups row: "Latest b50"
   bool can_back_up, can_retry;
+  bool can_continue;        // the result's Continue matches what the Loader previews now
   UiPlan plan;
   UiJob job;
   UiResult result;
@@ -139,6 +142,10 @@ bool ui_begin(const BoardProfile &board, const UiSettings &settings, const UiHoo
 // Shows the Computer mode screen (USB host not running).
 // info: the running firmware's commit, so an update can be confirmed.
 void ui_show_computer_mode(const char *info);
+// Shows the safe mode screen: the board reset abnormally (a crash or the
+// watchdog), so the USB host isn't running and MIDI is off. info: where it
+// died. Its button restarts the board (UiHooks::back_to_host), as RST does.
+void ui_show_safe_mode(const char *info);
 // The first screen of a boot a firmware job restarted into: the board restarts
 // around every job (loader_app.cpp, JobBoot), and this keeps the screen on the
 // job instead of flashing Play. Drawn at once; the job's or result's page, or

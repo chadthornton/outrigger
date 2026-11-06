@@ -36,6 +36,7 @@ struct PlanInput {
   bool ready;           // the store and the loader file are fine
   bool writes_enabled;  // FM1_LOADER_WRITES
   bool unfinished;      // an install stopped part-way: only the retry runs
+  bool songs = true;    // the latest backup holds songs of what runs: false, and the plan doesn't offer to save any
   fm1_loader::InstallPreview preview;
 };
 void describe_plan(const PlanInput &in, UiPlan &out);
@@ -70,8 +71,16 @@ struct JobOutcome {
   fm1_loader::DataAction data;
   Chain chain = Chain::First;     // where a switch was in its chain (switch_chain.h)
   const char *stale_backup = "";  // the backup the FM-1 had changed since
+  const char *running = "";       // what the FM-1 runs ("Felucca 1.8.0"), or ""
+  bool songs = false;             // its latest backup holds songs of what runs
+  bool clean_slate = false;       // data's: an untested switch clears the old data first
 };
 void describe_result(const JobOutcome &in, UiResult &out);
+
+// Whether the result page's Continue may run the switch previewed now: the
+// data action (and clean slate) the page stated, and nothing else to agree to.
+// A chip risk or a layout warning needs the plan read and a hold.
+bool continue_ok(fm1_loader::DataAction stated, bool stated_clean, const fm1_loader::InstallPreview &now);
 
 // The FM-1 page when the store or the loader file is bad.
 void describe_not_ready(bool store_ok, bool blob_ok, bool blob_missing, const char *detail, UiResult &out);

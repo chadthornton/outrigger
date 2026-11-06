@@ -83,7 +83,7 @@ void describe_plan(const PlanInput &in, UiPlan &out) {
       // One read must match the latest backup; if the FM-1 changed, the switch
       // backs up first (switch_chain.h). Only the ROM-boot read can tell, so the
       // plan doesn't say: the job page shows the backup when it runs.
-      if (p.current.known() && family_info(p.current.family).saves_enabled) {
+      if (in.songs && p.current.known() && family_info(p.current.family).saves_enabled) {
         snprintf(buf, sizeof buf, "Saves %s's songs.", running);
         line(buf);
       }
@@ -441,6 +441,28 @@ static void describe_stage(const JobOutcome &in, UiResult &out) {
       out.fix = UiAct::None;
       break;
     case Failure::NeedsFreshStartOk:
+      if (in.chain == Chain::Install) {
+        // The switch's own backup decided the data, and it erases: a step of
+        // the same switch, agreed with Continue (UiLoader::can_continue).
+        char target[28], running[28], next[72];
+        name_of(fw, target, sizeof target);
+        name_of(or_(in.running, ""), running, sizeof running);
+        if (in.data == DataAction::Restore)
+          snprintf(next, sizeof next, "%s%s's songs.", in.clean_slate ? "Clears old data, brings back " : "Brings back ",
+                   target);
+        else if (in.songs && running[0])
+          snprintf(next, sizeof next, "%s starts fresh: %s's songs go on their shelf.", fw, running);
+        else
+          snprintf(next, sizeof next, "%s starts fresh.", fw);
+        PUT(out.headline, "Backed up as %s", or_(in.backup, "a backup"));
+        safety(out, UiSafety::NothingWritten, "Nothing written yet.");
+        PUT(out.why, "%s", next);
+        PUT(out.todo, "Continue to switch.");
+        out.fix = UiAct::Continue;
+        PUT(out.fix_label, "Continue");
+        break;
+      }
+      [[fallthrough]];
     case Failure::NeedsLayoutChangeOk:
       if (in.chain == Chain::Install) {  // the backup in the middle changed what the switch would do
         if (in.stale_backup && in.stale_backup[0]) PUT(out.why, "The FM-1 changed, and its new backup changes the plan.");
@@ -496,6 +518,12 @@ void describe_not_ready(bool store_ok, bool blob_ok, bool blob_missing, const ch
   PUT(out.detail, "%s", or_(detail, ""));
 }
 
+bool continue_ok(DataAction stated, bool stated_clean, const InstallPreview &now) {
+  const DataDecision &d = now.decision;
+  return now.ok && now.app_sectors > 0 && !d.blocked && !d.chip_risk && !d.layout_warning && needs_erase_ok(d) &&
+         d.action == stated && d.clean_slate == stated_clean;
+}
+
 JobKind job_for_hold(const HoldInput &in, const char **why) {
   *why = "";
   switch (in.act) {
@@ -508,6 +536,7 @@ JobKind job_for_hold(const HoldInput &in, const char **why) {
       *why = "backup, but an install is unfinished";
       return JobKind::None;
     case UiAct::Switch:
+    case UiAct::Continue:
       if (in.pending || in.previewed_retry) *why = "switch, but an install is unfinished";
       else if (in.selected < 0 || in.index != in.selected || !in.selected_previewed) *why = "switch, but the selection changed";
       else return JobKind::Install;

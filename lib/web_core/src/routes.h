@@ -25,6 +25,7 @@ constexpr Route kRoutes[] = {
     {"/coredump", Method::Get, false},   // raw coredump partition, for esp-coredump
     {"/store", Method::Get, false},      // JSON: units, backups, saves, packages
     {"/setup/scan", Method::Get, true},  // JSON: networks the hotspot saw
+    {"/setup/state", Method::Get, true}, // JSON: how the page's join is going
     {"/setup/join", Method::Post, true}, // saves a network to NVS `wifi`, then joins it
 };
 constexpr int kRouteCount = sizeof kRoutes / sizeof kRoutes[0];

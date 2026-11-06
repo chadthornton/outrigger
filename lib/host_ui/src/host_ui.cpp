@@ -805,6 +805,7 @@ struct StageLine {
 static StageLine stages[kStages];
 static lv_obj_t *play_page;
 static int open_stage = -1;
+static bool stage_tapped_open;  // the user opened open_stage: Play may scroll to it
 static uint32_t problem_seen;  // what the last problem was, so a new one opens its stage once
 static UiFrame last_frame;
 static bool have_frame;
@@ -820,6 +821,7 @@ static void fit_play();
 static void stage_tapped(lv_event_t *e) {
   const int i = int(reinterpret_cast<intptr_t>(lv_event_get_user_data(e)));
   open_stage = open_stage == i ? -1 : i;
+  stage_tapped_open = open_stage >= 0;
   if (have_frame) ui_update(last_frame);
   refresh_group();
 }
@@ -924,9 +926,11 @@ static void fit_play() {
   }
   size_play(play_shrink);
   if (!play_overflows()) return;
-  // Still too tall: the open stage goes to the top, so its lines show and
-  // the nav isn't left half cut. A swipe down brings the rest back.
-  if (open_stage < 0) return;
+  // Still too tall: a stage the user opened goes to the top, so its lines show
+  // and the nav isn't left half cut. A swipe down brings the rest back. One a
+  // problem opened stays put, with the nav at the top: after a restart Play
+  // came up scrolled past it (2026-11-05).
+  if (open_stage < 0 || !stage_tapped_open) return;
   lv_area_t page, head;
   lv_obj_get_coords(play_page, &page);
   lv_obj_get_coords(stages[open_stage].head, &head);
@@ -955,7 +959,10 @@ void ui_update(const UiFrame &f) {
   }
   if (key != problem_seen) {
     problem_seen = key;
-    if (v.has_problem && v.problem_stage < kStages) open_stage = v.problem_stage;
+    if (v.has_problem && v.problem_stage < kStages) {
+      open_stage = v.problem_stage;
+      stage_tapped_open = false;
+    }
   }
 
   const Level levels[kStages] = {v.hub, v.controllers, v.router, v.target};
@@ -1115,13 +1122,18 @@ static void build_fm1() {
 }
 
 // ---------- Results, and the job page ----------
-static lv_obj_t *result_screen, *result_title, *result_back, *result_foot, *result_ok;
+static lv_obj_t *result_screen, *result_title, *result_back, *result_foot, *result_ok, *result_continue;
 static ProblemView result_problem;
 static uint32_t shown_result_seq;
 static lv_obj_t *job_screen, *job_title, *job_danger, *job_bar, *job_note;
 static StepRow job_steps[kJobSteps];
 
 static void result_done(lv_event_t *) { go_section(kFm1); }
+// Continue: a tap, since the page itself is what the user agrees to.
+static int continue_index = -1;
+static void continue_tapped(lv_event_t *) {
+  if (hooks.loader_act) hooks.loader_act(UiAct::Continue, continue_index);
+}
 
 static void build_results() {
   Page r = sub_page(&result_title, &result_back, true);
@@ -1132,6 +1144,8 @@ static void build_results() {
   result_foot = foot_box(r);
   hold_widget(result_foot, result_hold, kYellow, run_loader_hold);
   result_ok = plain_button(result_foot, "OK", result_done);
+  result_continue = plain_button(result_foot, "Continue", continue_tapped);
+  lv_obj_set_style_opa(result_continue, LV_OPA_40, LV_STATE_DISABLED);  // until the Loader's preview agrees
 
   lv_obj_t *back_row;
   Page j = sub_page(&job_title, &back_row, false);
@@ -1150,6 +1164,7 @@ static void build_results() {
 static bool fix_enabled(const UiLoader &l, const UiResult &r) {
   switch (r.fix) {
     case UiAct::Switch: return l.plan.can_act;
+    case UiAct::Continue: return l.can_continue;
     case UiAct::Backup: return l.can_back_up;
     case UiAct::Retry: return l.can_retry;
     default: return false;
@@ -1229,8 +1244,12 @@ void ui_update_loader(const UiLoader &l) {
     if (danger) lv_obj_remove_flag(result_back, kFocusable);
     else lv_obj_add_flag(result_back, kFocusable);
   }
-  show_if(result_hold.button, r.fix != UiAct::None);
+  show_if(result_hold.button, r.fix != UiAct::None && r.fix != UiAct::Continue);
   show_if(result_ok, r.fix == UiAct::None);
+  show_if(result_continue, r.fix == UiAct::Continue);
+  continue_index = l.plan.item;
+  if (fix_enabled(l, r) && !l.job.active) lv_obj_remove_state(result_continue, LV_STATE_DISABLED);
+  else lv_obj_add_state(result_continue, LV_STATE_DISABLED);
   result_hold.act = r.fix;
   result_hold.index = r.fix == UiAct::Switch ? l.plan.item : -1;
   lv_obj_set_style_border_color(result_hold.button, c(danger ? kRed : kYellow), 0);
@@ -1419,6 +1438,21 @@ static lv_obj_t *build_computer_screen(const char *info) {
   return t.scr;
 }
 
+// Safe mode: not Computer mode, though the port goes to the computer here too
+// (so a crash loop can be reflashed). Its own title, so a reset mid-install
+// doesn't read as "it switched me into Computer mode" (2026-11-05).
+static lv_obj_t *build_safe_mode_screen(const char *info) {
+  lv_obj_t *title;
+  Page t = sub_page(&title, nullptr, false);
+  lv_label_set_text(title, LV_SYMBOL_WARNING " Safe mode");
+  set_colour(title, kRed);
+  text(t.content, "A fault stopped the board, so MIDI is off. Where:", kWhite, Role::Body);
+  text(t.content, info, kGrey, Role::Detail);
+  network_labels[1] = network_label(t.content);  // /crash and /coredump are on the Web UI
+  plain_button(foot_box(t), "Restart", back_to_host_tapped);
+  return t.scr;
+}
+
 static lv_obj_t *build_switching_screen(const char *title_text) {
   lv_obj_t *title;
   Page t = sub_page(&title, nullptr, false);
@@ -1529,6 +1563,11 @@ bool ui_begin(const BoardProfile &b, const UiSettings &s, const UiHooks &h, cons
 void ui_show_computer_mode(const char *info) {
   depth = 0;
   show(build_computer_screen(info));
+}
+
+void ui_show_safe_mode(const char *info) {
+  depth = 0;
+  show(build_safe_mode_screen(info));
 }
 
 void ui_show_switching(const char *title) {
