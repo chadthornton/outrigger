@@ -1145,6 +1145,7 @@ static void build_results() {
   hold_widget(result_foot, result_hold, kYellow, run_loader_hold);
   result_ok = plain_button(result_foot, "OK", result_done);
   result_continue = plain_button(result_foot, "Continue", continue_tapped);
+  lv_obj_set_style_opa(result_continue, LV_OPA_40, LV_STATE_DISABLED);  // until the Loader's preview agrees
 
   lv_obj_t *back_row;
   Page j = sub_page(&job_title, &back_row, false);

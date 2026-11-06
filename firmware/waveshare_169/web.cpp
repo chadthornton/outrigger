@@ -702,6 +702,7 @@ static esp_err_t on_setup_join(httpd_req_t *req) {
     memcpy(creds_ssid, ssid, sizeof creds_ssid);
     memcpy(creds_pass, pass, sizeof creds_pass);
     creds_pending = true;
+    join_state = "joining";  // until the loop takes it: never the last try's result
   }
   static const char kOk[] = "{\"joining\":true}";  // the page polls /setup/state for how it goes
   return send_json(req, kOk, sizeof kOk - 1);
@@ -1116,6 +1117,7 @@ void web_loop(uint32_t now) {
     // Joining may move the radio off the hotspot's channel and drop the phone:
     // wait so the page's reply gets out first.
     join_at = now + 1500;
+    setup_join.requested();
   }
   if (join_at && int32_t(now - join_at) >= 0) {
     join_at = 0;
@@ -1123,6 +1125,7 @@ void web_loop(uint32_t now) {
     WiFi.disconnect();
     join(trial_ssid, trial_pass);
     if (ap_on) setup_join.start(millis());  // after the loop's now: SetupJoin allows for it
+    else setup_join = {};                   // the hotspot closed meanwhile: not the page's join
   }
   if (ap_on) dns.processNextRequest();
   static uint32_t logged_redirects = 0;
@@ -1180,10 +1183,11 @@ void web_loop(uint32_t now) {
     WiFi.disconnect();
     DLOG_LOOP("wifi: join failed: %s", web_core::setup_join_name(setup_join.state()));
   }
-  {
-    const char *state = web_core::setup_join_name(setup_join.state());
+  static web_core::SetupJoin::State published_join = web_core::SetupJoin::State::Idle;
+  if (setup_join.state() != published_join) {
+    published_join = setup_join.state();
     Lock l;
-    join_state = state;
+    join_state = web_core::setup_join_name(published_join);
   }
   // Joined from the setup page: keep the hotspot a minute so the phone can
   // show the result; a background retry closes it at once.

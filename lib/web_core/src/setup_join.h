@@ -16,6 +16,9 @@ class SetupJoin {
 
   enum class State : uint8_t { Idle, Joining, Online, WrongPassword, NotFound, Failed };
 
+  // The page sent a network; its join starts 1.5 s later (start()). Joining
+  // from now, so a poll never reads the last try's result for this one.
+  void requested();
   // join() ran for the page's network at `now` (millis() then, which may be
   // later than the loop's own `now`).
   void start(uint32_t now);
@@ -35,6 +38,7 @@ class SetupJoin {
   State state_ = State::Idle;
   uint32_t started_ = 0, online_at_ = 0;
   uint8_t reason_ = 0;
+  bool waiting_ = false;  // requested(), start() not yet
 };
 
 // "joining", "online", "wrong_password", "not_found", "failed", "idle": the page's word for it.

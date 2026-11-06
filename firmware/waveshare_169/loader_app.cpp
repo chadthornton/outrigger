@@ -647,7 +647,10 @@ void finish(Installer &inst, const Host &host, const UsbScsi &scsi, const char *
   }
   Unit u;
   const bool pending = library->unit(library->last_unit(), u) && u.has_pending;
-  const Known k = known_unit();  // what runs, for a Continue's line about its songs
+  // What runs is read only for a Continue's line about its songs: it costs
+  // up to two passes over the app on an FM-1 no package matches.
+  const bool continues = job.chain == Chain::Install && inst.failure() == Failure::NeedsFreshStartOk;
+  const Known k = known_unit(continues);
   loader_messages::JobOutcome o = {};
   o.kind = kind;
   o.done = inst.current() == Step::Done;

@@ -2,10 +2,17 @@
 
 namespace web_core {
 
+void SetupJoin::requested() {
+  state_ = State::Joining;
+  reason_ = 0;
+  waiting_ = true;
+}
+
 void SetupJoin::start(uint32_t now) {
   state_ = State::Joining;
   started_ = now;
   reason_ = 0;
+  waiting_ = false;
 }
 
 void SetupJoin::disconnected(uint8_t reason) {
@@ -13,7 +20,7 @@ void SetupJoin::disconnected(uint8_t reason) {
 }
 
 bool SetupJoin::tick(uint32_t now, bool connected) {
-  if (state_ != State::Joining) return false;
+  if (state_ != State::Joining || waiting_) return false;
   if (connected) {
     state_ = State::Online;
     online_at_ = now;

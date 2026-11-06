@@ -471,6 +471,22 @@ static void test_setup_join_gives_up() {
   EXPECT(!j.showing_online(17000), "a failed join doesn't hold the hotspot");
 }
 
+// A second try after a wrong password reads as joining from the moment the
+// page sends it, not as the last try's result while the join waits 1.5 s.
+static void test_setup_join_retry_not_stale() {
+  SJ j;
+  j.start(0);
+  j.disconnected(202);
+  j.tick(15001, false);
+  EXPECT(j.state() == SJ::State::WrongPassword, "first try: wrong password");
+  j.requested();
+  EXPECT(j.joining() && strcmp(setup_join_name(j.state()), "joining") == 0, "the retry is joining at once");
+  EXPECT(!j.tick(16000, false), "no give-up before its join starts");
+  j.start(16500);
+  EXPECT(!j.tick(31000, false) && j.joining(), "its 15 s count from the join itself");
+  EXPECT(j.tick(31501, false), "then it gives up");
+}
+
 static void test_setup_join_says_why() {
   struct Case {
     uint8_t reason;
@@ -523,6 +539,7 @@ int main() {
   test_setup_join_not_failed_at_once();
   test_setup_join_gives_up();
   test_setup_join_says_why();
+  test_setup_join_retry_not_stale();
   if (failures) {
     printf("web_core: %d failure(s)\n", failures);
     return 1;
