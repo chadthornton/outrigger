@@ -661,6 +661,31 @@ static void fm1_pages() {
   tap_on("Switch didn't start", 80, 8);  // the back row
   if (lv_screen_active() != list) fail("the result's back row didn't return to the list");
 
+  // The switch's own backup found a fresh start: a step of it, with Continue.
+  o = JobOutcome{};
+  o.kind = JobKind::Install;
+  o.chain = Chain::Install;
+  o.failure = Failure::NeedsFreshStartOk;
+  o.data = DataAction::FreshStart;
+  o.firmware = "M-VAVE stock V15";
+  o.running = "Felucca 1.8.0";
+  o.songs = true;
+  o.backup = "b51";
+  result(l, o);
+  plan_for(l, 1, DataAction::FreshStart);
+  l.can_continue = true;
+  ui_update_loader(l);
+  run(100);
+  if (!shows("go on their shelf")) fail("the Continue page doesn't say where the songs go");
+  shoot("continue");
+  act_calls = 0;
+  tap_on("Continue", 80, 8);
+  if (act_calls != 1 || last_act != UiAct::Continue || act_index != 1)
+    fail("a tap on Continue gave %d calls (act %d, row %d)", act_calls, int(last_act), act_index);
+  l.can_continue = false;
+  tap_on("Backed up as b51", 80, 8);  // the back row
+  if (lv_screen_active() != list) fail("the Continue page's back row didn't return to the list");
+
   // What stands in the list's way.
   describe_not_ready(false, false, true, "Store unreadable: make flash-store", l.blocked);
   ui_update_loader(l);
@@ -785,7 +810,7 @@ static void run_computer(const SimBoard &b) {
 static const char *const kColumns[] = {
     "play",       "play_hub",  "play5",      "play5_open",  "play_fm1",   "problem",  "nav_focus", "play_focus",
     "fm1_list",   "fm1_list_focus", "plan_wait", "plan",    "plan_fresh", "backups",  "job_switch", "job_backup", "job_chain_backup", "job_chain_write",
-    "switched",   "err_retry", "err_norom",  "err_stale",   "not_ready",  "unfinished", "setup",   "setup_hotspot", "computer_confirm",
+    "switched",   "err_retry", "err_norom",  "err_stale", "continue",   "not_ready",  "unfinished", "setup",   "setup_hotspot", "computer_confirm",
     "diagnostics",
     "switching",  "computer", "computer_adding", "safe_mode"};
 constexpr int kCols = sizeof kColumns / sizeof *kColumns, kGap = 8, kCaption = 18;

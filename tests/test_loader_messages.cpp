@@ -168,19 +168,44 @@ static void test_chained_backup_failed() {
   o.stale_backup = "";
   EXPECT(has(result(o).why, "No backup yet"), "no backup: says so");
 
-  // The fresh backup changed the plan (a fresh start the user didn't agree to).
+  // The switch's own backup found a fresh start to agree to: a step of the
+  // same switch, with Continue, not "Switch didn't start" and a second hold
+  // (2026-11-05: "the new firmware needs a fresh start: confirm it").
   JobOutcome p{};
   p.kind = JobKind::Install;
   p.chain = Chain::Install;
   p.failure = Failure::NeedsFreshStartOk;
+  p.data = DataAction::FreshStart;
+  p.firmware = "M-VAVE stock V15";
+  p.running = "Felucca 1.8.0";
+  p.songs = true;
+  p.backup = "b51";
+  r = result(p);
+  EXPECT(strcmp(r.headline, "Backed up as b51") == 0, "the backup, as a step done");
+  EXPECT(strcmp(r.why, "M-VAVE stock V15 starts fresh: Felucca's songs go on their shelf.") == 0, "what happens next");
+  EXPECT(r.fix == UiAct::Continue && strcmp(r.fix_label, "Continue") == 0, "Continue, no second hold");
+  EXPECT(!has(r.headline, "didn't") && !has(r.safety_text, "Nothing was written") && !has(r.why, "OK"),
+         "nothing that reads as a failure");
+  p.songs = false;  // nothing saved on the FM-1: nothing to say about songs
+  EXPECT(strcmp(result(p).why, "M-VAVE stock V15 starts fresh.") == 0, "no songs: no shelf");
+  p.stale_backup = "b50";  // it had changed since an older backup: same step
+  EXPECT(result(p).fix == UiAct::Continue, "changed since a backup: Continue too");
+  p.data = DataAction::Restore;  // an untested switch that brings a save back over a clean slate
+  p.clean_slate = true;
   p.firmware = "Felucca 1.6.1";
-  p.stale_backup = "b50";
   r = result(p);
-  EXPECT(r.safety == UiSafety::NothingWritten && has(r.why, "changes the plan"), "plan changed");
-  EXPECT(has(r.todo, "Open Felucca 1.6.1") && r.fix == UiAct::None, "plan changed: look first, no hold");
-  p.stale_backup = "";  // there was no backup, so no plan had been agreed
+  EXPECT(strcmp(r.why, "Clears old data, brings back Felucca's songs.") == 0 && r.fix == UiAct::Continue,
+         "clean slate: says so");
+  // A layout change or the chip still needs the plan read and a hold.
+  p.failure = Failure::NeedsLayoutChangeOk;
   r = result(p);
-  EXPECT(has(r.why, "backed up now") && !has(r.why, "changed"), "no backup: the plan needs an OK");
+  EXPECT(r.fix == UiAct::None && has(r.todo, "Open Felucca 1.6.1"), "layout change: look first, no Continue");
+  p.failure = Failure::NeedsChipRiskOk;
+  EXPECT(result(p).fix == UiAct::None, "chip risk: no Continue");
+  // A first try's fresh-start refusal isn't mid-switch: the plan asked already.
+  p.failure = Failure::NeedsFreshStartOk;
+  p.chain = Chain::First;
+  EXPECT(result(p).fix != UiAct::Continue, "first try: no Continue");
 
   // A firmware the loader can't take a unit to yet: say why, no retry.
   JobOutcome b{};
@@ -207,6 +232,37 @@ static void test_chained_backup_failed() {
   ok.sectors = 149;
   r = result(ok);
   EXPECT(r.ok && has(r.detail, "Backed up b51 first") && has(r.detail, "149 sectors"), "switched after a backup");
+}
+
+// Continue runs the switch only when the preview after the restart is the
+// one the result page described, with nothing else to agree to.
+static void test_continue_gate() {
+  InstallPreview now{};
+  now.ok = true;
+  now.app_sectors = 143;
+  now.decision.action = DataAction::FreshStart;
+  EXPECT(continue_ok(DataAction::FreshStart, false, now), "the fresh start the page stated");
+  EXPECT(!continue_ok(DataAction::Restore, false, now), "another action than the page's");
+  EXPECT(!continue_ok(DataAction::FreshStart, true, now), "a clean slate the page didn't state");
+  InstallPreview x = now;
+  x.decision.chip_risk = true;
+  EXPECT(!continue_ok(DataAction::FreshStart, false, x), "a chip risk: the plan and a hold");
+  x = now;
+  x.decision.layout_warning = true;
+  EXPECT(!continue_ok(DataAction::FreshStart, false, x), "a layout warning: the plan and a hold");
+  x = now;
+  x.ok = false;
+  EXPECT(!continue_ok(DataAction::FreshStart, false, x), "a preview that can't install");
+  x = now;
+  x.app_sectors = 0;
+  EXPECT(!continue_ok(DataAction::FreshStart, false, x), "nothing to write");
+  x = now;
+  x.decision.action = DataAction::Keep;
+  EXPECT(!continue_ok(DataAction::Keep, false, x), "nothing to agree to: no Continue");
+  x = now;
+  x.decision.action = DataAction::Restore;
+  x.decision.clean_slate = true;
+  EXPECT(continue_ok(DataAction::Restore, true, x), "the clean slate the page stated");
 }
 
 static void test_midi_not_back() {
@@ -345,6 +401,11 @@ static void test_plan() {
   EXPECT(strcmp(p.lines[0], "Switches from Skiff 1.4.") == 0, "from");
   EXPECT(!plan_has(p, "Backs up only if"), "no maybe-backup line: the job page shows a backup when it runs");
   EXPECT(plan_has(p, "Saves Skiff's songs."), "saves the running firmware's songs");
+  PlanInput no_songs = plan_input();
+  no_songs.songs = false;  // its backup holds no songs: nothing to say about saving them
+  describe_plan(no_songs, p);
+  EXPECT(!plan_has(p, "Saves") && plan_has(p, "Writes Felucca 1.6.1"), "no songs: no save line");
+  describe_plan(plan_input(), p);
   EXPECT(plan_has(p, "Writes Felucca 1.6.1: 143 sectors."), "writes");
   EXPECT(plan_has(p, "Brings back Felucca's songs."), "restores");
   EXPECT(plan_has(p, "MIDI stops"), "MIDI stops");
@@ -503,6 +564,13 @@ static void test_hold_gate() {
   EXPECT(job_for_hold({UiAct::Retry, -1, -1, false, true, false}, &why) == JobKind::None,
          "no retry the preview didn't show");
   EXPECT(job_for_hold({UiAct::None, -1, -1, false, false, false}, &why) == JobKind::None, "nothing to run");
+  // Continue is the switch the result page names: the same checks as its hold.
+  EXPECT(job_for_hold({UiAct::Continue, 2, 2, true, false, false}, &why) == JobKind::Install, "Continue switches");
+  EXPECT(job_for_hold({UiAct::Continue, 1, 2, true, false, false}, &why) == JobKind::None, "Continue for another row");
+  EXPECT(job_for_hold({UiAct::Continue, 2, 2, false, false, false}, &why) == JobKind::None,
+         "Continue for a package not previewed");
+  EXPECT(job_for_hold({UiAct::Continue, 2, 2, true, true, false}, &why) == JobKind::None,
+         "no Continue over an unfinished install");
 }
 
 static void test_backup_name() {
@@ -519,6 +587,7 @@ int main() {
   test_nothing_written_rows();
   test_chained_backup_failed();
   test_midi_not_back();
+  test_continue_gate();
   test_written_without_danger();
   test_retry_and_success();
   test_not_ready_and_unfinished();

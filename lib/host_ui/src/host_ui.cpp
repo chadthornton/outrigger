@@ -1122,13 +1122,18 @@ static void build_fm1() {
 }
 
 // ---------- Results, and the job page ----------
-static lv_obj_t *result_screen, *result_title, *result_back, *result_foot, *result_ok;
+static lv_obj_t *result_screen, *result_title, *result_back, *result_foot, *result_ok, *result_continue;
 static ProblemView result_problem;
 static uint32_t shown_result_seq;
 static lv_obj_t *job_screen, *job_title, *job_danger, *job_bar, *job_note;
 static StepRow job_steps[kJobSteps];
 
 static void result_done(lv_event_t *) { go_section(kFm1); }
+// Continue: a tap, since the page itself is what the user agrees to.
+static int continue_index = -1;
+static void continue_tapped(lv_event_t *) {
+  if (hooks.loader_act) hooks.loader_act(UiAct::Continue, continue_index);
+}
 
 static void build_results() {
   Page r = sub_page(&result_title, &result_back, true);
@@ -1139,6 +1144,7 @@ static void build_results() {
   result_foot = foot_box(r);
   hold_widget(result_foot, result_hold, kYellow, run_loader_hold);
   result_ok = plain_button(result_foot, "OK", result_done);
+  result_continue = plain_button(result_foot, "Continue", continue_tapped);
 
   lv_obj_t *back_row;
   Page j = sub_page(&job_title, &back_row, false);
@@ -1157,6 +1163,7 @@ static void build_results() {
 static bool fix_enabled(const UiLoader &l, const UiResult &r) {
   switch (r.fix) {
     case UiAct::Switch: return l.plan.can_act;
+    case UiAct::Continue: return l.can_continue;
     case UiAct::Backup: return l.can_back_up;
     case UiAct::Retry: return l.can_retry;
     default: return false;
@@ -1236,8 +1243,12 @@ void ui_update_loader(const UiLoader &l) {
     if (danger) lv_obj_remove_flag(result_back, kFocusable);
     else lv_obj_add_flag(result_back, kFocusable);
   }
-  show_if(result_hold.button, r.fix != UiAct::None);
+  show_if(result_hold.button, r.fix != UiAct::None && r.fix != UiAct::Continue);
   show_if(result_ok, r.fix == UiAct::None);
+  show_if(result_continue, r.fix == UiAct::Continue);
+  continue_index = l.plan.item;
+  if (fix_enabled(l, r) && !l.job.active) lv_obj_remove_state(result_continue, LV_STATE_DISABLED);
+  else lv_obj_add_state(result_continue, LV_STATE_DISABLED);
   result_hold.act = r.fix;
   result_hold.index = r.fix == UiAct::Switch ? l.plan.item : -1;
   lv_obj_set_style_border_color(result_hold.button, c(danger ? kRed : kYellow), 0);

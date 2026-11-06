@@ -66,10 +66,13 @@ struct JobResult {
   uint32_t magic;
   char package[48];  // the switch's package: its plan is previewed again, for the result's hold
   UiResult result;
+  // A Continue's terms: the data action (and clean slate) the result page stated.
+  uint8_t stated_action;
+  bool stated_clean;
 };
-// With the struct's size in it: a build whose UiResult differs never reads an
+// With the struct's size in it: a build whose JobResult differs never reads an
 // older build's record.
-constexpr uint32_t kResultMagic = 0x2E5017ED ^ uint32_t(sizeof(UiResult));
+constexpr uint32_t kResultMagic = 0x2E5017ED ^ uint32_t(sizeof(JobResult));
 RTC_NOINIT_ATTR JobResult job_result;
 
 #if LOADER_SOAK
@@ -368,6 +371,11 @@ std::atomic<uint8_t> act_kind{uint8_t(UiAct::None)};
 std::atomic<int> act_index{-1};
 // The selected package by id (empty: none), so a re-sorted list keeps it.
 std::string selected_id;
+// The result page's Continue: the package and data action it stated, which
+// the preview after the restart must match (loader_messages::continue_ok).
+std::string continue_package;
+DataAction continue_action = DataAction::Keep;
+bool continue_clean = false;
 // What the selected switch was previewed as: the hold agrees to exactly that
 // package and that data decision.
 std::string previewed_id;
@@ -415,6 +423,7 @@ struct Known {
   Firmware running;
   std::string running_label;  // the package it matches, or ""
   std::string stock_package;  // a stock package of the same build, when running matches none exactly
+  bool songs = false;         // the latest backup holds songs of what runs
   char latest[12] = "", first[12] = "";
 };
 // what_runs false skips reading the app (two full passes on an FM-1 no package
@@ -430,6 +439,7 @@ Known known_unit(bool what_runs = true) {
   const std::vector<Hash> app(flash.begin() + kAppStart / kSector, flash.begin() + kAppEnd / kSector);
   k.running = library->identify_app(app);
   if (k.running.known()) {
+    k.songs = !capture_save(k.unit.id, k.running, flash).sectors.empty();
     for (const std::string &id : library->package_ids()) {
       PackageInfo p;
       if (library->package(id, p) && p.app_sha256 == k.running.app_sha256) k.running_label = label_of(p);
@@ -518,6 +528,7 @@ void refresh_preview() {
 
   UiPlan plan = {};
   plan.item = -1;
+  bool can_continue = false;
   const int sel = selected_index();
   if (sel >= 0) {
     const std::string target = package_label(item_ids[sel]);
@@ -529,13 +540,24 @@ void refresh_preview() {
     in.ready = ready;
     in.writes_enabled = kWritesEnabled;
     in.unfinished = previewed_retry;
+    in.songs = k.songs;
     in.preview = preview_install(*library, library->last_unit(), item_ids[sel]);
     previewed = in.preview.decision;
     previewed_id = item_ids[sel];
     plan.item = int8_t(sel);
     loader_messages::describe_plan(in, plan);
+    can_continue = plan.can_act && previewed_id == continue_package &&
+                   loader_messages::continue_ok(continue_action, continue_clean, in.preview);
   }
   taskENTER_CRITICAL(&lock);
+  // A Continue the preview no longer matches (the selection moved, or the
+  // FM-1's data now says otherwise): the plan and a hold instead.
+  if (shown.result.fix == UiAct::Continue && !can_continue) {
+    shown.result.fix = UiAct::None;
+    snprintf(shown.result.todo, sizeof shown.result.todo, "Open %s again to see the plan, then hold.",
+             package_label(continue_package).c_str());
+  }
+  shown.can_continue = can_continue;
   shown.blocked = blocked;
   shown.unfinished = previewed_retry;
   shown.plan = plan;
@@ -625,7 +647,7 @@ void finish(Installer &inst, const Host &host, const UsbScsi &scsi, const char *
   }
   Unit u;
   const bool pending = library->unit(library->last_unit(), u) && u.has_pending;
-  const Known k = known_unit(false);
+  const Known k = known_unit();  // what runs, for a Continue's line about its songs
   loader_messages::JobOutcome o = {};
   o.kind = kind;
   o.done = inst.current() == Step::Done;
@@ -642,6 +664,9 @@ void finish(Installer &inst, const Host &host, const UsbScsi &scsi, const char *
   o.data = inst.decision().action;
   o.chain = job.chain;
   o.stale_backup = job.stale_backup;
+  o.running = k.running_label.c_str();
+  o.songs = k.songs;
+  o.clean_slate = inst.decision().clean_slate;
   UiResult r = {};
   loader_messages::describe_result(o, r);
   set_result(r);
@@ -849,6 +874,8 @@ void run_job() {
   JobResult done = {};
   done.magic = kResultMagic;
   strlcpy(done.package, j.package, sizeof done.package);  // a switch's, or its chained backup's
+  done.stated_action = uint8_t(inst.decision().action);
+  done.stated_clean = inst.decision().clean_slate;
   taskENTER_CRITICAL(&lock);
   done.result = shown.result;
   taskEXIT_CRITICAL(&lock);
@@ -1010,7 +1037,12 @@ void loader_begin(EspUsbHost &host, const LoaderCore &c) {
     shown.result = r;
     shown.result.seq = result_seq;
     show(shown.result.headline, shown.result.ok ? kGreen : kRed);
-    if (shown.result.fix == UiAct::Switch) selected_id = job_result.package;
+    if (shown.result.fix == UiAct::Switch || shown.result.fix == UiAct::Continue) selected_id = job_result.package;
+    if (shown.result.fix == UiAct::Continue) {
+      continue_package = job_result.package;
+      continue_action = DataAction(job_result.stated_action);
+      continue_clean = job_result.stated_clean;
+    }
   }
   memset(&job_boot, 0, sizeof job_boot);
   memset(&job_result, 0, sizeof job_result);
@@ -1064,7 +1096,8 @@ void loader_select(int index) {
 void loader_act(UiAct act, int index) {
   if (busy || !store_ok || !blob_ok || !task) return;
   taskENTER_CRITICAL(&lock);
-  const bool can = act == UiAct::Switch   ? shown.plan.can_act && shown.plan.item == index
+  const bool can = act == UiAct::Switch     ? shown.plan.can_act && shown.plan.item == index
+                   : act == UiAct::Continue ? shown.can_continue && shown.plan.item == index
                    : act == UiAct::Backup ? shown.can_back_up
                    : act == UiAct::Retry  ? shown.can_retry
                                           : false;
