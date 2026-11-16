@@ -26,3 +26,8 @@ All three are MIT (LICENSE in each folder). They build only for the host tests
 - `-Dmalloc=gr_count_malloc` (and calloc, free) route their allocations
   through `tests/support/gr_alloc_count.c`, so the tests prove the process
   path never allocates (each module callocs once, in `create_instance`).
+- `schwung/host/plugin_api_v1.h`: its `_Static_assert` that
+  `host_api_v1_t::reserved` sits at +120 holds only for Move's 64-bit ABI. On
+  a 32-bit ESP32 it fails, so it is now inside `#if UINTPTR_MAX > 0xFFFFFFFFu`
+  (still checked on the Mac). The shim compiles modules from source, so there
+  is no binary ABI to protect on the ESP32.

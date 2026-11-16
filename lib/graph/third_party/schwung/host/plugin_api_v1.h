@@ -326,11 +326,15 @@ typedef struct host_api_v1 {
  *
  * A _Static_assert emits no storage and cannot change the layout it measures,
  * so this is free. */
+/* outrigger patch: the +120 layout is Move's 64-bit ABI; on a 32-bit ESP32
+ * the modules are compiled from source with the shim, so no binary ABI. */
+#if UINTPTR_MAX > 0xFFFFFFFFu
 _Static_assert(offsetof(host_api_v1_t, reserved) == 120,
                "host_api_v1_t::reserved must start at +120: breakbeat's "
                "over-read lands there, so a live pointer at that offset "
                "passes its guard and boot-loops the device. Add host "
                "capabilities as dlsym'd exports, not as fields here.");
+#endif
 
 /*
  * Plugin API - implemented by plugin, returned to host
