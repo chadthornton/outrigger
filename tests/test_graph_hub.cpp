@@ -82,13 +82,16 @@ static void run_until(uint32_t until, uint32_t jitter_us) {
   }
 }
 
-static void start(gr_hub_app app, uint32_t t0) {
-  gr_hub_config c;
-  gr_hub_config_default(&c, app);
+static void start_cfg(const gr_hub_config &c, uint32_t t0) {
   EXPECT_EQ(gr_hub_init(&hub, &c), GR_OK);
   memset(&sim, 0, sizeof(sim));
   sim.now = t0;
   gr_hub_run(&hub, gr_hub_frames_due(&hub, t0), t0);  // anchors the clock
+}
+static void start(gr_hub_app app, uint32_t t0) {
+  gr_hub_config c;
+  gr_hub_config_default(&c, app);
+  start_cfg(c, t0);
 }
 
 // THRU: every message arrives, in order, a constant latency after it went in
@@ -180,6 +183,52 @@ static void test_split_layer() {
   EXPECT_EQ(sim.out[1][0].msg[1], 72);
   EXPECT_EQ(sim.out[1][0].msg[0], 0x91);
   EXPECT_EQ(sim.out[1][1].msg[0], 0x81);
+}
+
+// HW2's split.json: below 60 on channel 2, the rest on channel 3 an octave up
+// (split_transpose); CCs to both halves.
+static void test_split_transpose() {
+  gr_hub_config c;
+  gr_hub_config_default(&c, GR_HUB_APP_SPLIT);
+  c.ch_lower = 1, c.ch_upper = 2, c.split_transpose = 12;
+  start_cfg(c, 5000);
+  uint8_t lo_on[3] = {0x90, 48, 90}, lo_off[3] = {0x80, 48, 0}, hi_on[3] = {0x90, 64, 90}, hi_off[3] = {0x80, 64, 0},
+          cc[3] = {0xB0, 1, 7};
+  gr_hub_in_midi1(&hub, 0, sim.now + 100, lo_on, 3);
+  gr_hub_in_midi1(&hub, 0, sim.now + 200, hi_on, 3);
+  gr_hub_in_midi1(&hub, 0, sim.now + 300, cc, 3);
+  gr_hub_in_midi1(&hub, 0, sim.now + 400, lo_off, 3);
+  gr_hub_in_midi1(&hub, 0, sim.now + 500, hi_off, 3);
+  run_until(sim.now + 10000, 400);
+  EXPECT_EQ(sim.n_out[0], 3);
+  EXPECT_EQ(sim.n_out[1], 3);
+  EXPECT_EQ(sim.out[0][0].msg[0], 0x91);
+  EXPECT_EQ(sim.out[0][0].msg[1], 48);
+  EXPECT_EQ(sim.out[0][1].msg[0], 0xB1);
+  EXPECT_EQ(sim.out[0][2].msg[0], 0x81);
+  EXPECT_EQ(sim.out[1][0].msg[0], 0x92);
+  EXPECT_EQ(sim.out[1][0].msg[1], 76);
+  EXPECT_EQ(sim.out[1][1].msg[0], 0xB2);
+  EXPECT_EQ(sim.out[1][1].msg[1], 1);  // a CC's number is not transposed
+  EXPECT_EQ(sim.out[1][2].msg[0], 0x82);
+  EXPECT_EQ(sim.out[1][2].msg[1], 76);
+}
+
+// HW2's clock-out.json: with clock_plain_thru, out 0 is in 0 alone (no hub
+// clock on it); out 1 is Start and the clock.
+static void test_clock_plain_thru() {
+  gr_hub_config c;
+  gr_hub_config_default(&c, GR_HUB_APP_CLOCK);
+  c.clock_plain_thru = 1;
+  start_cfg(c, 5000);
+  uint8_t f8[1] = {0xF8};
+  for (int i = 0; i < 10; ++i) gr_hub_in_midi1(&hub, 0, sim.now + 100 + i * 20833, f8, 1);
+  run_until(sim.now + 1000000, 400);
+  EXPECT_EQ(sim.n_out[0], 10);
+  int clocks = 0;
+  for (int i = 0; i < sim.n_out[1]; ++i) clocks += sim.out[1][i].msg[0] == 0xF8;
+  EXPECT(clocks >= 47 && clocks <= 49);
+  EXPECT_EQ(sim.out[1][0].msg[0], 0xFA);
 }
 
 // The box keeps time: 120 bpm is a clock every 20833.3 us; over 60 s the
@@ -348,6 +397,8 @@ int main(int argc, char **argv) {
   test_merge();
   test_split_layer();
   test_clock();
+  test_split_transpose();
+  test_clock_plain_thru();
   test_stall_and_full();
   test_unplug();
   test_threads();

@@ -100,6 +100,8 @@ typedef struct gr_hub_config {
   uint8_t split_key, ch_lower, ch_upper;
   int8_t transpose;
   float bpm;
+  int8_t split_transpose;   // SPLIT: the upper half (out 1) transposed too; 0 = not (HW2, split.json)
+  uint8_t clock_plain_thru; // CLOCK: 1 = out 0 is in 0 alone, the clock only on out 1 (HW2, clock-out.json)
 } gr_hub_config;
 void gr_hub_config_default(gr_hub_config *c, gr_hub_app app);
 

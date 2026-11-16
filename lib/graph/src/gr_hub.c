@@ -116,6 +116,13 @@ int gr_hub_app_build(gr_graph *g, const gr_hub_config *c, gr_hub_app_nodes *m, c
       TRY(gr_graph_connect(g, s, 1, hi, 0));
       out_node[0] = lo, out_port[0] = 0;
       out_node[1] = hi, out_port[1] = 0;
+      if (c->split_transpose) {  // the upper half an interval up (or down), after its channel map
+        gr_transpose_init(&m->transpose, c->split_transpose);
+        int t = gr_graph_add(g, &gr_transpose_desc, &m->transpose);
+        TRY(t);
+        TRY(gr_graph_connect(g, hi, 0, t, 0));
+        out_node[1] = t;
+      }
       return 2;
     }
     case GR_HUB_APP_LAYER: {
@@ -135,6 +142,12 @@ int gr_hub_app_build(gr_graph *g, const gr_hub_config *c, gr_hub_app_nodes *m, c
       gr_clockgen_init(&m->clockgen, (uint32_t)(c->bpm * 1000.0f + 0.5f));
       gr_clockgen_start(&m->clockgen);
       int k = gr_graph_add(g, &gr_clockgen_desc, &m->clockgen);
+      TRY(k);
+      if (c->clock_plain_thru) {  // in 0 passes alone; the clock has out 1 to itself
+        out_node[0] = in[0], out_port[0] = 0;
+        out_node[1] = k, out_port[1] = 0;
+        return 2;
+      }
       int mg = gr_graph_add(g, &gr_merge2_desc, &m->merge[0]);
       TRY(k); TRY(mg);
       TRY(gr_graph_connect(g, in[0], 0, mg, 0));
