@@ -1,0 +1,15 @@
+[package]
+name = "fm1-bench"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+description = "Headless FM-1 emulator speed bench on fm1-emu's core (MIT), for the Mac and the ESP32-P4"
+
+[dependencies]
+# fm1-emu (MIT, Joakim Eriksson), pinned. See ../README.md and the repo NOTICE.
+fm1-core = { git = "https://github.com/joakimeriksson/fm1-emu", rev = "60645a58d6cd1597ed565a3f00e4981964623232" }
+fm1-soc = { git = "https://github.com/joakimeriksson/fm1-emu", rev = "60645a58d6cd1597ed565a3f00e4981964623232" }
+
+[profile.release]
+opt-level = 3
+lto = true

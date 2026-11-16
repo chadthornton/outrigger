@@ -1,0 +1,30 @@
+[package]
+name = "fm1-p4-emu"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+description = "fm1-emu's core (MIT) on the ESP32-P4: one FM-1 package, headless, emulated speed on the console"
+
+[[bin]]
+name = "fm1-p4-emu"
+harness = false
+
+[dependencies]
+fm1-bench = { path = "../core" }
+esp-idf-sys = { version = "0.38.1", features = ["binstart"] }
+
+[build-dependencies]
+embuild = "0.33"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+debug = false
+
+[profile.dev]
+opt-level = "s"
+debug = true
+
+[package.metadata.esp-idf-sys]
+esp_idf_sdkconfig_defaults = ["sdkconfig.defaults"]

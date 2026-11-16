@@ -1,0 +1,4 @@
+target/
+out/
+*.pkg.bin
+sdkconfig
