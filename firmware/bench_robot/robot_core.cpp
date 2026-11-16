@@ -129,8 +129,7 @@ void Core::received(const uint8_t pkt[4], int64_t now) {
 
 void Core::mount_changed(bool mounted, int64_t now) {
   if (mounted) mounts_.fetch_add(1);
-  Record r = {now, (uint8_t)(mounted ? 'M' : 'U'), {0, 0, 0, 0}};
-  if (!rx_.push(r)) log_lost_rx_.fetch_add(1);
+  (mounted ? mount_at_ : unmount_at_).store(now);
 }
 
 void Core::unplug(int64_t now, uint32_t ms) {
@@ -157,6 +156,8 @@ void Core::clear_all() {
   recv_.store(0);
   log_lost_rx_.store(0);
   mounts_.store(0);
+  mount_at_.store(-1);
+  unmount_at_.store(-1);
   retry_since_ = -1;
   draining_ = false;
 }
@@ -386,6 +387,10 @@ bool Core::try_send(const uint8_t pkt[4], int64_t now, int64_t *retry_since) {
 }
 
 void Core::poll(int64_t now, Out &out) {
+  int64_t um = unmount_at_.exchange(-1), m = mount_at_.exchange(-1);
+  if (um >= 0 && (m < 0 || um <= m)) log_tx(um, 'U', nullptr), um = -1;
+  if (m >= 0) log_tx(m, 'M', nullptr);
+  if (um >= 0) log_tx(um, 'U', nullptr);
   if (reconnect_at_ >= 0 && now >= reconnect_at_) plug(now);
   if (running_) {
     while (sched_head_ != sched_tail_) {

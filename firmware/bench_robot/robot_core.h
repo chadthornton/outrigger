@@ -112,6 +112,8 @@ class Core {
 
   // From the USB task.
   void received(const uint8_t pkt[4], int64_t now);
+  // From any task (the board's USB event loop): stored, and logged by the
+  // next poll, so the receive ring keeps one producer (the USB task).
   void mount_changed(bool mounted, int64_t now);
 
   Counters counters() const;
@@ -137,6 +139,7 @@ class Core {
   Repeater rep_[kRepeaters] = {};
   Counters c_ = {};
   std::atomic<uint32_t> recv_{0}, log_lost_rx_{0}, mounts_{0};
+  std::atomic<int64_t> mount_at_{-1}, unmount_at_{-1};  // waiting for poll to log them
   bool running_ = false;
   int64_t t0_ = 0;
   int64_t retry_since_ = -1;     // the head event's first failed send

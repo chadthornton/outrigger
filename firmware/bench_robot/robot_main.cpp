@@ -59,8 +59,10 @@ class SerialOut : public robot::Out {
     Serial.write(s);
     Serial.write('\n');
   }
-  // A record line is under 32 bytes; leave room for a status line too.
-  bool can_write() override { return Serial.availableForWrite() > 400; }
+  // A record line is under 32 bytes. availableForWrite() is the TX ring's
+  // free space, or the 128-byte hardware FIFO's when the ring is full (or
+  // absent: uartAvailableForWrite, esp32-hal-uart.c), so 64 works in both.
+  bool can_write() override { return Serial.availableForWrite() > 64; }
 };
 SerialOut out;
 

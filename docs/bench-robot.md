@@ -30,7 +30,7 @@ upload, `robot.py check-mac` reads the MAC on `ROBOT_PORT` with esptool as an ES
 named, so a P4 fails the chip check and a different S3 fails the MAC check. On DevKitC v1.1 boards (with a CH343
 bridge) the UART port can also show up as `usbmodem`, which is why the guard checks the MAC rather than the port name.
 
-Night-0 build: 374,470 bytes of flash (28%); 235,248 bytes of RAM in globals (71%), leaving 92,432. Most of that is
+Night-0 build: 374,718 bytes of flash (28%); 235,272 bytes of RAM in globals (71%), leaving 92,408. Most of that is
 the schedule (2,048 events) and the two logs (4,096 records each), in internal RAM, so no PSRAM build option is
 needed. They're buffers, not run limits: `robot.py` streams the schedule in and drains the logs as a run goes.
 
@@ -105,8 +105,11 @@ The checks, all read from the logs:
 | `latency` / `jitter` | the worst latency, and p99 − p50, over the limits |
 | `clock_jitter` | a received clock interval strays from the sent one, or from `listen`'s BPM, by more than the limit |
 | `stuck_notes` | a receiver is left holding a note-on |
+| `remounted` | a replug isn't followed by the host mounting the robot within `reenum_ms_max` (default 2 s). Without a mount, the unplug window closes there, so later losses count |
 
 Two more numbers come with every run: `reconnect_ms`, from the end of an unplug to the host's mount, and `not_sent`.
+Mount events (`M`, `U`) come from the core's USB event task; the robot logs them at its next poll, a little after
+their time, and `robot.py` sorts each log by time.
 
 Matching: the checker first estimates the latency, then matches each arrival to the expectation with the same content
 nearest to (arrival − latency), within a window of max(5 ms, 8 × the median deviation). That way one dropped or doubled

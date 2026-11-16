@@ -199,6 +199,16 @@ def test_unplug_excuses_loss_nearby_only():
     expect(res["numbers"]["lost_unplugged"] == 3, f"three lost in the outage: {res['numbers']}")
     expect(res["checks"]["loss"]["value"] == 1, "the one far from it is loss")
     expect(res["numbers"]["reconnect_ms_max"] == 250.0, "reconnect time is plug to mount")
+    expect(res["checks"]["remounted"]["ok"], "remounted")
+    # No mount after the plug (a software unplug the host never saw come back):
+    # the window closes 2 s after the plug, so a drop 3 s later is loss.
+    recs = notes_run(n=500, drop={40, 41, 42, 900})
+    recs["a"] += [("u", 1_195_000, bytes(4)), ("p", 1_225_000, bytes(4))]
+    res = run_check(ONE, recs)
+    expect(res["checks"]["loss"]["value"] == 1 and res["numbers"]["lost_unplugged"] == 3,
+           f"no mount: later loss still counts: {res['checks']['loss']} {res['numbers']}")
+    expect(not res["checks"]["remounted"]["ok"] and res["checks"]["remounted"]["value"] == "0/1",
+           "no mount fails remounted")
 
 
 # --- whole runs against build/robot_sim ---------------------------------------

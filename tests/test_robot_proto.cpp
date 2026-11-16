@@ -303,7 +303,22 @@ static void test_clear_and_status() {
   expect_eq(r.cmd("at 0 0 F8"), "ok at", "clear resets the at order");
 }
 
+static void test_mount_events_keep_off_the_receive_ring() {
+  Rig r;
+  uint8_t in[4] = {0x19, 0x90, 0x3C, 0x64};
+  for (int i = 0; i < 16; ++i) r.core.received(in, 10 + i);
+  r.core.mount_changed(false, 100);  // the board calls this from another task
+  r.core.mount_changed(true, 90);
+  expect(r.core.counters().log_lost_rx == 0, "mount events don't push into the full receive ring");
+  expect(r.core.counters().mounts == 1, "mounts counted at once");
+  r.cmd("log 100", 200);
+  for (int i = 0; i < 4; ++i) r.core.poll(200, r.out);  // 8 lines per poll
+  expect(r.out.v.size() == 19 && r.out.v[16] == "M 90 00000000" && r.out.v[17] == "U 100 00000000",
+         "the next poll logs both, earlier first");
+}
+
 int main() {
+  test_mount_events_keep_off_the_receive_ring();
   test_pack();
   test_hex();
   test_basic_commands();

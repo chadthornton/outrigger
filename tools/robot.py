@@ -333,6 +333,9 @@ def run(scn, robots, log=print, expect_macs=None):
             data[name]["records"] += recs
             if not more:
                 break
+        # Mount events are logged by the robot's next poll, a little after
+        # sends stamped later than them: put each robot's log in time order.
+        data[name]["records"].sort(key=lambda r: r[1])
         data[name]["status"] = rb.status()
         data[name]["sync"].append(rb.sync())
     return data
@@ -373,17 +376,25 @@ def mapped(m, msg):
     return bytes(b)
 
 
-def outages(recs, to_mac):
-    """(start, end) Mac µs windows from each unplug to the host's next mount, plus a grace."""
-    out, start = [], None
-    for kind, t, _ in recs:
+def outages(recs, to_mac, reenum_us):
+    """(start, end) Mac µs windows from each unplug to the host's next mount, plus a grace.
+    A mount that never comes closes the window reenum_us after the plug, so a
+    robot whose host never sees it again can't excuse every later loss."""
+    out, start, plug = [], None, None
+    for kind, t, _ in sorted(recs, key=lambda r: r[1]):
         if kind == "u" and start is None:
-            start = to_mac(t)
-        elif kind == "M" and start is not None:
+            start, plug = to_mac(t), None
+        elif kind == "p" and start is not None:
+            plug = to_mac(t)
+        elif kind == "M" and start is not None and (plug is None or to_mac(t) <= plug + reenum_us):
             out.append((start - UNPLUG_GRACE_US, to_mac(t) + UNPLUG_GRACE_US))
-            start = None
+            start = plug = None
+        elif start is not None and plug is not None and to_mac(t) > plug + reenum_us:
+            out.append((start - UNPLUG_GRACE_US, plug + reenum_us + UNPLUG_GRACE_US))
+            start = plug = None
     if start is not None:
-        out.append((start - UNPLUG_GRACE_US, float("inf")))
+        end = plug + reenum_us + UNPLUG_GRACE_US if plug is not None else float("inf")
+        out.append((start - UNPLUG_GRACE_US, end))
     return out
 
 
@@ -412,7 +423,8 @@ def check(scn, data):
                         f"log lost {st['log_lost_tx']}+{st['log_lost_rx']}")
     put("accounted", "; ".join(gaps) or "all", "all", not gaps)
 
-    down = {n: outages(d["records"], models[n][0]) for n, d in data.items()}
+    reenum_us = ms_us(lim.get("reenum_ms_max", 2000))
+    down = {n: outages(d["records"], models[n][0], reenum_us) for n, d in data.items()}
 
     def in_outage(robot_names, t_mac):
         return any(a <= t_mac <= b for n in robot_names for a, b in down[n])
@@ -575,17 +587,22 @@ def check(scn, data):
     stuck = sum(v for v in held.values() if v > 0)
     put("stuck_notes", stuck, lim.get("stuck_notes_max", 0), stuck <= lim.get("stuck_notes_max", 0))
 
-    reconnect = []
+    reconnect, plugs = [], 0
     for n, d in data.items():
         plug_t = None
-        for kind, t, _ in d["records"]:
+        for kind, t, _ in sorted(d["records"], key=lambda r: r[1]):
             if kind == "p":
+                plugs += 1
                 plug_t = t
             elif kind == "M" and plug_t is not None:
-                reconnect.append((t - plug_t) / 1000)
+                if t - plug_t <= reenum_us:
+                    reconnect.append((t - plug_t) / 1000)
                 plug_t = None
         numbers[f"{n}_not_sent"] = d["status"]["not_sent"]
         numbers[f"{n}_unplugs"] = d["status"]["unplugs"]
+    if plugs:
+        # Every replug must end in the host mounting the robot again, in time.
+        put("remounted", f"{len(reconnect)}/{plugs}", f"all, within {reenum_us // 1000} ms", len(reconnect) == plugs)
     if reconnect:
         numbers.update(reconnect_ms_max=round(max(reconnect), 1), reconnect_ms_p50=round(pct(reconnect, 50), 1),
                        reconnects=len(reconnect))
