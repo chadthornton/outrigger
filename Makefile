@@ -116,7 +116,7 @@ VERSION_DIR := $(CACHE_ROOT)/version
 # screens ui-shots renders. Rewritten only when they change, like fw_version.h.
 BOARD_GEN := $(CACHE_ROOT)/boards
 
-.PHONY: check test ui-shots ui-mocks build build-all flash recovery flash-recovery probe synth-bench flash-synth-bench site serve clean fixtures golden store-image flash-store store-add check-latest deploy-site rollback-site deploy-email
+.PHONY: check test ui-shots ui-mocks build build-all flash recovery flash-recovery probe synth-bench flash-synth-bench synth-bench-p4 flash-synth-bench-p4 site serve clean fixtures golden store-image flash-store store-add check-latest deploy-site rollback-site deploy-email
 
 FM1_SRC := $(wildcard lib/fm1_loader/src/*.cpp)
 FM1_HDR := $(wildcard lib/fm1_loader/src/*.h) $(wildcard tests/support/*.h)
@@ -124,12 +124,18 @@ FM1_TESTS := build/test_fm1_package build/test_fm1_library build/test_fm1_instal
 	build/test_fm1_softkey build/test_fm1_posix build/test_fm1_locked build/test_fm1_library_posix \
 	build/test_fm1_receive
 
-test: build/check_package build/test_fm1_interop build/test_touch_map build/test_panel build/test_board_blob build/test_profile_link test-board-configs build/test_midi_core build/test_status build/test_boot_mode build/test_broker build/test_describe build/test_web_core build/test_store_json build/test_loader_messages build/test_bench_writer build/test_ota $(FM1_TESTS) build/receive_pipe fixtures $(TOOLS_PY)
+test: build/check_package build/test_fm1_interop build/test_touch_map build/test_panel build/test_board_blob build/test_profile_link test-board-configs build/test_midi_core build/test_graph build/test_graph_schwung build/test_graph_hub build/test_graph_flows build/test_graph_check build/graph_check build/test_status build/test_boot_mode build/test_broker build/test_describe build/test_web_core build/test_store_json build/test_loader_messages build/test_bench_writer build/test_ota $(FM1_TESTS) build/receive_pipe fixtures $(TOOLS_PY)
 	./build/test_touch_map
 	./build/test_panel
 	./build/test_board_blob tests/boards/blobs.tsv
 	./build/test_profile_link
 	./build/test_midi_core
+	./build/test_graph
+	./build/test_graph_schwung tests/golden/graph
+	./build/test_graph_hub
+	./build/test_graph_flows
+	./build/test_graph_check
+	./build/graph_check
 	./build/test_status
 	./build/test_boot_mode
 	./build/test_ota
@@ -246,6 +252,104 @@ build/test_profile_link: tests/test_profile_link.cpp lib/board/src/profile_link.
 build/test_midi_core: tests/test_midi_core.cpp lib/midi_core/src/midi_core.cpp lib/midi_core/src/midi_core.h
 	mkdir -p build
 	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -Ilib/midi_core/src -o $@ tests/test_midi_core.cpp lib/midi_core/src/midi_core.cpp
+
+# lib/graph (spike, night 0: C1-1 graph core, C1-4 Schwung shim). Plain C11,
+# built with the Mac's cc; the tests are C++. `make test-graph` runs them and
+# the no-allocation check; `make graph-bench` prints per-node timing.
+TEST_CC ?= cc
+GRAPH_C := $(wildcard lib/graph/src/*.c)
+GRAPH_H := $(wildcard lib/graph/src/*.h)
+GRAPH_O := $(patsubst lib/graph/src/%.c,build/graph/%.o,$(GRAPH_C))
+SCHWUNG_INC := -Ilib/graph/third_party/schwung -Ilib/graph/shim -Ilib/graph/src
+# Each module's move_midi_fx_init is renamed so both link into one binary, and
+# its allocator calls are counted (tests/support/gr_alloc_count.c), proving
+# the process path never allocates.
+MIDI_FX_FLAGS = -std=c11 -O2 -ffp-contract=off -w $(SCHWUNG_INC) -Dmalloc=gr_count_malloc -Dcalloc=gr_count_calloc -Dfree=gr_count_free
+build/graph/%.o: lib/graph/src/%.c $(GRAPH_H)
+	mkdir -p build/graph
+	$(TEST_CC) -std=c11 -O2 -Wall -Wextra -Werror -Ilib/graph/src -c -o $@ $<
+build/graph/gr_schwung.o: lib/graph/shim/gr_schwung.c lib/graph/shim/gr_schwung.h $(GRAPH_H)
+	mkdir -p build/graph
+	$(TEST_CC) -std=c11 -O2 -Wall -Wextra -Werror $(SCHWUNG_INC) -c -o $@ $<
+build/graph/eucalypso.o: lib/graph/third_party/eucalypso/eucalypso.c
+	mkdir -p build/graph
+	$(TEST_CC) $(MIDI_FX_FLAGS) -Dmove_midi_fx_init=eucalypso_midi_fx_init -c -o $@ $<
+build/graph/superarp.o: lib/graph/third_party/superarp/superarp.c
+	mkdir -p build/graph
+	$(TEST_CC) $(MIDI_FX_FLAGS) -Dmove_midi_fx_init=superarp_midi_fx_init -c -o $@ $<
+build/graph/gr_alloc_count.o: tests/support/gr_alloc_count.c
+	mkdir -p build/graph
+	$(TEST_CC) -std=c11 -O2 -Wall -Wextra -Werror -c -o $@ $<
+SHIM_O := build/graph/gr_schwung.o build/graph/eucalypso.o build/graph/superarp.o build/graph/gr_alloc_count.o
+build/test_graph: tests/test_graph.cpp $(GRAPH_O) $(GRAPH_H)
+	$(TEST_CXX) -std=c++17 -O2 -Wall -Wextra -Werror -pthread -Ilib/graph/src -o $@ $< $(GRAPH_O)
+# The two-flow checks: every graph source built with GR_CHECK_FLOWS.
+build/test_graph_flows: tests/test_graph_flows.cpp $(GRAPH_C) $(GRAPH_H)
+	mkdir -p build/graph-flows
+	cd build/graph-flows && $(TEST_CC) -std=c11 -O2 -Wall -Wextra -Werror -DGR_CHECK_FLOWS -I$(CURDIR)/lib/graph/src -c $(addprefix $(CURDIR)/,$(GRAPH_C))
+	$(TEST_CXX) -std=c++17 -O2 -Wall -Wextra -Werror -pthread -DGR_CHECK_FLOWS -Ilib/graph/src -o $@ $< $(patsubst lib/graph/src/%.c,build/graph-flows/%.o,$(GRAPH_C))
+build/graph/gr_rt_bad.o: tests/support/gr_rt_bad.c
+	mkdir -p build/graph
+	$(TEST_CC) -std=c11 -O0 -c -o $@ $<
+# ThreadSanitizer over the threaded tests (Mac clang), plus a positive
+# control: the ring's handover weakened to relaxed must fail, by a TSan report
+# or by torn messages from the CPU's own reordering, in at least 1 of 5 runs.
+# symbolize=0: the Mac's symbolizer can hang in a sandbox; resolve a report's
+# addresses with `atos -o build/tsan/<test> -arch arm64 -l 0x100000000 <addr>`.
+TSAN := -fsanitize=thread -g -O1
+graph-tsan:
+	mkdir -p build/tsan/flows build/tsan/plain build/tsan/relaxed
+	cd build/tsan/flows && $(TEST_CC) -std=c11 $(TSAN) -DGR_CHECK_FLOWS -I$(CURDIR)/lib/graph/src -c $(addprefix $(CURDIR)/,$(GRAPH_C))
+	cd build/tsan/plain && $(TEST_CC) -std=c11 $(TSAN) -I$(CURDIR)/lib/graph/src -c $(addprefix $(CURDIR)/,$(GRAPH_C))
+	cd build/tsan/relaxed && $(TEST_CC) -std=c11 $(TSAN) -DGR_CHECK_FLOWS -DGR_SPSC_TEST_RELAXED -I$(CURDIR)/lib/graph/src -c $(addprefix $(CURDIR)/,$(GRAPH_C))
+	$(TEST_CXX) -std=c++17 $(TSAN) -DGR_CHECK_FLOWS -Ilib/graph/src -o build/tsan/test_graph_flows tests/test_graph_flows.cpp build/tsan/flows/*.o
+	$(TEST_CXX) -std=c++17 $(TSAN) -Ilib/graph/src -o build/tsan/test_graph_hub tests/test_graph_hub.cpp build/tsan/plain/*.o
+	$(TEST_CXX) -std=c++17 $(TSAN) -DGR_CHECK_FLOWS -Ilib/graph/src -o build/tsan/test_graph_flows_relaxed tests/test_graph_flows.cpp build/tsan/relaxed/*.o
+	TSAN_OPTIONS=halt_on_error=1:symbolize=0 ./build/tsan/test_graph_flows
+	TSAN_OPTIONS=halt_on_error=1:symbolize=0 ./build/tsan/test_graph_hub --threads
+	@for i in 1 2 3 4 5; do \
+		if ! TSAN_OPTIONS=halt_on_error=1:symbolize=0 ./build/tsan/test_graph_flows_relaxed > build/tsan/relaxed.log 2>&1; then \
+			echo "graph-tsan: the relaxed control is caught on run $$i: $$(grep -m1 -E 'WARNING: ThreadSanitizer|FAIL' build/tsan/relaxed.log)"; exit 0; fi; \
+	done; echo "graph-tsan: 5 runs of the relaxed control passed: nothing caught it"; exit 1
+# The app checker (lib/graph/check, tools/graph_check.c): host only.
+CHECK_SRC := lib/graph/check/gr_check.c lib/graph/check/gr_check_builtin.c
+CHECK_H := lib/graph/check/gr_check.h lib/graph/check/gr_check_builtin.h
+CHECK_INC := -Ilib/graph/src -Ilib/graph/check -Ilib/graph/shim -Ilib/graph/third_party/schwung
+build/graph_check: tools/graph_check.c $(CHECK_SRC) $(CHECK_H) $(GRAPH_O) $(SHIM_O) $(GRAPH_H)
+	$(TEST_CC) -std=c11 -O2 -Wall -Wextra -Werror $(CHECK_INC) -o $@ tools/graph_check.c $(CHECK_SRC) $(GRAPH_O) $(SHIM_O) -lm
+build/graph/gr_bad_nodes.o: tests/support/gr_bad_nodes.c lib/graph/check/gr_check.h $(GRAPH_H)
+	mkdir -p build/graph
+	$(TEST_CC) -std=c11 -O2 -Wall -Wextra -Werror -Ilib/graph/src -Ilib/graph/check -Dmalloc=gr_count_malloc -Dfree=gr_count_free -c -o $@ $<
+build/test_graph_check: tests/test_graph_check.c $(CHECK_SRC) $(CHECK_H) build/graph/gr_bad_nodes.o $(GRAPH_O) $(SHIM_O) $(GRAPH_H)
+	$(TEST_CC) -std=c11 -O2 -Wall -Wextra -Werror $(CHECK_INC) -o $@ tests/test_graph_check.c $(CHECK_SRC) build/graph/gr_bad_nodes.o $(GRAPH_O) $(SHIM_O) -lm
+build/test_graph_hub: tests/test_graph_hub.cpp $(GRAPH_O) $(GRAPH_H)
+	$(TEST_CXX) -std=c++17 -O2 -Wall -Wextra -Werror -pthread -Ilib/graph/src -o $@ $< $(GRAPH_O)
+build/test_graph_schwung: tests/test_graph_schwung.cpp $(GRAPH_O) $(SHIM_O) $(GRAPH_H)
+	$(TEST_CXX) -std=c++17 -O2 -Wall -Wextra -Werror $(SCHWUNG_INC) -o $@ $< $(GRAPH_O) $(SHIM_O)
+build/bench_graph: tests/bench_graph.cpp $(GRAPH_O) $(SHIM_O) $(GRAPH_H)
+	$(TEST_CXX) -std=c++17 -O2 -Wall -Wextra -Werror $(SCHWUNG_INC) -o $@ $< $(GRAPH_O) $(SHIM_O)
+.PHONY: test-graph graph-bench graph-esp graph-p4 graph-tsan graph-check
+test-graph: build/test_graph build/test_graph_schwung build/test_graph_hub build/test_graph_flows build/graph/gr_rt_bad.o build/test_graph_check build/graph_check
+	./build/test_graph
+	./build/test_graph_schwung tests/golden/graph
+	./build/test_graph_hub
+	./build/test_graph_flows
+	./build/test_graph_check
+	./build/graph_check
+	@# No allocator anywhere in the core or the routing nodes.
+	tools/graph_rt_symbols.sh $(GRAPH_O) build/graph/gr_schwung.o
+	@if tools/graph_rt_symbols.sh build/graph/gr_rt_bad.o >/dev/null; then echo "graph_rt_symbols.sh passed a node that logs, locks and allocates"; exit 1; else echo "audio flow: the bad control object is caught"; fi
+graph-check: build/graph_check
+	./build/graph_check
+graph-bench: build/bench_graph
+	./build/bench_graph
+# Cross-compile the core for the ESP32 targets (sizes only; nothing is flashed).
+ESP_TOOLS ?= $(HOME)/Library/Arduino15/packages/esp32/tools
+graph-esp:
+	tools/graph_esp_sizes.sh $(ESP_TOOLS)
+# The hub on Big-P4 (firmware/graph_hub_p4), compile only. Flash it from spike/platform-p4-hw.
+graph-p4:
+	tools/graph_p4_build.sh
 
 build/test_status: tests/test_status.cpp lib/midi_core/src/status.cpp lib/midi_core/src/status.h lib/midi_core/src/midi_core.h
 	mkdir -p build
@@ -400,6 +504,45 @@ synth-bench:
 		--library lib/board --library lib/synth --build-path $(CACHE_ROOT)/$(SYNTH_BOARD)/synth-bench --output-dir $(SYNTH_BENCH_BUILD) firmware/synth_bench
 flash-synth-bench: synth-bench
 	arduino-cli upload --fqbn $(SYNTH_BENCH_FQBN) --input-dir $(SYNTH_BENCH_BUILD) --port $(PORT) firmware/synth_bench
+
+# Felucca's render-time bench on Big-P4 (firmware/synth_bench_p4, spike night 0):
+# no audio device, no screen, console on UART0, which reaches the Mac through
+# Big-P4's UART-C port (CH343P). `make synth-bench-p4` builds;
+# `make flash-synth-bench-p4` reads the chip's MAC over UART-C with esptool
+# (ending in a hard reset), flashes only if it is Big-P4's, then writes each
+# piece at its own offset (tools/p4_flash.sh), never NVS, where Big-P4 keeps
+# its saved Wi-Fi network (night 1). Big-P4's USB-C port is the P4's USB OTG port
+# (the hub's), not a console: don't flash over it.
+P4_PORT ?= /dev/cu.usbmodem5CF70432541
+P4_MAC := e8:f6:0a:e8:a5:55
+P4_PY ?= $(HOME)/.espressif/python_env/idf5.5_py3.13_env/bin/python
+P4_FQBN := esp32:esp32:esp32p4:ChipVariant=postv3,PSRAM=enabled,USBMode=hwcdc,CDCOnBoot=default,PartitionScheme=huge_app
+P4_BENCH_BUILD ?= build/big_p4/synth-bench-p4
+P4_BENCH_FLAGS ?=
+synth-bench-p4:
+	arduino-cli compile --fqbn $(P4_FQBN) --build-property "tools.ctags.path=$(CTAGS_DIR)" \
+		--build-property "compiler.cpp.extra_flags=$(SYNTH_C_FLAGS) -I$(CURDIR)/lib/synth/src $(P4_BENCH_FLAGS)" \
+		--build-property "compiler.c.extra_flags=$(SYNTH_C_FLAGS) -I$(CURDIR)/lib/synth/src $(P4_BENCH_FLAGS)" \
+		--build-path $(CACHE_ROOT)/big_p4/synth-bench-p4 --output-dir $(P4_BENCH_BUILD) firmware/synth_bench_p4
+flash-synth-bench-p4: synth-bench-p4
+	tools/p4_flash.sh $(P4_BENCH_BUILD) synth_bench_p4
+
+# Big-P4's hub firmware (firmware/p4_hub, spike night 1): the diag web page at
+# http://p4hub.local and the USB host behind the hub. `make flash-p4-hub`
+# checks the MAC over UART-C, then writes each piece at its own offset
+# (tools/p4_flash.sh), never 0x9000, so the saved Wi-Fi network in NVS stays.
+# The build cache stays in this worktree so other tracks' P4 builds can't collide.
+P4_HUB_FQBN := $(P4_FQBN),DebugLevel=info
+P4_HUB_BUILD ?= build/big_p4/p4-hub
+P4_HUB_SHA := $(shell git rev-parse --short HEAD 2>/dev/null)$(shell git diff --quiet HEAD -- firmware/p4_hub lib/graph 2>/dev/null || echo _dirty)
+P4_HUB_FLAGS ?=
+p4-hub:
+	arduino-cli compile --fqbn $(P4_HUB_FQBN) --build-property "tools.ctags.path=$(CTAGS_DIR)" \
+		--build-property "compiler.cpp.extra_flags=-DHUB_GIT_SHA_RAW=$(P4_HUB_SHA) $(P4_HUB_FLAGS)" \
+		--library lib/EspUsbHost --library lib/graph --build-path $(CURDIR)/build/cache/p4-hub --output-dir $(P4_HUB_BUILD) firmware/p4_hub
+flash-p4-hub: p4-hub
+	tools/p4_flash.sh $(P4_HUB_BUILD) p4_hub
+.PHONY: p4-hub flash-p4-hub
 
 # The store partition's first setup: a LittleFS image holding JieLi's loader
 # (from tests/fixtures). JieLi's code, so it stays in build/ and is never staged
