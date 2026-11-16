@@ -426,6 +426,23 @@ flash-synth-bench-p4: synth-bench-p4
 	$(P4_PY) -m esptool --chip esp32p4 --port $(P4_PORT) -b 460800 --before default_reset --after hard_reset \
 		write_flash 0x0 $(P4_BENCH_BUILD)/synth_bench_p4.ino.merged.bin
 
+# Big-P4's hub firmware (firmware/p4_hub, spike night 1): the diag web page at
+# http://p4hub.local and the USB host behind the hub. `make flash-p4-hub`
+# checks the MAC over UART-C, then writes each piece at its own offset
+# (tools/p4_flash.sh), never 0x9000, so the saved Wi-Fi network in NVS stays.
+# The build cache stays in this worktree so other tracks' P4 builds can't collide.
+P4_HUB_FQBN := $(P4_FQBN),DebugLevel=info
+P4_HUB_BUILD ?= build/big_p4/p4-hub
+P4_HUB_SHA := $(shell git rev-parse --short HEAD 2>/dev/null)$(shell git diff --quiet HEAD -- firmware/p4_hub 2>/dev/null || echo _dirty)
+P4_HUB_FLAGS ?=
+p4-hub:
+	arduino-cli compile --fqbn $(P4_HUB_FQBN) --build-property "tools.ctags.path=$(CTAGS_DIR)" \
+		--build-property "compiler.cpp.extra_flags=-DHUB_GIT_SHA_RAW=$(P4_HUB_SHA) $(P4_HUB_FLAGS)" \
+		--library lib/EspUsbHost --build-path $(CURDIR)/build/cache/p4-hub --output-dir $(P4_HUB_BUILD) firmware/p4_hub
+flash-p4-hub: p4-hub
+	tools/p4_flash.sh $(P4_HUB_BUILD) p4_hub
+.PHONY: p4-hub flash-p4-hub
+
 # The store partition's first setup: a LittleFS image holding JieLi's loader
 # (from tests/fixtures). JieLi's code, so it stays in build/ and is never staged
 # into site/. Flashing it ERASES every backup and save in the store, so it asks
