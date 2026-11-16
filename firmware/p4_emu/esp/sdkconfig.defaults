@@ -7,8 +7,9 @@ CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_400=y
 CONFIG_SPIRAM=y
 CONFIG_SPIRAM_USE_MALLOC=y
 CONFIG_SPIRAM_SPEED_200M=y
-# Console on the native USB Serial/JTAG port (/dev/cu.usbmodem101 on the Mac)
-CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+# Console on UART0: Big-P4's Mac cable is on the UART-C port (CH343P, /dev/cu.usbmodem5CF70432541); the USB-C port (USB Serial/JTAG / OTG) is for the hub
+CONFIG_ESP_CONSOLE_UART_DEFAULT=y
+CONFIG_ESP_CONSOLE_UART_BAUDRATE=115200
 CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
 # The partition table is partitions.csv, built and flashed by build.sh / A2's esptool line (a custom table
 # here would need a path the IDF build resolves inside target/; the app finds fwpkg by label at run time)
