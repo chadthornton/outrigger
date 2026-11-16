@@ -143,16 +143,17 @@ int main() {
     if (b - a < step) step = b - a;
   }
   // A whole hub graph (2 feeds -> merge -> ccremap -> split -> 2 x (chanmap / transpose
-  // + chanmap) -> merge), 16 events per block, timed around gr_graph_run.
-  {
+  // + chanmap) -> merge), 16 events per 64 frames, timed around gr_graph_run_frames,
+  // at the host block sizes a firmware sees (48 = 1 ms of USB audio).
+  for (uint32_t F : {48u, 64u, 128u, 256u}) {
     static Feed fa, fb;
     static gr_merge m1, m2;
     static gr_split s1;
     static gr_chanmap lo, hi;
     static gr_transpose t1;
     static gr_ccremap c1;
-    fa = {8, 0, false};
-    fb = {8, 7, false};
+    fa = {(int)(8 * F / 64), 0, false};
+    fb = {(int)(8 * F / 64), 7, false};
     gr_split_init(&s1, 60, GR_SPLIT_LOWER);
     gr_chanmap_init(&lo);
     gr_chanmap_init(&hi);
@@ -180,14 +181,16 @@ int main() {
     std::vector<uint32_t> tt(kBlocks);
     for (int i = 0; i < kBlocks; ++i) {
       uint32_t t0 = gr_clock_ticks();
-      gr_graph_run(&g);
+      gr_graph_run_frames(&g, F);
       tt[i] = gr_clock_ticks() - t0;
     }
     double sum = 0;
     for (auto v : tt) sum += v;
     std::sort(tt.begin(), tt.end());
-    printf("hub graph (9 nodes, 16 ev/blk): p50 %u ns, p99 %u ns, max %u ns, mean %.1f ns per block\n", tt[kBlocks / 2],
-           tt[(size_t)(kBlocks * 0.99)], tt.back(), sum / kBlocks);
+    const double budget = F * 1e9 / 48000.0;
+    printf("hub graph (9 nodes, %u frames, %u ev/blk): p50 %u ns, p99 %u ns, max %u ns, mean %.1f ns per block (%.3f%% of %.0f ns)\n",
+           F, 16 * F / 64, tt[kBlocks / 2], tt[(size_t)(kBlocks * 0.99)], tt.back(), sum / kBlocks,
+           100.0 * sum / kBlocks / budget, budget);
   }
   printf("timer step: %u ns (per-node p50/p99 are multiples of it; means average over every block)\n", step);
   printf("lib/graph per-node time per block, host (%d blocks of 64 frames @ 48 kHz; budget 1,333,333 ns)\n",
