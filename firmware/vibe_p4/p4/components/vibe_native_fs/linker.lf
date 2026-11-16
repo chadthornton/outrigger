@@ -1,0 +1,11 @@
+# The native Vibe's .bss in PSRAM, where the .wasm's linear memory is too (VH_NATIVE_PSRAM=1, the default).
+# esp_wifi defines a scheme like this one, but that component isn't in this image.
+[scheme:vh_extram_bss_fs]
+entries:
+    bss -> extern_ram
+    common -> extern_ram
+
+[mapping:vibe_native_fs]
+archive: libvibe_native_fs.a
+entries:
+    * (vh_extram_bss_fs)

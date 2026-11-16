@@ -1,0 +1,64 @@
+diff --git a/build-scripts/esp-idf/wamr/CMakeLists.txt b/build-scripts/esp-idf/wamr/CMakeLists.txt
+index b47cd16..b1f9348 100644
+--- a/build-scripts/esp-idf/wamr/CMakeLists.txt
++++ b/build-scripts/esp-idf/wamr/CMakeLists.txt
+@@ -87,7 +87,7 @@ endif ()
+ 
+ idf_component_register(SRCS ${srcs}
+                        INCLUDE_DIRS ${include_dirs}
+-                       REQUIRES pthread lwip esp_timer
++                       REQUIRES pthread lwip esp_timer esp_mm
+                        KCONFIG ${CMAKE_CURRENT_LIST_DIR}/Kconfig)
+ 
+ target_compile_options(${COMPONENT_LIB} PRIVATE "-Wno-format")
+diff --git a/core/iwasm/aot/arch/aot_reloc_riscv.c b/core/iwasm/aot/arch/aot_reloc_riscv.c
+index 8df9f9f..aa95ebb 100644
+--- a/core/iwasm/aot/arch/aot_reloc_riscv.c
++++ b/core/iwasm/aot/arch/aot_reloc_riscv.c
+@@ -136,6 +136,10 @@ static SymbolMap target_sym_map[] = {
+      */
+     REG_SYM(__floatundisf),
+     REG_SYM(__floatdisf),
++    /* Outrigger P4 spike patch: wamrc emits these for f32 <-> i64 on rv32f
++       (i64.trunc_f32_u / _s); upstream registers them only for soft float */
++    REG_SYM(__fixunssfdi),
++    REG_SYM(__fixsfdi),
+ #endif
+ #ifdef NEED_SOFT_DP
+     REG_SYM(__adddf3),
+diff --git a/core/shared/platform/esp-idf/espidf_memmap.c b/core/shared/platform/esp-idf/espidf_memmap.c
+index b0c493d..ee7cb75 100644
+--- a/core/shared/platform/esp-idf/espidf_memmap.c
++++ b/core/shared/platform/esp-idf/espidf_memmap.c
+@@ -125,9 +125,30 @@ void
+ #endif
+ }
+ 
++#if defined(CONFIG_IDF_TARGET_ESP32P4)
++#include "esp_cache.h"
++#endif
++
+ void
+ os_icache_flush(void *start, size_t len)
+-{}
++{
++#if defined(CONFIG_IDF_TARGET_ESP32P4)
++    /* Outrigger P4 spike patch: AOT code is written through the L1 data
++       cache; write it back, then drop any instruction-cache lines for it,
++       before the CPU runs it. (Upstream leaves this empty.) */
++    uintptr_t a = (uintptr_t)start & ~(uintptr_t)127;
++    uintptr_t e = ((uintptr_t)start + len + 127) & ~(uintptr_t)127;
++    esp_cache_msync((void *)a, e - a,
++                    ESP_CACHE_MSYNC_FLAG_DIR_C2M | ESP_CACHE_MSYNC_FLAG_TYPE_DATA
++                        | ESP_CACHE_MSYNC_FLAG_UNALIGNED);
++    esp_cache_msync((void *)a, e - a,
++                    ESP_CACHE_MSYNC_FLAG_DIR_M2C | ESP_CACHE_MSYNC_FLAG_TYPE_INST);
++    __asm__ volatile("fence.i" ::: "memory");
++#else
++    (void)start;
++    (void)len;
++#endif
++}
+ 
+ #if (WASM_MEM_DUAL_BUS_MIRROR != 0)
+ void *

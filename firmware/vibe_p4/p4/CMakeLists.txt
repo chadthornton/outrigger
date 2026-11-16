@@ -1,0 +1,17 @@
+# vibe_bench_p4: VIBE FM SDK firmwares (Vibes) on the ESP32-P4 through WAMR, against the same C compiled natively.
+# Built by ../tools/build_p4.sh, which sets VIBE_SDK, WAMR_PATH and VH_MODULES (the .wasm/.aot files to embed).
+cmake_minimum_required(VERSION 3.16)
+foreach(v VIBE_SDK WAMR_PATH VH_MODULES)
+  if (NOT DEFINED ${v})
+    if (DEFINED ENV{${v}})
+      set(${v} $ENV{${v}})
+    else ()
+      message(FATAL_ERROR "${v} not set (use tools/build_p4.sh)")
+    endif ()
+  endif ()
+endforeach ()
+set(VIBE_SDK ${VIBE_SDK} CACHE PATH "VIBE FM SDK clone")
+set(VH_MODULES ${VH_MODULES} CACHE PATH "modules to embed")
+list(APPEND EXTRA_COMPONENT_DIRS "${WAMR_PATH}/build-scripts/esp-idf")
+include($ENV{IDF_PATH}/tools/cmake/project.cmake)
+project(vibe_bench_p4)

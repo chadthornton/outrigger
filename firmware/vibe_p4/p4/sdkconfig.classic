@@ -1,0 +1,2 @@
+# image (a): WAMR classic interpreter + AOT
+CONFIG_WAMR_INTERP_CLASSIC=y
