@@ -124,7 +124,7 @@ FM1_TESTS := build/test_fm1_package build/test_fm1_library build/test_fm1_instal
 	build/test_fm1_softkey build/test_fm1_posix build/test_fm1_locked build/test_fm1_library_posix \
 	build/test_fm1_receive
 
-test: build/check_package build/test_fm1_interop build/test_touch_map build/test_panel build/test_board_blob build/test_profile_link test-board-configs build/test_midi_core build/test_status build/test_boot_mode build/test_broker build/test_describe build/test_web_core build/test_store_json build/test_loader_messages build/test_bench_writer build/test_ota $(FM1_TESTS) build/receive_pipe fixtures $(TOOLS_PY)
+test: build/check_package build/test_fm1_interop build/test_touch_map build/test_panel build/test_board_blob build/test_profile_link test-board-configs build/test_midi_core build/test_status build/test_boot_mode build/test_broker build/test_describe build/test_web_core build/test_store_json build/test_loader_messages build/test_bench_writer build/test_ota build/test_robot_proto build/robot_sim $(FM1_TESTS) build/receive_pipe fixtures $(TOOLS_PY)
 	./build/test_touch_map
 	./build/test_panel
 	./build/test_board_blob tests/boards/blobs.tsv
@@ -141,6 +141,7 @@ test: build/check_package build/test_fm1_interop build/test_touch_map build/test
 	./build/test_store_json build/store.json
 	./build/test_loader_messages
 	./build/test_bench_writer
+	./build/test_robot_proto
 	python3 -I -c "import json; json.load(open('build/store.json'))"
 	for t in $(FM1_TESTS); do ./$$t || exit 1; done
 	python3 -c "import shutil; shutil.rmtree('build/interop', ignore_errors=True)"
@@ -162,6 +163,7 @@ test: build/check_package build/test_fm1_interop build/test_touch_map build/test
 	python3 -I tests/test_gen_families.py
 	python3 -I tests/test_bench.py
 	python3 -I tests/test_bench_recover.py
+	python3 -I tests/test_robot.py
 	python3 -I tests/test_guide.py
 
 # The Mac tests may write the mock FM-1 (FM1_LOADER_WRITES=1); test_fm1_locked
@@ -246,6 +248,16 @@ build/test_profile_link: tests/test_profile_link.cpp lib/board/src/profile_link.
 build/test_midi_core: tests/test_midi_core.cpp lib/midi_core/src/midi_core.cpp lib/midi_core/src/midi_core.h
 	mkdir -p build
 	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -Ilib/midi_core/src -o $@ tests/test_midi_core.cpp lib/midi_core/src/midi_core.cpp
+
+# The bench robot's protocol core (firmware/bench_robot), and the same core
+# behind a pretend P4 for tools/robot.py --sim and tests/test_robot.py.
+ROBOT_CORE := firmware/bench_robot/robot_core.cpp firmware/bench_robot/robot_core.h
+build/test_robot_proto: tests/test_robot_proto.cpp $(ROBOT_CORE)
+	mkdir -p build
+	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -Ifirmware/bench_robot -o $@ $< firmware/bench_robot/robot_core.cpp
+build/robot_sim: tests/robot_sim.cpp $(ROBOT_CORE)
+	mkdir -p build
+	$(TEST_CXX) -std=c++17 -O2 -Wall -Wextra -Werror -Ifirmware/bench_robot -o $@ $< firmware/bench_robot/robot_core.cpp
 
 build/test_status: tests/test_status.cpp lib/midi_core/src/status.cpp lib/midi_core/src/status.h lib/midi_core/src/midi_core.h
 	mkdir -p build
@@ -404,8 +416,10 @@ flash-synth-bench: synth-bench
 # The bench robot (firmware/bench_robot, docs/bench-robot.md) for an ESP32-S3
 # DevKitC-1: the native USB port a two-cable USB MIDI device (USB-OTG, TinyUSB),
 # Serial the UART port for tools/robot.py. Not a board profile and never staged.
-# `make bench-robot` builds. `make flash-bench-robot ROBOT_PORT=/dev/cu.usbserial-...`
-# uploads through the UART port: it never falls back to PORT (Big-P4's port).
+# `make bench-robot` builds. `make flash-bench-robot ROBOT_PORT=... ROBOT_MAC=aa:bb:...`
+# uploads through the robot's UART port. It never falls back to PORT (Big-P4's),
+# and first reads the MAC on ROBOT_PORT as an ESP32-S3 (a P4 fails that, a
+# different S3 fails the MAC), as tools/port_for.py does, with a hard reset.
 BENCH_ROBOT_FQBN := esp32:esp32:esp32s3:USBMode=default,CDCOnBoot=default
 BENCH_ROBOT_BUILD := build/bench-robot
 bench-robot:
@@ -413,8 +427,9 @@ bench-robot:
 		--build-property "compiler.cpp.extra_flags=-DROBOT_FW=$(FW_VERSION)" \
 		--build-path $(CACHE_ROOT)/bench-robot --output-dir $(BENCH_ROBOT_BUILD) firmware/bench_robot
 flash-bench-robot: bench-robot
-	$(if $(ROBOT_PORT),,$(error flash-bench-robot needs ROBOT_PORT=/dev/cu.usbserial-... (the robot's UART port)))
-	$(if $(filter $(ROBOT_PORT),$(wildcard /dev/cu.usbmodem*)),$(error ROBOT_PORT=$(ROBOT_PORT) is a native USB port: the robot flashes through its UART port))
+	$(if $(ROBOT_PORT),,$(error flash-bench-robot needs ROBOT_PORT=/dev/cu.... (the robot's UART port)))
+	$(if $(ROBOT_MAC),,$(error flash-bench-robot needs ROBOT_MAC=aa:bb:cc:dd:ee:ff (the robot's MAC)))
+	python3 -I tools/robot.py check-mac $(ROBOT_PORT) $(ROBOT_MAC)
 	arduino-cli upload --fqbn $(BENCH_ROBOT_FQBN) --input-dir $(BENCH_ROBOT_BUILD) --port $(ROBOT_PORT) firmware/bench_robot
 
 # The store partition's first setup: a LittleFS image holding JieLi's loader
