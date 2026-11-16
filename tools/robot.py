@@ -47,6 +47,7 @@ import argparse
 import bisect
 import collections
 import glob
+import heapq
 import json
 import os
 import pathlib
@@ -62,8 +63,11 @@ SIM = ROOT / "build" / "robot_sim"
 BAUD = 921600
 BATCH = 64          # at lines per write: well under the robot's 4 KB UART receive buffer
 POLL_S = 0.1        # how often a run tops up the schedules and drains the logs
+SIM_POLL_S = 0.5    # the same on robot_sim, whose logs hold 4,096 records (virtual time, so it's only speed)
 SCHED_MARGIN = 16   # sched_free kept spare
 UNPLUG_GRACE_US = 100_000
+SYNC_S = 10.0       # a long run ties the robots' clocks to the Mac's this often
+PROGRESS_S = 60.0   # and prints (and writes) its numbers so far this often
 
 
 class RobotError(Exception):
@@ -167,13 +171,15 @@ def open_link(spec, baud=BAUD):
     return TcpLink(host, int(port) if port else 7000)
 
 
-class SimLink:
-    """build/robot_sim on a pipe. Its time is virtual, and the Mac's clock is the sim's."""
+class SimHub:
+    """build/robot_sim on a pipe, with one or more robots on its pretend P4. Its
+    time is virtual, and the Mac's clock is the sim's."""
 
     def __init__(self, opts=()):
         if not SIM.exists():
             raise RobotError(f"{SIM} isn't built: make build/robot_sim")
         self.p = subprocess.Popen([str(SIM), *opts], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+        self.users = 0
 
     def write(self, text):
         self.p.stdin.write(text)
@@ -192,15 +198,74 @@ class SimLink:
             if line.startswith("#sim t="):
                 return int(line[7:])
 
+    def close(self):
+        self.users -= 1
+        if self.users <= 0 and self.p.poll() is None:
+            self.p.stdin.close()
+            self.p.wait(timeout=5)
+
+
+class SimLink:
+    """One robot in build/robot_sim: its lines go to robot k (@k), its clock is the sim's."""
+
+    def __init__(self, opts=(), hub=None, k=0):
+        self.hub = hub or SimHub(opts)
+        self.hub.users += 1
+        self.k = k
+
+    def write(self, text):
+        if self.k:
+            text = "".join(f"@{self.k} {l}\n" for l in text.splitlines())
+        self.hub.write(text)
+
+    def readline(self, timeout):
+        return self.hub.readline(timeout)
+
     def now_us(self):
-        return self._sim("now")
+        return self.hub._sim("now")
 
     def sleep(self, s):
-        self._sim(f"advance {int(s * 1e6)}")
+        self.hub._sim(f"advance {int(s * 1e6)}")
 
     def close(self):
-        self.p.stdin.close()
-        self.p.wait(timeout=5)
+        self.hub.close()
+
+
+def sim_options(scn):
+    """robot_sim's options for a scenario: one robot per robot it names, its
+    routes as the pretend P4's, and the P4's own clock to the cables that listen
+    for one."""
+    names = list(scn["robots"])
+    opts = ["--robots", str(len(names))]
+    kinds = {"note": "note", "cc": "cc", "clock": "clock", "transport": "transport", "other": "other"}
+    for rt in scn.get("routes", []):
+        f, m = rt.get("filter") or {}, rt.get("map") or {}
+        spec = (f"{names.index(rt['from']['robot'])}.{rt['from'].get('cable', 0)}:"
+                f"{names.index(rt['to']['robot'])}.{rt['to'].get('cable', 0)}")
+        if "notes" in f:
+            spec += f",notes={f['notes'][0]}-{f['notes'][1]}"
+        if "channels" in f:
+            spec += ",ch=" + "+".join(str(c) for c in f["channels"])
+        if "types" in f:
+            spec += ",types=" + "+".join(kinds[t] for t in f["types"])
+        if "channel" in m:
+            spec += f",mapch={m['channel']}"
+        if "transpose" in m:
+            spec += f",tr={m['transpose']}"
+        opts += ["--route", spec]
+    if not scn.get("routes"):
+        opts.append("--no-route")
+    for ls in scn.get("listen", []):
+        if "clock" in ls:
+            opts += ["--p4-clock-bpm", str(ls["clock"]["bpm"]),
+                     "--p4-clock-to", f"{names.index(ls['robot'])}.{ls.get('cable', 0)}"]
+    return opts
+
+
+def sim_robots(scn, extra_opts=()):
+    """{name: Robot} for a scenario on one robot_sim."""
+    hub = SimHub(sim_options(scn) + list(extra_opts))
+    return {n: Robot(n, SimLink(hub=hub, k=i)) for i, n in enumerate(scn["robots"])}
 
 
 # --- one robot ---------------------------------------------------------------
@@ -288,73 +353,190 @@ def ms_us(v):
     return int(round(float(v) * 1000))
 
 
-def expand(scn):
-    """{robot: {"at": [(t_rel_us, line)], "rep": [line]}} for a scenario's streams."""
-    out = {r: {"at": [], "rep": []} for r in scn["robots"]}
-    for st in scn.get("streams", []):
-        rb = st["robot"]
-        if rb not in out:
-            raise RobotError(f"stream for robot {rb}, which the scenario doesn't list")
-        t0 = ms_us(st.get("start_ms", 0))
-        cable = st.get("cable", 0)
-        at = out[rb]["at"]
+def _rep_period_us(scn):
+    """(passes, period in µs) for a scenario's repeat: the whole pattern of
+    streams played back to back, so a 10 s pattern makes an 8-hour soak."""
+    passes = int(scn.get("repeat", 1))
+    if passes < 1:
+        raise RobotError("repeat must be 1 or more")
+    end = _pattern_end_us(scn)
+    period = ms_us(scn["period_ms"]) if "period_ms" in scn else end + ms_us(scn.get("gap_ms", 100))
+    if passes > 1 and period <= end:
+        raise RobotError(f"period_ms {period / 1000} must be longer than one pass ({end / 1000} ms)")
+    return passes, period
 
-        def midi(t, *b):
-            at.append((t, f"at {t} {cable} {bytes(b).hex().upper()}"))
+
+def _clock_interval_ns(c):
+    return round(60e9 / (c["bpm"] * 24))
+
+
+def _clock_ticks(scn, c, passes, period):
+    """A clock runs once, from its start to the end of the last pass."""
+    if passes == 1:
+        return c["ticks"]
+    ns = _clock_interval_ns(c)
+    return c["ticks"] + ((passes - 1) * period * 1000 + ns - 1) // ns
+
+
+def _pattern_end_us(scn):
+    """The last scheduled time in one pass of the streams (clocks excluded:
+    they run once over the whole scenario)."""
+    end = 0
+    for st in scn.get("streams", []):
+        t0 = ms_us(st.get("start_ms", 0))
         if "notes" in st:
             n = st["notes"]
-            ch = n.get("channel", 1) - 1
-            keys = n.get("notes", [60])
-            for i in range(n["count"]):
-                t = t0 + ms_us(i * n["every_ms"])
-                k = keys[i % len(keys)]
-                midi(t, 0x90 | ch, k, n.get("velocity", 100))
-                midi(t + ms_us(n.get("gate_ms", n["every_ms"] / 2)), 0x80 | ch, k, 0)
+            last = t0 + ms_us((n["count"] - 1) * n["every_ms"])
+            end = max(end, last, last + ms_us(n.get("gate_ms", n["every_ms"] / 2)))
         if "cc" in st:
-            c = st["cc"]
-            ch = c.get("channel", 1) - 1
-            lo, hi, cnt = c.get("from", 0), c.get("to", 127), c["count"]
-            for i in range(cnt):
-                v = lo + round((hi - lo) * i / max(cnt - 1, 1))
-                midi(t0 + ms_us(i * c["every_ms"]), 0xB0 | ch, c["cc"], v)
-        if "clock" in st:
-            c = st["clock"]
-            interval_ns = round(60e9 / (c["bpm"] * 24))
-            if c.get("start", True):
-                midi(t0, 0xFA)
-            out[rb]["rep"].append(f"rep {t0} {interval_ns} {c['ticks']} {cable} F8")
-            if c.get("stop", True):
-                midi(t0 + (c["ticks"] * interval_ns) // 1000 + 1, 0xFC)
+            end = max(end, t0 + ms_us((st["cc"]["count"] - 1) * st["cc"]["every_ms"]))
         if "unplug" in st:
-            u = st["unplug"]
-            for i in range(u["count"]):
-                t = t0 + ms_us(i * u["every_ms"])
-                at.append((t, f"at {t} unplug {int(u['down_ms'])}"))
-        for t_ms, hx in st.get("messages", []):
-            t = t0 + ms_us(t_ms)
-            at.append((t, f"at {t} {cable} {hx.upper()}"))
-    for r in out.values():
-        r["at"].sort(key=lambda e: e[0])
+            end = max(end, t0 + ms_us((st["unplug"]["count"] - 1) * st["unplug"]["every_ms"]))
+        for t_ms, _ in st.get("messages", []):
+            end = max(end, t0 + ms_us(t_ms))
+    return end
+
+
+def _stream_parts(scn, si, st, passes, period):
+    """Iterables of ((t, pass, stream, part, i, sub), line), each sorted. The key
+    reproduces night 0's stable sort: by time, then insertion order (a stream's
+    notes, note i's on before its off, then its CCs, clock start, clock stop,
+    unplugs, messages)."""
+    t0 = ms_us(st.get("start_ms", 0))
+    cable = st.get("cable", 0)
+    parts = []
+
+    def line(t, *b):
+        return f"at {t} {cable} {bytes(b).hex().upper()}"
+
+    if "notes" in st:
+        n = st["notes"]
+        ch = n.get("channel", 1) - 1
+        keys = n.get("notes", [60])
+        gate = ms_us(n.get("gate_ms", n["every_ms"] / 2))
+        vel = n.get("velocity", 100)
+
+        def ons(sub):
+            for p in range(passes):
+                for i in range(n["count"]):
+                    t = t0 + ms_us(i * n["every_ms"]) + p * period
+                    k = keys[i % len(keys)]
+                    if sub == 0:
+                        yield (t, p, si, 0, i, 0), line(t, 0x90 | ch, k, vel)
+                    else:
+                        yield (t + gate, p, si, 0, i, 1), line(t + gate, 0x80 | ch, k, 0)
+        parts += [ons(0), ons(1)]
+    if "cc" in st:
+        c = st["cc"]
+        ch = c.get("channel", 1) - 1
+        lo, hi, cnt = c.get("from", 0), c.get("to", 127), c["count"]
+
+        def ccs():
+            for p in range(passes):
+                for i in range(cnt):
+                    t = t0 + ms_us(i * c["every_ms"]) + p * period
+                    yield (t, p, si, 1, i, 0), line(t, 0xB0 | ch, c["cc"], lo + round((hi - lo) * i / max(cnt - 1, 1)))
+        parts.append(ccs())
+    if "clock" in st:
+        c = st["clock"]
+        ticks = _clock_ticks(scn, c, passes, period)
+        ns = _clock_interval_ns(c)
+        if c.get("start", True):
+            parts.append([((t0, 0, si, 2, 0, 0), line(t0, 0xFA))])
+        if c.get("stop", True):
+            t = t0 + (ticks * ns) // 1000 + 1
+            parts.append([((t, 0, si, 3, 0, 0), line(t, 0xFC))])
+    if "unplug" in st:
+        u = st["unplug"]
+
+        def unplugs():
+            for p in range(passes):
+                for i in range(u["count"]):
+                    t = t0 + ms_us(i * u["every_ms"]) + p * period
+                    yield (t, p, si, 4, i, 0), f"at {t} unplug {int(u['down_ms'])}"
+        parts.append(unplugs())
+    msgs = sorted(((t0 + ms_us(t_ms), i, hx) for i, (t_ms, hx) in enumerate(st.get("messages", []))))
+    if msgs:
+        def messages():
+            for p in range(passes):
+                for t, i, hx in msgs:
+                    t += p * period
+                    yield (t, p, si, 5, i, 0), f"at {t} {cable} {hx.upper()}"
+        parts.append(messages())
+    return parts
+
+
+def plan(scn):
+    """{robot: {"at": iterator of (t_rel_us, line) in time order, "rep": [line]}}.
+    Lazy: an 8-hour scenario is generated as the run takes it, never held."""
+    for st in scn.get("streams", []):
+        if st["robot"] not in scn["robots"]:
+            raise RobotError(f"stream for robot {st['robot']}, which the scenario doesn't list")
+    passes, period = _rep_period_us(scn)
+    out = {}
+    for r in scn["robots"]:
+        parts, reps = [], []
+        for si, st in enumerate(scn.get("streams", [])):
+            if st["robot"] != r:
+                continue
+            parts += _stream_parts(scn, si, st, passes, period)
+            if "clock" in st:
+                c = st["clock"]
+                reps.append(f"rep {ms_us(st.get('start_ms', 0))} {_clock_interval_ns(c)} "
+                            f"{_clock_ticks(scn, c, passes, period)} {st.get('cable', 0)} F8")
+        merged = heapq.merge(*parts, key=lambda e: e[0])
+        out[r] = {"at": ((k[0], ln) for k, ln in merged), "rep": reps}
     return out
 
 
-def scenario_end_us(plan):
-    end = 0
-    for r in plan.values():
-        if r["at"]:
-            end = max(end, r["at"][-1][0])
-        for line in r["rep"]:
-            _, start, ns, count, _, _ = line.split()
-            end = max(end, int(start) + int(ns) * int(count) // 1000)
-    return end
+def expand(scn):
+    """plan(), held in lists: for small scenarios and the tests."""
+    return {r: {"at": list(p["at"]), "rep": p["rep"]} for r, p in plan(scn).items()}
+
+
+def scenario_end_us(scn):
+    """The scenario's last scheduled time (or its duration_ms), worked out without expanding it."""
+    passes, period = _rep_period_us(scn)
+    end = _pattern_end_us(scn) + (passes - 1) * period if scn.get("streams") else 0
+    for st in scn.get("streams", []):
+        if "clock" in st:
+            c = st["clock"]
+            t0 = ms_us(st.get("start_ms", 0))
+            ns = _clock_interval_ns(c)
+            ticks = _clock_ticks(scn, c, passes, period)
+            end = max(end, t0 + ns * ticks // 1000, t0 + (ticks * ns) // 1000 + 1 if c.get("stop", True) else 0, t0)
+    return max(end, ms_us(scn.get("duration_ms", 0)))
+
+
+def with_duration(scn, seconds):
+    """The scenario stretched to at least `seconds`: its pattern repeated (a soak),
+    or, with no streams (the P4's own clock), its duration_ms set."""
+    scn = dict(scn)
+    want = int(seconds * 1e6)
+    if not scn.get("streams"):
+        scn["duration_ms"] = want / 1000
+        return scn
+    scn["repeat"] = 1
+    _, period = _rep_period_us(scn)
+    scn["repeat"] = max(1, -(-want // period))
+    return scn
 
 
 # --- running -----------------------------------------------------------------
 
-def run(scn, robots, log=print, expect_macs=None):
-    """Plays the scenario on robots ({name: Robot}) and returns the run's data for check()."""
-    plan = expand(scn)
+def run(scn, robots, log=print, expect_macs=None, keep=True, on_sync=None, on_records=None, on_progress=None,
+        sync_s=SYNC_S, progress_s=PROGRESS_S, poll_s=POLL_S):
+    """Plays the scenario on robots ({name: Robot}) and returns the run's data.
+
+    keep=True holds every record in data[name]["records"] for check(). A long
+    run passes keep=False and takes them as they come: on_records(name, recs,
+    complete_us) (complete_us: the robot time its log is drained through, or
+    None) and on_sync(name, (mac_us, robot_us, rtt_us)), every sync_s. on_progress()
+    is called every progress_s."""
+    pl = plan(scn)
     expect_macs = expect_macs or {}
+    on_sync = on_sync or (lambda *_: None)
+    on_records = on_records or (lambda *_: None)
     data = {}
     for name, rb in robots.items():
         ident = rb.ident()
@@ -362,60 +544,113 @@ def run(scn, robots, log=print, expect_macs=None):
         if want and ident.get("mac", "").lower() != want.lower():
             raise RobotError(f"robot {name} has MAC {ident.get('mac')}, not {want}: wrong port?")
         rb.cmd("clear")
-        data[name] = {"id": ident, "records": [], "sync": [rb.sync()]}
-    pending = {n: list(plan[n]["at"]) for n in robots}
+        s = rb.sync()
+        data[name] = {"id": ident, "records": [], "sync": [s], "syncs_rejected": 0}
+        on_sync(name, s)
+    pending = {n: pl[n]["at"] for n in robots}
+    head = {n: next(pending[n], None) for n in robots}
 
     def top_up(name, rb, free):
         lines = []
-        while pending[name] and free - len(lines) > SCHED_MARGIN:
-            lines.append(pending[name].pop(0)[1])
+        while head[name] is not None and free - len(lines) > SCHED_MARGIN:
+            lines.append(head[name][1])
+            head[name] = next(pending[name], None)
         for i in range(0, len(lines), BATCH):
             rb.cmds(lines[i:i + BATCH])
 
+    def take(name, recs, complete):
+        if keep:
+            data[name]["records"] += recs
+        on_records(name, recs, complete)
+
     for name, rb in robots.items():
         top_up(name, rb, rb.status()["sched_free"])
-        for line in plan[name]["rep"]:
+        for line in pl[name]["rep"]:
             rb.cmd(line)
     for name, rb in robots.items():
         _, r = rb.cmd(f"go {ms_us(scn.get('lead_ms', 200))}")
         data[name]["t0"] = int(r.split("t0=")[1])
-    end_us = scenario_end_us(plan) + ms_us(scn.get("settle_ms", 300))
+    end_us = scenario_end_us(scn) + ms_us(scn.get("settle_ms", 300))
     log(f"running {scn.get('name', 'scenario')}: {end_us / 1e6:.1f} s")
+    clock = next(iter(robots.values())).link
+    next_sync = next_progress = clock.now_us()
     while True:
         rb_done = True
+        now = clock.now_us()
+        if now >= next_sync:
+            next_sync = now + int(sync_s * 1e6)
+            for name, rb in robots.items():
+                s = rb.sync()
+                best = min(x[2] for x in data[name]["sync"])
+                # A slow round trip is a poor tie between the clocks: skip it.
+                if s[2] > max(3 * best, best + 5000):
+                    data[name]["syncs_rejected"] += 1
+                    continue
+                data[name]["sync"] = data[name]["sync"][:1] + [s] if not keep else data[name]["sync"] + [s]
+                on_sync(name, s)
         for name, rb in robots.items():
             st = rb.status()
             top_up(name, rb, st["sched_free"])
-            recs, _ = rb.drain()
-            data[name]["records"] += recs
+            recs, more = rb.drain()
+            take(name, recs, None if more else st["t"])
             elapsed = st["t"] - data[name]["t0"]
-            if elapsed < end_us or pending[name] or st["sched"] or st["reps"]:
+            if elapsed < end_us or head[name] is not None or st["sched"] or st["reps"]:
                 rb_done = False
+        if on_progress and now >= next_progress:
+            next_progress = now + int(progress_s * 1e6)
+            on_progress()
         if rb_done:
             break
-        next(iter(robots.values())).link.sleep(POLL_S)
+        clock.sleep(poll_s)
     for name, rb in robots.items():
         rb.cmd("stop")
         while True:
             recs, more = rb.drain()
-            data[name]["records"] += recs
+            take(name, recs, None)
             if not more:
                 break
+        data[name]["status"] = rb.status()
+        take(name, [], data[name]["status"]["t"])
+        s = rb.sync()
+        data[name]["sync"].append(s)
+        on_sync(name, s)
+    for name in robots:
         # Mount events are logged by the robot's next poll, a little after
         # sends stamped later than them: put each robot's log in time order.
         data[name]["records"].sort(key=lambda r: r[1])
-        data[name]["status"] = rb.status()
-        data[name]["sync"].append(rb.sync())
     return data
 
 
 # --- checking ----------------------------------------------------------------
 
-def clock_model(d):
-    """robot µs -> Mac µs, and its uncertainty, from the start and end time requests."""
-    (m0, r0, rtt0), (m1, r1, rtt1) = d["sync"][0], d["sync"][-1]
-    scale = (m1 - m0) / (r1 - r0) if r1 != r0 else 1.0
-    return (lambda t: m0 + (t - r0) * scale), max(rtt0, rtt1) / 2
+class ClockModel:
+    """Robot µs -> Mac µs, piecewise linear through the time requests (syncs):
+    between two syncs by interpolation, past the ends by the nearest segment.
+    One segment between the start and end syncs is night 0's model."""
+
+    def __init__(self):
+        self.pts = []    # (robot_us, mac_us)
+        self.rtt_max = 0
+
+    def add(self, sync):
+        mac, rob, rtt = sync
+        if self.pts and rob <= self.pts[-1][0]:
+            return
+        self.pts.append((rob, mac))
+        self.rtt_max = max(self.rtt_max, rtt)
+
+    def known_through(self):
+        return self.pts[-1][0] if self.pts else None
+
+    def __call__(self, t):
+        p = self.pts
+        if len(p) == 1:
+            return p[0][1] + (t - p[0][0])
+        i = bisect.bisect_right(p, (t, float("inf"))) - 1
+        i = min(max(i, 0), len(p) - 2)
+        (r0, m0), (r1, m1) = p[i], p[i + 1]
+        return m0 + (t - r0) * ((m1 - m0) / (r1 - r0))
+
 
 
 def passes(f, msg):
@@ -444,237 +679,453 @@ def mapped(m, msg):
     return bytes(b)
 
 
-def outages(recs, to_mac, reenum_us):
-    """(start, end) Mac µs windows from each unplug to the host's next mount, plus a grace.
-    A mount that never comes closes the window reenum_us after the plug, so a
-    robot whose host never sees it again can't excuse every later loss."""
-    out, start, plug = [], None, None
-    for kind, t, _ in sorted(recs, key=lambda r: r[1]):
-        if kind == "u" and start is None:
-            start, plug = to_mac(t), None
-        elif kind == "p" and start is not None:
-            plug = to_mac(t)
-        elif kind == "M" and start is not None and (plug is None or to_mac(t) <= plug + reenum_us):
-            out.append((start - UNPLUG_GRACE_US, to_mac(t) + UNPLUG_GRACE_US))
-            start = plug = None
-        elif start is not None and plug is not None and to_mac(t) > plug + reenum_us:
-            out.append((start - UNPLUG_GRACE_US, plug + reenum_us + UNPLUG_GRACE_US))
-            start = plug = None
-    if start is not None:
-        end = plug + reenum_us + UNPLUG_GRACE_US if plug is not None else float("inf")
-        out.append((start - UNPLUG_GRACE_US, end))
-    return out
-
-
 def pct(xs, p):
     xs = sorted(xs)
     return xs[min(len(xs) - 1, int(round(p / 100 * (len(xs) - 1))))]
 
 
-def check(scn, data):
-    """The checks for one run: {"checks": {name: {ok, value, limit}}, "numbers": {...}, "ok": bool}."""
-    lim = scn.get("checks", {})
-    models = {n: clock_model(d) for n, d in data.items()}
-    checks, numbers = {}, {}
+def pct_counter(c, p):
+    """pct() over a Counter of values: the same element, without the list."""
+    n = sum(c.values())
+    k = min(n - 1, int(round(p / 100 * (n - 1))))
+    for v in sorted(c):
+        k -= c[v]
+        if k < 0:
+            return v
+    raise ValueError("empty")
 
-    def put(name, value, limit, ok):
-        checks[name] = {"ok": ok, "value": value, "limit": limit}
 
-    # accounted: the logs hold every packet the robots counted.
-    gaps = []
-    for n, d in data.items():
-        st = d["status"]
-        s = sum(1 for k, _, _ in d["records"] if k == "s")
-        r = sum(1 for k, _, _ in d["records"] if k == "r")
-        if s != st["sent"] or r != st["recv"] or st["log_lost_tx"] or st["log_lost_rx"]:
-            gaps.append(f"{n}: sent {st['sent']} logged {s}, recv {st['recv']} logged {r}, "
-                        f"log lost {st['log_lost_tx']}+{st['log_lost_rx']}")
-    put("accounted", "; ".join(gaps) or "all", "all", not gaps)
+def pstdev_counter(c):
+    n = sum(c.values())
+    mean = sum(v * k for v, k in c.items()) / n
+    return (sum(k * (v - mean) ** 2 for v, k in c.items()) / n) ** 0.5
 
-    reenum_us = ms_us(lim.get("reenum_ms_max", 2000))
-    down = {n: outages(d["records"], models[n][0], reenum_us) for n, d in data.items()}
 
-    def in_outage(robot_names, t_mac):
-        return any(a <= t_mac <= b for n in robot_names for a, b in down[n])
+def is_note_off(msg):
+    return msg[0] < 0xF0 and (msg[0] >> 4 == 0x8 or (msg[0] >> 4 == 0x9 and msg[2] == 0))
 
-    # What each route expects, keyed by where it lands and what it is.
-    expect = collections.defaultdict(list)
-    routes = scn.get("routes", [])
-    for ri, rt in enumerate(routes):
-        src, dst = rt["from"], rt["to"]
-        to_mac = models[src["robot"]][0]
-        seq = 0
-        for kind, t, pkt in data[src["robot"]]["records"]:
-            if kind != "s" or pkt[0] >> 4 != src.get("cable", 0):
+
+def is_all_notes_off(msg):
+    return msg[0] >> 4 == 0xB and msg[1] in (120, 123)
+
+
+class Outages:
+    """One robot's outage windows, from its u/p/M records in time order: from an
+    unplug to the host's next mount, plus UNPLUG_GRACE_US each side. A mount that
+    never comes closes the window reenum_us after the plug."""
+
+    def __init__(self, reenum_us):
+        self.reenum_us = reenum_us
+        self.closed = collections.deque()   # (start, end), Mac µs
+        self.start = self.plug = None       # the open one
+
+    def record(self, kind, t_mac):
+        if kind == "u" and self.start is None:
+            self.start, self.plug = t_mac, None
+        elif kind == "p" and self.start is not None:
+            self.plug = t_mac
+        elif kind == "M" and self.start is not None and (self.plug is None or t_mac <= self.plug + self.reenum_us):
+            self._close(t_mac + UNPLUG_GRACE_US)
+        else:
+            self.passed(t_mac)
+
+    def passed(self, t_mac):
+        """Every record up to t_mac is in: an open window past its reenum limit closes."""
+        if self.start is not None and self.plug is not None and t_mac > self.plug + self.reenum_us:
+            self._close(self.plug + self.reenum_us + UNPLUG_GRACE_US)
+
+    def _close(self, end):
+        self.closed.append((self.start - UNPLUG_GRACE_US, end))
+        self.start = self.plug = None
+
+    def finish(self):
+        if self.start is not None:
+            self._close(self.plug + self.reenum_us + UNPLUG_GRACE_US if self.plug is not None else float("inf"))
+
+    def covers(self, t_mac):
+        """True / False, or None while an open window might still cover t_mac."""
+        if any(a <= t_mac <= b for a, b in self.closed):
+            return True
+        if self.start is not None and self.start - UNPLUG_GRACE_US <= t_mac:
+            return None
+        return False
+
+    def prune(self, before_mac):
+        while self.closed and self.closed[0][1] < before_mac:
+            self.closed.popleft()
+
+
+class Checker:
+    """The checks for one run, windowed: it takes records as the robots' logs are
+    drained, checks them in Mac-time order once every robot's log and clock tie
+    are past them, and keeps only what a later record could still change (a few
+    seconds' worth). So an 8-hour run fits in memory. The checks are night 0's
+    (accounted, loss, extra, order, latency, jitter, clock_jitter, stuck_notes,
+    remounted), with the same numbers, plus a note-off release rule for hot-plug."""
+
+    REORDER_US = 200_000   # M/U records are logged a poll after their time
+    EST_KEEP = 4096        # recent latency estimates the match window comes from
+
+    def __init__(self, scn):
+        self.scn = scn
+        self.lim = lim = scn.get("checks", {})
+        self.names = list(scn["robots"])
+        self.routes = scn.get("routes", [])
+        self.reenum_us = ms_us(lim.get("reenum_ms_max", 2000))
+        self.model = {n: ClockModel() for n in self.names}
+        self.buf = {n: [] for n in self.names}          # (t, kind, pkt) not yet checked
+        self.complete = {n: None for n in self.names}   # robot µs each log is drained through
+        self.down = {n: Outages(self.reenum_us) for n in self.names}
+        self.counts = {n: collections.Counter() for n in self.names}
+        self.dest_cables = {(rt["to"]["robot"], rt["to"].get("cable", 0)) for rt in self.routes}
+        self.listens = {(ls["robot"], ls.get("cable", 0)): ls for ls in scn.get("listen", [])}
+        self.sources = collections.defaultdict(set)   # dest (robot, cable) -> source robots
+        for rt in self.routes:
+            self.sources[(rt["to"]["robot"], rt["to"].get("cable", 0))].add(rt["from"]["robot"])
+        self.seq = collections.Counter()
+        self.expect = collections.defaultdict(collections.deque)
+        self.last_exp = {}
+        self.est = collections.deque(maxlen=self.EST_KEEP)
+        self.arrivals = collections.deque()           # (t_mac, t, robot, cable, msg) waiting to be matched
+        self.missing = collections.deque()            # (dest robot, expectation) waiting for the outage windows
+        self.ingested_mac = float("-inf")
+        self.extras = self.lost = self.lost_unplugged = self.order_bad = self.released = self.late = 0
+        self.cross = False
+        self.lat = collections.Counter()
+        self.last_seq = {}
+        self.held = collections.Counter()
+        self.clock_rx = {}      # (route, robot, cable) -> [last t, Counter of intervals, n]
+        self.clock_tx = {}      # (robot, cable) -> [first t, last t, n]
+        self.heard = {}         # (robot, cable) -> [n heard, first tick, last tick, ticks, Counter of intervals]
+        self.plug_t = {n: None for n in self.names}
+        self.plugs = 0
+        self.reconnect = collections.Counter()
+        self.typical, self.window = 0, 5000
+
+    # --- feeding
+
+    def sync(self, name, s):
+        self.model[name].add(s)
+
+    def records(self, name, recs, complete_us=None):
+        self.buf[name] += recs
+        if complete_us is not None:
+            self.complete[name] = complete_us
+
+    def advance(self):
+        """Checks everything every robot is settled past; returns the Mac time reached."""
+        horizon = []
+        for n in self.names:
+            m, c = self.model[n], self.complete[n]
+            if m.known_through() is None or c is None:
+                return self.ingested_mac
+            horizon.append(m(min(c - self.REORDER_US, m.known_through())))
+        self._ingest(min(horizon))
+        return self.ingested_mac
+
+    def finish(self, statuses):
+        self._ingest(float("inf"))
+        for n in self.names:
+            self.down[n].finish()
+        self._match(float("inf"))
+        for k, q in self.expect.items():
+            self.missing += [(k[0], e) for e in q]
+        self.expect.clear()
+        self._classify(final=True)
+        return self._result(statuses)
+
+    # --- the passes
+
+    def _ingest(self, upto_mac):
+        evs = []
+        for i, n in enumerate(self.names):
+            b = self.buf[n]
+            if not b:
                 continue
-            msg = pkt[1:1 + msg_len(pkt[1])]
-            if not passes(rt.get("filter"), msg):
-                continue
-            want = mapped(rt.get("map"), msg)
-            expect[(dst["robot"], dst.get("cable", 0), want)].append(
-                {"route": ri, "seq": seq, "t": t, "t_mac": to_mac(t), "src": src["robot"]})
-            seq += 1
-    for key in expect:
-        expect[key] = sorted(expect[key], key=lambda e: e["t_mac"])
+            b.sort(key=lambda r: r[1])
+            to_mac = self.model[n]
+            cut = len(b) if upto_mac == float("inf") else 0
+            if not cut:
+                while cut < len(b) and to_mac(b[cut][1]) <= upto_mac:
+                    cut += 1
+            for kind, t, pkt in b[:cut]:
+                evs.append((to_mac(t), 0 if kind == "s" else 1, i, t, kind, pkt))
+            del b[:cut]
+        evs.sort(key=lambda e: e[:3])
+        for t_mac, _, i, t, kind, pkt in evs:
+            n = self.names[i]
+            if t_mac < self.ingested_mac:
+                self.late += 1
+            self._event(n, t_mac, t, kind, pkt)
+        if upto_mac != float("inf"):
+            self.ingested_mac = max(self.ingested_mac, upto_mac)
+            for n in self.names:
+                self.down[n].passed(upto_mac)
+            self._update_window()
+            self._match(upto_mac - self.window + min(self.typical, 0))
+            self._expire(upto_mac - self.window + min(self.typical, 0))
+            self._classify()
+            self._prune()
+        elif evs:
+            self.ingested_mac = max(self.ingested_mac, evs[-1][0])
+        self._update_window()
 
-    # Arrivals, each matched to an expectation of the same content. First an
-    # estimate of the latency: each arrival against the latest expectation sent
-    # before it. Then each arrival takes the unmatched expectation nearest
-    # (arrival - that latency); one further off than the match window is an
-    # extra (a duplicate), and expectations passed over are lost. So one lost
-    # or doubled message among identical ones (clock ticks) is the one counted,
-    # as long as identical messages are further apart than latency + jitter.
-    dest_cables = {(rt["to"]["robot"], rt["to"].get("cable", 0)) for rt in routes}
-    # listen: a cable that takes what the P4 makes itself (its clock), checked
-    # against the scenario's numbers rather than a robot's sends.
-    listens = {(ls["robot"], ls.get("cable", 0)): ls for ls in scn.get("listen", [])}
-    heard = collections.defaultdict(list)
-    arrivals, extras = [], 0
-    for n, d in data.items():
-        to_mac = models[n][0]
-        for kind, t, pkt in d["records"]:
-            if kind != "r":
-                continue
-            cable = pkt[0] >> 4
-            msg = pkt[1:1 + msg_len(pkt[1])]
-            ls = listens.get((n, cable))
-            if ls and passes(ls.get("filter", {"types": ["clock", "transport"]}), msg):
-                heard[(n, cable)].append((t, msg))
-            elif (n, cable) not in dest_cables:
-                extras += 1
-            else:
-                arrivals.append((to_mac(t), t, n, cable, msg))
-    arrivals.sort(key=lambda a: a[0])
-
-    times = {k: [e["t_mac"] for e in q] for k, q in expect.items()}
-    est = []
-    for a in arrivals:
-        ts = times.get((a[2], a[3], a[4]))
-        if ts:
-            i = bisect.bisect_right(ts, a[0]) - 1
-            if i >= 0:
-                est.append(a[0] - ts[i])
-    typical = statistics.median(est) if est else 0
-    mad = statistics.median(abs(x - typical) for x in est) if est else 0
-    window = ms_us(lim["match_window_ms"]) if "match_window_ms" in lim else max(5000, 8 * mad)
-    numbers["match_window_ms"] = round(window / 1000, 3)
-
-    pos = collections.defaultdict(int)
-    pairs, missing = [], []
-    for a in arrivals:
-        k = (a[2], a[3], a[4])
-        q = expect.get(k)
-        i = pos[k]
-        if not q or i >= len(q):
-            extras += 1
-            continue
-        target = a[0] - typical
-        j = i
-        while j + 1 < len(q) and abs(q[j + 1]["t_mac"] - target) < abs(q[j]["t_mac"] - target):
-            j += 1
-        if abs(q[j]["t_mac"] - target) > window:
-            extras += 1
-            continue
-        missing += [(a[2], e) for e in q[i:j]]
-        pairs.append((a, q[j]))
-        pos[k] = j + 1
-    missing += [(k[0], e) for k, q in expect.items() for e in q[pos[k]:]]
-
-    lat, order_bad, cross = [], 0, False
-    last_seq = {}
-    clock_rx = collections.defaultdict(list)
-    held = collections.Counter()
-    for (t_mac, t, n, cable, msg), e in pairs:
-        same = e["src"] == n
-        cross |= not same
-        lat.append((t - e["t"]) if same else (t_mac - e["t_mac"]))
-        key = (e["route"], n, cable)
-        if e["seq"] < last_seq.get(key, -1):
-            order_bad += 1
-        last_seq[key] = max(e["seq"], last_seq.get(key, -1))
-        if msg[0] == 0xF8:
-            clock_rx[key].append(t)
-    # Stuck notes: what each receiver holds down, in arrival order.
-    for t_mac, t, n, cable, msg in arrivals:
+    def _event(self, n, t_mac, t, kind, pkt):
+        self.counts[n][kind] += 1
+        if kind in "upMU":
+            self.down[n].record(kind, t_mac)
+            if kind == "p":
+                self.plugs += 1
+                self.plug_t[n] = t
+            elif kind == "M" and self.plug_t[n] is not None:
+                if t - self.plug_t[n] <= self.reenum_us:
+                    self.reconnect[round((t - self.plug_t[n]) / 1000, 1)] += 1
+                self.plug_t[n] = None
+            return
+        cable = pkt[0] >> 4
+        msg = pkt[1:1 + msg_len(pkt[1])]
+        if kind == "s":
+            if msg[0] == 0xF8:
+                c = self.clock_tx.setdefault((n, cable), [t, t, 0])
+                c[1], c[2] = t, c[2] + 1
+            for ri, rt in enumerate(self.routes):
+                src, dst = rt["from"], rt["to"]
+                if src["robot"] != n or src.get("cable", 0) != cable or not passes(rt.get("filter"), msg):
+                    continue
+                key = (dst["robot"], dst.get("cable", 0), mapped(rt.get("map"), msg))
+                self.expect[key].append({"route": ri, "seq": self.seq[ri], "t": t, "t_mac": t_mac, "src": n})
+                self.last_exp[key] = t_mac
+                self.seq[ri] += 1
+            return
+        if kind != "r":
+            return
+        ls = self.listens.get((n, cable))
+        if ls and passes(ls.get("filter", {"types": ["clock", "transport"]}), msg):
+            h = self.heard.setdefault((n, cable), [0, None, None, 0, collections.Counter()])
+            h[0] += 1
+            if msg[0] == 0xF8:
+                if h[2] is not None:
+                    h[4][t - h[2]] += 1
+                if h[1] is None:
+                    h[1] = t
+                h[2], h[3] = t, h[3] + 1
+            return
+        if (n, cable) not in self.dest_cables:
+            self.extras += 1
+            return
+        key = (n, cable, msg)
+        if key in self.last_exp:
+            self.est.append(t_mac - self.last_exp[key])
+        self.arrivals.append((t_mac, t, n, cable, msg))
+        # Stuck notes: what each receiver holds down, in arrival order.
         if kind_of(msg) == "note" and msg[0] < 0xA0:
             k = (n, cable, msg[0] & 0x0F, msg[1])
             if msg[0] >> 4 == 0x9 and msg[2] > 0:
-                held[k] += 1
-            elif held[k] > 0:
-                held[k] -= 1
+                self.held[k] += 1
+            elif self.held[k] > 0:
+                self.held[k] -= 1
+        elif is_all_notes_off(msg):
+            for k in [k for k in self.held if k[:3] == (n, cable, msg[0] & 0x0F)]:
+                del self.held[k]
 
-    lost = lost_unplugged = 0
-    for dr, e in missing:
-        if in_outage({dr, e["src"]}, e["t_mac"]):
-            lost_unplugged += 1
+    def _update_window(self):
+        if self.est:
+            self.typical = statistics.median(self.est)
+            mad = statistics.median(abs(x - self.typical) for x in self.est)
         else:
-            lost += 1
-    put("loss", lost, lim.get("loss_max", 0), lost <= lim.get("loss_max", 0))
-    numbers["lost_unplugged"] = lost_unplugged
-    put("extra", extras, lim.get("extra_max", 0), extras <= lim.get("extra_max", 0))
-    if lim.get("order", True):
-        put("order", order_bad, 0, order_bad == 0)
-    numbers["matched"] = len(lat)
-    if lat:
-        ms = [x / 1000 for x in lat]
-        numbers.update(latency_ms_p50=round(pct(ms, 50), 3), latency_ms_p99=round(pct(ms, 99), 3),
-                       latency_ms_max=round(max(ms), 3), latency_ms_min=round(min(ms), 3),
-                       jitter_ms=round(pct(ms, 99) - pct(ms, 50), 3))
-        numbers["latency_basis_us"] = (round(max(models[n][1] for n in data)) if cross else 0)
-        if "latency_ms_max" in lim:
-            put("latency", numbers["latency_ms_max"], lim["latency_ms_max"],
-                numbers["latency_ms_max"] <= lim["latency_ms_max"])
-        if "jitter_ms_max" in lim:
-            put("jitter", numbers["jitter_ms"], lim["jitter_ms_max"], numbers["jitter_ms"] <= lim["jitter_ms_max"])
-    worst = None
-    for (ri, n, cable), ts in clock_rx.items():
-        # The nominal interval is the sender's own: the rep line's grid.
-        sent = [e for e in (r for r in data[routes[ri]["from"]["robot"]]["records"])
-                if e[0] == "s" and e[2][1] == 0xF8 and e[2][0] >> 4 == routes[ri]["from"].get("cable", 0)]
-        if len(ts) < 3 or len(sent) < 3:
-            continue
-        nominal = (sent[-1][1] - sent[0][1]) / (len(sent) - 1)
-        devs = [abs((b - a) - nominal) / 1000 for a, b in zip(ts, ts[1:])]
-        worst = max(worst or 0, max(devs))
-        numbers["clock_interval_ms_stdev"] = round(statistics.pstdev([(b - a) / 1000 for a, b in zip(ts, ts[1:])]), 4)
-    for key, got in heard.items():
-        ls = listens[key]
-        ts = [t for t, m in got if m[0] == 0xF8]
-        numbers[f"{key[0]}{key[1]}_heard"] = len(got)
-        if "clock" in ls and len(ts) >= 3:
-            nominal = 60e6 / (ls["clock"]["bpm"] * 24)
-            devs = [abs((b - a) - nominal) / 1000 for a, b in zip(ts, ts[1:])]
-            worst = max(worst or 0, max(devs))
-            numbers[f"{key[0]}{key[1]}_clock_bpm"] = round(60e6 / ((ts[-1] - ts[0]) / (len(ts) - 1)) / 24, 3)
-            if "ticks_min" in ls["clock"]:
-                put(f"clock_ticks_{key[0]}{key[1]}", len(ts), ls["clock"]["ticks_min"], len(ts) >= ls["clock"]["ticks_min"])
-    if worst is not None:
-        numbers["clock_jitter_ms"] = round(worst, 4)
-        if "clock_jitter_ms_max" in lim:
-            put("clock_jitter", round(worst, 4), lim["clock_jitter_ms_max"], worst <= lim["clock_jitter_ms_max"])
-    stuck = sum(v for v in held.values() if v > 0)
-    put("stuck_notes", stuck, lim.get("stuck_notes_max", 0), stuck <= lim.get("stuck_notes_max", 0))
+            self.typical, mad = 0, 0
+        self.window = ms_us(self.lim["match_window_ms"]) if "match_window_ms" in self.lim else max(5000, 8 * mad)
 
-    reconnect, plugs = [], 0
+    def _match(self, upto_mac):
+        """Each arrival takes the unmatched expectation nearest (arrival - typical
+        latency); one further off than the window is an extra (a duplicate), and
+        expectations passed over are lost. As night 0's checker."""
+        while self.arrivals and self.arrivals[0][0] <= upto_mac:
+            a = self.arrivals.popleft()
+            t_mac, t, n, cable, msg = a
+            k = (n, cable, msg)
+            q = self.expect.get(k)
+            if not q:
+                self._extra(a)
+                continue
+            target = t_mac - self.typical
+            j = 0
+            while j + 1 < len(q) and abs(q[j + 1]["t_mac"] - target) < abs(q[j]["t_mac"] - target):
+                j += 1
+            if abs(q[j]["t_mac"] - target) > self.window:
+                self._extra(a)
+                continue
+            for _ in range(j):
+                self.missing.append((n, q.popleft()))
+            e = q.popleft()
+            same = e["src"] == n
+            self.cross |= not same
+            self.lat[(t - e["t"]) if same else round(t_mac - e["t_mac"])] += 1
+            key = (e["route"], n, cable)
+            if e["seq"] < self.last_seq.get(key, -1):
+                self.order_bad += 1
+            self.last_seq[key] = max(e["seq"], self.last_seq.get(key, -1))
+            if msg[0] == 0xF8:
+                c = self.clock_rx.setdefault(key, [None, collections.Counter(), 0])
+                if c[0] is not None:
+                    c[1][t - c[0]] += 1
+                c[0], c[2] = t, c[2] + 1
+
+    def _extra(self, a):
+        """An arrival no route explains. A note-off (or all-notes-off) at a
+        destination while one of its sources is unplugged is the P4 releasing
+        what that source held: released, not extra."""
+        t_mac, _, n, cable, msg = a
+        if (is_note_off(msg) or is_all_notes_off(msg)) and any(
+                self.down[s].covers(t_mac) is not False for s in self.sources[(n, cable)]):
+            self.released += 1
+        else:
+            self.extras += 1
+
+    def _expire(self, matched_through):
+        """Expectations no later arrival can reach are lost (night 0 counted them
+        at the end): an arrival after matched_through aims past them by more than
+        the window."""
+        before = matched_through - self.typical - self.window - 1
+        for k, q in list(self.expect.items()):
+            while q and q[0]["t_mac"] < before:
+                self.missing.append((k[0], q.popleft()))
+            if not q:
+                del self.expect[k]
+
+    def _classify(self, final=False):
+        keep = collections.deque()
+        while self.missing:
+            dr, e = self.missing.popleft()
+            if not final and e["t_mac"] + UNPLUG_GRACE_US >= self.ingested_mac:
+                keep.append((dr, e))  # an unplug just after it may not be in yet
+                continue
+            v = [self.down[r].covers(e["t_mac"]) for r in {dr, e["src"]}]
+            if True in v:
+                self.lost_unplugged += 1
+            elif None in v and not final:
+                keep.append((dr, e))
+            else:
+                self.lost += 1
+        self.missing = keep
+
+    def _prune(self):
+        oldest = min([e["t_mac"] for _, e in self.missing] + [self.ingested_mac - 60e6])
+        for n in self.names:
+            self.down[n].prune(oldest)
+        for k in [k for k, t in self.last_exp.items() if t < self.ingested_mac - 60e6]:
+            del self.last_exp[k]
+
+    # --- the result
+
+    def snapshot(self):
+        """Numbers so far, for a long run's progress lines."""
+        out = {"checked_to_s": round(self.ingested_mac / 1e6, 1) if self.ingested_mac > float("-inf") else None,
+               "matched": sum(self.lat.values()), "lost": self.lost, "lost_unplugged": self.lost_unplugged,
+               "extra": self.extras, "order": self.order_bad, "released": self.released,
+               "held_now": sum(v for v in self.held.values() if v > 0),
+               "buffered": sum(len(b) for b in self.buf.values()) + len(self.arrivals) +
+               sum(len(q) for q in self.expect.values())}
+        if self.lat:
+            out.update(latency_ms_p50=round(pct_counter(self.lat, 50) / 1000, 3),
+                       latency_ms_max=round(max(self.lat) / 1000, 3))
+        return out
+
+    def _result(self, statuses):
+        lim = self.lim
+        checks, numbers = {}, {}
+
+        def put(name, value, limit, ok):
+            checks[name] = {"ok": ok, "value": value, "limit": limit}
+
+        gaps = []
+        for n in self.names:
+            st = statuses[n]
+            s, r = self.counts[n]["s"], self.counts[n]["r"]
+            if s != st["sent"] or r != st["recv"] or st["log_lost_tx"] or st["log_lost_rx"]:
+                gaps.append(f"{n}: sent {st['sent']} logged {s}, recv {st['recv']} logged {r}, "
+                            f"log lost {st['log_lost_tx']}+{st['log_lost_rx']}")
+        put("accounted", "; ".join(gaps) or "all", "all", not gaps)
+        numbers["match_window_ms"] = round(self.window / 1000, 3)
+        put("loss", self.lost, lim.get("loss_max", 0), self.lost <= lim.get("loss_max", 0))
+        numbers["lost_unplugged"] = self.lost_unplugged
+        put("extra", self.extras, lim.get("extra_max", 0), self.extras <= lim.get("extra_max", 0))
+        if lim.get("order", True):
+            put("order", self.order_bad, 0, self.order_bad == 0)
+        numbers["matched"] = sum(self.lat.values())
+        if self.lat:
+            p50, p99 = (pct_counter(self.lat, p) / 1000 for p in (50, 99))
+            numbers.update(latency_ms_p50=round(p50, 3), latency_ms_p99=round(p99, 3),
+                           latency_ms_max=round(max(self.lat) / 1000, 3), latency_ms_min=round(min(self.lat) / 1000, 3),
+                           jitter_ms=round(p99 - p50, 3))
+            basis = round(max(self.model[n].rtt_max for n in self.names) / 2) if self.cross else 0
+            numbers["latency_basis_us"] = basis
+            if "latency_ms_max" in lim:
+                # Across two robots the clock tie is only good to the basis: fail
+                # only a latency over the limit by more than that.
+                put("latency", numbers["latency_ms_max"], lim["latency_ms_max"],
+                    numbers["latency_ms_max"] - basis / 1000 <= lim["latency_ms_max"])
+            if "jitter_ms_max" in lim:
+                put("jitter", numbers["jitter_ms"], lim["jitter_ms_max"], numbers["jitter_ms"] <= lim["jitter_ms_max"])
+        worst = None
+        for (ri, n, cable), (_, ivs, cnt) in self.clock_rx.items():
+            src = self.routes[ri]["from"]
+            tx = self.clock_tx.get((src["robot"], src.get("cable", 0)))
+            if cnt < 3 or not tx or tx[2] < 3:
+                continue
+            nominal = (tx[1] - tx[0]) / (tx[2] - 1)
+            worst = max(worst or 0, max(abs(v - nominal) for v in ivs) / 1000)
+            numbers["clock_interval_ms_stdev"] = round(pstdev_counter(ivs) / 1000, 4)
+            devs = collections.Counter()
+            for v, c in ivs.items():
+                devs[abs(v - nominal)] += c
+            numbers[f"{n}{cable}_clock_dev_ms_p99"] = round(pct_counter(devs, 99) / 1000, 4)
+        for key, (n_heard, first, last, ticks, ivs) in self.heard.items():
+            ls = self.listens[key]
+            numbers[f"{key[0]}{key[1]}_heard"] = n_heard
+            if "clock" in ls and ticks >= 3:
+                nominal = 60e6 / (ls["clock"]["bpm"] * 24)
+                worst = max(worst or 0, max(abs(v - nominal) for v in ivs) / 1000)
+                numbers[f"{key[0]}{key[1]}_clock_bpm"] = round(60e6 / ((last - first) / (ticks - 1)) / 24, 3)
+                devs = collections.Counter()
+                for v, c in ivs.items():
+                    devs[abs(v - nominal)] += c
+                numbers[f"{key[0]}{key[1]}_clock_dev_ms_p99"] = round(pct_counter(devs, 99) / 1000, 4)
+                numbers[f"{key[0]}{key[1]}_clock_interval_ms_stdev"] = round(pstdev_counter(ivs) / 1000, 4)
+                if "ticks_min" in ls["clock"]:
+                    put(f"clock_ticks_{key[0]}{key[1]}", ticks, ls["clock"]["ticks_min"], ticks >= ls["clock"]["ticks_min"])
+        if worst is not None:
+            numbers["clock_jitter_ms"] = round(worst, 4)
+            if "clock_jitter_ms_max" in lim:
+                put("clock_jitter", round(worst, 4), lim["clock_jitter_ms_max"], worst <= lim["clock_jitter_ms_max"])
+        stuck = sum(v for v in self.held.values() if v > 0)
+        put("stuck_notes", stuck, lim.get("stuck_notes_max", 0), stuck <= lim.get("stuck_notes_max", 0))
+        for n in self.names:
+            numbers[f"{n}_not_sent"] = statuses[n]["not_sent"]
+            numbers[f"{n}_unplugs"] = statuses[n]["unplugs"]
+        nrec = sum(self.reconnect.values())
+        if self.plugs:
+            put("remounted", f"{nrec}/{self.plugs}", f"all, within {self.reenum_us // 1000} ms", nrec == self.plugs)
+        if nrec:
+            numbers.update(reconnect_ms_max=max(self.reconnect), reconnect_ms_p50=pct_counter(self.reconnect, 50),
+                           reconnects=nrec)
+        if self.released:
+            numbers["released"] = self.released
+        if self.late:
+            numbers["late_records"] = self.late
+        return {"ok": all(c["ok"] for c in checks.values()), "checks": checks, "numbers": numbers}
+
+
+def check(scn, data):
+    """The checks for one run held in memory (run(keep=True), a saved run, the
+    tests): {"checks": {name: {ok, value, limit}}, "numbers": {...}, "ok": bool}.
+    Night 0's sync model: the first and last time requests."""
+    c = Checker(scn)
     for n, d in data.items():
-        plug_t = None
-        for kind, t, _ in sorted(d["records"], key=lambda r: r[1]):
-            if kind == "p":
-                plugs += 1
-                plug_t = t
-            elif kind == "M" and plug_t is not None:
-                if t - plug_t <= reenum_us:
-                    reconnect.append((t - plug_t) / 1000)
-                plug_t = None
-        numbers[f"{n}_not_sent"] = d["status"]["not_sent"]
-        numbers[f"{n}_unplugs"] = d["status"]["unplugs"]
-    if plugs:
-        # Every replug must end in the host mounting the robot again, in time.
-        put("remounted", f"{len(reconnect)}/{plugs}", f"all, within {reenum_us // 1000} ms", len(reconnect) == plugs)
-    if reconnect:
-        numbers.update(reconnect_ms_max=round(max(reconnect), 1), reconnect_ms_p50=round(pct(reconnect, 50), 1),
-                       reconnects=len(reconnect))
-    return {"ok": all(c["ok"] for c in checks.values()), "checks": checks, "numbers": numbers}
+        for s in (d["sync"][0], d["sync"][-1]):
+            c.sync(n, s)
+        c.records(n, list(d["records"]))
+    return c.finish({n: d["status"] for n, d in data.items()})
 
 
 def report(name, result, log=print):
@@ -821,6 +1272,94 @@ def ota(host, mac, image, expect_fw=None, log=print):
 
 # --- main --------------------------------------------------------------------
 
+def duration_s(v):
+    """8h, 90m, 600s or 600 -> seconds."""
+    m = re.fullmatch(r"(\d+(?:\.\d+)?)([hms]?)", v.strip())
+    if not m:
+        raise argparse.ArgumentTypeError(f"not a duration: {v}")
+    return float(m.group(1)) * {"h": 3600, "m": 60, "s": 1, "": 1}[m.group(2)]
+
+
+def run_checked(scn, robots, log=print, expect_macs=None, save=None, progress=None, **kw):
+    """run() with the windowed Checker taking the records as they're drained, so
+    nothing is held. --save streams the logs to a JSON-lines file as they come;
+    --progress appends the numbers so far, so a crash at hour 7 keeps them."""
+    checker = Checker(scn)
+    out = open(save, "w") if save else None
+    prog = open(progress, "a") if progress else None
+    started = time.monotonic()
+
+    def w(obj):
+        if out:
+            out.write(json.dumps(obj) + "\n")
+
+    w({"scenario": scn})
+
+    def on_sync(n, s):
+        checker.sync(n, s)
+        w({"robot": n, "sync": list(s)})
+
+    def on_records(n, recs, complete):
+        checker.records(n, recs, complete)
+        if recs or complete is not None:
+            w({"robot": n, "records": [[k, t, p.hex()] for k, t, p in recs], "complete": complete})
+        checker.advance()
+
+    def on_progress():
+        snap = dict(checker.snapshot(), wall_s=round(time.monotonic() - started, 1), scenario=scn.get("name"))
+        log("progress: " + ", ".join(f"{k}={v}" for k, v in snap.items()))
+        if prog:
+            prog.write(json.dumps(snap) + "\n")
+            prog.flush()
+        if out:
+            out.flush()
+
+    try:
+        data = run(scn, robots, log=log, expect_macs=expect_macs, keep=False, on_sync=on_sync,
+                   on_records=on_records, on_progress=on_progress, **kw)
+        for n, d in data.items():
+            w({"robot": n, "id": d["id"], "status": d["status"], "syncs_rejected": d["syncs_rejected"]})
+        result = checker.finish({n: d["status"] for n, d in data.items()})
+        for n, d in data.items():
+            result["numbers"][f"{n}_syncs_rejected"] = d["syncs_rejected"]
+        w({"result": result})
+        if prog:
+            prog.write(json.dumps(dict(checker.snapshot(), done=True, ok=result["ok"])) + "\n")
+        return result, data
+    finally:
+        for rb in robots.values():
+            rb.link.close()
+        for f in (out, prog):
+            if f:
+                f.close()
+
+
+def check_saved(path):
+    """Re-checks a run saved by --save (JSON lines, streamed through the Checker)
+    or by night 0's robot.py (one JSON object, held in memory)."""
+    with open(path) as f:
+        first = json.loads(f.readline())
+        if "data" in first:
+            data = {n: dict(d, records=[(k_, t, bytes.fromhex(p)) for k_, t, p in d["records"]])
+                    for n, d in first["data"].items()}
+            return first["scenario"], check(first["scenario"], data)
+        scn = first["scenario"]
+        checker, statuses = Checker(scn), {}
+        for line in f:
+            obj = json.loads(line)
+            n = obj.get("robot")
+            if "sync" in obj:
+                checker.sync(n, tuple(obj["sync"]))
+            elif "records" in obj:
+                checker.records(n, [(k_, t, bytes.fromhex(p)) for k_, t, p in obj["records"]], obj["complete"])
+                checker.advance()
+            elif "status" in obj:
+                statuses[n] = obj["status"]
+        if set(statuses) != set(scn["robots"]):
+            raise RobotError(f"{path}: the run didn't finish (no final status for every robot)")
+        return scn, checker.finish(statuses)
+
+
 def kv(items):
     out = {}
     for it in items or []:
@@ -843,7 +1382,13 @@ def main(argv=None):
     r.add_argument("--sim-opt", action="append", default=[], help="an option for robot_sim, e.g. --sim-opt=--drop-every=10")
     r.add_argument("--baud", type=int, default=BAUD)
     r.add_argument("--runs", default=str(ROOT / "build" / "robot" / "runs.jsonl"))
-    r.add_argument("--save", help="write the run's logs and result here (robot.py check reads it)")
+    r.add_argument("--save", help="stream the run's logs and syncs here as JSON lines (robot.py check reads it)")
+    r.add_argument("--duration", type=duration_s,
+                   help="stretch the scenario to this long (8h, 90m, 600s): its pattern repeated, for a soak")
+    r.add_argument("--repeat", type=int, help="play the scenario's pattern this many times back to back")
+    r.add_argument("--sync-s", type=float, default=SYNC_S, help="seconds between clock ties to the robots")
+    r.add_argument("--progress", help="append the numbers so far here as JSON lines, every --progress-s")
+    r.add_argument("--progress-s", type=float, default=PROGRESS_S)
     c = sub.add_parser("check")
     c.add_argument("saved")
     m = sub.add_parser("cmd")
@@ -886,31 +1431,25 @@ def main(argv=None):
                 print(reply)
             return 0
         if a.what == "check":
-            saved = json.loads(pathlib.Path(a.saved).read_text())
-            data = {n: dict(d, records=[(k_, t, bytes.fromhex(p)) for k_, t, p in d["records"]])
-                    for n, d in saved["data"].items()}
-            result = check(saved["scenario"], data)
-            report(saved["scenario"].get("name", a.saved), result)
+            scn, result = check_saved(a.saved)
+            report(scn.get("name", a.saved), result)
             return 0 if result["ok"] else 1
         scn = json.loads(pathlib.Path(a.scenario).read_text())
+        if a.repeat:
+            scn = dict(scn, repeat=a.repeat)
+        if a.duration:
+            scn = with_duration(scn, a.duration)
+        name = scn.get("name", pathlib.Path(a.scenario).stem)
         if a.sim:
-            if len(scn["robots"]) != 1:
-                raise RobotError("--sim runs one-robot scenarios (cable 0 routed back to cable 1)")
-            opts = [o for s in a.sim_opt for o in s.split("=", 1)]
-            robots = {scn["robots"][0]: Robot(scn["robots"][0], SimLink(opts))}
+            robots = sim_robots(scn, [o for s_ in a.sim_opt for o in s_.split("=", 1)])
         else:
             ports = kv(a.robot)
             missing = [n for n in scn["robots"] if n not in ports]
             if missing:
                 raise RobotError(f"no --robot for {', '.join(missing)}")
             robots = {n: Robot(n, open_link(ports[n], a.baud)) for n in scn["robots"]}
-        try:
-            data = run(scn, robots, expect_macs=kv(a.mac))
-        finally:
-            for rb in robots.values():
-                rb.link.close()
-        result = check(scn, data)
-        name = scn.get("name", pathlib.Path(a.scenario).stem)
+        result, data = run_checked(scn, robots, expect_macs=kv(a.mac), save=a.save, progress=a.progress,
+                                   sync_s=a.sync_s, progress_s=a.progress_s, poll_s=SIM_POLL_S if a.sim else POLL_S)
         report(name, result)
         line = {"time": time.strftime("%Y-%m-%dT%H:%M:%S"), "scenario": name, "sim": a.sim,
                 "robots": {n: d["id"] for n, d in data.items()}, **result}
@@ -918,10 +1457,6 @@ def main(argv=None):
         runs.parent.mkdir(parents=True, exist_ok=True)
         with runs.open("a") as f:
             f.write(json.dumps(line) + "\n")
-        if a.save:
-            pathlib.Path(a.save).write_text(json.dumps({
-                "scenario": scn, "result": result,
-                "data": {n: dict(d, records=[(k_, t, p.hex()) for k_, t, p in d["records"]]) for n, d in data.items()}}))
         return 0 if result["ok"] else 1
     except RobotError as e:
         print(f"robot.py: {e}", file=sys.stderr)
