@@ -18,7 +18,7 @@ The license review done before the repo went public (2026-10-31).
 | FM1Kit (`ocean/FM1Kit`, MIT) | nothing ported; reviewed for the crash lead only | | no | none |
 | m-bootloader | nothing ported; not referenced anywhere | | no | none |
 | JieLi `wl82loader.bin` | never committed; fetched by `make fixtures`, refused by `build_site.py` | unclear (JieLi's) | **must not ship** | already guarded |
-| MIDI Guide (`pencilresearch/midi`) | data: `data/profiles/midi-guide/` (samples), built by `tools/profiles/midiguide.py` | CC-BY-SA 4.0, Pencil Research | not yet | attribution in every profile and NOTICE: **added**; profiles made from it stay CC-BY-SA (ShareAlike), separate from the GPL code |
+| MIDI Guide (`pencilresearch/midi`) | data: `data/profiles/` (sample profiles, import report), built by `tools/profiles/midiguide.py` | CC-BY-SA 4.0, Pencil Research | not yet | attribution in every profile and NOTICE: **added**; profiles made from it stay CC-BY-SA (ShareAlike), separate from the GPL code |
 
 **Binaries ship from the site,** so the MIT and BSD notices travel with them: `make site` copies `NOTICE` to
 `site/NOTICE.txt`, and the installer page's footer links it.
