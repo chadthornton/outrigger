@@ -405,8 +405,9 @@ flash-synth-bench: synth-bench
 # no audio device, no screen, console on UART0, which reaches the Mac through
 # Big-P4's UART-C port (CH343P). `make synth-bench-p4` builds;
 # `make flash-synth-bench-p4` reads the chip's MAC over UART-C with esptool
-# (ending in a hard reset), flashes only if it is Big-P4's, then writes the
-# merged image over that port. Big-P4's USB-C port is the P4's USB OTG port
+# (ending in a hard reset), flashes only if it is Big-P4's, then writes each
+# piece at its own offset (tools/p4_flash.sh), never NVS, where Big-P4 keeps
+# its saved Wi-Fi network (night 1). Big-P4's USB-C port is the P4's USB OTG port
 # (the hub's), not a console: don't flash over it.
 P4_PORT ?= /dev/cu.usbmodem5CF70432541
 P4_MAC := e8:f6:0a:e8:a5:55
@@ -420,11 +421,7 @@ synth-bench-p4:
 		--build-property "compiler.c.extra_flags=$(SYNTH_C_FLAGS) -I$(CURDIR)/lib/synth/src $(P4_BENCH_FLAGS)" \
 		--build-path $(CACHE_ROOT)/big_p4/synth-bench-p4 --output-dir $(P4_BENCH_BUILD) firmware/synth_bench_p4
 flash-synth-bench-p4: synth-bench-p4
-	@mac="$$($(P4_PY) -m esptool --chip esp32p4 --port $(P4_PORT) --after hard_reset read_mac 2>&1)" || { echo "$$mac"; echo "can't read the MAC on $(P4_PORT); not flashing"; exit 1; }; \
-		echo "$$mac" | grep -q "MAC: $(P4_MAC)" || { echo "$$mac"; echo "$(P4_PORT) is not Big-P4 ($(P4_MAC)); not flashing"; exit 1; }; \
-		echo "Big-P4 ($(P4_MAC)) on $(P4_PORT)"
-	$(P4_PY) -m esptool --chip esp32p4 --port $(P4_PORT) -b 460800 --before default_reset --after hard_reset \
-		write_flash 0x0 $(P4_BENCH_BUILD)/synth_bench_p4.ino.merged.bin
+	tools/p4_flash.sh $(P4_BENCH_BUILD) synth_bench_p4
 
 # Big-P4's hub firmware (firmware/p4_hub, spike night 1): the diag web page at
 # http://p4hub.local and the USB host behind the hub. `make flash-p4-hub`

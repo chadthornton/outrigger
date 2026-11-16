@@ -121,7 +121,7 @@ def step_hotplug(out):
           f"short_desc_failed {b['usb']['short_desc_failed']} -> {a['usb']['short_desc_failed']}")
     for k in after["usb"]["identities"]:
         print(f"  {k['product']!r} {k['serial']}: connects {k['connects']} disconnects {k['disconnects']} "
-              f"remount (P4 side, disconnect->connect) n={k['remount_n']} min/mean/max "
+              f"P4 side disconnect->connect (includes the robot's 300 ms down) n={k['remount_n']} min/mean/max "
               f"{k['remount_ms_min']}/{k['remount_ms_mean']}/{k['remount_ms_max']} ms")
     return rc
 

@@ -11,7 +11,7 @@
 // GET  /usb          JSON: devices, cables, channels, per-cable counts, remount times
 // Bench (lab network only; this is a spike build):
 // POST /bench/replug        software replug of the whole bus
-// POST /bench/echo?on=0|1   echo MIDI back to the sender (default on)
+// POST /bench/echo?on=0|1   echo MIDI back to the sender (default off)
 // POST /bench/reset         zero the USB counters
 // GET  /bench/hubport?port=N        the external hub's port status bits
 // POST /bench/hubport?port=N&power=0|1

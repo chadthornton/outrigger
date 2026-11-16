@@ -61,7 +61,8 @@ struct Echo {
   uint8_t pkt[4];
 };
 QueueHandle_t echoes;
-volatile bool echo_on = true;
+volatile bool echo_on = false;
+volatile HubMidiIn midi_in = nullptr;
 volatile bool replug_wanted = false;
 uint32_t echo_dropped = 0, midi_unknown_dev = 0, hub_connects = 0, replugs = 0;
 uint32_t topology_dirty_ms = 0;
@@ -128,12 +129,10 @@ void on_midi(const EspUsbHostMidiMessage &m) {
   }
   if (!found) ++midi_unknown_dev;
   portEXIT_CRITICAL_SAFE(&mux);
-  if (echo_on && m.raw && m.length == 4) {
-    Echo e;
-    e.address = m.address;
-    memcpy(e.pkt, m.raw, 4);
-    if (xQueueSend(echoes, &e, 0) != pdTRUE) ++echo_dropped;
-  }
+  if (!m.raw || m.length != 4) return;
+  const HubMidiIn fn = midi_in;
+  if (fn) fn(m.address, m.raw, millis());
+  if (echo_on && !hub_usb_send(m.address, m.raw)) ++echo_dropped;
 }
 
 // Sends echoes off the USB client task.
@@ -202,16 +201,21 @@ void handle(const Event &e) {
              e.address, e.parent, e.port, e.id.vid, e.id.pid, e.id.product, e.hub,
              midi ? mp.inCableCount : 0, midi ? mp.outCableCount : 0, ch);
   } else {
+    // The identity stored at connect: a gone device's own strings may be empty.
+    Ident id = e.id;
     portENTER_CRITICAL_SAFE(&mux);
     for (Dev &d : devs)
-      if (d.used && d.address == e.address) d.used = false;
-    Kind *k = kind_for(e.id);
+      if (d.used && d.address == e.address) {
+        id = d.id;
+        d.used = false;
+      }
+    Kind *k = kind_for(id);
     if (k) {
       ++k->disconnects;
       k->last_disconnect_ms = e.ms;
     }
     portEXIT_CRITICAL_SAFE(&mux);
-    HLOG_USB("DISCONNECTED addr=%u %04x:%04x \"%s\"", e.address, e.id.vid, e.id.pid, e.id.product);
+    HLOG_USB("DISCONNECTED addr=%u %04x:%04x \"%s\" %s", e.address, id.vid, id.pid, id.product, id.serial);
   }
   topology_dirty_ms = millis();
 }
@@ -273,6 +277,13 @@ uint8_t hub_usb_device_count() {
 uint8_t hub_usb_channels_used() { return channels_used; }
 uint8_t hub_usb_channels_max() { return channels_max; }
 void hub_usb_set_echo(bool on) { echo_on = on; }
+void hub_usb_on_midi(HubMidiIn fn) { midi_in = fn; }
+bool hub_usb_send(uint8_t address, const uint8_t pkt[4]) {
+  Echo e;
+  e.address = address;
+  memcpy(e.pkt, pkt, 4);
+  return xQueueSend(echoes, &e, 0) == pdTRUE;
+}
 bool hub_usb_echo() { return echo_on; }
 void hub_usb_request_replug() { replug_wanted = true; }
 

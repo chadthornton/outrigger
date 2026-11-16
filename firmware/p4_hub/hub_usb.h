@@ -2,7 +2,13 @@
 // speed as the probe found it must be (no split transactions). Keeps a table of
 // what's connected, counts MIDI packets per device and cable, times each
 // device's (re)mount, and can echo every MIDI packet back to the device and
-// cable it came from (the robots' loopback check of both directions).
+// cable it came from (the robots' loopback check of both directions; off by
+// default, C0-1's tools turn it on).
+//
+// The seam for HW2's graph: hub_usb_on_midi() registers the one MIDI-in
+// callback (USB client task: copy and return, never block), and
+// hub_usb_send() queues a USB-MIDI packet to a device from any task; the echo
+// task drains that queue, so sends never run on the client task.
 //
 // Threads: callbacks arrive on EspUsbHost's client task and only copy into a
 // queue or bump counters under a spinlock; hub_usb_loop() (Arduino loop) owns
@@ -19,6 +25,12 @@ int hub_usb_lines(char lines[][48], int max);
 uint8_t hub_usb_device_count();
 uint8_t hub_usb_channels_used();
 uint8_t hub_usb_channels_max();
+// Called on EspUsbHost's client task for every USB-MIDI packet (pkt[0] is
+// cable << 4 | CIN). One callback; nullptr clears it.
+typedef void (*HubMidiIn)(uint8_t address, const uint8_t pkt[4], uint32_t ms);
+void hub_usb_on_midi(HubMidiIn fn);
+// Queues one packet to a device's MIDI OUT. False when the queue is full.
+bool hub_usb_send(uint8_t address, const uint8_t pkt[4]);
 void hub_usb_set_echo(bool on);
 bool hub_usb_echo();
 // Bench: a software replug of the whole bus (end, 1 s, begin), as the probe's `p`.

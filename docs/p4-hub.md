@@ -56,7 +56,7 @@ python3 -I tools/p4_diag.py post /bench/replug
 
 The HS OTG port runs forced full speed (the probe's finding: no split transactions), with the large
 periodic-OUT FIFO. 16 host channels. Every MIDI packet is echoed back to the device and cable it came
-from (on by default; `POST /bench/echo?on=0` turns it off), so a robot checks both directions of both
+from (off by default; `POST /bench/echo?on=1` turns it on, and `tools/c0_1.py` does), so a robot checks both directions of both
 cables by itself (`tools/robot_scenarios/c0-1-cables.json`). `tools/c0_1.py` runs C0-1.
 
 ## Board facts found here
