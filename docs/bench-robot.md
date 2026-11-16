@@ -11,7 +11,8 @@ pass their tests, but it has never been flashed.
 | `tools/robot.py` | drives robots from the Mac: runs a scenario, collects the logs, checks them |
 | `tools/robot_scenarios/` | one scenario per hub use case in the charter |
 | `tests/test_robot_proto.cpp` | the protocol core on the Mac (`make test`) |
-| `tests/robot_sim.cpp` | the same core behind a pretend P4, in virtual time (`robot.py run ... --sim`) |
+| `tests/robot_sim.cpp` | the same core, several robots behind a pretend P4, in virtual time (`robot.py run ... --sim`) |
+| `tests/robot_check_ref.py` | night 0's checker and `expand()`, the reference the tests hold the windowed ones to |
 | `tests/test_robot.py` | the checker on made-up logs, and whole scenarios against the simulator with faults injected |
 
 ## The board
@@ -75,15 +76,18 @@ How the timing works:
 
 ```sh
 python3 -I tools/robot.py run tools/robot_scenarios/loopback.json --robot a=/dev/cu.usbserial-XXXX --mac a=aa:bb:..
-python3 -I tools/robot.py run tools/robot_scenarios/merge.json --robot a=... --robot b=...
-python3 -I tools/robot.py run tools/robot_scenarios/loopback.json --sim --sim-opt=--drop-every=50   # no hardware
+python3 -I tools/robot.py run tools/robot_scenarios/merge.json --robot a=robot-2b28.local --robot b=robot-a23c.local \
+    --mac a=44:bd:8d:61:2b:28 --mac b=a0:85:e3:f0:a2:3c
+python3 -I tools/robot.py run tools/robot_scenarios/merge.json ... --duration 8h --progress build/robot/merge.progress.jsonl
+python3 -I tools/robot.py run tools/robot_scenarios/merge.json --sim --sim-opt=--drop-every=50   # no hardware
 build/tools-venv/bin/python tools/robot.py cmd --port /dev/cu.usbserial-XXXX status "log 10"         # by hand
 ```
 
-A real port needs pyserial (`make`'s tools venv has it); `--sim` and the tests don't. Opening the port holds DTR and
-RTS so the DevKitC's auto-reset circuit doesn't reset the robot (to confirm on the board: night 1). Each run appends
-one JSON line to `build/robot/runs.jsonl`; `--save run.json` keeps the logs, and `robot.py check run.json` checks them
-again.
+A real UART port needs pyserial (`make`'s tools venv has it); Wi-Fi robots, `--sim` and the tests don't. Opening a
+UART port holds DTR and RTS so the DevKitC's auto-reset circuit doesn't reset the robot. Each run appends one JSON line
+to `build/robot/runs.jsonl`. `--save run.jsonl` streams the logs and clock ties to a file as they come, and
+`robot.py check run.jsonl` checks them again (it also reads night 0's one-object saves). `--progress FILE` appends the
+numbers so far every `--progress-s` (60 s), so a run that dies at hour 7 keeps its first 7 hours.
 
 A scenario has three parts:
 
@@ -92,35 +96,102 @@ A scenario has three parts:
   note range, message types) and map (channel, transpose), to a robot's cable.
 - **`listen`** names cables that take what the P4 makes itself, such as its clock.
 
-The routes don't configure the P4: its own config has to match them.
+The routes don't configure the P4: its own config has to match them. `duration_ms` sets a minimum length (for a
+scenario that only listens). `repeat` plays the streams' pattern that many times, `period_ms` apart (default: one pass
+plus `gap_ms`, 100); a clock runs once, from its start to the end of the last pass. `--repeat N` and `--duration 8h`
+set it from the command line, so every scenario is also a soak.
 
-The checks, all read from the logs:
+### One scenario per hub use case (C1-2)
+
+The charter's use cases, each on the two Wi-Fi robots through the P4. Robot cables are 0 and 1 here; the P4's config
+sees them as USB jacks 1 and 2. "A computer joins" isn't here: it needs the Mac, not a robot.
+
+| Use case | Scenario | What runs | Pass/fail limits |
+|---|---|---|---|
+| A controller plays a synth | `controller-to-synth.json` | a plays 1,000 notes and 500 CCs on cable 0; b listens on cable 0 | loss 0, extra 0, order, latency 5 ms (past the clock basis), jitter 1 ms, stuck notes 0 |
+| Two controllers, one synth | `merge.json` | a (keys, ch 1) and b (pads, ch 10) both play; b's cable 1 takes the merge | loss 0 and order per source, extra 0, latency 5 ms, jitter 1 ms, stuck 0 |
+| One keyboard, two synths | `split.json` | a plays across the keyboard; below 60 to b cable 0 on ch 2, 60 and up to b cable 1 on ch 3 +12; CCs to both | loss 0, extra 0 (the wrong side of the split is extra), order, latency, jitter, stuck 0 |
+| The box keeps time | `clock-out.json` | out: the P4's clock at 120 BPM to a and b cable 0; in: a's 120 BPM clock on cable 1 through the P4 to b cable 1 | clock jitter 1 ms (every interval), ticks at least 2,800 a minute, loss 0 and extra 0 on the clock through |
+| Plugged and unplugged mid-song | `hotplug-song.json` | a plays to b; a unplugs every 2 s (300 ms, mid-note), b every 3 s (400 ms): 50 a pass | loss 0 outside the outages, extra 0, no stuck notes, note held at most 20 ms, every replug remounted within 2 s |
+| (one robot, exact latency) | `loopback.json`, `hotplug.json` | a's cable 0 back to its own cable 1 | as above, on one clock |
+
+The clock checks report the deviation of every interval from the nominal one: `clock_jitter_ms` (the worst),
+`<robot><cable>_clock_dev_ms_p99` and `_clock_interval_ms_stdev`, so an hours-long run gives the jitter's shape, not
+only its worst tick.
+
+### The checks
+
+All read from the logs:
 
 | Check | Fails when |
 |---|---|
 | `accounted` | the logs don't hold every packet the robots counted, or a log overflowed (the run proves nothing) |
 | `loss` | a routed message never arrived. Messages around an unplug count as `lost_unplugged` instead: from the unplug to the host's next mount, plus 100 ms |
-| `extra` | an arrival no route explains (a duplicate, a stray, the wrong side of a split) |
+| `extra` | an arrival no route explains (a duplicate, a stray, the wrong side of a split). A note-off or all-notes-off at a destination while one of its sources is unplugged is the P4 releasing that source's notes: `released`, not extra |
 | `order` | arrivals out of send order, per route |
-| `latency` / `jitter` | the worst latency, and p99 − p50, over the limits |
+| `latency` / `jitter` | the worst latency, and p99 − p50, over the limits. Across two robots, latency fails only when it's over the limit by more than `latency_basis_us` |
 | `clock_jitter` | a received clock interval strays from the sent one, or from `listen`'s BPM, by more than the limit |
-| `stuck_notes` | a receiver is left holding a note-on |
+| `stuck_notes` | a receiver is left holding a note-on at the end. A receiver that unplugs lets go of what it held |
+| `note_hold` | a receiver held a note longer than `note_hold_ms_max` (`note_hold_ms_max` is reported either way). It catches a note the P4 failed to release even when a later note-off for the same key ends it |
 | `remounted` | a replug isn't followed by the host mounting the robot within `reenum_ms_max` (default 2 s). Without a mount, the unplug window closes there, so later losses count |
 
-Two more numbers come with every run: `reconnect_ms`, from the end of an unplug to the host's mount, and `not_sent`.
-Mount events (`M`, `U`) come from the core's USB event task; the robot logs them at its next poll, a little after
-their time, and `robot.py` sorts each log by time.
+More numbers come with every run: `reconnect_ms`, from the end of an unplug to the host's mount; `not_sent`; and
+`<robot>_syncs_rejected`. Mount events (`M`, `U`) come from the core's USB event task; the robot logs them at its next
+poll, a little after their time, and the checker allows 200 ms for that.
 
-Matching: the checker first estimates the latency, then matches each arrival to the expectation with the same content
-nearest to (arrival − latency), within a window of max(5 ms, 8 × the median deviation). That way one dropped or doubled
-clock tick is counted once, not as a shift of every tick after it. The limit is that identical messages must be
-spaced further apart than the latency plus its jitter.
+Matching: the checker estimates the latency (the median of the last 4,096 arrivals against the latest send of the same
+message before each), then matches each arrival to the expectation with the same content nearest to (arrival −
+latency), within a window of max(5 ms, 8 × the median deviation). That way one dropped or doubled clock tick is counted
+once, not as a shift of every tick after it. The limit is that identical messages must be spaced further apart than the
+latency plus its jitter.
 
-Latency is exact within one robot (`loopback.json`: cable 0 out, through the P4, back into cable 1, on one clock).
-Between robots, the clocks are tied through the UART, using the fastest of 8 `time` requests at the start and at the
-end, which also corrects drift. The result carries the uncertainty as `latency_basis_us`, half the round trip. Jitter
-doesn't depend on that offset. For tighter cross-robot latency, a jumper between two robots' GPIOs carrying a sync
-edge would give sub-microsecond ties; that isn't built.
+Clocks: latency is exact within one robot (`loopback.json`: cable 0 out, through the P4, back into cable 1, on one
+clock). Between robots, the clocks are tied to the Mac's with the fastest of 8 `time` requests at the start, every
+`--sync-s` (10 s), and at the end, and each record's time is interpolated between the ties around it, which also
+follows drift. A tie with a round trip over 3 × the best (and 5 ms more) is skipped. `latency_basis_us` is half the
+worst round trip used. On Wi-Fi that's milliseconds (5 pings on 2026-11-16: 3.7 to 53 ms to Big-S3, 4.3 to 106 ms to
+Small-V2), so on the Wi-Fi robots the jitter limit, which doesn't depend on the tie, is the one that bites; for exact
+latency use a same-robot route. A jumper between two robots' GPIOs carrying a sync edge would give sub-microsecond
+ties; that isn't built.
+
+### Long runs
+
+Nothing in a run grows with its length:
+
+- **The schedule** is made as the run takes it: each stream is a generator, merged in time order (the same order, line
+  for line, as night 0's `expand()`; the tests hold it to that on every scenario and 300 random ones). A billion notes
+  cost nothing until they're sent.
+- **The checker** (`Checker` in `robot.py`) takes records as each log drains. Once every robot's log is drained past a
+  point and its clock is tied past it, it checks everything before that point in Mac-time order, and keeps only what a
+  later record could still change: unmatched arrivals for the match window, expectations until no arrival can reach
+  them, losses until the unplug windows around them are known. That's a few seconds of records. Latencies and clock
+  intervals are kept as counts per microsecond, so the percentiles are exact. The checks and numbers are night 0's;
+  the tests hold every made-up case to night 0's checker (`tests/robot_check_ref.py`), and a run checked as it drains
+  to the same run checked whole.
+
+On `build/robot_sim`, night 1 (virtual time, two robots, 200 µs of jitter, `--duration 8h`):
+
+| Scenario | Matched | Lost | Other | Wall time | Max RSS |
+|---|---|---|---|---|---|
+| `controller-to-synth` 10 s (for scale) | 2,500 | 0 | | 0.59 s | 32.8 MB |
+| `controller-to-synth` 8 h | 7,132,500 | 0 | latency p50 1.1 / max 1.2 ms, jitter 0.098 ms | 274.8 s | 34.4 MB |
+| `merge` 8 h | 10,270,800 | 0 | jitter 0.093 ms | 311.3 s | 34.8 MB |
+| `split` 8 h | 7,130,400 | 0 | jitter 0.094 ms | 279.0 s | 34.6 MB |
+| `clock-out` 8 h | 1,385,278 through; 1,385,305 ticks heard by each listener | 0 | clock jitter 0.2007 ms (the 200 µs set) | 220.9 s | 32.6 MB |
+| `hotplug-song` 8 h | 3,350,400 | 0 (1,185,600 lost_unplugged) | 24,000 unplugs, 24,000 remounted, 9,600 released, note hold max 5.2 ms | 254.6 s | 33.3 MB |
+
+All six passed. The checker's buffers held 40 to 150 records at every half-hour checkpoint, the same at hour 7.5 as
+at hour 0.5. Six ran at once on an M4 Pro; one 8-hour scenario takes 4 to 5 minutes.
+
+## The simulator
+
+`build/robot_sim` runs the robots' real core (`robot_core.cpp`) in virtual time behind a pretend P4, so a scenario
+runs in seconds. `robot.py run --sim` starts one with a robot for each the scenario names and the scenario's routes as
+the P4's (`sim_options()`), and the P4's clock for each `listen` with a clock. Options for faults and clocks go through
+`--sim-opt`: `--latency-us`, `--jitter-us`, `--drop-every`, `--dup-every`, `--swap-every`, `--reenum-ms`,
+`--p4-clock-jitter-us`, `--offset-us k:US` and `--drift-ppm k:PPM` (robot k's clock), `--no-release` (the P4 doesn't
+release a departed source's notes). The tests run every scenario clean and each fault against the check it should
+fail.
 
 ## Not verified (night 1, on hardware)
 
@@ -131,8 +202,9 @@ edge would give sub-microsecond ties; that isn't built.
    give `M` and `U`. Whether `U` comes after a software disconnect at all is unknown.
 3. Receive stamp precision under load, and send accuracy: the core is tested, but the board isn't.
 4. Opening the UART port doesn't reset the robot, and 921600 baud holds without loss through the bridge.
-5. Long soaks: `robot.py` keeps a whole run in memory and expands streams up front. That's fine for minutes. An
-   8-hour run (C1-1) needs a windowed checker and lazy stream expansion.
+5. Long soaks on the robots themselves: the Mac side is ready (above), but a robot's 2,048-record logs must drain over
+   Wi-Fi faster than they fill for hours, and the clock ties over Wi-Fi are untested.
+6. Whether the P4 releases a departed controller's notes (`hotplug-song.json` assumes it should).
 
 ## Wi-Fi robots (Big-S3, Small-V2)
 

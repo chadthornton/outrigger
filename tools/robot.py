@@ -7,8 +7,12 @@ usage:
   robot.py run SCENARIO.json --robot a=/dev/cu.usbserial-X [--robot b=...] [--mac a=aa:bb:..]
                                       play the scenario, collect both robots' logs, check them
   robot.py run SCENARIO.json --sim [--sim-opt=--drop-every=10 ...]
-                                      the same against build/robot_sim (one robot, cable 0 routed to 1)
-  robot.py check LOG.json             re-check a saved run (--save writes one)
+                                      the same against build/robot_sim: its robots on a pretend P4
+                                      routed as the scenario's routes say
+  robot.py run SCENARIO.json ... --duration 8h [--progress p.jsonl] [--save run.jsonl]
+                                      a soak: the scenario's pattern repeated for 8 hours, checked as
+                                      it goes (nothing held), the numbers so far written every minute
+  robot.py check RUN.jsonl            re-check a saved run (--save streams one)
   robot.py cmd --port P LINE...       send protocol lines, print the replies (status, log, unplug 500 ...)
   robot.py check-mac PORT MAC         exit 0 only if PORT is an ESP32-S3 with that MAC (make flash-bench-robot)
                                       (or, for a Wi-Fi robot's host, if its id reply has that MAC)
@@ -25,6 +29,10 @@ with it (routes: from a robot's cable, through an optional filter and map, to
 a robot's cable), and the limits for the checks. It doesn't set the P4 up:
 the routes are what the P4's own config must already do.
 
+Long runs: plan() makes the schedule lazily and the Checker checks records as
+the logs drain, in Mac-time order once every robot is past a point, keeping a
+few seconds of them. The robots' clocks are tied to the Mac's every --sync-s.
+
 The checks, like bench.py's, are read from the robots' logs, never from a person:
   accounted     every packet the robots counted is in the logs, and no log overflowed
   loss          routed messages that never arrived (except around an unplug: lost_unplugged)
@@ -33,10 +41,13 @@ The checks, like bench.py's, are read from the robots' logs, never from a person
   latency       the worst arrival time (latency_ms_max), and jitter (p99 - p50, jitter_ms_max)
   clock_jitter  the worst clock interval's distance from the sent one
   stuck_notes   note-ons left without a note-off at a receiver
+  note_hold     the longest a receiver held a note (catches an unreleased note a later note-off ends)
+  remounted     every replug mounted again by the host within reenum_ms_max
 Latency is exact when both ends are one robot (cable 0 out, cable 1 back in:
-one clock). Between robots the clocks are tied through the UART (a
-time request at the start and the end, the fastest of several), and the
-result carries that uncertainty as latency_basis_us.
+one clock). Between robots the clocks are tied through the control link (the
+fastest of 8 time requests, at the start, every --sync-s and at the end), the
+result carries that uncertainty as latency_basis_us, and the latency check
+fails only past its limit plus that basis. Jitter doesn't depend on it.
 
 Safety: a robot is opened only on the port named for it. --mac refuses a
 robot whose MAC differs, by its id reply. The port is opened with DTR and RTS
