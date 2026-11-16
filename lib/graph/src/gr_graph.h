@@ -1,7 +1,10 @@
 // The real-time graph core (spike, night 0, milestone C1-1).
 //
-//  - A fixed block clock: every run is one block of `frames` frames at
-//    `sample_rate` (64 at 48 kHz by default, configurable at init).
+//  - A block clock that takes the host's block size: every run is one block
+//    of 1 .. GR_MAX_FRAMES frames at `sample_rate`, and the size may change
+//    from one block to the next (gr_graph_run_frames). gr_graph_run() runs a
+//    block of the default size given at init. No node may assume 64 frames:
+//    see lib/graph/CONTRACT.md.
 //  - Events are MIDI 2.0 UMPs, each stamped with a frame inside the block.
 //    An event list is kept in frame order.
 //  - One node contract: process(self, block, io), reading io->ev_in /
@@ -63,7 +66,7 @@ static inline void gr_events_clear(gr_events *e) {
 }
 
 typedef struct gr_block {
-  uint32_t frames;
+  uint32_t frames;     // this block's size: 1 .. GR_MAX_FRAMES, may differ every block
   uint32_t sample_rate;
   uint64_t index;      // blocks run so far
   uint64_t frame_pos;  // absolute frame of this block's frame 0
@@ -104,6 +107,7 @@ typedef struct gr_slot {
 
 typedef struct gr_graph {
   gr_block block;
+  uint32_t default_frames;  // gr_graph_run()'s block size
   uint32_t ticks_per_us;  // timing clock rate (host: ns, so 1000)
   uint8_t n_nodes, compiled, n_ev, n_audio;
   uint8_t order[GR_MAX_NODES];
@@ -129,7 +133,12 @@ int gr_graph_init(gr_graph *g, uint32_t sample_rate, uint32_t frames);
 int gr_graph_add(gr_graph *g, const gr_node_desc *desc, void *self);  // node id, or < 0
 int gr_graph_connect(gr_graph *g, int src, int src_port, int dst, int dst_port);
 int gr_graph_compile(gr_graph *g);  // binds buffers, orders the nodes; GR_OK or an error
-void gr_graph_run(gr_graph *g);     // one block
+void gr_graph_run(gr_graph *g);     // one block of default_frames
+// One block of `frames` frames (1 .. GR_MAX_FRAMES): the host's block size,
+// which may change from block to block. GR_OK, or GR_ERR_ARG (nothing runs).
+int gr_graph_run_frames(gr_graph *g, uint32_t frames);
+// Changes the sample rate between blocks (nodes read b->sample_rate).
+int gr_graph_set_sample_rate(gr_graph *g, uint32_t sample_rate);
 
 const gr_events *gr_graph_events(const gr_graph *g, int node, int port);
 const float *gr_graph_audio(const gr_graph *g, int node, int port);

@@ -48,6 +48,7 @@ int gr_graph_init(gr_graph *g, uint32_t sample_rate, uint32_t frames) {
   if (!g || frames == 0 || frames > GR_MAX_FRAMES || sample_rate == 0) return GR_ERR_ARG;
   memset(g, 0, sizeof(*g));
   g->block.frames = frames;
+  g->default_frames = frames;
   g->block.sample_rate = sample_rate;
   g->ticks_per_us = GR_TICKS_PER_US_DEFAULT;
   return GR_OK;
@@ -132,8 +133,17 @@ int gr_graph_compile(gr_graph *g) {
   return GR_OK;
 }
 
-void gr_graph_run(gr_graph *g) {
-  const uint32_t frames = g->block.frames;
+void gr_graph_run(gr_graph *g) { gr_graph_run_frames(g, g->default_frames); }
+
+int gr_graph_set_sample_rate(gr_graph *g, uint32_t sample_rate) {
+  if (!g || sample_rate == 0) return GR_ERR_ARG;
+  g->block.sample_rate = sample_rate;
+  return GR_OK;
+}
+
+int gr_graph_run_frames(gr_graph *g, uint32_t frames) {
+  if (!g || frames == 0 || frames > GR_MAX_FRAMES) return GR_ERR_ARG;
+  g->block.frames = frames;
   for (int i = 0; i < g->n_nodes; ++i) {
     gr_slot *s = &g->slot[g->order[i]];
     const gr_node_desc *d = s->desc;
@@ -153,6 +163,7 @@ void gr_graph_run(gr_graph *g) {
   }
   g->block.index++;
   g->block.frame_pos += frames;
+  return GR_OK;
 }
 
 const gr_events *gr_graph_events(const gr_graph *g, int node, int port) {

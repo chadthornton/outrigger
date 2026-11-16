@@ -571,6 +571,134 @@ static void test_hub_chain() {
   EXPECT_EQ(q.dropped, 0);
 }
 
+
+// ---- variable block sizes (VIBE lesson 1: take the host's block size) ----
+
+static void test_block_api() {
+  gr_graph_init(&g, 48000, 64);
+  static gr_events dummy;
+  (void)dummy;
+  static Feed f;
+  gr_events_clear(&f.next);
+  int id = gr_graph_add(&g, &feed_desc, &f);
+  EXPECT_EQ(gr_graph_compile(&g), GR_OK);
+  EXPECT_EQ(gr_graph_run_frames(&g, 0), GR_ERR_ARG);
+  EXPECT_EQ(gr_graph_run_frames(&g, GR_MAX_FRAMES + 1), GR_ERR_ARG);
+  EXPECT_EQ(g.block.index, 0);  // a refused block runs nothing
+  EXPECT_EQ(gr_graph_run_frames(&g, 48), GR_OK);
+  EXPECT_EQ(g.block.frames, 48);
+  EXPECT_EQ(gr_graph_run_frames(&g, 1), GR_OK);
+  EXPECT_EQ(gr_graph_run_frames(&g, GR_MAX_FRAMES), GR_OK);
+  gr_graph_run(&g);  // the default size again
+  EXPECT_EQ(g.block.frames, 64);
+  EXPECT_EQ(g.block.frame_pos, 48u + 1u + GR_MAX_FRAMES + 64u);
+  EXPECT_EQ(g.block.index, 4);
+  EXPECT_EQ(gr_graph_timing(&g, id)->blocks, 4);
+  EXPECT_EQ(gr_graph_set_sample_rate(&g, 0), GR_ERR_ARG);
+  EXPECT_EQ(gr_graph_set_sample_rate(&g, 96000), GR_OK);
+  EXPECT_EQ(g.block.sample_rate, 96000);
+}
+
+// One block-size plan: a fixed size, or (size 0) a seeded random mix 1..max.
+static uint32_t plan_next(uint32_t size, uint32_t *rnd) {
+  if (size) return size;
+  *rnd = *rnd * 1664525u + 1013904223u;
+  return 1 + (*rnd >> 8) % GR_MAX_FRAMES;
+}
+
+// The hub graph (source -> ccremap -> split -> chanmap / transpose+chanmap ->
+// merge -> sink) fed one absolute-frame script; returns what the sink saw.
+static int run_partition(uint32_t size, uint32_t seed, gr_qevent *out, int out_cap, uint32_t *late) {
+  static gr_source src;
+  static gr_ccremap cc;
+  static gr_split sp;
+  static gr_chanmap lo, hi;
+  static gr_transpose tr;
+  static gr_merge mg;
+  static gr_sink sk;
+  static gr_spsc qin, qout;
+  static gr_qevent inbuf[8192], outbuf[8192];
+  gr_graph_init(&g, 48000, 64);
+  gr_spsc_init(&qin, inbuf, 8192, sizeof(gr_qevent));
+  gr_spsc_init(&qout, outbuf, 8192, sizeof(gr_qevent));
+  gr_source_init(&src, &qin);
+  gr_sink_init(&sk, &qout);
+  gr_ccremap_init(&cc);
+  cc.map[1] = 74;
+  gr_split_init(&sp, 60, GR_SPLIT_BOTH);
+  gr_chanmap_init(&lo);
+  gr_chanmap_init(&hi);
+  for (int c = 0; c < 16; ++c) lo.map[c] = 1, hi.map[c] = 2;
+  gr_transpose_init(&tr, 7);
+  int a = gr_graph_add(&g, &gr_source_desc, &src);
+  int b = gr_graph_add(&g, &gr_ccremap_desc, &cc);
+  int c = gr_graph_add(&g, &gr_split_desc, &sp);
+  int d = gr_graph_add(&g, &gr_chanmap_desc, &lo);
+  int e = gr_graph_add(&g, &gr_transpose_desc, &tr);
+  int f = gr_graph_add(&g, &gr_chanmap_desc, &hi);
+  int m = gr_graph_add(&g, &gr_merge2_desc, &mg);
+  int k = gr_graph_add(&g, &gr_sink_desc, &sk);
+  gr_graph_connect(&g, a, 0, b, 0);
+  gr_graph_connect(&g, b, 0, c, 0);
+  gr_graph_connect(&g, c, 0, d, 0);
+  gr_graph_connect(&g, c, 1, e, 0);
+  gr_graph_connect(&g, e, 0, f, 0);
+  gr_graph_connect(&g, d, 0, m, 0);
+  gr_graph_connect(&g, f, 0, m, 1);
+  gr_graph_connect(&g, m, 0, k, 0);
+  if (gr_graph_compile(&g) != GR_OK) return -1;
+  // The script: notes, offs and CCs at pseudo-random frames, ~4 per 100 frames.
+  uint32_t r = 12345;
+  uint64_t t = 0;
+  uint8_t on[128] = {0};
+  for (int i = 0; i < 6000; ++i) {
+    r = r * 1103515245u + 12345u;
+    t += (r >> 16) % 50;  // several on one frame, sometimes
+    gr_qevent q;
+    memset(&q, 0, sizeof(q));
+    q.abs_frame = t;
+    uint8_t note = (uint8_t)(36 + (r >> 8) % 48);
+    if ((r >> 4) % 5 == 0)
+      q.ump[0] = gr_ump_m1(0, 0xB0 | ((r >> 12) & 3), 1, (r >> 20) & 0x7F);
+    else if (on[note])
+      q.ump[0] = gr_ump_m1(0, 0x80, note, 0), on[note] = 0;
+    else
+      q.ump[0] = gr_ump_m1(0, 0x90, note, 1 + (r >> 24) % 127), on[note] = 1;
+    gr_spsc_push(&qin, &q);
+  }
+  const uint64_t end = t + 1000;
+  int n = 0;
+  uint32_t rnd = seed;
+  gr_qevent q;
+  while (g.block.frame_pos < end) {
+    gr_graph_run_frames(&g, plan_next(size, &rnd));
+    while (gr_spsc_pop(&qout, &q))
+      if (n < out_cap) out[n++] = q;
+  }
+  *late = src.late;
+  return n;
+}
+
+static void test_block_partitions() {
+  static gr_qevent ref[16384], got[16384];
+  uint32_t late = 0;
+  int nref = run_partition(64, 0, ref, 16384, &late);
+  EXPECT(nref > 6000);  // the split's BOTH sends CCs to both halves
+  EXPECT_EQ(late, 0);
+  EXPECT_EQ(g.ev_dropped_total, 0);
+  const uint32_t sizes[] = {48, 1, 7, 128, GR_MAX_FRAMES, 0, 0};
+  int same_all = 1;
+  for (size_t i = 0; i < sizeof(sizes) / sizeof(sizes[0]); ++i) {
+    int n = run_partition(sizes[i], 99 + (uint32_t)i, got, 16384, &late);
+    int same = n == nref && memcmp(ref, got, sizeof(gr_qevent) * (size_t)n) == 0;
+    if (!same) printf("  partition %u: %d events, reference %d\n", sizes[i], n, nref);
+    same_all &= same;
+    EXPECT_EQ(late, 0);
+    EXPECT_EQ(g.ev_dropped_total, 0);
+  }
+  EXPECT(same_all);  // the same events on the same absolute frames, whatever the blocks
+}
+
 int main() {
   test_ump();
   test_events();
@@ -584,6 +712,8 @@ int main() {
   test_transpose();
   test_ccremap();
   test_hub_chain();
+  test_block_api();
+  test_block_partitions();
   printf("test_graph: %d checks, %d failures; sizeof(gr_graph) = %zu bytes, sizeof(gr_event) = %zu\n",
          checks, failures, sizeof(gr_graph), sizeof(gr_event));
   return failures ? 1 : 0;

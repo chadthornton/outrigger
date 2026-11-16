@@ -20,7 +20,9 @@ static const host_api_v1_t *shim_host(void) {
     memset(&g_host, 0, sizeof(g_host));
     g_host.api_version = MOVE_PLUGIN_API_VERSION;
     g_host.sample_rate = GR_DEFAULT_SAMPLE_RATE;
-    g_host.frames_per_block = GR_DEFAULT_FRAMES;
+    // The largest block the graph runs. Blocks vary (the host's size), and
+    // neither eucalypso nor superarp reads this: they take tick(frames, sr).
+    g_host.frames_per_block = GR_MAX_FRAMES;
     g_host.log = host_log;
     g_host.get_clock_status = host_clock_status;
     g_host.get_bpm = host_bpm;
