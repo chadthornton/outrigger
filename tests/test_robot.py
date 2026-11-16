@@ -178,6 +178,16 @@ def test_plan_lazy_and_repeat():
     expect(robot.scenario_end_us(long) >= 8 * 3600e6, f"8 h: {robot.scenario_end_us(long) / 3.6e9:.2f} h")
     clock = robot.with_duration(json.loads((SCENARIOS / "clock-out.json").read_text()), 3600)
     expect(robot.scenario_end_us(clock) >= 3600e6, "the clock scenario stretched to an hour")
+    eight = robot.with_duration(json.loads((SCENARIOS / "clock-out.json").read_text()), 8 * 3600)
+    tmin = eight["listen"][0]["clock"]["ticks_min"]
+    grown = 2800 + 48 * (robot.scenario_end_us(eight) - 60e6) / 1e6  # 48 ticks a second at 120 BPM
+    expect(abs(tmin - grown) <= 1 and tmin > 1_380_000, f"ticks_min grows with the run, keeping the lead-in: {tmin}")
+    # A P4 clock that stops at minute 3 of 8 hours fails, though every interval it sent was perfect.
+    interval = 60e6 / (120 * 24)
+    ticks = [("r", int(1_000_000 + i * interval), pkt(0, 0xF8)) for i in range(120 * 24 * 3)]
+    eight["routes"], eight["streams"] = [], []
+    res = run_check(eight, {"a": ticks, "b": ticks}, vs_ref=False)
+    expect("clock_ticks_a0" in failed(res) and "clock_jitter" not in failed(res), f"a clock that stops: {failed(res)}")
     expect(robot.duration_s("8h") == 28800 and robot.duration_s("90m") == 5400 and robot.duration_s("15") == 15,
            "durations")
 
@@ -442,7 +452,7 @@ def test_windowed_memory_is_flat():
 
         def advance(self):
             r = super().advance()
-            sizes.append(self.snapshot()["buffered"] + len(self.missing) + len(self.held_on))
+            sizes.append(self.snapshot()["buffered"] + len(self.held_on))
             return r
     robot.Checker = Spy
     try:
@@ -453,6 +463,50 @@ def test_windowed_memory_is_flat():
     q = len(sizes) // 4
     early, late = max(sizes[q:2 * q]), max(sizes[3 * q:])
     expect(late <= 2 * early + 50 and late < 5000, f"held records stay flat: early {early}, late {late}")
+
+
+def test_wifi_clock_ties():
+    """Clock ties as poor as Wi-Fi's (each tie's round trip 4-50 ms, the reading
+    anywhere in it): the cross-robot scenarios still pass, jitter still sees the
+    P4's own spread, and too much of it still fails."""
+    if not robot.SIM.exists():
+        return
+    scn = robot.with_duration(json.loads((SCENARIOS / "merge.json").read_text()), 120)
+    res, _ = robot.run_checked(scn, robot.sim_robots(scn, ["--jitter-us", "200"], tie_ms=(4, 50)), log=lambda *_: None,
+                               poll_s=robot.SIM_POLL_S, sync_s=5)
+    # (0.093 ms with perfect ties; the 1 ms limit is far off either way)
+    expect(res["ok"] and res["numbers"]["jitter_ms"] < 0.3 and res["numbers"]["latency_basis_us"] > 1000,
+           f"merge over Wi-Fi ties: {failed(res)} {res['numbers']}")
+    res, _ = robot.run_checked(scn, robot.sim_robots(scn, ["--jitter-us", "3000"], tie_ms=(4, 50)), log=lambda *_: None,
+                               poll_s=robot.SIM_POLL_S, sync_s=5)
+    expect("jitter" in failed(res), f"3 ms of P4 jitter over Wi-Fi ties: {failed(res)} {res['numbers']}")
+
+
+def test_slow_ties_dont_stall_the_checker():
+    """One lucky 2 ms tie at the start, then every tie 20 ms: the run skips a
+    few, then takes them, and the checker keeps up instead of waiting."""
+    if not robot.SIM.exists():
+        return
+    scn = robot.with_duration(json.loads((SCENARIOS / "controller-to-synth.json").read_text()), 60)
+    robots = robot.sim_robots(scn)
+    robots = {n: robot.TieNoiseRobot(rb, rtts=[2000] + [20000] * 200) for n, rb in robots.items()}
+    reached = []
+    orig = robot.Checker
+
+    class Spy(orig):
+        def advance(self):
+            r = super().advance()
+            reached.append(self.ingested_mac)
+            return r
+    robot.Checker = Spy
+    try:
+        res, data = robot.run_checked(scn, robots, log=lambda *_: None, poll_s=robot.SIM_POLL_S, sync_s=1.0)
+    finally:
+        robot.Checker = orig
+    end_mac = data["a"]["sync"][-1][0]
+    # Skipping every slow tie (night 1's first rule) left it the whole minute behind.
+    expect(res["ok"] and max(reached) > end_mac - 6e6, f"checker kept up: {(end_mac - max(reached)) / 1e6:.1f} s behind, {failed(res)} {res['numbers']}")
+    expect(0 < res["numbers"]["a_syncs_rejected"] <= 20, f"some skipped, not all: {res['numbers']['a_syncs_rejected']}")
 
 
 def test_saved_run_rechecks():

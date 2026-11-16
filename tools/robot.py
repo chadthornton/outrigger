@@ -273,10 +273,37 @@ def sim_options(scn):
     return opts
 
 
-def sim_robots(scn, extra_opts=()):
-    """{name: Robot} for a scenario on one robot_sim."""
+class TieNoiseRobot:
+    """A sim robot whose clock ties are as poor as Wi-Fi's. In virtual time a
+    time request has no round trip, so the tie is perfect; this gives each of a
+    sync's 8 requests a round trip drawn from rtt_ms (lo, hi), keeps the fastest,
+    and puts the robot's reading anywhere in it, as a real network would.
+    rtts: an exact sequence of round trips (µs) instead, for the tests."""
+
+    def __init__(self, rb, rtt_ms=(4, 50), seed=1, rtts=None):
+        import random
+        self.rb, self.rng, self.rtt_ms, self.rtts = rb, random.Random(seed), rtt_ms, list(rtts or [])
+
+    def __getattr__(self, k):
+        return getattr(self.rb, k)
+
+    def sync(self, n=8):
+        mac, rob, _ = self.rb.sync(n)
+        if self.rtts:
+            rtt = self.rtts.pop(0)
+        else:
+            rtt = min(self.rng.uniform(*self.rtt_ms) for _ in range(n)) * 1000
+        return (int(mac + self.rng.uniform(-rtt / 2, rtt / 2)), rob, int(rtt))
+
+
+def sim_robots(scn, extra_opts=(), tie_ms=None, seed=1):
+    """{name: Robot} for a scenario on one robot_sim; tie_ms=(lo, hi) gives its
+    clock ties Wi-Fi-like round trips (TieNoiseRobot)."""
     hub = SimHub(sim_options(scn) + list(extra_opts))
-    return {n: Robot(n, SimLink(hub=hub, k=i)) for i, n in enumerate(scn["robots"])}
+    out = {n: Robot(n, SimLink(hub=hub, k=i)) for i, n in enumerate(scn["robots"])}
+    if tie_ms:
+        out = {n: TieNoiseRobot(rb, tie_ms, seed + i) for i, (n, rb) in enumerate(out.items())}
+    return out
 
 
 # --- one robot ---------------------------------------------------------------
@@ -520,17 +547,34 @@ def scenario_end_us(scn):
 
 
 def with_duration(scn, seconds):
-    """The scenario stretched to at least `seconds`: its pattern repeated (a soak),
-    or, with no streams (the P4's own clock), its duration_ms set."""
-    scn = dict(scn)
-    want = int(seconds * 1e6)
-    if not scn.get("streams"):
-        scn["duration_ms"] = want / 1000
-        return scn
-    scn["repeat"] = 1
-    _, period = _rep_period_us(scn)
-    scn["repeat"] = max(1, -(-want // period))
-    return scn
+    """The scenario stretched to at least `seconds`: its pattern repeated (a soak)
+    and its duration_ms set."""
+    new = dict(scn, duration_ms=seconds * 1000)
+    if scn.get("streams"):
+        new["repeat"] = 1
+        _, period = _rep_period_us(new)
+        new["repeat"] = max(1, -(-int(seconds * 1e6) // period))
+    return _scaled_listens(scn, new)
+
+
+def with_repeat(scn, n):
+    return _scaled_listens(scn, dict(scn, repeat=n))
+
+
+def _scaled_listens(old, new):
+    """A listened-for clock's ticks_min grows with the scenario, by the ticks the
+    extra time holds: the lead-in allowance stays what it was, so a P4 clock that
+    stops at minute 3 of 8 hours fails."""
+    grow_us = scenario_end_us(new) - scenario_end_us(old)
+    if grow_us <= 0 or not new.get("listen"):
+        return new
+    out = []
+    for ls in new["listen"]:
+        if "clock" in ls and "ticks_min" in ls["clock"]:
+            c = ls["clock"]
+            ls = dict(ls, clock=dict(c, ticks_min=c["ticks_min"] + round(c["bpm"] * 24 * grow_us / 60e6)))
+        out.append(ls)
+    return dict(new, listen=out)
 
 
 # --- running -----------------------------------------------------------------
@@ -556,7 +600,8 @@ def run(scn, robots, log=print, expect_macs=None, keep=True, on_sync=None, on_re
             raise RobotError(f"robot {name} has MAC {ident.get('mac')}, not {want}: wrong port?")
         rb.cmd("clear")
         s = rb.sync()
-        data[name] = {"id": ident, "records": [], "sync": [s], "syncs_rejected": 0}
+        data[name] = {"id": ident, "records": [], "sync": [s], "syncs_rejected": 0, "rejects_in_row": 0,
+                      "recent_rtt": collections.deque([s[2]], maxlen=6)}
         on_sync(name, s)
     pending = {n: pl[n]["at"] for n in robots}
     head = {n: next(pending[n], None) for n in robots}
@@ -592,12 +637,18 @@ def run(scn, robots, log=print, expect_macs=None, keep=True, on_sync=None, on_re
             next_sync = now + int(sync_s * 1e6)
             for name, rb in robots.items():
                 s = rb.sync()
-                best = min(x[2] for x in data[name]["sync"])
-                # A slow round trip is a poor tie between the clocks: skip it.
-                if s[2] > max(3 * best, best + 5000):
-                    data[name]["syncs_rejected"] += 1
+                d = data[name]
+                best = min(d["recent_rtt"])
+                # A slow round trip is a poor tie between the clocks: skip it,
+                # against the best of the last few (not one lucky early one), and
+                # never more than 3 in a row, or the checker would wait forever.
+                if s[2] > max(3 * best, best + 5000) and d["rejects_in_row"] < 3:
+                    d["syncs_rejected"] += 1
+                    d["rejects_in_row"] += 1
                     continue
-                data[name]["sync"] = data[name]["sync"][:1] + [s] if not keep else data[name]["sync"] + [s]
+                d["rejects_in_row"] = 0
+                d["recent_rtt"].append(s[2])
+                d["sync"] = d["sync"][:1] + [s] if not keep else d["sync"] + [s]
                 on_sync(name, s)
         for name, rb in robots.items():
             st = rb.status()
@@ -626,6 +677,8 @@ def run(scn, robots, log=print, expect_macs=None, keep=True, on_sync=None, on_re
         data[name]["sync"].append(s)
         on_sync(name, s)
     for name in robots:
+        data[name].pop("recent_rtt")
+        data[name].pop("rejects_in_row")
         # Mount events are logged by the robot's next poll, a little after
         # sends stamped later than them: put each robot's log in time order.
         data[name]["records"].sort(key=lambda r: r[1])
@@ -635,33 +688,63 @@ def run(scn, robots, log=print, expect_macs=None, keep=True, on_sync=None, on_re
 # --- checking ----------------------------------------------------------------
 
 class ClockModel:
-    """Robot µs -> Mac µs, piecewise linear through the time requests (syncs):
-    between two syncs by interpolation, past the ends by the nearest segment.
-    One segment between the start and end syncs is night 0's model."""
+    """Robot µs -> Mac µs, from the time requests (syncs). At each sync, a line
+    fitted to the last FIT_N syncs, each weighted by 1 / its round trip squared;
+    a record between two syncs is blended from one sync's line to the next's. Over Wi-Fi each tie
+    is off by up to half its round trip (milliseconds), and a line through many
+    of them is steadier than one through two. With only the start and end syncs
+    it's night 0's model, the line through both."""
+
+    FIT_N = 30
 
     def __init__(self):
-        self.pts = []    # (robot_us, mac_us)
+        self.pts = []     # (robot_us, mac_us, rtt_us)
+        self.knots = []   # robot_us of each sync
+        self.fits = []    # (robot_us0, mac_us at robot_us0, slope)
         self.rtt_max = 0
 
     def add(self, sync):
         mac, rob, rtt = sync
         if self.pts and rob <= self.pts[-1][0]:
             return
-        self.pts.append((rob, mac))
+        self.pts.append((rob, mac, rtt))
         self.rtt_max = max(self.rtt_max, rtt)
+        self.knots.append(rob)
+        self.fits.append(self._fit(self.pts[-self.FIT_N:]))
+
+    @staticmethod
+    def _fit(win):
+        r0, m0, _ = win[-1]
+        if len(win) == 1:
+            return (r0, m0, 1.0)
+        w = [1 / max(rtt, 100) ** 2 for _, _, rtt in win]
+        xs = [r - r0 for r, _, _ in win]
+        ys = [m - m0 for _, m, _ in win]
+        sw = sum(w)
+        mx = sum(wi * x for wi, x in zip(w, xs)) / sw
+        my = sum(wi * y for wi, y in zip(w, ys)) / sw
+        sxx = sum(wi * (x - mx) ** 2 for wi, x in zip(w, xs))
+        slope = sum(wi * (x - mx) * (y - my) for wi, x, y in zip(w, xs, ys)) / sxx if sxx else 1.0
+        return (r0, m0 + my - slope * mx, slope)
 
     def known_through(self):
         return self.pts[-1][0] if self.pts else None
 
     def __call__(self, t):
-        p = self.pts
-        if len(p) == 1:
-            return p[0][1] + (t - p[0][0])
-        i = bisect.bisect_right(p, (t, float("inf"))) - 1
-        i = min(max(i, 0), len(p) - 2)
-        (r0, m0), (r1, m1) = p[i], p[i + 1]
-        return m0 + (t - r0) * ((m1 - m0) / (r1 - r0))
+        """Between two syncs, a blend from the earlier sync's line to the later's,
+        so the mapping has no steps where a new sync moves the line."""
+        f = self.fits
+        if len(f) == 1:
+            return f[0][1] + (t - f[0][0]) * f[0][2]
+        i = min(max(bisect.bisect_left(self.knots, t), 1), len(f) - 1)
 
+        def at(k):
+            r0, m0, slope = f[k]
+            return m0 + (t - r0) * slope
+        if i == 1 or t >= self.knots[i] or t <= self.knots[i - 1]:
+            return at(i)  # night 0's single line, or past the ends
+        u = (t - self.knots[i - 1]) / (self.knots[i] - self.knots[i - 1])
+        return at(i - 1) * (1 - u) + at(i) * u
 
 
 def passes(f, msg):
@@ -774,6 +857,7 @@ class Checker:
     (accounted, loss, extra, order, latency, jitter, clock_jitter, stuck_notes,
     remounted), with the same numbers, plus a note-off release rule for hot-plug."""
 
+    XGROUP = 64            # consecutive latencies a cross-robot jitter sample is taken against
     REORDER_US = 200_000   # M/U records are logged a poll after their time
     EST_KEEP = 4096        # recent latency estimates the match window comes from
 
@@ -795,7 +879,6 @@ class Checker:
             self.sources[(rt["to"]["robot"], rt["to"].get("cable", 0))].add(rt["from"]["robot"])
         self.seq = collections.Counter()
         self.expect = collections.defaultdict(collections.deque)
-        self.last_exp = {}
         self.est = collections.deque(maxlen=self.EST_KEEP)
         self.arrivals = collections.deque()           # (t_mac, t, robot, cable, msg) waiting to be matched
         self.missing = collections.deque()            # (dest robot, expectation) waiting for the outage windows
@@ -814,6 +897,13 @@ class Checker:
         self.plugs = 0
         self.reconnect = collections.Counter()
         self.typical, self.window = 0, 5000
+        self.peak_held = 0   # the most records waiting at once, before a check pass
+        self.pair_est = collections.defaultdict(lambda: collections.deque(maxlen=self.EST_KEEP))
+        self.pair_tw = {}
+        self.window_max, self.typical_min, self.typical_max = 5000, 0, 0
+        self.lat_same = collections.Counter()
+        self.xgroups = collections.defaultdict(list)
+        self.xdev = collections.Counter()
 
     # --- feeding
 
@@ -833,8 +923,13 @@ class Checker:
             if m.known_through() is None or c is None:
                 return self.ingested_mac
             horizon.append(m(min(c - self.REORDER_US, m.known_through())))
+        self.peak_held = max(self.peak_held, self._held_now())
         self._ingest(min(horizon))
         return self.ingested_mac
+
+    def _held_now(self):
+        return (sum(len(b) for b in self.buf.values()) + len(self.arrivals) + len(self.missing) +
+                sum(len(q) for q in self.expect.values()))
 
     def finish(self, statuses):
         self._ingest(float("inf"))
@@ -875,8 +970,8 @@ class Checker:
             for n in self.names:
                 self.down[n].passed(upto_mac)
             self._update_window()
-            self._match(upto_mac - self.window + min(self.typical, 0))
-            self._expire(upto_mac - self.window + min(self.typical, 0))
+            self._match(upto_mac - self.window_max + min(self.typical_min, 0))
+            self._expire(upto_mac - self.window_max + min(self.typical_min, 0))
             self._classify()
             self._prune()
         elif evs:
@@ -913,7 +1008,6 @@ class Checker:
                     continue
                 key = (dst["robot"], dst.get("cable", 0), mapped(rt.get("map"), msg))
                 self.expect[key].append({"route": ri, "seq": self.seq[ri], "t": t, "t_mac": t_mac, "src": n})
-                self.last_exp[key] = t_mac
                 self.seq[ri] += 1
             return
         if kind != "r":
@@ -932,9 +1026,6 @@ class Checker:
         if (n, cable) not in self.dest_cables:
             self.extras += 1
             return
-        key = (n, cable, msg)
-        if key in self.last_exp:
-            self.est.append(t_mac - self.last_exp[key])
         self.arrivals.append((t_mac, t, n, cable, msg))
         # Stuck notes: what each receiver holds down, in arrival order.
         if kind_of(msg) == "note" and msg[0] < 0xA0:
@@ -956,19 +1047,52 @@ class Checker:
         shows here even when a later note-off for the same key ends it."""
         self.hold_max_us = max(self.hold_max_us, us)
 
-    def _update_window(self):
-        if self.est:
-            self.typical = statistics.median(self.est)
-            mad = statistics.median(abs(x - self.typical) for x in self.est)
+    def _typical_window(self, est):
+        if est:
+            typical = statistics.median(est)
+            mad = statistics.median(abs(x - typical) for x in est)
         else:
-            self.typical, mad = 0, 0
-        self.window = ms_us(self.lim["match_window_ms"]) if "match_window_ms" in self.lim else max(5000, 8 * mad)
+            typical, mad = 0, 0
+        return typical, ms_us(self.lim["match_window_ms"]) if "match_window_ms" in self.lim else max(5000, 8 * mad)
+
+    def _update_window(self):
+        """The typical latency and match window: over all arrivals (reported), and
+        for each source and destination robot (used to match: a route across two
+        robots carries its clock tie's error, a route within one doesn't)."""
+        self.typical, self.window = self._typical_window(self.est)
+        self.pair_tw = {pr: self._typical_window(e) for pr, e in self.pair_est.items()}
+        tws = list(self.pair_tw.values()) + [(self.typical, self.window)]
+        self.window_max = max(w for _, w in tws)
+        self.typical_min = min(t for t, _ in tws)
+        self.typical_max = max(t for t, _ in tws)
 
     def _match(self, upto_mac):
         """Each arrival takes the unmatched expectation nearest (arrival - typical
         latency); one further off than the window is an extra (a duplicate), and
         expectations passed over are lost. As night 0's checker."""
-        while self.arrivals and self.arrivals[0][0] <= upto_mac:
+        n_due, pairs = 0, []
+        for a in self.arrivals:
+            if a[0] > upto_mac:
+                break
+            n_due += 1
+            # The latency estimate: each arrival against the expectation of the
+            # same message nearest to it. (Night 0 took the latest one sent before
+            # it, which across two robots tied over Wi-Fi flips to the previous
+            # repeat whenever the tie error is bigger than the latency.)
+            q = self.expect.get((a[2], a[3], a[4]))
+            if q:
+                j = 0
+                while j + 1 < len(q) and abs(q[j + 1]["t_mac"] - a[0]) < abs(q[j]["t_mac"] - a[0]):
+                    j += 1
+                self.est.append(a[0] - q[j]["t_mac"])
+                pr = (q[j]["src"], a[2])
+                self.pair_est[pr].append(a[0] - q[j]["t_mac"])
+                pairs.append(pr)
+            else:
+                pairs.append(None)
+        if n_due:
+            self._update_window()
+        for i in range(n_due):
             a = self.arrivals.popleft()
             t_mac, t, n, cable, msg = a
             k = (n, cable, msg)
@@ -976,11 +1100,12 @@ class Checker:
             if not q:
                 self._extra(a)
                 continue
-            target = t_mac - self.typical
+            typical, window = self.pair_tw.get(pairs[i], (self.typical, self.window))
+            target = t_mac - typical
             j = 0
             while j + 1 < len(q) and abs(q[j + 1]["t_mac"] - target) < abs(q[j]["t_mac"] - target):
                 j += 1
-            if abs(q[j]["t_mac"] - target) > self.window:
+            if abs(q[j]["t_mac"] - target) > window:
                 self._extra(a)
                 continue
             for _ in range(j):
@@ -988,8 +1113,16 @@ class Checker:
             e = q.popleft()
             same = e["src"] == n
             self.cross |= not same
-            self.lat[(t - e["t"]) if same else round(t_mac - e["t_mac"])] += 1
+            lat = (t - e["t"]) if same else round(t_mac - e["t_mac"])
+            self.lat[lat] += 1
             key = (e["route"], n, cable)
+            if same:
+                self.lat_same[lat] += 1
+            else:
+                g = self.xgroups[key]
+                g.append(lat)
+                if len(g) == self.XGROUP:
+                    self._flush_group(key)
             if e["seq"] < self.last_seq.get(key, -1):
                 self.order_bad += 1
             self.last_seq[key] = max(e["seq"], self.last_seq.get(key, -1))
@@ -998,6 +1131,17 @@ class Checker:
                 if c[0] is not None:
                     c[1][t - c[0]] += 1
                 c[0], c[2] = t, c[2] + 1
+
+    def _flush_group(self, key):
+        """Jitter across two robots: each latency against the median of its run
+        of XGROUP consecutive ones on the route, so the clock tie's slow error
+        (milliseconds over Wi-Fi) and drift drop out, and what's left is the
+        P4's own spread."""
+        g = self.xgroups.pop(key, [])
+        if len(g) >= 2:
+            med = statistics.median(g)
+            for v in g:
+                self.xdev[round(v - med)] += 1
 
     def _extra(self, a):
         """An arrival no route explains. A note-off (or all-notes-off) at a
@@ -1014,7 +1158,7 @@ class Checker:
         """Expectations no later arrival can reach are lost (night 0 counted them
         at the end): an arrival after matched_through aims past them by more than
         the window."""
-        before = matched_through - self.typical - self.window - 1
+        before = matched_through - self.typical_max - self.window_max - 1
         for k, q in list(self.expect.items()):
             while q and q[0]["t_mac"] < before:
                 self.missing.append((k[0], q.popleft()))
@@ -1041,8 +1185,6 @@ class Checker:
         oldest = min([e["t_mac"] for _, e in self.missing] + [self.ingested_mac - 60e6])
         for n in self.names:
             self.down[n].prune(oldest)
-        for k in [k for k, t in self.last_exp.items() if t < self.ingested_mac - 60e6]:
-            del self.last_exp[k]
 
     # --- the result
 
@@ -1053,8 +1195,7 @@ class Checker:
                "extra": self.extras, "order": self.order_bad, "released": self.released,
                "held_now": sum(v for v in self.held.values() if v > 0),
                "note_hold_ms_max": round(self.hold_max_us / 1000, 3),
-               "buffered": sum(len(b) for b in self.buf.values()) + len(self.arrivals) +
-               sum(len(q) for q in self.expect.values())}
+               "buffered": self._held_now(), "buffered_peak": self.peak_held}
         if self.lat:
             out.update(latency_ms_p50=round(pct_counter(self.lat, 50) / 1000, 3),
                        latency_ms_max=round(max(self.lat) / 1000, 3))
@@ -1084,9 +1225,21 @@ class Checker:
         numbers["matched"] = sum(self.lat.values())
         if self.lat:
             p50, p99 = (pct_counter(self.lat, p) / 1000 for p in (50, 99))
+            for key in list(self.xgroups):
+                self._flush_group(key)
+            # Jitter, p99 - p50: of the exact latencies within one robot, and of
+            # the latencies against their neighbours across two (_flush_group);
+            # the worse of the two. Neither depends on the clock tie.
+            jit = []
+            if self.lat_same:
+                jit.append((pct_counter(self.lat_same, 99) - pct_counter(self.lat_same, 50)) / 1000)
+            if self.xdev:
+                jc = (pct_counter(self.xdev, 99) - pct_counter(self.xdev, 50)) / 1000
+                jit.append(jc)
+                numbers["jitter_cross_ms"] = round(jc, 3)
             numbers.update(latency_ms_p50=round(p50, 3), latency_ms_p99=round(p99, 3),
                            latency_ms_max=round(max(self.lat) / 1000, 3), latency_ms_min=round(min(self.lat) / 1000, 3),
-                           jitter_ms=round(p99 - p50, 3))
+                           jitter_ms=round(max(jit), 3))
             basis = round(max(self.model[n].rtt_max for n in self.names) / 2) if self.cross else 0
             numbers["latency_basis_us"] = basis
             if "latency_ms_max" in lim:
@@ -1414,6 +1567,7 @@ def main(argv=None):
     r.add_argument("--mac", action="append", help="name=aa:bb:cc:dd:ee:ff: refuse a robot with another MAC")
     r.add_argument("--sim", action="store_true", help="run against build/robot_sim instead")
     r.add_argument("--sim-opt", action="append", default=[], help="an option for robot_sim, e.g. --sim-opt=--drop-every=10")
+    r.add_argument("--sim-tie-ms", help="LO:HI: give the sim's clock ties Wi-Fi-like round trips (ms), e.g. 4:50")
     r.add_argument("--baud", type=int, default=BAUD)
     r.add_argument("--runs", default=str(ROOT / "build" / "robot" / "runs.jsonl"))
     r.add_argument("--save", help="stream the run's logs and syncs here as JSON lines (robot.py check reads it)")
@@ -1470,12 +1624,13 @@ def main(argv=None):
             return 0 if result["ok"] else 1
         scn = json.loads(pathlib.Path(a.scenario).read_text())
         if a.repeat:
-            scn = dict(scn, repeat=a.repeat)
+            scn = with_repeat(scn, a.repeat)
         if a.duration:
             scn = with_duration(scn, a.duration)
         name = scn.get("name", pathlib.Path(a.scenario).stem)
         if a.sim:
-            robots = sim_robots(scn, [o for s_ in a.sim_opt for o in s_.split("=", 1)])
+            tie = tuple(float(x) for x in a.sim_tie_ms.split(":")) if a.sim_tie_ms else None
+            robots = sim_robots(scn, [o for s_ in a.sim_opt for o in s_.split("=", 1)], tie_ms=tie)
         else:
             ports = kv(a.robot)
             missing = [n for n in scn["robots"] if n not in ports]
