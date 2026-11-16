@@ -51,6 +51,7 @@ typedef struct {
   int block;            // 128 (wasmtest's block)
   float seconds;        // 2.5
   float off_at;         // 1.5
+  double ticks_per_us;  // the clock's units: 1000 for nanoseconds (the Mac), the CPU MHz for a cycle counter (the P4)
 } vh_scenario;
 
 typedef struct {
@@ -63,7 +64,7 @@ typedef struct {
   uint32_t us_max_block;
 } vh_result;
 
-typedef uint64_t (*vh_clock_ns)(void);
+typedef uint64_t (*vh_clock_ns)(void);   // any monotonic tick count; vh_scenario.ticks_per_us says its unit
 // Runs the scenario. out (optional) gets blocks*block frames of L and R each.
 int vh_run(vh_backend *b, const vh_scenario *s, vh_clock_ns clock, vh_result *r, float *out_l, float *out_r);
 

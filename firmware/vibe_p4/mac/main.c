@@ -23,7 +23,7 @@ int main(int argc, char **argv)
 {
   if (argc < 2) { fprintf(stderr, "usage: vibe_run native-synth|native-faust|wamr [module] [--notes N] [--block F] [--repeat R] [--out f.f32] [--max-pages P]\n"); return 2; }
   const char *kind = argv[1], *mod = 0, *out = 0;
-  int notes = 1, block = 128, repeat = 1, ai = 2; uint32_t max_pages = 0;
+  int notes = 1, block = 128, repeat = 1, ai = 2; uint32_t max_pages = 0, stack = 32 * 1024;
   if (!strcmp(kind, "wamr")) { if (argc < 3) return 2; mod = argv[2]; ai = 3; }
   for (; ai < argc; ai++) {
     if (!strcmp(argv[ai], "--notes") && ai + 1 < argc) notes = atoi(argv[++ai]);
@@ -31,6 +31,7 @@ int main(int argc, char **argv)
     else if (!strcmp(argv[ai], "--repeat") && ai + 1 < argc) repeat = atoi(argv[++ai]);
     else if (!strcmp(argv[ai], "--out") && ai + 1 < argc) out = argv[++ai];
     else if (!strcmp(argv[ai], "--max-pages") && ai + 1 < argc) max_pages = (uint32_t)atoi(argv[++ai]);
+    else if (!strcmp(argv[ai], "--stack") && ai + 1 < argc) stack = (uint32_t)atoi(argv[++ai]);
     else { fprintf(stderr, "unknown argument %s\n", argv[ai]); return 2; }
   }
   vh_backend b;
@@ -41,10 +42,10 @@ int main(int argc, char **argv)
     if (vh_wamr_runtime_init(0, 0)) { fprintf(stderr, "wamr init failed\n"); return 1; }
     uint32_t n; uint8_t *m = slurp(mod, &n);
     if (!m) { fprintf(stderr, "can't read %s\n", mod); return 1; }
-    if (vh_wamr_open(&b, m, n, max_pages, 64 * 1024, logf_)) { fprintf(stderr, "%s\n", b.err); return 1; }
+    if (vh_wamr_open(&b, m, n, max_pages, stack, logf_)) { fprintf(stderr, "%s\n", b.err); return 1; }
     free(m);
   }
-  vh_scenario s = { notes, 48000.0f, block, 2.5f, 1.5f };
+  vh_scenario s = { notes, 48000.0f, block, 2.5f, 1.5f, 1000.0 };
   vh_result r, first;
   float *L = 0, *R = 0;
   size_t frames = (size_t)((2.5 * 48000 + block - 1) / block) * block;

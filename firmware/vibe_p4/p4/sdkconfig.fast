@@ -1,0 +1,2 @@
+# image (b): WAMR fast interpreter + AOT
+CONFIG_WAMR_INTERP_FAST=y

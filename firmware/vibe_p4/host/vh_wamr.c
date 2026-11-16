@@ -97,7 +97,7 @@ static void w_drop_instance(wamr_ctx *c)
 static int w_init(vh_backend *b, float sr)
 {
   wamr_ctx *c = b->ctx;
-  char err[128];
+  char err[96];
   w_drop_instance(c);               // a fresh instance per run: the same start state as wasmtest.mjs
   InstantiationArgs ia;
   memset(&ia, 0, sizeof ia);
@@ -185,7 +185,7 @@ int vh_wamr_open(vh_backend *b, const uint8_t *module, uint32_t size, uint32_t m
   memcpy(c->buf, module, size);
   c->size = size; c->max_pages = max_pages; c->stack_size = stack_size ? stack_size : 32 * 1024; c->log = log;
   const int aot = size >= 4 && memcmp(module, "\0aot", 4) == 0;
-  char err[128];
+  char err[96];
   c->module = wasm_runtime_load(c->buf, size, err, sizeof err);
   b->ctx = c;
   b->init = w_init; b->event = w_event; b->audio = w_audio; b->fini = w_fini;

@@ -35,7 +35,7 @@ int vh_run(vh_backend *b, const vh_scenario *s, vh_clock_ns clock, vh_result *r,
     if (b->audio(b, block, &l, &rr)) return -2;
     const uint64_t t1 = clock ? clock() : 0;
     if (clock) {
-      const double us = (double)(t1 - t0) / 1000.0;
+      const double us = (double)(t1 - t0) / (s->ticks_per_us > 0 ? s->ticks_per_us : 1000.0);
       sum_t += us;
       if (us > r->us_max) { r->us_max = us; r->us_max_block = k; }
       if (!off_sent) { sum_held += us; held++; }
