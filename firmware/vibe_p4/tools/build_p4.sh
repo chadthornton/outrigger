@@ -5,8 +5,8 @@
 #
 # Sources live outside the repo, in $S (default ~/Projects/spike-ext/s1):
 #   vibe-fm-sdk  github.com/Vibe-FM-SDK/vibe-fm-sdk @ 2ac2340 (SDK 27, Apache-2.0)
-#   wamr         github.com/bytecodealliance/wasm-micro-runtime @ WAMR-2.4.4, plus p4/wamr-2.4.4-espidf-icache.patch
-#   wamrc        built from that WAMR (wamr-compiler/, LLVM 18 via build_llvm.py; about 15 min, once)
+#   wamr         github.com/bytecodealliance/wasm-micro-runtime @ WAMR-2.4.4, plus p4/wamr-2.4.4-p4.patch
+#   wamrc        built from that WAMR (wamr-compiler/, LLVM 18 via build_llvm.py; 4 min 7 s measured, plus the clone, once)
 # Tools: zig (the SDK asks for 0.13.0; 0.15.2 measured fine), node (wasmtest.mjs), faust 2.88.0 only to regenerate
 # faust_voice.h, cmake + ninja, ESP-IDF v5.5.5 in ~/.espressif (pyenv 3.13.3 for its Python).
 #
@@ -27,8 +27,8 @@ mkdir -p "$S" "$OUT/modules"
 [ -d "$SDK" ] || git clone https://github.com/Vibe-FM-SDK/vibe-fm-sdk.git "$SDK"
 git -C "$SDK" checkout -q 2ac2340
 [ -d "$WAMR" ] || git clone --depth 1 --branch WAMR-2.4.4 https://github.com/bytecodealliance/wasm-micro-runtime.git "$WAMR"
-if git -C "$WAMR" apply --check "$here/p4/wamr-2.4.4-espidf-icache.patch" 2>/dev/null; then
-  git -C "$WAMR" apply "$here/p4/wamr-2.4.4-espidf-icache.patch"; echo "applied the icache patch to WAMR"
+if git -C "$WAMR" apply --check "$here/p4/wamr-2.4.4-p4.patch" 2>/dev/null; then
+  git -C "$WAMR" apply "$here/p4/wamr-2.4.4-p4.patch"; echo "applied the P4 patch to WAMR"
 fi
 if [ ! -x "$WAMRC" ]; then
   (cd "$WAMR/wamr-compiler" && uv run --with requests==2.32.4 python ../build-scripts/build_llvm.py --platform darwin \

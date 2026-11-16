@@ -15,7 +15,7 @@ Built with the VIBE FM SDK. (The SDK's NOTICE allows that wording; "VIBE FM comp
 | `host/vh_scenario.c` | The fixed scenario and `wasmtest.mjs`'s `out_hash` (FNV-1a over L and R). |
 | `mac/` | `vibe_run`: renders the scenario with one backend and prints a JSON line. |
 | `faust-synth/` | `voice.dsp` (saw, `fi.resonlp`, `en.adsr`), its `faust -lang c` output, and an 8-voice Vibe around it. |
-| `p4/` | The ESP-IDF v5.5.5 project for Big-P4, and `wamr-2.4.4-espidf-icache.patch`. |
+| `p4/` | The ESP-IDF v5.5.5 project for Big-P4, and `wamr-2.4.4-p4.patch`. |
 | `gen/` | Symbol-prefix headers so two natively compiled Vibes, each with its own SDK copy, link into one image (`tools/gen_prefix.sh`). |
 | `scripts/notesN.json` | The scenario as a `wasmtest.mjs` script. |
 | `tools/build_p4.sh` | Fetches the pinned sources, builds the Vibes, checks them on the Mac, and builds the three images. |
@@ -31,8 +31,14 @@ as in `wasmtest.mjs`.
   - zig 0.15 (LLVM 19 and later) emits the reference-types encoding, so WAMR needs `REF_TYPES` on.
 - WAMR tag `WAMR-2.4.4` (Apache-2.0 WITH LLVM-exception). Its ESP-IDF component supports the P4
   (`CONFIG_IDF_TARGET_ESP32P4` builds as `RISCV32_ILP32F`), and it has a RISC-V AOT relocator.
-- One patch to WAMR: `os_icache_flush` is empty upstream on ESP-IDF. On the P4 it now writes back the D-cache, invalidates
-  the I-cache over the AOT code, and runs `fence.i`. **Untested on hardware.**
+- One patch to WAMR (`p4/wamr-2.4.4-p4.patch`), two fixes:
+  - `os_icache_flush` is empty upstream on ESP-IDF. On the P4 it now writes back the D-cache, invalidates the I-cache
+    over the AOT code, and runs `fence.i`.
+  - The riscv32 AOT symbol map registers `__fixunssfdi` and `__fixsfdi` only for soft float. On rv32f (the P4) both
+    Vibes' `.aot` need `__fixunssfdi`, so without this the AOT load fails.
+    - Found by `wamrc --format=object` then `nm -u`. Every other undefined symbol is in WAMR's map, and `.text` uses
+      only CALL_PLT, HI20 and LO12_I relocations, which `aot_reloc_riscv.c` handles.
+  - **Neither fix is tested on hardware.**
 - wamrc 2.4.4 on LLVM 18 (WAMR's `build_llvm.py`, AArch64 + RISCV). P4 target:
   `--target=riscv32 --target-abi=ilp32f --cpu=generic-rv32 --cpu-features=+m,+a,+c,+f --bounds-checks=1`.
 - Faust 2.88.0 (Homebrew). It's needed only to regenerate `faust_voice.h`.
@@ -101,7 +107,7 @@ Each image holds both Vibes as `.wasm` and `.aot`, plus both compiled natively.
 firmware/vibe_p4/tools/build_p4.sh
 ```
 
-About 25 s when warm. The first run also builds LLVM, about 15 min.
+About 25 s when warm. The first run also clones and builds LLVM 18: the build itself took 4 min 7 s here (from the log's timestamps), plus the clone.
 - It stops if the WAMR shim's hashes differ from `wasmtest.mjs`.
 - It prints the images' SHA-256.
 
