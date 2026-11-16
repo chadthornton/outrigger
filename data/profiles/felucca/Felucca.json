@@ -1,0 +1,1087 @@
+{
+ "schema": "outrigger.profile/1",
+ "id": "felucca/felucca",
+ "manufacturer": "Hügelton Instruments",
+ "device": "Felucca",
+ "kind": "instrument",
+ "firmware": {
+  "name": "Felucca",
+  "version": "1.7.0",
+  "commit": "d7b1b7c4099bba28854869ddb256b3d9f634cee8",
+  "runs_on": "the M-VAVE FM-1 (Skiff enumerates the same)"
+ },
+ "usb": [
+  {
+   "name": "Felucca",
+   "vid": "1209",
+   "pid": "0001",
+   "source": "lib/midi_core/src/midi_core.cpp (Role::Target), docs/hardware-notes.md"
+  }
+ ],
+ "notes": "Four tracks, each its own engine. Every CC acts on the track its channel plays (channel_modes). A CC learned with MIDI LEARN no longer reaches this map on any channel, so these labels are the defaults. Every other parameter is reachable only through Felucca's SysEx editor protocol, which this format does not model. Outrigger's own P4 Felucca node renders one track: the same profile with one part.",
+ "parts": [
+  {
+   "id": "t1",
+   "name": "Track 1"
+  },
+  {
+   "id": "t2",
+   "name": "Track 2"
+  },
+  {
+   "id": "t3",
+   "name": "Track 3"
+  },
+  {
+   "id": "t4",
+   "name": "Track 4"
+  }
+ ],
+ "channel_modes": {
+  "setting": "MENU > MIDI > MIDI IN (ROUT; core.h G_ROUTE, seq.c midi_base / midi_slot)",
+  "observable": false,
+  "default": "ch1-4",
+  "unmapped": "A channel the mode doesn't map is ignored entirely: notes, bend, CCs, pressure, Program Change and the CC120 / 121 / 123 panics, so it stays free for other gear.",
+  "modes": [
+   {
+    "id": "ch1-4",
+    "name": "CH1-4",
+    "value": 0,
+    "kind": "block",
+    "channels": {
+     "1": "t1",
+     "2": "t2",
+     "3": "t3",
+     "4": "t4"
+    }
+   },
+   {
+    "id": "sel",
+    "name": "SEL",
+    "value": 1,
+    "kind": "selected",
+    "notes": "Every channel plays the track selected on the panel."
+   },
+   {
+    "id": "ch5-8",
+    "name": "CH5-8",
+    "value": 2,
+    "kind": "block",
+    "channels": {
+     "5": "t1",
+     "6": "t2",
+     "7": "t3",
+     "8": "t4"
+    }
+   },
+   {
+    "id": "ch9-12",
+    "name": "CH9-12",
+    "value": 3,
+    "kind": "block",
+    "channels": {
+     "9": "t1",
+     "10": "t2",
+     "11": "t3",
+     "12": "t4"
+    }
+   },
+   {
+    "id": "ch13-16",
+    "name": "CH13-16",
+    "value": 4,
+    "kind": "block",
+    "channels": {
+     "13": "t1",
+     "14": "t2",
+     "15": "t3",
+     "16": "t4"
+    }
+   },
+   {
+    "id": "track",
+    "name": "TRACK",
+    "value": 5,
+    "kind": "per_part",
+    "defaults": {
+     "t1": 1,
+     "t2": 2,
+     "t3": 3,
+     "t4": 4
+    },
+    "notes": "MENU > MIDI > T1..T4 CHANNEL: 1..16, OMNI or OFF each. A channel plays the first track set to it, else the first set to OMNI, else none."
+   }
+  ]
+ },
+ "sections": [
+  {
+   "name": "Channel",
+   "parameters": [
+    {
+     "name": "Mod wheel",
+     "description": "The MODW source of the part's modulation matrix (mod.c mod_midi).",
+     "orientation": "0-based",
+     "notes": "No fixed destination: the sound's matrix routes it.",
+     "cc": {
+      "msb": 1,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "usage": [],
+     "usage_units": null,
+     "scope": "part"
+    },
+    {
+     "name": "Expression",
+     "description": "The EXPR source of the part's modulation matrix (mod.c: 127 - value is kept).",
+     "orientation": "0-based",
+     "notes": "No fixed destination: the sound's matrix routes it.",
+     "cc": {
+      "msb": 11,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": 127
+     },
+     "nrpn": null,
+     "usage": [],
+     "usage_units": null,
+     "scope": "part"
+    },
+    {
+     "name": "Sustain pedal",
+     "description": "Holds released notes until the pedal lifts.",
+     "orientation": "0-based",
+     "notes": "DRUM parts ignore it.",
+     "cc": {
+      "msb": 64,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "usage": [
+      {
+       "from": 0,
+       "to": 63,
+       "kind": "switch",
+       "label": "Off"
+      },
+      {
+       "from": 64,
+       "to": 127,
+       "kind": "switch",
+       "label": "On"
+      }
+     ],
+     "usage_units": "cc",
+     "scope": "part"
+    },
+    {
+     "name": "Pitch bend range",
+     "description": "RPN 0 (CC101 = 0, CC100 = 0), then CC6 = semitones and CC38 = cents.",
+     "orientation": "0-based",
+     "notes": "CC6 clamps to 0..24 semitones, CC38 to 0..99 cents; 2 semitones until set. CC98 / CC99 (NRPN select) cancel RPN data entry; Felucca has no NRPN parameters.",
+     "cc": null,
+     "nrpn": null,
+     "usage": [],
+     "usage_units": null,
+     "scope": "part",
+     "rpn": {
+      "msb": 0,
+      "lsb": 0,
+      "min": 0,
+      "max": 24,
+      "default": 2
+     }
+    },
+    {
+     "name": "All sound off",
+     "description": "Silences every part the channel plays at once, pedal or not.",
+     "orientation": "0-based",
+     "notes": "Any value.",
+     "cc": {
+      "msb": 120,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "usage": [],
+     "usage_units": null,
+     "scope": "part"
+    },
+    {
+     "name": "Reset all controllers",
+     "description": "Bend, mod wheel and pressure to 0, expression to full (127), pedal up, RPN deselected; keeps the bend range.",
+     "orientation": "0-based",
+     "notes": "Does not reset the standard-map parameters (RP-015: they are the sound's).",
+     "cc": {
+      "msb": 121,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "usage": [],
+     "usage_units": null,
+     "scope": "part"
+    },
+    {
+     "name": "All notes off",
+     "description": "Releases the channel's notes normally; the pedal still holds.",
+     "orientation": "0-based",
+     "notes": "Any value.",
+     "cc": {
+      "msb": 123,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "usage": [],
+     "usage_units": null,
+     "scope": "part"
+    }
+   ]
+  },
+  {
+   "name": "Standard map",
+   "parameters": [
+    {
+     "name": "Glide",
+     "description": "Panel GLD (P_GLIDE).",
+     "orientation": "0-based",
+     "notes": "0..127 is scaled onto the target's own range as a knob would set it: min + (value * (max - min) + 63) / 127 (midi_control.c midi_cc_set); 64 is the middle of a bipolar one.",
+     "cc": {
+      "msb": 5,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "usage": [],
+     "usage_units": null,
+     "scope": "part",
+     "target": {
+      "min": 0,
+      "max": 127,
+      "default": 0,
+      "format": "F_TIME"
+     }
+    },
+    {
+     "name": "Level",
+     "description": "Panel LVL (P_LEVEL).",
+     "orientation": "0-based",
+     "notes": "0..127 is scaled onto the target's own range as a knob would set it: min + (value * (max - min) + 63) / 127 (midi_control.c midi_cc_set); 64 is the middle of a bipolar one.",
+     "cc": {
+      "msb": 7,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "usage": [],
+     "usage_units": null,
+     "scope": "part",
+     "target": {
+      "min": 0,
+      "max": 127,
+      "default": 104,
+      "format": "F_DB"
+     }
+    },
+    {
+     "name": "Pan",
+     "description": "Panel PAN (P_PAN).",
+     "orientation": "centered",
+     "notes": "0..127 is scaled onto the target's own range as a knob would set it: min + (value * (max - min) + 63) / 127 (midi_control.c midi_cc_set); 64 is the middle of a bipolar one.",
+     "cc": {
+      "msb": 10,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "usage": [],
+     "usage_units": null,
+     "scope": "part",
+     "target": {
+      "min": -64,
+      "max": 63,
+      "default": 0,
+      "format": "F_BIPCT"
+     }
+    },
+    {
+     "name": "Amp release",
+     "description": "Panel REL (P_REL).",
+     "orientation": "0-based",
+     "notes": "0..127 is scaled onto the target's own range as a knob would set it: min + (value * (max - min) + 63) / 127 (midi_control.c midi_cc_set); 64 is the middle of a bipolar one.",
+     "cc": {
+      "msb": 72,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "usage": [],
+     "usage_units": null,
+     "scope": "part",
+     "target": {
+      "min": 0,
+      "max": 127,
+      "default": 60,
+      "format": "F_TIME"
+     }
+    },
+    {
+     "name": "Amp attack",
+     "description": "Panel ATK (P_ATK).",
+     "orientation": "0-based",
+     "notes": "0..127 is scaled onto the target's own range as a knob would set it: min + (value * (max - min) + 63) / 127 (midi_control.c midi_cc_set); 64 is the middle of a bipolar one.",
+     "cc": {
+      "msb": 73,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "usage": [],
+     "usage_units": null,
+     "scope": "part",
+     "target": {
+      "min": 0,
+      "max": 127,
+      "default": 10,
+      "format": "F_TIME"
+     }
+    },
+    {
+     "name": "Amp decay",
+     "description": "Panel DEC (P_DEC).",
+     "orientation": "0-based",
+     "notes": "0..127 is scaled onto the target's own range as a knob would set it: min + (value * (max - min) + 63) / 127 (midi_control.c midi_cc_set); 64 is the middle of a bipolar one.",
+     "cc": {
+      "msb": 75,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "usage": [],
+     "usage_units": null,
+     "scope": "part",
+     "target": {
+      "min": 0,
+      "max": 127,
+      "default": 70,
+      "format": "F_TIME"
+     }
+    },
+    {
+     "name": "Reverb send",
+     "description": "Panel REV (P_REV).",
+     "orientation": "0-based",
+     "notes": "0..127 is scaled onto the target's own range as a knob would set it: min + (value * (max - min) + 63) / 127 (midi_control.c midi_cc_set); 64 is the middle of a bipolar one.",
+     "cc": {
+      "msb": 91,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "usage": [],
+     "usage_units": null,
+     "scope": "part",
+     "target": {
+      "min": 0,
+      "max": 127,
+      "default": 0,
+      "format": "F_PCT"
+     }
+    },
+    {
+     "name": "Chorus send",
+     "description": "Panel CHO (P_CHOR).",
+     "orientation": "0-based",
+     "notes": "0..127 is scaled onto the target's own range as a knob would set it: min + (value * (max - min) + 63) / 127 (midi_control.c midi_cc_set); 64 is the middle of a bipolar one.",
+     "cc": {
+      "msb": 93,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "usage": [],
+     "usage_units": null,
+     "scope": "part",
+     "target": {
+      "min": 0,
+      "max": 127,
+      "default": 0,
+      "format": "F_PCT"
+     }
+    },
+    {
+     "name": "Delay send",
+     "description": "Panel DLY (P_DLY).",
+     "orientation": "0-based",
+     "notes": "0..127 is scaled onto the target's own range as a knob would set it: min + (value * (max - min) + 63) / 127 (midi_control.c midi_cc_set); 64 is the middle of a bipolar one.",
+     "cc": {
+      "msb": 94,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "usage": [],
+     "usage_units": null,
+     "scope": "part",
+     "target": {
+      "min": 0,
+      "max": 127,
+      "default": 0,
+      "format": "F_PCT"
+     }
+    }
+   ]
+  }
+ ],
+ "variant_sets": [
+  {
+   "id": "engine",
+   "name": "Engine",
+   "scope": "part",
+   "default": "analog",
+   "controls": {
+    "cc": [
+     71,
+     74
+    ]
+   },
+   "selected_by": {
+    "observable": false,
+    "how": "The track's engine: set on the panel, by the editor (SysEx) or by loading a sound (a preset, Program Change). No MIDI message reports it, so a hub labelling CC74 / CC71 must be told the engine; an engine that maps neither ignores them."
+   },
+   "variants": [
+    {
+     "id": "analog",
+     "name": "ANALOG",
+     "index": 0,
+     "order": 0,
+     "source": "lib/synth/third_party/fm1-cartridge/third_party/felucca/firmware/engines/src/eng_analog.c",
+     "sections": [
+      {
+       "name": "Engine",
+       "parameters": [
+        {
+         "name": "RES",
+         "description": "ANALOG's E6 RES (CC71: the engine's resonance slot).",
+         "orientation": "0-based",
+         "notes": "0..127 is scaled onto the target's own range as a knob would set it: min + (value * (max - min) + 63) / 127 (midi_control.c midi_cc_set); 64 is the middle of a bipolar one.",
+         "cc": {
+          "msb": 71,
+          "lsb": null,
+          "min": 0,
+          "max": 127,
+          "default": null
+         },
+         "nrpn": null,
+         "usage": [],
+         "usage_units": null,
+         "scope": "part",
+         "target": {
+          "min": 0,
+          "max": 127,
+          "default": 30,
+          "format": "F_PCT"
+         }
+        },
+        {
+         "name": "CUT",
+         "description": "ANALOG's E5 CUT (CC74: the engine's brightness slot).",
+         "orientation": "0-based",
+         "notes": "0..127 is scaled onto the target's own range as a knob would set it: min + (value * (max - min) + 63) / 127 (midi_control.c midi_cc_set); 64 is the middle of a bipolar one.",
+         "cc": {
+          "msb": 74,
+          "lsb": null,
+          "min": 0,
+          "max": 127,
+          "default": null
+         },
+         "nrpn": null,
+         "usage": [],
+         "usage_units": null,
+         "scope": "part",
+         "target": {
+          "min": 0,
+          "max": 127,
+          "default": 90,
+          "format": "F_CUTOFF"
+         }
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "fm6",
+     "name": "FM6",
+     "index": 12,
+     "order": 1,
+     "source": "lib/synth/third_party/fm1-cartridge/third_party/felucca/firmware/src/eng_fm6.c",
+     "sections": [
+      {
+       "name": "Engine",
+       "parameters": [
+        {
+         "name": "MLVL",
+         "description": "FM6's E3 MLVL (CC74: the engine's brightness slot).",
+         "orientation": "centered",
+         "notes": "0..127 is scaled onto the target's own range as a knob would set it: min + (value * (max - min) + 63) / 127 (midi_control.c midi_cc_set); 64 is the middle of a bipolar one.",
+         "cc": {
+          "msb": 74,
+          "lsb": null,
+          "min": 0,
+          "max": 127,
+          "default": null
+         },
+         "nrpn": null,
+         "usage": [],
+         "usage_units": null,
+         "scope": "part",
+         "target": {
+          "min": -64,
+          "max": 63,
+          "default": 0,
+          "format": "F_BIPCT"
+         }
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "phase",
+     "name": "PHASE",
+     "index": 2,
+     "order": 2,
+     "source": "lib/synth/third_party/fm1-cartridge/third_party/felucca/firmware/engines/src/eng_phase.c",
+     "sections": [
+      {
+       "name": "Engine",
+       "parameters": [
+        {
+         "name": "DCW",
+         "description": "PHASE's E3 DCW (CC74: the engine's brightness slot).",
+         "orientation": "0-based",
+         "notes": "0..127 is scaled onto the target's own range as a knob would set it: min + (value * (max - min) + 63) / 127 (midi_control.c midi_cc_set); 64 is the middle of a bipolar one.",
+         "cc": {
+          "msb": 74,
+          "lsb": null,
+          "min": 0,
+          "max": 127,
+          "default": null
+         },
+         "nrpn": null,
+         "usage": [],
+         "usage_units": null,
+         "scope": "part",
+         "target": {
+          "min": 0,
+          "max": 127,
+          "default": 60,
+          "format": "F_PCT"
+         }
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "lofi",
+     "name": "LOFI",
+     "index": 3,
+     "order": 3,
+     "source": "lib/synth/third_party/fm1-cartridge/third_party/felucca/firmware/engines/src/eng_lofi.c",
+     "sections": [
+      {
+       "name": "Engine",
+       "parameters": [
+        {
+         "name": "TONE",
+         "description": "LOFI's E8 TONE (CC74: the engine's brightness slot).",
+         "orientation": "0-based",
+         "notes": "0..127 is scaled onto the target's own range as a knob would set it: min + (value * (max - min) + 63) / 127 (midi_control.c midi_cc_set); 64 is the middle of a bipolar one.",
+         "cc": {
+          "msb": 74,
+          "lsb": null,
+          "min": 0,
+          "max": 127,
+          "default": null
+         },
+         "nrpn": null,
+         "usage": [],
+         "usage_units": null,
+         "scope": "part",
+         "target": {
+          "min": 0,
+          "max": 127,
+          "default": 127,
+          "format": "F_PCT"
+         }
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "sample",
+     "name": "SAMPLE",
+     "index": 4,
+     "order": 4,
+     "source": "lib/synth/third_party/fm1-cartridge/third_party/felucca/firmware/src/eng_sample.c",
+     "sections": [
+      {
+       "name": "Engine",
+       "parameters": [
+        {
+         "name": "CUT",
+         "description": "SAMPLE's E5 CUT (CC74: the engine's brightness slot).",
+         "orientation": "0-based",
+         "notes": "0..127 is scaled onto the target's own range as a knob would set it: min + (value * (max - min) + 63) / 127 (midi_control.c midi_cc_set); 64 is the middle of a bipolar one.",
+         "cc": {
+          "msb": 74,
+          "lsb": null,
+          "min": 0,
+          "max": 127,
+          "default": null
+         },
+         "nrpn": null,
+         "usage": [],
+         "usage_units": null,
+         "scope": "part",
+         "target": {
+          "min": 0,
+          "max": 127,
+          "default": 127,
+          "format": "F_INT"
+         }
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "voice",
+     "name": "VOICE",
+     "index": 5,
+     "order": 5,
+     "source": "lib/synth/third_party/fm1-cartridge/third_party/felucca/firmware/src/eng_formant.c",
+     "sections": [
+      {
+       "name": "Engine",
+       "parameters": [
+        {
+         "name": "Q",
+         "description": "VOICE's E7 Q (CC71: the engine's resonance slot).",
+         "orientation": "0-based",
+         "notes": "0..127 is scaled onto the target's own range as a knob would set it: min + (value * (max - min) + 63) / 127 (midi_control.c midi_cc_set); 64 is the middle of a bipolar one.",
+         "cc": {
+          "msb": 71,
+          "lsb": null,
+          "min": 0,
+          "max": 127,
+          "default": null
+         },
+         "nrpn": null,
+         "usage": [],
+         "usage_units": null,
+         "scope": "part",
+         "target": {
+          "min": 0,
+          "max": 127,
+          "default": 64,
+          "format": "F_PCT"
+         }
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "trio",
+     "name": "TRIO",
+     "index": 6,
+     "order": 6,
+     "source": "lib/synth/third_party/fm1-cartridge/third_party/felucca/firmware/engines/src/eng_trio.c",
+     "sections": [
+      {
+       "name": "Engine",
+       "parameters": [
+        {
+         "name": "RES",
+         "description": "TRIO's E7 RES (CC71: the engine's resonance slot).",
+         "orientation": "0-based",
+         "notes": "0..127 is scaled onto the target's own range as a knob would set it: min + (value * (max - min) + 63) / 127 (midi_control.c midi_cc_set); 64 is the middle of a bipolar one.",
+         "cc": {
+          "msb": 71,
+          "lsb": null,
+          "min": 0,
+          "max": 127,
+          "default": null
+         },
+         "nrpn": null,
+         "usage": [],
+         "usage_units": null,
+         "scope": "part",
+         "target": {
+          "min": 0,
+          "max": 127,
+          "default": 40,
+          "format": "F_PCT"
+         }
+        },
+        {
+         "name": "CUT",
+         "description": "TRIO's E6 CUT (CC74: the engine's brightness slot).",
+         "orientation": "0-based",
+         "notes": "0..127 is scaled onto the target's own range as a knob would set it: min + (value * (max - min) + 63) / 127 (midi_control.c midi_cc_set); 64 is the middle of a bipolar one.",
+         "cc": {
+          "msb": 74,
+          "lsb": null,
+          "min": 0,
+          "max": 127,
+          "default": null
+         },
+         "nrpn": null,
+         "usage": [],
+         "usage_units": null,
+         "scope": "part",
+         "target": {
+          "min": 0,
+          "max": 127,
+          "default": 80,
+          "format": "F_CUTOFF"
+         }
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "wheel",
+     "name": "WHEEL",
+     "index": 7,
+     "order": 7,
+     "source": "lib/synth/third_party/fm1-cartridge/third_party/felucca/firmware/engines/src/eng_wheel.c",
+     "sections": []
+    },
+    {
+     "id": "grain",
+     "name": "GRAIN",
+     "index": 8,
+     "order": 8,
+     "source": "lib/synth/third_party/fm1-cartridge/third_party/felucca/firmware/src/eng_grain.c",
+     "sections": [
+      {
+       "name": "Engine",
+       "parameters": [
+        {
+         "name": "TONE",
+         "description": "GRAIN's E8 TONE (CC74: the engine's brightness slot).",
+         "orientation": "0-based",
+         "notes": "0..127 is scaled onto the target's own range as a knob would set it: min + (value * (max - min) + 63) / 127 (midi_control.c midi_cc_set); 64 is the middle of a bipolar one.",
+         "cc": {
+          "msb": 74,
+          "lsb": null,
+          "min": 0,
+          "max": 127,
+          "default": null
+         },
+         "nrpn": null,
+         "usage": [],
+         "usage_units": null,
+         "scope": "part",
+         "target": {
+          "min": 0,
+          "max": 127,
+          "default": 127,
+          "format": "F_PCT"
+         }
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "phys",
+     "name": "PHYS",
+     "index": 9,
+     "order": 9,
+     "source": "lib/synth/third_party/fm1-cartridge/third_party/felucca/firmware/src/eng_phys.c",
+     "sections": [
+      {
+       "name": "Engine",
+       "parameters": [
+        {
+         "name": "BRIT",
+         "description": "PHYS's E3 BRIT (CC74: the engine's brightness slot).",
+         "orientation": "0-based",
+         "notes": "0..127 is scaled onto the target's own range as a knob would set it: min + (value * (max - min) + 63) / 127 (midi_control.c midi_cc_set); 64 is the middle of a bipolar one.",
+         "cc": {
+          "msb": 74,
+          "lsb": null,
+          "min": 0,
+          "max": 127,
+          "default": null
+         },
+         "nrpn": null,
+         "usage": [],
+         "usage_units": null,
+         "scope": "part",
+         "target": {
+          "min": 0,
+          "max": 127,
+          "default": 80,
+          "format": "F_PCT"
+         }
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "noise",
+     "name": "NOISE",
+     "index": 11,
+     "order": 10,
+     "source": "lib/synth/third_party/fm1-cartridge/third_party/felucca/firmware/engines/src/eng_noise.c",
+     "sections": [
+      {
+       "name": "Engine",
+       "parameters": [
+        {
+         "name": "RES",
+         "description": "NOISE's E4 RES (CC71: the engine's resonance slot).",
+         "orientation": "0-based",
+         "notes": "0..127 is scaled onto the target's own range as a knob would set it: min + (value * (max - min) + 63) / 127 (midi_control.c midi_cc_set); 64 is the middle of a bipolar one.",
+         "cc": {
+          "msb": 71,
+          "lsb": null,
+          "min": 0,
+          "max": 127,
+          "default": null
+         },
+         "nrpn": null,
+         "usage": [],
+         "usage_units": null,
+         "scope": "part",
+         "target": {
+          "min": 0,
+          "max": 127,
+          "default": 30,
+          "format": "F_PCT"
+         }
+        },
+        {
+         "name": "FREQ",
+         "description": "NOISE's E3 FREQ (CC74: the engine's brightness slot).",
+         "orientation": "0-based",
+         "notes": "0..127 is scaled onto the target's own range as a knob would set it: min + (value * (max - min) + 63) / 127 (midi_control.c midi_cc_set); 64 is the middle of a bipolar one.",
+         "cc": {
+          "msb": 74,
+          "lsb": null,
+          "min": 0,
+          "max": 127,
+          "default": null
+         },
+         "nrpn": null,
+         "usage": [],
+         "usage_units": null,
+         "scope": "part",
+         "target": {
+          "min": 0,
+          "max": 127,
+          "default": 80,
+          "format": "F_CUTOFF"
+         }
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "slice",
+     "name": "SLICE",
+     "index": 13,
+     "order": 11,
+     "source": "lib/synth/third_party/fm1-cartridge/third_party/felucca/firmware/src/eng_slice.c",
+     "sections": [
+      {
+       "name": "Engine",
+       "parameters": [
+        {
+         "name": "TONE",
+         "description": "SLICE's E8 TONE (CC74: the engine's brightness slot).",
+         "orientation": "0-based",
+         "notes": "0..127 is scaled onto the target's own range as a knob would set it: min + (value * (max - min) + 63) / 127 (midi_control.c midi_cc_set); 64 is the middle of a bipolar one.",
+         "cc": {
+          "msb": 74,
+          "lsb": null,
+          "min": 0,
+          "max": 127,
+          "default": null
+         },
+         "nrpn": null,
+         "usage": [],
+         "usage_units": null,
+         "scope": "part",
+         "target": {
+          "min": 0,
+          "max": 127,
+          "default": 127,
+          "format": "F_INT"
+         }
+        }
+       ]
+      }
+     ]
+    },
+    {
+     "id": "drum",
+     "name": "DRUM",
+     "index": 10,
+     "order": 12,
+     "source": "lib/synth/third_party/fm1-cartridge/third_party/felucca/firmware/src/eng_drum.c",
+     "sections": [
+      {
+       "name": "Engine",
+       "parameters": [
+        {
+         "name": "TONE",
+         "description": "DRUM's E3 TONE (CC74: the engine's brightness slot).",
+         "orientation": "0-based",
+         "notes": "0..127 is scaled onto the target's own range as a knob would set it: min + (value * (max - min) + 63) / 127 (midi_control.c midi_cc_set); 64 is the middle of a bipolar one.",
+         "cc": {
+          "msb": 74,
+          "lsb": null,
+          "min": 0,
+          "max": 127,
+          "default": null
+         },
+         "nrpn": null,
+         "usage": [],
+         "usage_units": null,
+         "scope": "part",
+         "target": {
+          "min": 0,
+          "max": 127,
+          "default": 64,
+          "format": "F_PCT"
+         }
+        }
+       ]
+      }
+     ],
+     "ignores": [
+      "pitch_bend",
+      "cc:64"
+     ]
+    }
+   ]
+  }
+ ],
+ "messages": {
+  "note": {
+   "scope": "part",
+   "notes": "A repeated note replaces the previous press. Chord keys (P_CHRD) may turn one note into a chord."
+  },
+  "pitch_bend": {
+   "scope": "part",
+   "notes": "Range from RPN 0 (Channel section); DRUM ignores it. Tracks on one channel share it (last controller wins)."
+  },
+  "channel_pressure": {
+   "scope": "part",
+   "notes": "The AT source of the modulation matrix."
+  },
+  "program_change": {
+   "scope": "part",
+   "notes": "The track loads program d1 in the main loop (ui.c midi_pc_poll, not vendored: what d1 indexes is unchecked)."
+  }
+ },
+ "learn": {
+  "slots": 16,
+  "never": [
+   0,
+   1,
+   6,
+   11,
+   32,
+   38,
+   64,
+   96,
+   97,
+   98,
+   99,
+   100,
+   101,
+   120,
+   121,
+   122,
+   123,
+   124,
+   125,
+   126,
+   127
+  ],
+  "notes": "A learned CC sets one parameter of one track whatever channel it comes on (a channel ROUT ignores stays ignored)."
+ },
+ "triggers": [],
+ "attribution": {
+  "licence": "GPL-3.0-only",
+  "credit": "Felucca by Leo Kuroshita (Hügelton Instruments) and contributors; MIDI control by ChanceTheMaker",
+  "source": "https://github.com/hugelton/Felucca",
+  "source_commit": "d7b1b7c4099bba28854869ddb256b3d9f634cee8",
+  "source_files": [
+   "lib/synth/third_party/fm1-cartridge/third_party/felucca/firmware/src/midi_control.c",
+   "lib/synth/third_party/fm1-cartridge/third_party/felucca/firmware/src/engines.c",
+   "lib/synth/third_party/fm1-cartridge/third_party/felucca/firmware/src/params.c",
+   "lib/synth/third_party/fm1-cartridge/third_party/felucca/firmware/src/core.h",
+   "lib/synth/third_party/fm1-cartridge/third_party/felucca/firmware/src/seq.c",
+   "lib/synth/third_party/fm1-cartridge/third_party/felucca/firmware/src/mod.c",
+   "lib/synth/third_party/fm1-cartridge/third_party/felucca/firmware/engines/src/eng_analog.c",
+   "lib/synth/third_party/fm1-cartridge/third_party/felucca/firmware/engines/src/eng_lofi.c",
+   "lib/synth/third_party/fm1-cartridge/third_party/felucca/firmware/engines/src/eng_noise.c",
+   "lib/synth/third_party/fm1-cartridge/third_party/felucca/firmware/engines/src/eng_phase.c",
+   "lib/synth/third_party/fm1-cartridge/third_party/felucca/firmware/engines/src/eng_trio.c",
+   "lib/synth/third_party/fm1-cartridge/third_party/felucca/firmware/engines/src/eng_wheel.c",
+   "lib/synth/third_party/fm1-cartridge/third_party/felucca/firmware/src/eng_drum.c",
+   "lib/synth/third_party/fm1-cartridge/third_party/felucca/firmware/src/eng_fm6.c",
+   "lib/synth/third_party/fm1-cartridge/third_party/felucca/firmware/src/eng_formant.c",
+   "lib/synth/third_party/fm1-cartridge/third_party/felucca/firmware/src/eng_grain.c",
+   "lib/synth/third_party/fm1-cartridge/third_party/felucca/firmware/src/eng_phys.c",
+   "lib/synth/third_party/fm1-cartridge/third_party/felucca/firmware/src/eng_sample.c",
+   "lib/synth/third_party/fm1-cartridge/third_party/felucca/firmware/src/eng_slice.c"
+  ],
+  "changes": "Read from the vendored sources by tools/profiles/felucca.py; not from midi.guide."
+ }
+}

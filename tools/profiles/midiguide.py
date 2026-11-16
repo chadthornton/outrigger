@@ -24,7 +24,7 @@ import sys
 import unicodedata
 from pathlib import Path
 
-SCHEMA = "outrigger.profile/0"
+SCHEMA = "outrigger.profile/1"   # /1 adds optional fields only (schema.py); this importer writes none of them
 SOURCE_REPO = "https://github.com/pencilresearch/midi"
 
 CC_COLUMNS = (

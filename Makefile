@@ -159,6 +159,7 @@ test: build/check_package build/test_fm1_interop build/test_touch_map build/test
 	python3 -I tests/test_installs.py
 	python3 -I tests/test_check.py
 	python3 -I tests/test_profiles_midiguide.py
+	python3 -I tests/test_profiles_format.py
 	python3 -I tests/test_ecosystem_check.py
 	python3 -I tests/test_gen_families.py
 	python3 -I tests/test_bench.py
@@ -198,6 +199,8 @@ build/receive_pipe: tests/receive_pipe.cpp $(FM1_TEST_SRC) $(FM1_HDR)
 MIDIGUIDE ?= ../pencilresearch-midi
 profiles:
 	python3 -I tools/profiles/midiguide.py $(MIDIGUIDE) build/profiles/midi-guide
+	python3 -I tools/profiles/felucca.py --check
+	python3 -I tools/profiles/schema.py build/profiles/midi-guide data/profiles/midi-guide data/profiles/felucca
 
 fixtures:
 	python3 -I tools/fetch_fixtures.py tests/fixtures
