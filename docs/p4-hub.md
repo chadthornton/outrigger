@@ -59,6 +59,16 @@ periodic-OUT FIFO. 16 host channels. Every MIDI packet is echoed back to the dev
 from (off by default; `POST /bench/echo?on=1` turns it on, and `tools/c0_1.py` does), so a robot checks both directions of both
 cables by itself (`tools/robot_scenarios/c0-1-cables.json`). `tools/c0_1.py` runs C0-1.
 
+**Known open bug (night 1, HW2): the USB host deadlocks on replug while MIDI is flowing.** Seen twice
+in two hotplug-song runs (23 connects/disconnects in the second). The core dump
+(`~/Projects/spike-ext/hw2logs/wedge/decoded.txt`) shows the EspUsbHost task in
+`usbh_process -> handle_epn_halt_flush -> hcd_pipe_command(HALT) -> _internal_pipe_event_wait`,
+waiting forever on a pipe of the departing device while holding the usbh mutex; the client task
+(`usb_host_endpoint_clear`) and `graph_out` (`midiSend -> usb_host_transfer_submit`) wait on that
+mutex forever. The P4 log shows `Enqueue URB error: ESP_ERR_INVALID_STATE` just before. Symptoms:
+`/graph` `wire.tick_wakes` stops moving, `POST /bench/graph` returns `rc -100`. Recover with
+`POST /bench/crash` (reboots, keeps a fresh core dump). Not diagnosed further.
+
 ## Board facts found here
 
 - esp-hosted (Wi-Fi through the C6) needs a bigger loop stack: the default 8 KB panics with a stack
