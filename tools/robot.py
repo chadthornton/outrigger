@@ -666,12 +666,18 @@ def run(scn, robots, log=print, expect_macs=None, keep=True, on_sync=None, on_re
         clock.sleep(poll_s)
     for name, rb in robots.items():
         rb.cmd("stop")
+        # The robot keeps receiving after stop (a P4 clock is free-running), so
+        # a packet can land between a drain and the status read: counted, never
+        # logged. Read status once, drain everything, and keep only records
+        # stamped at or before that status (same robot clock), so the logs and
+        # the counters describe the same instant.
+        st = rb.status()
         while True:
             recs, more = rb.drain()
-            take(name, recs, None)
+            take(name, [r for r in recs if r[1] <= st["t"]], None)
             if not more:
                 break
-        data[name]["status"] = rb.status()
+        data[name]["status"] = st
         take(name, [], data[name]["status"]["t"])
         s = rb.sync()
         data[name]["sync"].append(s)
