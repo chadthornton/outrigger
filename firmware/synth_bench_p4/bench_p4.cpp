@@ -2,8 +2,9 @@
 // Waveshare ESP32-P4-WIFI6-Touch-LCD-3.5). The same measurement as the Big-S3
 // bench (firmware/synth_bench, docs/synth/s3-first-sound.md): microseconds per
 // 64-frame block at 44.1 kHz, every engine's first preset with 1, 4 and 8
-// notes held. Nothing here hosts USB or drives the screen; the console is the
-// native USB Serial/JTAG port.
+// notes held. Nothing here hosts USB or drives the screen; the console is
+// UART0 at 115200 (Arduino CDCOnBoot=default), which reaches the Mac through
+// Big-P4's UART-C port (CH343P). Opening that port on macOS resets the board.
 //
 // There is no audio device on this bench, so a timer stands in for one: it
 // takes a block from a ring of kRing blocks every 64 / 44.1 kHz, as a DAC
