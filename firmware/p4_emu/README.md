@@ -13,7 +13,7 @@ long as its copyright and permission notice stay with it (`third_party/fm1-core/
 | `tools/mkpkg.py` | Turns a `.fwsc` into a `fwpkg` partition image (64-byte header + the package). |
 | `tools/read_console.py` | Reads the console without resetting the board and averages the reports. |
 
-Packages are never committed (`out/` is gitignored). SHRUB is closed: keep it at `~/Projects/shrub-test/SHRUB.fwsc`.
+Package images are written outside the repo (`~/Projects/spike-ext/pkgimg/`); none is ever committed. SHRUB is closed: keep it at `~/Projects/shrub-test/SHRUB.fwsc`.
 
 ## Build (Mac, no hardware)
 
@@ -32,7 +32,7 @@ ESP-IDF v5.5.5 and its tools in `~/.espressif`. Output in `out/`:
 | `bootloader.bin` | 0x2000 |
 | `partition-table.bin` (from `esp/partitions.csv`) | 0x8000 |
 | `fm1-p4-emu.bin` (2.7 MB; factory slot is 4 MB) | 0x10000 |
-| `<name>.pkg.bin`, one per package | 0x410000 (`fwpkg`, 2 MB) |
+| `~/Projects/spike-ext/pkgimg/<name>.pkg.bin`, one per package (outside the repo; `PKG_OUT` moves it) | 0x410000 (`fwpkg`, 2 MB) |
 
 ## Flash and read (track A2, Big-P4 only)
 
@@ -50,7 +50,7 @@ ESP-IDF v5.5.5 and its tools in `~/.espressif`. Output in `out/`:
        --before default_reset --after hard_reset write_flash \
        --flash_mode dio --flash_size 8MB --flash_freq 80m \
        0x2000 out/bootloader.bin 0x8000 out/partition-table.bin \
-       0x10000 out/fm1-p4-emu.bin 0x410000 out/felucca-1.8.2.pkg.bin
+       0x10000 out/fm1-p4-emu.bin 0x410000 ~/Projects/spike-ext/pkgimg/felucca-1.8.2.pkg.bin
    ```
    If it can't connect: hold BOOT, tap RST, release BOOT (a person has to do this; leave a note).
 3. **Read it**, for at least 60 s (each report covers 5 s of wall time):
@@ -70,7 +70,7 @@ ESP-IDF v5.5.5 and its tools in `~/.espressif`. Output in `out/`:
 4. **The next package**: only the package partition changes.
    ```sh
    $PY -m esptool --chip esp32p4 --port /dev/cu.usbmodem101 --after hard_reset \
-       write_flash 0x410000 out/FM-1_015.pkg.bin      # then out/SHRUB.pkg.bin
+       write_flash 0x410000 ~/Projects/spike-ext/pkgimg/FM-1_015.pkg.bin   # then SHRUB.pkg.bin
    ```
    Then read again (step 3). Repeat for each package: stock V15 (`FM-1_015`), Felucca 1.8.2, SHRUB.
 5. **End with a hard reset**, e.g. `$PY -m esptool --chip esp32p4 --port /dev/cu.usbmodem101 --after hard_reset chip_id`.

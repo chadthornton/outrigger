@@ -3,7 +3,8 @@
 #   out/bootloader.bin       at 0x2000
 #   out/partition-table.bin  at 0x8000   (from esp/partitions.csv)
 #   out/fm1-p4-emu.bin       at 0x10000
-# and, with packages named, out/<name>.pkg.bin for the fwpkg partition at 0x410000:
+# and, with packages named, $PKG_OUT/<name>.pkg.bin for the fwpkg partition at 0x410000
+# (PKG_OUT defaults to ~/Projects/spike-ext/pkgimg, outside the repo: packages never go in it):
 #   firmware/p4_emu/build.sh [PKG.fwsc ...]
 # Needs rustup's nightly (esp/rust-toolchain.toml), ldproxy, and Python 3.13 for ESP-IDF's
 # tools (pyenv 3.13.3); ESP-IDF v5.5.5 and its tools land in ~/.espressif on the first build.
@@ -24,8 +25,11 @@ cp "$idf_out/bootloader/bootloader.bin" "$here/out/bootloader.bin"
 "$py" -m esptool --chip esp32p4 elf2image --flash_mode dio --flash_freq 80m --flash_size 8MB \
     --elf-sha256-offset 0xb0 --min-rev-full "$min" --max-rev-full "$max" \
     -o "$here/out/fm1-p4-emu.bin" "$rel/fm1-p4-emu"
+pkg_out="${PKG_OUT:-$HOME/Projects/spike-ext/pkgimg}"
+case "$pkg_out" in "$(git -C "$here" rev-parse --show-toplevel)"*) echo "PKG_OUT is inside the repo" >&2; exit 1;; esac
+mkdir -p "$pkg_out"
 for pkg in "$@"; do
     name=$(basename "$pkg" .fwsc)
-    python3 -I "$here/tools/mkpkg.py" "$pkg" "$here/out/$name.pkg.bin" "$name"
+    python3 -I "$here/tools/mkpkg.py" "$pkg" "$pkg_out/$name.pkg.bin" "$name"
 done
-ls -l "$here/out"
+ls -l "$here/out" "$pkg_out"
