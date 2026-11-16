@@ -1,0 +1,20 @@
+# Big-P4 (Waveshare ESP32-P4-WIFI6-Touch-LCD-3.5) is silicon rev v3.2: build for rev 3.x
+CONFIG_ESP32P4_SELECTS_REV_LESS_V3=n
+CONFIG_ESP32P4_REV_MIN_300=y
+# The fastest clock rev 3 runs
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_400=y
+# The emulated FM-1 (1 MiB RAM, its flash, the package) lives in PSRAM
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_USE_MALLOC=y
+CONFIG_SPIRAM_SPEED_200M=y
+# Console on the native USB Serial/JTAG port (/dev/cu.usbmodem101 on the Mac)
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
+# The partition table is partitions.csv, built and flashed by build.sh / A2's esptool line (a custom table
+# here would need a path the IDF build resolves inside target/; the app finds fwpkg by label at run time)
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
+# The emulator thread runs flat out on core 1: no task watchdog on it
+CONFIG_ESP_TASK_WDT_EN=n
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=16384
+CONFIG_PTHREAD_TASK_STACK_SIZE_DEFAULT=16384
+CONFIG_FREERTOS_HZ=1000
