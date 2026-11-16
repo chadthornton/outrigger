@@ -1,0 +1,46 @@
+// The knob-labels screen (C1-3): the knob just turned, big, with its value
+// and a bar; the page's eight knobs below; the synth's name at the top.
+// Data: knob_labels.data.json (an app sends the same shape).
+{
+  "screen": "knob_labels",
+  "root": {
+    "type": "page", "style": "screen", "width": "100%", "height": "100%",
+    "layout": { "flex": "column", "gap": "$space.sm" },
+    "children": [
+      { "type": "page", "width": "100%",
+        "layout": { "flex": "row", "main": "space_between", "cross": "center" },
+        "children": [
+          { "type": "label", "id": "synth", "text": "{synth.name}", "style": { "font": "$type.title" } },
+          { "type": "label", "text": "{page.name}  {page.index}/{page.count}", "style": "muted" }
+        ] },
+
+      { "type": "page", "style": "card", "width": "100%",
+        "layout": { "flex": "column", "gap": "$space.sm" },
+        "children": [
+          { "type": "page", "width": "100%",
+            "layout": { "flex": "row", "main": "space_between", "cross": "end" },
+            "children": [
+              { "type": "label", "id": "param", "text": "{param.name}", "style": "display" },
+              { "type": "label", "id": "value", "text": "{param.value_text}",
+                "style": { "use": "display", "text": "$color.accent" } }
+            ] },
+          { "type": "bar", "id": "bar", "height": 10,
+            "min": "{param.min}", "max": "{param.max}", "value": "{param.value}" }
+        ] },
+
+      { "type": "page", "width": "100%", "grow": 1,
+        "layout": { "grid": { "cols": ["1fr", "1fr", "1fr", "1fr"], "rows": ["1fr", "1fr"] },
+                    "gap": "$space.sm" },
+        "children": [
+          { "for": "page.knobs",
+            "type": "page", "id": "knob", "style": "card", "style_when": { "{active}": "knob_on" },
+            "cell": { "col": "{col}", "row": "{row}" },
+            "layout": { "flex": "column", "main": "center", "cross": "center", "gap": "$space.xs" },
+            "children": [
+              { "type": "knob", "size": 44, "min": 0, "max": 127, "value": "{value}" },
+              { "type": "label", "text": "{name}", "style": "muted" }
+            ] }
+        ] }
+    ]
+  }
+}

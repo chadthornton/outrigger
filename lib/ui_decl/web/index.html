@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ui_decl preview</title>
+<style>
+  :root { --bg: #f4f5f7; --fg: #1b1f24; --muted: #5b6672; --err: #b3261e; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #111417; --fg: #e8ebee; --muted: #9aa5b1; --err: #ff8a80; } }
+  body { margin: 0; padding: 16px; background: var(--bg); color: var(--fg); font: 14px/1.4 system-ui, sans-serif; }
+  canvas { display: block; image-rendering: pixelated; background: #000; }
+  .bar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+  select, label { font: inherit; }
+  #status { color: var(--muted); }
+  #status.err { color: var(--err); white-space: pre-wrap; }
+  /* ?bare: just the screen at 1x, for screenshots */
+  body.bare { padding: 0; }
+  body.bare .bar { display: none; }
+</style>
+</head>
+<body>
+<div class="bar">
+  <label>Screen <select id="screen"><option>knob_labels</option></select></label>
+  <label>Zoom <select id="zoom"><option value="1">1x</option><option value="2" selected>2x</option></select></label>
+  <span id="status">loading</span>
+</div>
+<canvas id="c" width="480" height="320"></canvas>
+<script src="ui_decl.js"></script>
+<script>
+// Edit lib/ui_decl/screens/*.json and save: this page polls the files and
+// redraws when they change. Served from the repo root by `make ui-decl-serve`.
+const SCREENS = '../../lib/ui_decl/screens/';
+const W = 480, H = 320;
+const canvas = document.getElementById('c');
+const status = document.getElementById('status');
+const pick = document.getElementById('screen');
+const zoom = document.getElementById('zoom');
+let mod, last = '';
+if (new URLSearchParams(location.search).has('bare')) {
+  document.body.classList.add('bare');
+  zoom.value = '1';
+}
+
+function setZoom() {
+  canvas.style.width = W * zoom.value + 'px';
+  canvas.style.height = H * zoom.value + 'px';
+}
+zoom.onchange = setZoom;
+setZoom();
+
+async function fetchText(f) {
+  const r = await fetch(SCREENS + f, { cache: 'no-store' });
+  if (!r.ok) throw new Error(`${f}: HTTP ${r.status}`);
+  return r.text();
+}
+
+async function draw(force) {
+  const s = pick.value;
+  let theme, screen, data;
+  try {
+    [theme, screen, data] = await Promise.all([fetchText('theme.json'), fetchText(s + '.json'), fetchText(s + '.data.json')]);
+  } catch (e) {
+    status.className = 'err';
+    status.textContent = String(e);
+    return;
+  }
+  const key = theme + screen + data;
+  if (!force && key === last) return;
+  last = key;
+  const t0 = performance.now();
+  const ok = mod.ccall('udw_render', 'number', ['number', 'number', 'string', 'string', 'string'], [W, H, theme, screen, data]);
+  if (!ok) {
+    status.className = 'err';
+    status.textContent = mod.UTF8ToString(mod._udw_error());
+    return;
+  }
+  const p = mod._udw_rgba();
+  const img = new ImageData(new Uint8ClampedArray(mod.HEAPU8.buffer, p, W * H * 4).slice(), W, H);
+  canvas.getContext('2d').putImageData(img, 0, 0);
+  const problems = mod._udw_problems();
+  status.className = problems ? 'err' : '';
+  status.textContent = `${s}: rendered in ${(performance.now() - t0).toFixed(1)} ms, ` +
+    (problems ? `${problems} layout problems\n${mod.UTF8ToString(mod._udw_report())}` : 'layout ok');
+  window.uiDeclRendered = (window.uiDeclRendered || 0) + 1;
+}
+
+UiDecl().then((m) => {
+  mod = m;
+  pick.onchange = () => draw(true);
+  draw(true);
+  setInterval(draw, 1000);
+});
+</script>
+</body>
+</html>

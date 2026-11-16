@@ -1,0 +1,41 @@
+// Outrigger's design tokens: one file, shared by every screen.
+// Screens name these as "$color.accent", "$type.display", "$space.md".
+{
+  "color": {
+    "bg":      "#0E1216",
+    "surface": "#1A2129",
+    "raised":  "#242D37",
+    "text":    "#F2F4F6",
+    "muted":   "#8C98A5",
+    "accent":  "#FF8A3D",
+    "track":   "#2E3843"
+  },
+  // Pixel sizes. The board has Montserrat 10-24 and 28; a size picks the
+  // largest of those that isn't bigger.
+  "type": { "display": 28, "title": 20, "body": 16, "label": 14, "caption": 12 },
+  "space": { "xs": 4, "sm": 8, "md": 12, "lg": 16, "xl": 24 },
+  "radius": { "sm": 4, "md": 8, "lg": 12 },
+
+  // Every widget of a type starts from these.
+  "defaults": {
+    "label": { "text": "$color.text", "font": "$type.body" },
+    "bar":   { "track": "$color.track", "accent": "$color.accent", "radius": "$radius.sm" },
+    "knob":  { "track": "$color.track", "accent": "$color.accent", "arc_width": 5 },
+    "button": { "bg": "$color.raised", "text": "$color.text", "font": "$type.label", "radius": "$radius.md",
+                "pad_x": "$space.lg", "pad_y": "$space.sm" },
+    "list":  { "bg": "$color.surface", "radius": "$radius.md", "border": 0, "pad": "$space.xs" },
+    // The rows LVGL makes inside a list.
+    "list_item": { "bg": "$color.surface", "text": "$color.text", "font": "$type.body", "border": 0,
+                   "pad_x": "$space.md", "pad_y": "$space.sm" }
+  },
+
+  // Named styles a screen can use ("style": "card").
+  "styles": {
+    "screen":  { "bg": "$color.bg", "pad": "$space.md" },
+    "card":    { "bg": "$color.surface", "radius": "$radius.md", "pad": "$space.sm" },
+    "knob_on": { "bg": "$color.raised", "border": 2, "border_color": "$color.accent" },
+    "muted":   { "text": "$color.muted", "font": "$type.label" },
+    "display": { "font": "$type.display" },
+    "primary": { "bg": "$color.accent", "text": "$color.bg" }
+  }
+}
