@@ -412,6 +412,20 @@ static void test_chanmap() {
   EXPECT_EQ(o->count, 2);
   EXPECT_EQ(gr_ump_channel(o->ev[0].ump[0]), 9);
   EXPECT_EQ(gr_ump_channel(o->ev[1].ump[0]), 4);
+  // A key pressed twice with the map changed in between: both offs follow the first on.
+  gr_chanmap_init(&cm);
+  cm.map[0] = 3;
+  m1(&f.next, 0, 0x90, 40, 100);
+  gr_graph_run(&g);
+  cm.map[0] = 5;
+  m1(&f.next, 0, 0x90, 40, 100);
+  m1(&f.next, 1, 0x80, 40, 0);
+  m1(&f.next, 2, 0x80, 40, 0);
+  gr_graph_run(&g);
+  EXPECT_EQ(o->count, 3);
+  EXPECT_EQ(gr_ump_channel(o->ev[0].ump[0]), 3);
+  EXPECT_EQ(gr_ump_channel(o->ev[1].ump[0]), 3);
+  EXPECT_EQ(gr_ump_channel(o->ev[2].ump[0]), 3);
 }
 
 static void test_transpose() {
@@ -445,6 +459,20 @@ static void test_transpose() {
   EXPECT_EQ(o->count, 2);
   EXPECT_EQ(gr_ump_index(o->ev[0].ump[0]), 72);
   EXPECT_EQ(gr_ump_index(o->ev[1].ump[0]), 59);
+  // A key pressed twice (on, on, off, off) with the transpose changed in
+  // between keeps its first offset: both offs match (graph_check found it).
+  gr_transpose_init(&tr, 7);
+  m1(&f.next, 0, 0x90, 50, 100);
+  gr_graph_run(&g);
+  tr.semitones = 12;
+  m1(&f.next, 0, 0x90, 50, 100);
+  m1(&f.next, 1, 0x80, 50, 0);
+  m1(&f.next, 2, 0x80, 50, 0);
+  gr_graph_run(&g);
+  EXPECT_EQ(o->count, 3);
+  EXPECT_EQ(gr_ump_index(o->ev[0].ump[0]), 57);
+  EXPECT_EQ(gr_ump_index(o->ev[1].ump[0]), 57);
+  EXPECT_EQ(gr_ump_index(o->ev[2].ump[0]), 57);
 }
 
 static void test_ccremap() {

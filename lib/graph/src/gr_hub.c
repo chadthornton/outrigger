@@ -77,96 +77,97 @@ void gr_hub_config_default(gr_hub_config *c, gr_hub_app app) {
   c->bpm = 120.0f;
 }
 
-static int add_in(gr_hub *h) {
-  int i = h->n_in++;
-  gr_spsc_init(&h->in_q[i], h->in_buf[i], GR_HUB_RING, sizeof(gr_tevent));
-  h->src[i].q = &h->in_q[i];
-  h->src[i].clk = &h->clk;
-  return h->src_id[i] = gr_graph_add(&h->g, &gr_tsource_desc, &h->src[i]);
-}
-
-static int add_out(gr_hub *h) {
-  int i = h->n_out++;
-  gr_spsc_init(&h->out_q[i], h->out_buf[i], GR_HUB_RING, sizeof(gr_tevent));
-  h->snk[i].q = &h->out_q[i];
-  h->snk[i].clk = &h->clk;
-  return h->snk_id[i] = gr_graph_add(&h->g, &gr_tsink_desc, &h->snk[i]);
-}
-
-#define TRY(x)          \
-  do {                  \
-    int r_ = (x);       \
+#define TRY(x)             \
+  do {                     \
+    int r_ = (x);          \
     if (r_ < 0) return r_; \
   } while (0)
 
-static int build(gr_hub *h) {
-  gr_graph *g = &h->g;
-  const gr_hub_config *c = &h->cfg;
+int gr_hub_app_inputs(gr_hub_app app) { return app == GR_HUB_APP_MERGE ? 2 : 1; }
+
+int gr_hub_app_build(gr_graph *g, const gr_hub_config *c, gr_hub_app_nodes *m, const int *in,
+                     int *out_node, int *out_port) {
   switch (c->app) {
-    case GR_HUB_APP_THRU: {
-      int a = add_in(h), z = add_out(h);
-      TRY(a); TRY(z);
-      return gr_graph_connect(g, a, 0, z, 0);
-    }
+    case GR_HUB_APP_THRU:
+      out_node[0] = in[0], out_port[0] = 0;
+      return 1;
     case GR_HUB_APP_MERGE: {
-      int a = add_in(h), b = add_in(h);
-      int m = gr_graph_add(g, &gr_merge2_desc, &h->merge[0]);
-      int z = add_out(h);
-      TRY(a); TRY(b); TRY(m); TRY(z);
-      TRY(gr_graph_connect(g, a, 0, m, 0));
-      TRY(gr_graph_connect(g, b, 0, m, 1));
-      return gr_graph_connect(g, m, 0, z, 0);
+      int mg = gr_graph_add(g, &gr_merge2_desc, &m->merge[0]);
+      TRY(mg);
+      TRY(gr_graph_connect(g, in[0], 0, mg, 0));
+      TRY(gr_graph_connect(g, in[1], 0, mg, 1));
+      out_node[0] = mg, out_port[0] = 0;
+      return 1;
     }
     case GR_HUB_APP_SPLIT: {
-      int a = add_in(h);
-      gr_split_init(&h->split, c->split_key, GR_SPLIT_BOTH);
-      gr_chanmap_init(&h->chanmap[0]);
-      gr_chanmap_init(&h->chanmap[1]);
+      gr_split_init(&m->split, c->split_key, GR_SPLIT_BOTH);
+      gr_chanmap_init(&m->chanmap[0]);
+      gr_chanmap_init(&m->chanmap[1]);
       for (int ch = 0; ch < 16; ++ch) {
-        h->chanmap[0].map[ch] = c->ch_lower & 15;
-        h->chanmap[1].map[ch] = c->ch_upper & 15;
+        m->chanmap[0].map[ch] = c->ch_lower & 15;
+        m->chanmap[1].map[ch] = c->ch_upper & 15;
       }
-      int s = gr_graph_add(g, &gr_split_desc, &h->split);
-      int lo = gr_graph_add(g, &gr_chanmap_desc, &h->chanmap[0]);
-      int hi = gr_graph_add(g, &gr_chanmap_desc, &h->chanmap[1]);
-      int z0 = add_out(h), z1 = add_out(h);
-      TRY(a); TRY(s); TRY(lo); TRY(hi); TRY(z0); TRY(z1);
-      TRY(gr_graph_connect(g, a, 0, s, 0));
+      int s = gr_graph_add(g, &gr_split_desc, &m->split);
+      int lo = gr_graph_add(g, &gr_chanmap_desc, &m->chanmap[0]);
+      int hi = gr_graph_add(g, &gr_chanmap_desc, &m->chanmap[1]);
+      TRY(s); TRY(lo); TRY(hi);
+      TRY(gr_graph_connect(g, in[0], 0, s, 0));
       TRY(gr_graph_connect(g, s, 0, lo, 0));
       TRY(gr_graph_connect(g, s, 1, hi, 0));
-      TRY(gr_graph_connect(g, lo, 0, z0, 0));
-      return gr_graph_connect(g, hi, 0, z1, 0);
+      out_node[0] = lo, out_port[0] = 0;
+      out_node[1] = hi, out_port[1] = 0;
+      return 2;
     }
     case GR_HUB_APP_LAYER: {
-      int a = add_in(h);
-      gr_transpose_init(&h->transpose, c->transpose);
-      gr_chanmap_init(&h->chanmap[1]);
-      for (int ch = 0; ch < 16; ++ch) h->chanmap[1].map[ch] = c->ch_upper & 15;
-      int t = gr_graph_add(g, &gr_transpose_desc, &h->transpose);
-      int hi = gr_graph_add(g, &gr_chanmap_desc, &h->chanmap[1]);
-      int z0 = add_out(h), z1 = add_out(h);
-      TRY(a); TRY(t); TRY(hi); TRY(z0); TRY(z1);
-      TRY(gr_graph_connect(g, a, 0, z0, 0));  // fan-out is free
-      TRY(gr_graph_connect(g, a, 0, t, 0));
+      gr_transpose_init(&m->transpose, c->transpose);
+      gr_chanmap_init(&m->chanmap[1]);
+      for (int ch = 0; ch < 16; ++ch) m->chanmap[1].map[ch] = c->ch_upper & 15;
+      int t = gr_graph_add(g, &gr_transpose_desc, &m->transpose);
+      int hi = gr_graph_add(g, &gr_chanmap_desc, &m->chanmap[1]);
+      TRY(t); TRY(hi);
+      TRY(gr_graph_connect(g, in[0], 0, t, 0));
       TRY(gr_graph_connect(g, t, 0, hi, 0));
-      return gr_graph_connect(g, hi, 0, z1, 0);
+      out_node[0] = in[0], out_port[0] = 0;  // fan-out is free
+      out_node[1] = hi, out_port[1] = 0;
+      return 2;
     }
     case GR_HUB_APP_CLOCK: {
-      int a = add_in(h);
-      gr_clockgen_init(&h->clockgen, (uint32_t)(c->bpm * 1000.0f + 0.5f));
-      gr_clockgen_start(&h->clockgen);
-      int k = gr_graph_add(g, &gr_clockgen_desc, &h->clockgen);
-      int m = gr_graph_add(g, &gr_merge2_desc, &h->merge[0]);
-      int z0 = add_out(h), z1 = add_out(h);
-      TRY(a); TRY(k); TRY(m); TRY(z0); TRY(z1);
-      TRY(gr_graph_connect(g, a, 0, m, 0));
-      TRY(gr_graph_connect(g, k, 0, m, 1));
-      TRY(gr_graph_connect(g, m, 0, z0, 0));
-      return gr_graph_connect(g, k, 0, z1, 0);
+      gr_clockgen_init(&m->clockgen, (uint32_t)(c->bpm * 1000.0f + 0.5f));
+      gr_clockgen_start(&m->clockgen);
+      int k = gr_graph_add(g, &gr_clockgen_desc, &m->clockgen);
+      int mg = gr_graph_add(g, &gr_merge2_desc, &m->merge[0]);
+      TRY(k); TRY(mg);
+      TRY(gr_graph_connect(g, in[0], 0, mg, 0));
+      TRY(gr_graph_connect(g, k, 0, mg, 1));
+      out_node[0] = mg, out_port[0] = 0;
+      out_node[1] = k, out_port[1] = 0;
+      return 2;
     }
     default:
       return GR_ERR_ARG;
   }
+}
+
+static int build(gr_hub *h) {
+  int n_in = gr_hub_app_inputs(h->cfg.app), in[GR_HUB_ENDPOINTS], on[GR_HUB_ENDPOINTS], op[GR_HUB_ENDPOINTS];
+  for (int i = 0; i < n_in; ++i) {
+    gr_spsc_init(&h->in_q[i], h->in_buf[i], GR_HUB_RING, sizeof(gr_tevent));
+    h->src[i].q = &h->in_q[i];
+    h->src[i].clk = &h->clk;
+    TRY(in[i] = h->src_id[i] = gr_graph_add(&h->g, &gr_tsource_desc, &h->src[i]));
+    h->n_in++;
+  }
+  int n_out = gr_hub_app_build(&h->g, &h->cfg, &h->app, in, on, op);
+  TRY(n_out);
+  for (int i = 0; i < n_out; ++i) {
+    gr_spsc_init(&h->out_q[i], h->out_buf[i], GR_HUB_RING, sizeof(gr_tevent));
+    h->snk[i].q = &h->out_q[i];
+    h->snk[i].clk = &h->clk;
+    TRY(h->snk_id[i] = gr_graph_add(&h->g, &gr_tsink_desc, &h->snk[i]));
+    TRY(gr_graph_connect(&h->g, on[i], op[i], h->snk_id[i], 0));
+    h->n_out++;
+  }
+  return GR_OK;
 }
 
 int gr_hub_init(gr_hub *h, const gr_hub_config *cfg) {

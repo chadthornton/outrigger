@@ -124,7 +124,7 @@ FM1_TESTS := build/test_fm1_package build/test_fm1_library build/test_fm1_instal
 	build/test_fm1_softkey build/test_fm1_posix build/test_fm1_locked build/test_fm1_library_posix \
 	build/test_fm1_receive
 
-test: build/check_package build/test_fm1_interop build/test_touch_map build/test_panel build/test_board_blob build/test_profile_link test-board-configs build/test_midi_core build/test_graph build/test_graph_schwung build/test_graph_hub build/test_graph_flows build/test_status build/test_boot_mode build/test_broker build/test_describe build/test_web_core build/test_store_json build/test_loader_messages build/test_bench_writer build/test_ota $(FM1_TESTS) build/receive_pipe fixtures $(TOOLS_PY)
+test: build/check_package build/test_fm1_interop build/test_touch_map build/test_panel build/test_board_blob build/test_profile_link test-board-configs build/test_midi_core build/test_graph build/test_graph_schwung build/test_graph_hub build/test_graph_flows build/test_graph_check build/graph_check build/test_status build/test_boot_mode build/test_broker build/test_describe build/test_web_core build/test_store_json build/test_loader_messages build/test_bench_writer build/test_ota $(FM1_TESTS) build/receive_pipe fixtures $(TOOLS_PY)
 	./build/test_touch_map
 	./build/test_panel
 	./build/test_board_blob tests/boards/blobs.tsv
@@ -134,6 +134,8 @@ test: build/check_package build/test_fm1_interop build/test_touch_map build/test
 	./build/test_graph_schwung tests/golden/graph
 	./build/test_graph_hub
 	./build/test_graph_flows
+	./build/test_graph_check
+	./build/graph_check
 	./build/test_status
 	./build/test_boot_mode
 	./build/test_ota
@@ -309,21 +311,36 @@ graph-tsan:
 		if ! TSAN_OPTIONS=halt_on_error=1:symbolize=0 ./build/tsan/test_graph_flows_relaxed > build/tsan/relaxed.log 2>&1; then \
 			echo "graph-tsan: the relaxed control is caught on run $$i: $$(grep -m1 -E 'WARNING: ThreadSanitizer|FAIL' build/tsan/relaxed.log)"; exit 0; fi; \
 	done; echo "graph-tsan: 5 runs of the relaxed control passed: nothing caught it"; exit 1
+# The app checker (lib/graph/check, tools/graph_check.c): host only.
+CHECK_SRC := lib/graph/check/gr_check.c lib/graph/check/gr_check_builtin.c
+CHECK_H := lib/graph/check/gr_check.h lib/graph/check/gr_check_builtin.h
+CHECK_INC := -Ilib/graph/src -Ilib/graph/check -Ilib/graph/shim -Ilib/graph/third_party/schwung
+build/graph_check: tools/graph_check.c $(CHECK_SRC) $(CHECK_H) $(GRAPH_O) $(SHIM_O) $(GRAPH_H)
+	$(TEST_CC) -std=c11 -O2 -Wall -Wextra -Werror $(CHECK_INC) -o $@ tools/graph_check.c $(CHECK_SRC) $(GRAPH_O) $(SHIM_O) -lm
+build/graph/gr_bad_nodes.o: tests/support/gr_bad_nodes.c lib/graph/check/gr_check.h $(GRAPH_H)
+	mkdir -p build/graph
+	$(TEST_CC) -std=c11 -O2 -Wall -Wextra -Werror -Ilib/graph/src -Ilib/graph/check -Dmalloc=gr_count_malloc -Dfree=gr_count_free -c -o $@ $<
+build/test_graph_check: tests/test_graph_check.c $(CHECK_SRC) $(CHECK_H) build/graph/gr_bad_nodes.o $(GRAPH_O) $(SHIM_O) $(GRAPH_H)
+	$(TEST_CC) -std=c11 -O2 -Wall -Wextra -Werror $(CHECK_INC) -o $@ tests/test_graph_check.c $(CHECK_SRC) build/graph/gr_bad_nodes.o $(GRAPH_O) $(SHIM_O) -lm
 build/test_graph_hub: tests/test_graph_hub.cpp $(GRAPH_O) $(GRAPH_H)
 	$(TEST_CXX) -std=c++17 -O2 -Wall -Wextra -Werror -pthread -Ilib/graph/src -o $@ $< $(GRAPH_O)
 build/test_graph_schwung: tests/test_graph_schwung.cpp $(GRAPH_O) $(SHIM_O) $(GRAPH_H)
 	$(TEST_CXX) -std=c++17 -O2 -Wall -Wextra -Werror $(SCHWUNG_INC) -o $@ $< $(GRAPH_O) $(SHIM_O)
 build/bench_graph: tests/bench_graph.cpp $(GRAPH_O) $(SHIM_O) $(GRAPH_H)
 	$(TEST_CXX) -std=c++17 -O2 -Wall -Wextra -Werror $(SCHWUNG_INC) -o $@ $< $(GRAPH_O) $(SHIM_O)
-.PHONY: test-graph graph-bench graph-esp graph-p4 graph-tsan
-test-graph: build/test_graph build/test_graph_schwung build/test_graph_hub build/test_graph_flows build/graph/gr_rt_bad.o
+.PHONY: test-graph graph-bench graph-esp graph-p4 graph-tsan graph-check
+test-graph: build/test_graph build/test_graph_schwung build/test_graph_hub build/test_graph_flows build/graph/gr_rt_bad.o build/test_graph_check build/graph_check
 	./build/test_graph
 	./build/test_graph_schwung tests/golden/graph
 	./build/test_graph_hub
 	./build/test_graph_flows
+	./build/test_graph_check
+	./build/graph_check
 	@# No allocator anywhere in the core or the routing nodes.
 	tools/graph_rt_symbols.sh $(GRAPH_O) build/graph/gr_schwung.o
 	@if tools/graph_rt_symbols.sh build/graph/gr_rt_bad.o >/dev/null; then echo "graph_rt_symbols.sh passed a node that logs, locks and allocates"; exit 1; else echo "audio flow: the bad control object is caught"; fi
+graph-check: build/graph_check
+	./build/graph_check
 graph-bench: build/bench_graph
 	./build/bench_graph
 # Cross-compile the core for the ESP32 targets (sizes only; nothing is flashed).

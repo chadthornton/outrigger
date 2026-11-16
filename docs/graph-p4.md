@@ -13,7 +13,7 @@ Spike, night 1, track S2. This is what HW2 needs to run track D's graph inside H
 
 ```c
 #include "gr_hub.h"
-static gr_hub hub;                       // ~129 KB. Static, never on a stack.
+static gr_hub hub;                       // ~139 KB. Static, never on a stack.
 
 // setup(), before either task starts:
 gr_hub_config c;
@@ -52,7 +52,7 @@ An endpoint is a number, from 0 up to `GR_HUB_ENDPOINTS` (4). HW2 maps each (USB
 | `GR_HUB_APP_LAYER` | in 0 | out 0: as played; out 1: transposed by `transpose` (+12) on `ch_upper` | layered |
 | `GR_HUB_APP_CLOCK` | in 0 | out 0: in 0 plus the clock; out 1: the clock alone (Start, then 24 ppqn at `bpm`) | the box keeps time |
 
-Notes remember their routing from note on to note off, so a note never sticks when a split or transpose changes mid-note.
+Notes remember their routing from note on to note off, so a note never sticks when a split, channel map or transpose changes mid-note. That holds even when a key is pressed twice before its offs: `graph_check` found that case on night 1, and it's fixed. `build/graph_check` checks every app in this table, built by the same `gr_hub_app_build` the hub runs.
 
 ## Rules HW2 must keep (CONTRACT.md, "Two flows")
 
@@ -81,8 +81,8 @@ Notes remember their routing from note on to note off, so a note never sticks wh
 
 ## Sizes (measured 2026-11-16)
 
-- `make graph-esp`, ESP32-P4, -Os, text bytes: gr_graph 1,686, gr_hub 3,618, gr_nodes 2,961, gr_spsc 336, gr_ump 986. Core plus hub: 9,587 B. No data or bss of their own.
-- `make graph-p4` (`firmware/graph_hub_p4`, Arduino core 3.3.12): 334,814 B flash (10%). Global RAM is 150,648 B (45% of 327,680), most of it `gr_hub`: 128,960 B, with 4 endpoints × 2 rings × 256 events × 20 B. Two ways to shrink it if HW1's firmware is tight: `-DGR_HUB_RING=64`, or put the hub in PSRAM with `EXT_RAM_BSS_ATTR` (untested).
+- `make graph-esp`, ESP32-P4, -Os, text bytes: gr_graph 1,686, gr_hub 3,482, gr_nodes 3,133, gr_spsc 344, gr_swap 140, gr_ump 986. Core plus hub: 9,771 B. No data or bss of their own.
+- `make graph-p4` (`firmware/graph_hub_p4`, Arduino core 3.3.12): 335,076 B flash (10%). Global RAM is 160,384 B (48% of 327,680), most of it `gr_hub`: 138,688 B. That is 4 endpoints × 2 rings × 256 events × 20 B, plus the routing nodes' per-key state. Two ways to shrink it if HW1's firmware is tight: `-DGR_HUB_RING=64`, or put the hub in PSRAM with `EXT_RAM_BSS_ATTR` (untested).
 - Arduino's `loop()` runs on core 1 on the ESP32. The graph task sits above it in priority, so `loop()` gets core 1 only between blocks. Keep USB on core 0.
 
 ## Not supported tonight

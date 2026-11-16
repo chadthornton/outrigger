@@ -2,9 +2,6 @@
 
 #include <string.h>
 
-static inline int bit_get(const uint32_t *set, uint32_t n) { return (set[n >> 5] >> (n & 31)) & 1; }
-static inline void bit_set(uint32_t *set, uint32_t n) { set[n >> 5] |= 1u << (n & 31); }
-static inline void bit_clr(uint32_t *set, uint32_t n) { set[n >> 5] &= ~(1u << (n & 31)); }
 
 static inline int is_note(uint32_t w0) {
   uint32_t op = gr_ump_opcode(w0);
@@ -114,22 +111,21 @@ static void split_process(void *self, const gr_block *b, gr_io *io) {
     int to_lower, to_upper;
     if (is_note(w0)) {
       uint32_t ch = gr_ump_channel(w0), note = gr_ump_index(w0) & 0x7F;
-      if (gr_ump_is_note_off(e->ump)) {
-        // Follow the note on, wherever the key has moved since.
-        if (bit_get(n->upper_on[ch], note)) {
-          to_upper = 1, to_lower = 0;
-          bit_clr(n->upper_on[ch], note);
-        } else if (bit_get(n->lower_on[ch], note)) {
-          to_upper = 0, to_lower = 1;
-          bit_clr(n->lower_on[ch], note);
-        } else {
-          to_upper = note >= n->key;
-          to_lower = !to_upper;
+      // A held key keeps the side of its first note on, through a second note
+      // on of the same key, until its last note off; wherever the key moved.
+      uint8_t *side = &n->side[ch][note], *held = &n->held[ch][note];
+      if (*held) {
+        to_upper = *side == 2;
+        to_lower = !to_upper;
+        if (gr_ump_is_note_off(e->ump)) {
+          if (--*held == 0) *side = 0;
+        } else if (*held < 255) {
+          ++*held;
         }
       } else {
         to_upper = note >= n->key;
         to_lower = !to_upper;
-        bit_set(to_upper ? n->upper_on[ch] : n->lower_on[ch], note);
+        if (!gr_ump_is_note_off(e->ump)) *side = to_upper ? 2 : 1, *held = 1;
       }
     } else {
       to_lower = n->other != GR_SPLIT_UPPER;
@@ -148,6 +144,7 @@ const gr_node_desc gr_split_desc = {
 void gr_chanmap_init(gr_chanmap *n) {
   for (int c = 0; c < 16; ++c) n->map[c] = (uint8_t)c;
   memset(n->note_ch, GR_DROP, sizeof(n->note_ch));
+  memset(n->held, 0, sizeof(n->held));
 }
 
 static void chanmap_process(void *self, const gr_block *b, gr_io *io) {
@@ -165,11 +162,20 @@ static void chanmap_process(void *self, const gr_block *b, gr_io *io) {
     uint8_t to = n->map[ch];
     if (is_note(w0)) {
       uint32_t note = gr_ump_index(w0) & 0x7F;
+      // A held key keeps the channel it got at its first note on, through a
+      // second note on of the same key, until its last note off.
+      uint8_t *held = &n->held[ch][note];
       if (gr_ump_is_note_off(e->ump)) {
-        if (n->note_ch[ch][note] != GR_DROP || to == GR_DROP) to = n->note_ch[ch][note];
-        n->note_ch[ch][note] = GR_DROP;
+        if (*held) {
+          to = n->note_ch[ch][note];
+          if (--*held == 0) n->note_ch[ch][note] = GR_DROP;
+        }
+      } else if (*held) {
+        to = n->note_ch[ch][note];
+        if (*held < 255) ++*held;
       } else {
         n->note_ch[ch][note] = to;
+        *held = 1;
       }
     }
     if (to == GR_DROP) continue;
@@ -187,6 +193,7 @@ void gr_transpose_init(gr_transpose *n, int semitones) {
   memset(n, 0, sizeof(*n));
   n->semitones = (int8_t)semitones;
   memset(n->applied, GR_TR_NONE, sizeof(n->applied));
+  memset(n->held, 0, sizeof(n->held));
 }
 
 static void transpose_process(void *self, const gr_block *b, gr_io *io) {
@@ -203,14 +210,21 @@ static void transpose_process(void *self, const gr_block *b, gr_io *io) {
     }
     uint32_t ch = gr_ump_channel(w0), note = gr_ump_index(w0) & 0x7F;
     int8_t *slot = &n->applied[ch][note];
+    uint8_t *held = &n->held[ch][note];
     int off;
     if (gr_ump_is_note_on(e->ump)) {
-      off = n->semitones;
-      int t = (int)note + off;
-      *slot = (t < 0 || t > 127) ? GR_TR_DROPPED : (int8_t)off;
+      if (*held) {  // the key is already down: keep its first offset
+        off = *slot;
+        if (*held < 255) ++*held;
+      } else {
+        off = n->semitones;
+        int t = (int)note + off;
+        *slot = (t < 0 || t > 127) ? GR_TR_DROPPED : (int8_t)off;
+        *held = 1;  // out of range: counted below, and its off is dropped too
+      }
     } else {
       off = *slot == GR_TR_NONE ? n->semitones : *slot;
-      if (gr_ump_is_note_off(e->ump)) *slot = GR_TR_NONE;
+      if (gr_ump_is_note_off(e->ump) && *held && --*held == 0) *slot = GR_TR_NONE;
     }
     if (off == GR_TR_DROPPED) continue;
     int t = (int)note + off;

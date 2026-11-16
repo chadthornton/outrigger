@@ -58,8 +58,8 @@ enum { GR_SPLIT_BOTH = 0, GR_SPLIT_LOWER = 1, GR_SPLIT_UPPER = 2 };
 typedef struct gr_split {
   uint8_t key;
   uint8_t other;
-  uint32_t upper_on[16][4];  // per channel: notes sounding on the upper output
-  uint32_t lower_on[16][4];
+  uint8_t side[16][128];  // per channel and note: where a held key went (1 lower, 2 upper)
+  uint8_t held[16][128];  // its note ons not yet matched by a note off
 } gr_split;
 void gr_split_init(gr_split *n, uint8_t key, uint8_t other);
 extern const gr_node_desc gr_split_desc;
@@ -69,6 +69,7 @@ extern const gr_node_desc gr_split_desc;
 typedef struct gr_chanmap {
   uint8_t map[16];
   uint8_t note_ch[16][128];  // channel a sounding note went to, or GR_DROP
+  uint8_t held[16][128];     // note ons not yet matched by a note off
 } gr_chanmap;
 void gr_chanmap_init(gr_chanmap *n);  // identity
 extern const gr_node_desc gr_chanmap_desc;
@@ -78,6 +79,7 @@ extern const gr_node_desc gr_chanmap_desc;
 typedef struct gr_transpose {
   int8_t semitones;
   int8_t applied[16][128];  // offset used at note on; GR_TR_NONE if not sounding
+  uint8_t held[16][128];    // note ons not yet matched by a note off (a key pressed twice keeps its first offset)
   uint32_t out_of_range;
 } gr_transpose;
 #define GR_TR_NONE (-128)

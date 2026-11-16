@@ -103,6 +103,23 @@ typedef struct gr_hub_config {
 } gr_hub_config;
 void gr_hub_config_default(gr_hub_config *c, gr_hub_app app);
 
+// The apps' routing nodes (only some are used by any one app).
+typedef struct gr_hub_app_nodes {
+  gr_merge merge[3];
+  gr_split split;
+  gr_chanmap chanmap[2];
+  gr_transpose transpose;
+  gr_clockgen clockgen;
+} gr_hub_app_nodes;
+
+// An app's routing, between its inputs and its outputs, on any graph: the hub
+// puts tsource/tsink nodes around it; the checker (tools/graph_check.c) puts
+// its own feeds around it. in[i] is the node feeding input i (event port 0).
+// Fills out_node/out_port for each output endpoint; returns their number, or < 0.
+int gr_hub_app_inputs(gr_hub_app app);
+int gr_hub_app_build(gr_graph *g, const gr_hub_config *c, gr_hub_app_nodes *m, const int *in, int *out_node,
+                     int *out_port);
+
 // A snapshot core 1 publishes for core 0 (32-bit fields only, so nothing
 // tears; it crosses in a ring of snapshots, never as shared memory).
 typedef struct gr_hub_node_stats {
@@ -135,12 +152,7 @@ typedef struct gr_hub {
   gr_tsink snk[GR_HUB_ENDPOINTS];
   int src_id[GR_HUB_ENDPOINTS], snk_id[GR_HUB_ENDPOINTS];
   uint8_t n_in, n_out;
-  // The apps' routing nodes (only some are used by any one app).
-  gr_merge merge[3];
-  gr_split split;
-  gr_chanmap chanmap[2];
-  gr_transpose transpose;
-  gr_clockgen clockgen;
+  gr_hub_app_nodes app;  // the app's routing nodes
   uint32_t block_max_ticks;
   uint32_t stats_every;  // blocks between snapshots
   uint32_t stats_count;

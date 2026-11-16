@@ -12,6 +12,10 @@
 // equal to the block size and every input on frame 0, this is exactly what
 // Schwung's own chain host does (all of a block's MIDI, then one tick).
 //
+// The note guard: the shim tracks the notes the module has sounding, and on
+// Start, Continue or Stop ends any the module left on (graph_check found
+// both modules resetting on transport without their note offs).
+//
 // UMPs with no MIDI 1.0 form (SysEx, utility, per-note MIDI 2.0) pass
 // through untouched. The module's output is converted back to UMP as MIDI 1.0
 // (type 2) or MIDI 2.0 (type 4) protocol.
@@ -41,6 +45,8 @@ typedef struct gr_schwung {
   uint32_t tick_quantum;  // frames per tick() call, 1 .. block frames
   uint32_t truncated;  // module output dropped because max_out (16) filled
   uint32_t passed;     // UMPs passed through without the module
+  uint32_t on[16][4];  // the note guard: the module's notes now sounding
+  uint32_t guard_offs; // note offs the guard sent for a module that reset without them
 } gr_schwung;
 
 // init is the module's move_midi_fx_init (renamed at build time so several
@@ -55,6 +61,8 @@ int gr_schwung_get(gr_schwung *n, const char *key, char *buf, int len);
 // shim has seen (start/continue -> running, stop -> stopped), shared by every
 // shim instance in the process, as in Schwung. bpm is the host tempo.
 void gr_schwung_set_bpm(float bpm);
+// Back to stopped (the transport is process-wide: a new graph starts here).
+void gr_schwung_reset_transport(void);
 
 extern const gr_node_desc gr_schwung_desc;
 

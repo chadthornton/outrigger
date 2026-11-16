@@ -32,6 +32,7 @@ static const host_api_v1_t *shim_host(void) {
 }
 
 void gr_schwung_set_bpm(float bpm) { g_bpm = bpm; }
+void gr_schwung_reset_transport(void) { g_clock_status = MOVE_CLOCK_STATUS_STOPPED; }
 
 int gr_schwung_init(gr_schwung *n, gr_midi_fx_init_fn init, const char *module_dir,
                     uint32_t tick_quantum, int out_proto2) {
@@ -62,10 +63,27 @@ int gr_schwung_get(gr_schwung *n, const char *key, char *buf, int len) {
 static void emit(gr_schwung *n, gr_events *out, uint32_t frame, uint8_t msgs[][3], const int *lens,
                  int count) {
   for (int i = 0; i < count; ++i) {
+    // The note guard: which of the module's notes are sounding.
+    uint8_t st = msgs[i][0] & 0xF0, ch = msgs[i][0] & 0x0F, nt = msgs[i][1] & 0x7F;
+    if (lens[i] >= 3 && st == 0x90 && msgs[i][2] > 0) n->on[ch][nt >> 5] |= 1u << (nt & 31);
+    if (lens[i] >= 3 && (st == 0x80 || (st == 0x90 && msgs[i][2] == 0))) n->on[ch][nt >> 5] &= ~(1u << (nt & 31));
     uint32_t w[4] = {0, 0, 0, 0};
     if (gr_ump_from_midi1(msgs[i], lens[i], n->group, n->out_proto2, w) > 0)
       gr_events_push(out, frame, w);
   }
+}
+
+static void guard_release(gr_schwung *n, gr_events *out, uint32_t frame) {
+  for (int ch = 0; ch < 16; ++ch)
+    for (int k = 0; k < 4; ++k)
+      while (n->on[ch][k]) {
+        int b = __builtin_ctz(n->on[ch][k]);
+        n->on[ch][k] &= ~(1u << b);
+        uint8_t off[3] = {(uint8_t)(0x80 | ch), (uint8_t)(k * 32 + b), 0};
+        uint32_t w[4] = {0, 0, 0, 0};
+        if (gr_ump_from_midi1(off, 3, n->group, n->out_proto2, w) > 0) gr_events_push(out, frame, w);
+        n->guard_offs++;
+      }
 }
 
 static void run_ticks(gr_schwung *n, gr_events *out, uint32_t from, uint32_t to, uint32_t sr) {
@@ -109,6 +127,9 @@ static void schwung_process(void *self, const gr_block *b, gr_io *io) {
     if (c >= MIDI_FX_MAX_OUT_MSGS) n->truncated++;
     if (c > MIDI_FX_MAX_OUT_MSGS) c = MIDI_FX_MAX_OUT_MSGS;
     if (c > 0) emit(n, out, f, msgs, lens, c);
+    // Start, Continue or Stop: a module may reset without ending its notes
+    // (graph_check found eucalypso and superarp doing it). End them here.
+    if (m1[0] == 0xFA || m1[0] == 0xFB || m1[0] == 0xFC) guard_release(n, out, f);
   }
   run_ticks(n, out, pos, b->frames, b->sample_rate);
 }
