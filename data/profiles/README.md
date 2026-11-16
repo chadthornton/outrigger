@@ -44,6 +44,8 @@ value name; a `continuous` one labels a sweep.
 
 ```
   kind: "instrument" | "controller",                 // receives (default) or sends the messages it lists
+  firmware: {name, version, commit, runs_on},        // when a firmware, not the hardware, defines the map
+  notes: "...",                                      // what the profile can't say in fields
   parts: [ {id, name} ],                             // a multitimbral synth's tracks; a controller's zones
   channel_modes: { setting, observable, default, unmapped,
       modes: [ {id, name, kind: "block", channels: {"1": part, ...}}         // a fixed block; others ignored

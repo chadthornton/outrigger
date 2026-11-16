@@ -156,6 +156,14 @@ class Felucca(unittest.TestCase):
         with self.assertRaises(ValueError):
             felucca.learn_never("static int ml_free_cc(uint32_t cc) { return cc < 100u; }")
 
+    def test_anchors_hold_and_catch_a_change(self):
+        mc = (felucca.SRC / "midi_control.c").read_text(encoding="utf-8")
+        self.assertEqual([w for w, ok in felucca.anchors(mc) if not ok], [])
+        moved = dict(felucca.anchors(mc.replace("#define ML_N 16u", "#define ML_N 32u")))
+        self.assertFalse(moved["midi_control.c ML_N 16"])
+        modes = felucca_profile()["channel_modes"]["modes"]
+        self.assertEqual([m["name"] for m in modes], ["CH1-4", "SEL", "CH5-8", "CH9-12", "CH13-16", "TRACK"])
+
     def test_usb_is_felucca_not_the_updater(self):
         self.assertEqual([(u["vid"], u["pid"]) for u in felucca_profile()["usb"]], [("1209", "0001")])
 

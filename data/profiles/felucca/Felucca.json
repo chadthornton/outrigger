@@ -8,7 +8,7 @@
   "name": "Felucca",
   "version": "1.7.0",
   "commit": "d7b1b7c4099bba28854869ddb256b3d9f634cee8",
-  "runs_on": "the M-VAVE FM-1 (Skiff enumerates the same)"
+  "runs_on": "the M-VAVE FM-1"
  },
  "usb": [
   {
@@ -18,7 +18,7 @@
    "source": "lib/midi_core/src/midi_core.cpp (Role::Target), docs/hardware-notes.md"
   }
  ],
- "notes": "Four tracks, each its own engine. Every CC acts on the track its channel plays (channel_modes). A CC learned with MIDI LEARN no longer reaches this map on any channel, so these labels are the defaults. Every other parameter is reachable only through Felucca's SysEx editor protocol, which this format does not model. Outrigger's own P4 Felucca node renders one track: the same profile with one part.",
+ "notes": "Four tracks, each its own engine. Every CC acts on the track its channel plays (channel_modes). A CC learned with MIDI LEARN no longer reaches this map on any channel, so these labels are the defaults. Every other parameter is reachable only through Felucca's SysEx editor protocol, which this format does not model. Outrigger's own P4 Felucca node renders one track: the same profile with one part. USB can't tell versions apart: 1209:0001 \"Felucca\" is every Felucca and also Skiff (docs/firmware-loader-plan.md: only a backup tells them apart), which this profile does not cover; Felucca before 1.2 has only CH1-4 and SEL, before 1.5 no MIDI learn, before 1.5.5 no TRACK (source comments).",
  "parts": [
   {
    "id": "t1",
@@ -1017,7 +1017,7 @@
   },
   "pitch_bend": {
    "scope": "part",
-   "notes": "Range from RPN 0 (Channel section); DRUM ignores it. Tracks on one channel share it (last controller wins)."
+   "notes": "Range from RPN 0 (Channel section); DRUM ignores it. A track has one bend state: channels that reach the same track share it (last controller wins)."
   },
   "channel_pressure": {
    "scope": "part",

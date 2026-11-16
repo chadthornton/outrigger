@@ -12,8 +12,9 @@ lib/synth/third_party/fm1-cartridge/third_party/felucca. What this reads, all fr
 - each engine's `.edit` table (the eight engine parameters E1..E8: label, format, range, default);
 - params.c (the common parameters' labels and ranges); core.h / seq.c ROUT (G_ROUTE) for the channel modes.
 
-The prose (what a mode or a message does) is written here, next to the source lines it describes. Every
-number in the output comes from the sources; parse failures raise instead of guessing.
+The prose (what a mode or a message does) is written here, next to the source lines it describes. Numbers come
+from the sources; the few written here (ROUT's modes and their block channels, learn's 16 slots, RPN 0's 0..24
+clamp and default 2) are anchored: anchors() checks each against the source text and build() raises if one moved.
 """
 import json
 import re
@@ -143,6 +144,27 @@ def control_cases(mc):
     return sorted({int(c) for c in re.findall(r"case (\d+):", m.group(1))})
 
 
+ROUTE_MODES = ["CH1-4", "SEL", "CH5-8", "CH9-12", "CH13-16", "TRACK"]   # the stored G_ROUTE value is the index
+
+
+def anchors(mc):
+    """The hand-written numbers' sources: [(what, holds)]. params.c N_ROUTE in this order (seq.c midi_base reads
+    1 + 4k as block k's first channel), ML_N 16, RPN 0's clamp and default, NPART 4."""
+    params, seq, core = _read(SRC / "params.c"), _read(SRC / "seq.c"), _read(SRC / "core.h")
+    route = re.search(r"N_ROUTE\[\]\s*=\s*\{([^}]*)\}", params)
+    names = re.findall(r'"([^"]+)"', route.group(1)) if route else None
+    return [
+        ("params.c N_ROUTE", names == ROUTE_MODES),
+        ("seq.c midi_base blocks of 4", "r ? (int32_t)(r - 1u) * 4 : 0" in seq),
+        ("core.h ROUTE_SEL 1, ROUTE_TRACK 5", re.search(r"#define ROUTE_SEL 1\b", core) is not None
+         and re.search(r"#define ROUTE_TRACK 5\b", core) is not None),
+        ("core.h NPART 4", re.search(r"#define NPART 4\b", core) is not None),
+        ("midi_control.c ML_N 16", re.search(r"#define ML_N 16u\b", mc) is not None),
+        ("midi_control.c RPN 0 default 2", "c->semis = 2;" in mc),
+        ("midi_control.c RPN 0 clamp 24 / 99", "value > 24u ? 24u : value" in mc and "value > 99u ? 99u : value" in mc),
+    ]
+
+
 def _cc(n, lo=0, hi=127, default=None):
     return {"msb": n, "lsb": None, "min": lo, "max": hi, "default": default}
 
@@ -176,6 +198,9 @@ def build():
     if len(ceng) != len(syms):
         raise ValueError(f"MIDI_CC_ENG has {len(ceng)} entries, ENGINES[] {len(syms)}")
     common = common_params()
+    moved = [what for what, ok in anchors(mc) if not ok]
+    if moved:
+        raise ValueError(f"the sources changed under hand-written numbers: {moved}")
     cases = control_cases(mc)
     expected_cases = [1, 6, 38, 64, 98, 99, 100, 101, 120, 121, 123]
     if cases != expected_cases:
@@ -235,21 +260,24 @@ def build():
     parts = [{"id": f"t{i}", "name": f"Track {i}"} for i in range(1, 5)]
     block = lambda first: {str(first + i): f"t{i + 1}" for i in range(4)}
     rel = lambda p: p.relative_to(ROOT).as_posix()
-    return {
+    profile = {
         "schema": "outrigger.profile/1",
         "id": "felucca/felucca",
         "manufacturer": "Hügelton Instruments",
         "device": "Felucca",
         "kind": "instrument",
         "firmware": {"name": "Felucca", "version": VERSION, "commit": COMMIT,
-                     "runs_on": "the M-VAVE FM-1 (Skiff enumerates the same)"},
+                     "runs_on": "the M-VAVE FM-1"},
         "usb": [{"name": "Felucca", "vid": "1209", "pid": "0001",
                  "source": "lib/midi_core/src/midi_core.cpp (Role::Target), docs/hardware-notes.md"}],
         "notes": "Four tracks, each its own engine. Every CC acts on the track its channel plays (channel_modes). "
                  "A CC learned with MIDI LEARN no longer reaches this map on any channel, so these labels are "
                  "the defaults. Every other parameter is reachable only through Felucca's SysEx editor protocol, "
                  "which this format does not model. Outrigger's own P4 Felucca node renders one track: the same "
-                 "profile with one part.",
+                 "profile with one part. USB can't tell versions apart: 1209:0001 \"Felucca\" is every Felucca and "
+                 "also Skiff (docs/firmware-loader-plan.md: only a backup tells them apart), which this profile "
+                 "does not cover; Felucca before 1.2 has only CH1-4 and SEL, before 1.5 no MIDI learn, before 1.5.5 no "
+                 "TRACK (source comments).",
         "parts": parts,
         "channel_modes": {
             "setting": "MENU > MIDI > MIDI IN (ROUT; core.h G_ROUTE, seq.c midi_base / midi_slot)",
@@ -284,8 +312,8 @@ def build():
         "messages": {
             "note": {"scope": "part", "notes": "A repeated note replaces the previous press. Chord keys (P_CHRD) may "
                                                 "turn one note into a chord."},
-            "pitch_bend": {"scope": "part", "notes": "Range from RPN 0 (Channel section); DRUM ignores it. Tracks on "
-                                                      "one channel share it (last controller wins)."},
+            "pitch_bend": {"scope": "part", "notes": "Range from RPN 0 (Channel section); DRUM ignores it. A track has "
+                                                      "one bend state: channels that reach the same track share it (last controller wins)."},
             "channel_pressure": {"scope": "part", "notes": "The AT source of the modulation matrix."},
             "program_change": {"scope": "part", "notes": "The track loads program d1 in the main loop (ui.c "
                                                           "midi_pc_poll, not vendored: what d1 indexes is unchecked)."},
@@ -304,6 +332,10 @@ def build():
             "changes": "Read from the vendored sources by tools/profiles/felucca.py; not from midi.guide.",
         },
     }
+    modes = profile["channel_modes"]["modes"]
+    if [(m["name"], m["value"]) for m in modes] != [(n, i) for i, n in enumerate(ROUTE_MODES)]:
+        raise ValueError("channel_modes is not N_ROUTE in stored order")
+    return profile
 
 
 def render(profile):
