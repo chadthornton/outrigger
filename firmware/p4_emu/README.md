@@ -59,7 +59,8 @@ $PY -m esptool --chip esp32p4 --port $P -b 460800 --after no_reset write_flash \
     0x410000 ~/Projects/spike-ext/pkgimg/FM-1_015.pkg.bin
 ```
 
-If esptool can't connect: hold BOOT, tap RST, release BOOT (a person). `--after no_reset` leaves
+Opening the UART-C port resets Big-P4 on macOS even with DTR/RTS asked low (measured night 0),
+so each read starts at a boot. If esptool can't connect: hold BOOT, tap RST, release BOOT (a person). `--after no_reset` leaves
 the reset to the reader's `--reset` (an RTS pulse), so the log starts at the ROM banner.
 
 Every 5 s the app prints `FM1EMU fw= emu_ms= wall_s= ratio= ... free_psram= decodes= built= resets=

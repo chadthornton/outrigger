@@ -3,8 +3,9 @@
 
     ~/.espressif/python_env/idf5.5_py3.13_env/bin/python -I tools/read_console.py [--reset] [--send TEXT] PORT SECONDS [LOG]
 
-Opens PORT (Big-P4's UART-C port, the CH343P at /dev/cu.usbmodem5CF70432541) without toggling DTR/RTS,
-so the board keeps running. With --reset it then pulses RTS (EN low, IO0 left high: a normal boot,
+Opens PORT (Big-P4's UART-C port, the CH343P at /dev/cu.usbmodem5CF70432541) with DTR/RTS asked
+low. Measured on night 0: on macOS opening this port still resets Big-P4 (a fresh ROM banner every
+time), so every read starts at a boot whether or not --reset is given. With --reset it then pulses RTS (EN low, IO0 left high: a normal boot,
 the same pulse as esptool's hard reset) so the boot log is captured from its first line. With
 --send it writes TEXT once, a second after opening (a command for A1's bench). With
 --from-emu-ms N (first) the SUMMARY's window starts at the first report at or past N emulated ms
