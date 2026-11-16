@@ -116,7 +116,7 @@ VERSION_DIR := $(CACHE_ROOT)/version
 # screens ui-shots renders. Rewritten only when they change, like fw_version.h.
 BOARD_GEN := $(CACHE_ROOT)/boards
 
-.PHONY: check test ui-shots ui-mocks build build-all flash recovery flash-recovery probe synth-bench flash-synth-bench site serve clean fixtures golden store-image flash-store store-add check-latest deploy-site rollback-site deploy-email
+.PHONY: check test ui-shots ui-mocks build build-all flash recovery flash-recovery probe synth-bench flash-synth-bench synth-bench-p4 flash-synth-bench-p4 site serve clean fixtures golden store-image flash-store store-add check-latest deploy-site rollback-site deploy-email
 
 FM1_SRC := $(wildcard lib/fm1_loader/src/*.cpp)
 FM1_HDR := $(wildcard lib/fm1_loader/src/*.h) $(wildcard tests/support/*.h)
@@ -400,6 +400,24 @@ synth-bench:
 		--library lib/board --library lib/synth --build-path $(CACHE_ROOT)/$(SYNTH_BOARD)/synth-bench --output-dir $(SYNTH_BENCH_BUILD) firmware/synth_bench
 flash-synth-bench: synth-bench
 	arduino-cli upload --fqbn $(SYNTH_BENCH_FQBN) --input-dir $(SYNTH_BENCH_BUILD) --port $(PORT) firmware/synth_bench
+
+# Felucca's render-time bench on Big-P4 (firmware/synth_bench_p4, spike night 0):
+# no audio device, no screen, console on the native USB Serial/JTAG port.
+# `make synth-bench-p4` builds; `make flash-synth-bench-p4` checks that Big-P4's
+# USB serial number is on the bus, then uploads (esptool resets it itself).
+P4_PORT ?= /dev/cu.usbmodem101
+P4_SERIAL := e8:f6:0a:e8:a5:55
+P4_FQBN := esp32:esp32:esp32p4:ChipVariant=postv3,PSRAM=enabled,USBMode=hwcdc,CDCOnBoot=cdc,PartitionScheme=huge_app
+P4_BENCH_BUILD := build/big_p4/synth-bench-p4
+P4_BENCH_FLAGS ?=
+synth-bench-p4:
+	arduino-cli compile --fqbn $(P4_FQBN) --build-property "tools.ctags.path=$(CTAGS_DIR)" \
+		--build-property "compiler.cpp.extra_flags=$(SYNTH_C_FLAGS) -I$(CURDIR)/lib/synth/src $(P4_BENCH_FLAGS)" \
+		--build-property "compiler.c.extra_flags=$(SYNTH_C_FLAGS) -I$(CURDIR)/lib/synth/src $(P4_BENCH_FLAGS)" \
+		--build-path $(CACHE_ROOT)/big_p4/synth-bench-p4 --output-dir $(P4_BENCH_BUILD) firmware/synth_bench_p4
+flash-synth-bench-p4: synth-bench-p4
+	@system_profiler SPUSBHostDataType | grep -q "Serial Number: $(P4_SERIAL)" || { echo "Big-P4 ($(P4_SERIAL)) is not on USB; not flashing"; exit 1; }
+	arduino-cli upload --fqbn $(P4_FQBN) --input-dir $(P4_BENCH_BUILD) --port $(P4_PORT) firmware/synth_bench_p4
 
 # The store partition's first setup: a LittleFS image holding JieLi's loader
 # (from tests/fixtures). JieLi's code, so it stays in build/ and is never staged
