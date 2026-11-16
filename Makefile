@@ -124,12 +124,14 @@ FM1_TESTS := build/test_fm1_package build/test_fm1_library build/test_fm1_instal
 	build/test_fm1_softkey build/test_fm1_posix build/test_fm1_locked build/test_fm1_library_posix \
 	build/test_fm1_receive
 
-test: build/check_package build/test_fm1_interop build/test_touch_map build/test_panel build/test_board_blob build/test_profile_link test-board-configs build/test_midi_core build/test_status build/test_boot_mode build/test_broker build/test_describe build/test_web_core build/test_store_json build/test_loader_messages build/test_bench_writer build/test_ota $(FM1_TESTS) build/receive_pipe fixtures $(TOOLS_PY)
+test: build/check_package build/test_fm1_interop build/test_touch_map build/test_panel build/test_board_blob build/test_profile_link test-board-configs build/test_midi_core build/test_graph build/test_graph_schwung build/test_status build/test_boot_mode build/test_broker build/test_describe build/test_web_core build/test_store_json build/test_loader_messages build/test_bench_writer build/test_ota $(FM1_TESTS) build/receive_pipe fixtures $(TOOLS_PY)
 	./build/test_touch_map
 	./build/test_panel
 	./build/test_board_blob tests/boards/blobs.tsv
 	./build/test_profile_link
 	./build/test_midi_core
+	./build/test_graph
+	./build/test_graph_schwung tests/golden/graph
 	./build/test_status
 	./build/test_boot_mode
 	./build/test_ota
@@ -246,6 +248,53 @@ build/test_profile_link: tests/test_profile_link.cpp lib/board/src/profile_link.
 build/test_midi_core: tests/test_midi_core.cpp lib/midi_core/src/midi_core.cpp lib/midi_core/src/midi_core.h
 	mkdir -p build
 	$(TEST_CXX) -std=c++17 -Wall -Wextra -Werror -Ilib/midi_core/src -o $@ tests/test_midi_core.cpp lib/midi_core/src/midi_core.cpp
+
+# lib/graph (spike, night 0: C1-1 graph core, C1-4 Schwung shim). Plain C11,
+# built with the Mac's cc; the tests are C++. `make test-graph` runs them and
+# the no-allocation check; `make graph-bench` prints per-node timing.
+TEST_CC ?= cc
+GRAPH_C := $(wildcard lib/graph/src/*.c)
+GRAPH_H := $(wildcard lib/graph/src/*.h)
+GRAPH_O := $(patsubst lib/graph/src/%.c,build/graph/%.o,$(GRAPH_C))
+SCHWUNG_INC := -Ilib/graph/third_party/schwung -Ilib/graph/shim -Ilib/graph/src
+# Each module's move_midi_fx_init is renamed so both link into one binary, and
+# its allocator calls are counted (tests/support/gr_alloc_count.c), proving
+# the process path never allocates.
+MIDI_FX_FLAGS = -std=c11 -O2 -w $(SCHWUNG_INC) -Dmalloc=gr_count_malloc -Dcalloc=gr_count_calloc -Dfree=gr_count_free
+build/graph/%.o: lib/graph/src/%.c $(GRAPH_H)
+	mkdir -p build/graph
+	$(TEST_CC) -std=c11 -O2 -Wall -Wextra -Werror -Ilib/graph/src -c -o $@ $<
+build/graph/gr_schwung.o: lib/graph/shim/gr_schwung.c lib/graph/shim/gr_schwung.h $(GRAPH_H)
+	mkdir -p build/graph
+	$(TEST_CC) -std=c11 -O2 -Wall -Wextra -Werror $(SCHWUNG_INC) -c -o $@ $<
+build/graph/eucalypso.o: lib/graph/third_party/eucalypso/eucalypso.c
+	mkdir -p build/graph
+	$(TEST_CC) $(MIDI_FX_FLAGS) -Dmove_midi_fx_init=eucalypso_midi_fx_init -c -o $@ $<
+build/graph/superarp.o: lib/graph/third_party/superarp/superarp.c
+	mkdir -p build/graph
+	$(TEST_CC) $(MIDI_FX_FLAGS) -Dmove_midi_fx_init=superarp_midi_fx_init -c -o $@ $<
+build/graph/gr_alloc_count.o: tests/support/gr_alloc_count.c
+	mkdir -p build/graph
+	$(TEST_CC) -std=c11 -O2 -Wall -Wextra -Werror -c -o $@ $<
+SHIM_O := build/graph/gr_schwung.o build/graph/eucalypso.o build/graph/superarp.o build/graph/gr_alloc_count.o
+build/test_graph: tests/test_graph.cpp $(GRAPH_O) $(GRAPH_H)
+	$(TEST_CXX) -std=c++17 -O2 -Wall -Wextra -Werror -Ilib/graph/src -o $@ $< $(GRAPH_O)
+build/test_graph_schwung: tests/test_graph_schwung.cpp $(GRAPH_O) $(SHIM_O) $(GRAPH_H)
+	$(TEST_CXX) -std=c++17 -O2 -Wall -Wextra -Werror $(SCHWUNG_INC) -o $@ $< $(GRAPH_O) $(SHIM_O)
+build/bench_graph: tests/bench_graph.cpp $(GRAPH_O) $(SHIM_O) $(GRAPH_H)
+	$(TEST_CXX) -std=c++17 -O2 -Wall -Wextra -Werror $(SCHWUNG_INC) -o $@ $< $(GRAPH_O) $(SHIM_O)
+.PHONY: test-graph graph-bench graph-esp
+test-graph: build/test_graph build/test_graph_schwung
+	./build/test_graph
+	./build/test_graph_schwung tests/golden/graph
+	@# No allocator anywhere in the core or the routing nodes.
+	@if nm -u $(GRAPH_O) build/graph/gr_schwung.o | grep -E '_(malloc|calloc|realloc|free)$$|_Znw|_Zna'; then echo "lib/graph references an allocator"; exit 1; else echo "lib/graph: no allocator symbols"; fi
+graph-bench: build/bench_graph
+	./build/bench_graph
+# Cross-compile the core for the ESP32 targets (sizes only; nothing is flashed).
+ESP_TOOLS ?= $(HOME)/Library/Arduino15/packages/esp32/tools
+graph-esp:
+	tools/graph_esp_sizes.sh $(ESP_TOOLS)
 
 build/test_status: tests/test_status.cpp lib/midi_core/src/status.cpp lib/midi_core/src/status.h lib/midi_core/src/midi_core.h
 	mkdir -p build
