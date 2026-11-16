@@ -1,0 +1,15 @@
+{
+  "name": "hotplug-song",
+  "about": "Plugged and unplugged mid-song, two robots: robot a plays the controller (cable 0) to robot b, the synth (cable 0), and both unplug themselves in software, a every 2 s for 300 ms (2 ms into a note, so the P4 must release it) and b every 3 s for 400 ms. One pass is 60 s: 30 + 20 unplugs; --duration 1h gives 3,000. Messages near an unplug are lost_unplugged, not loss; a note-off the P4 sends at b while a is gone is released, not extra; a robot's own unplug clears what it held. note_hold catches a note held past 20 ms (the gate is 5), so an unreleased note fails even when a later note-off for its key ends it. remounted fails a replug the host never mounts within 2 s. P4 config: a cable 1 -> b cable 1, releasing a departed source's notes.",
+  "robots": ["a", "b"],
+  "streams": [
+    {"robot": "a", "cable": 0, "notes": {"count": 6000, "every_ms": 10, "channel": 1, "notes": [48, 52, 55, 60, 64, 67], "gate_ms": 5}},
+    {"robot": "a", "cable": 0, "start_ms": 7, "cc": {"count": 1500, "every_ms": 40, "channel": 1, "cc": 1}},
+    {"robot": "a", "start_ms": 1002, "unplug": {"every_ms": 2000, "down_ms": 300, "count": 30}},
+    {"robot": "b", "start_ms": 1503, "unplug": {"every_ms": 3000, "down_ms": 400, "count": 20}}
+  ],
+  "routes": [
+    {"from": {"robot": "a", "cable": 0}, "to": {"robot": "b", "cable": 0}}
+  ],
+  "checks": {"loss_max": 0, "extra_max": 0, "order": true, "latency_ms_max": 5, "jitter_ms_max": 1, "stuck_notes_max": 0, "note_hold_ms_max": 20, "reenum_ms_max": 2000}
+}

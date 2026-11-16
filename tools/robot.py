@@ -416,7 +416,7 @@ def _stream_parts(scn, si, st, passes, period):
         gate = ms_us(n.get("gate_ms", n["every_ms"] / 2))
         vel = n.get("velocity", 100)
 
-        def ons(sub):
+        def ons(sub, n=n, ch=ch, keys=keys, gate=gate, vel=vel):
             for p in range(passes):
                 for i in range(n["count"]):
                     t = t0 + ms_us(i * n["every_ms"]) + p * period
@@ -431,7 +431,7 @@ def _stream_parts(scn, si, st, passes, period):
         ch = c.get("channel", 1) - 1
         lo, hi, cnt = c.get("from", 0), c.get("to", 127), c["count"]
 
-        def ccs():
+        def ccs(c=c, ch=ch, lo=lo, hi=hi, cnt=cnt):
             for p in range(passes):
                 for i in range(cnt):
                     t = t0 + ms_us(i * c["every_ms"]) + p * period
@@ -449,7 +449,7 @@ def _stream_parts(scn, si, st, passes, period):
     if "unplug" in st:
         u = st["unplug"]
 
-        def unplugs():
+        def unplugs(u=u):
             for p in range(passes):
                 for i in range(u["count"]):
                     t = t0 + ms_us(i * u["every_ms"]) + p * period
@@ -457,7 +457,7 @@ def _stream_parts(scn, si, st, passes, period):
         parts.append(unplugs())
     msgs = sorted(((t0 + ms_us(t_ms), i, hx) for i, (t_ms, hx) in enumerate(st.get("messages", []))))
     if msgs:
-        def messages():
+        def messages(msgs=msgs):
             for p in range(passes):
                 for t, i, hx in msgs:
                     t += p * period
@@ -794,6 +794,8 @@ class Checker:
         self.lat = collections.Counter()
         self.last_seq = {}
         self.held = collections.Counter()
+        self.held_on = collections.defaultdict(collections.deque)   # note-on times still held
+        self.hold_max_us = 0
         self.clock_rx = {}      # (route, robot, cable) -> [last t, Counter of intervals, n]
         self.clock_tx = {}      # (robot, cable) -> [first t, last t, n]
         self.heard = {}         # (robot, cable) -> [n heard, first tick, last tick, ticks, Counter of intervals]
@@ -874,6 +876,12 @@ class Checker:
         self.counts[n][kind] += 1
         if kind in "upMU":
             self.down[n].record(kind, t_mac)
+            if kind == "u":
+                # A receiver that leaves the bus lets go of what it held, as a synth would.
+                for k in [k for k in self.held if k[0] == n]:
+                    del self.held[k]
+                for k in [k for k in self.held_on if k[0] == n]:
+                    del self.held_on[k]
             if kind == "p":
                 self.plugs += 1
                 self.plug_t[n] = t
@@ -922,11 +930,20 @@ class Checker:
             k = (n, cable, msg[0] & 0x0F, msg[1])
             if msg[0] >> 4 == 0x9 and msg[2] > 0:
                 self.held[k] += 1
+                self.held_on[k].append(t)
             elif self.held[k] > 0:
                 self.held[k] -= 1
+                self._hold(t - self.held_on[k].popleft())
         elif is_all_notes_off(msg):
             for k in [k for k in self.held if k[:3] == (n, cable, msg[0] & 0x0F)]:
                 del self.held[k]
+                for on in self.held_on.pop(k, ()):
+                    self._hold(t - on)
+
+    def _hold(self, us):
+        """How long a receiver held a note down: a note the P4 failed to release
+        shows here even when a later note-off for the same key ends it."""
+        self.hold_max_us = max(self.hold_max_us, us)
 
     def _update_window(self):
         if self.est:
@@ -1024,6 +1041,7 @@ class Checker:
                "matched": sum(self.lat.values()), "lost": self.lost, "lost_unplugged": self.lost_unplugged,
                "extra": self.extras, "order": self.order_bad, "released": self.released,
                "held_now": sum(v for v in self.held.values() if v > 0),
+               "note_hold_ms_max": round(self.hold_max_us / 1000, 3),
                "buffered": sum(len(b) for b in self.buf.values()) + len(self.arrivals) +
                sum(len(q) for q in self.expect.values())}
         if self.lat:
@@ -1098,6 +1116,11 @@ class Checker:
             numbers["clock_jitter_ms"] = round(worst, 4)
             if "clock_jitter_ms_max" in lim:
                 put("clock_jitter", round(worst, 4), lim["clock_jitter_ms_max"], worst <= lim["clock_jitter_ms_max"])
+        if self.hold_max_us:
+            numbers["note_hold_ms_max"] = round(self.hold_max_us / 1000, 3)
+        if "note_hold_ms_max" in lim:
+            put("note_hold", round(self.hold_max_us / 1000, 3), lim["note_hold_ms_max"],
+                self.hold_max_us / 1000 <= lim["note_hold_ms_max"])
         stuck = sum(v for v in self.held.values() if v > 0)
         put("stuck_notes", stuck, lim.get("stuck_notes_max", 0), stuck <= lim.get("stuck_notes_max", 0))
         for n in self.names:

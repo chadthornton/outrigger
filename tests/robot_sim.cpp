@@ -13,8 +13,9 @@
 //   --route R.C:R.C[,notes=LO-HI][,ch=1+2][,types=note+cc+clock+transport+other][,mapch=N][,tr=N]
 // (from robot.cable to robot.cable; the filter and map as tools/robot.py's
 // passes() and mapped()). The old --route 0:1 means 0.0:0.1, and with no
-// --route at all robot 0's cable 0 comes back on its cable 1 (--no-route: nothing is routed). Each delivery
-// arrives --latency-us plus up to --jitter-us later, in order per destination.
+// --route at all robot 0's cable 0 comes back on its cable 1 (--no-route:
+// nothing is routed). Each delivery arrives --latency-us plus up to
+// --jitter-us later, in order per destination.
 // --p4-clock-bpm B --p4-clock-to R.C (repeatable) makes the P4 send its own
 // MIDI clock from the start, each tick up to --p4-clock-jitter-us late.
 // When a source unplugs, the P4 releases the notes it was holding on its

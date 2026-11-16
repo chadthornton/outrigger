@@ -1,7 +1,9 @@
-"""tools/robot.py: scenario expansion, the checks on made-up logs (two robots,
-splits, merges, clocks, unplugs), and whole runs against build/robot_sim, with
-faults injected to show each check can fail. Run by make test (after
-build/robot_sim)."""
+"""tools/robot.py: scenario expansion (lazy, and equal to night 0's), the checks
+on made-up logs (two robots, splits, merges, clocks, unplugs), each held to
+night 0's checker (tests/robot_check_ref.py), and whole runs against
+build/robot_sim, one and two robots, with faults injected to show each check
+can fail and the windowed checker's memory staying flat. Run by make test
+(after build/robot_sim)."""
 import contextlib
 import importlib.util
 import io
@@ -14,6 +16,10 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 _spec = importlib.util.spec_from_file_location("robot", ROOT / "tools" / "robot.py")
 robot = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(robot)
+_rspec = importlib.util.spec_from_file_location("robot_check_ref", ROOT / "tests" / "robot_check_ref.py")
+_ref_mod = importlib.util.module_from_spec(_rspec)
+_rspec.loader.exec_module(_ref_mod)
+ref = _ref_mod.bind(robot)
 SCENARIOS = ROOT / "tools" / "robot_scenarios"
 
 failures = 0
@@ -65,9 +71,29 @@ ONE = {"name": "t", "robots": ["a"], "routes": [{"from": {"robot": "a", "cable":
        "checks": {"loss_max": 0, "extra_max": 0, "latency_ms_max": 5, "jitter_ms_max": 1}}
 
 
-def run_check(scn, recs, offsets=None):
+def same_as_ref(res, old, what):
+    """The windowed checker's result against night 0's: every check with the same
+    verdict and value, every night-0 number with the same value."""
+    def close(a, b):
+        if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+            return abs(a - b) <= 0.002
+        return a == b
+    for k, c in old["checks"].items():
+        mine = res["checks"].get(k)
+        expect(mine is not None and mine["ok"] == c["ok"] and close(mine["value"], c["value"]),
+               f"{what}: check {k} is {mine}, night 0 {c}")
+    for k, v in old["numbers"].items():
+        expect(close(res["numbers"].get(k), v), f"{what}: number {k} is {res['numbers'].get(k)}, night 0 {v}")
+    expect(set(res["checks"]) - set(old["checks"]) <= {"note_hold"}, f"{what}: new checks {set(res['checks'])}")
+
+
+def run_check(scn, recs, offsets=None, vs_ref=True):
     offsets = offsets or {}
-    return robot.check(scn, {n: robot_data(r, offsets.get(n, 0)) for n, r in recs.items()})
+    data = {n: robot_data(r, offsets.get(n, 0)) for n, r in recs.items()}
+    res = robot.check(scn, data)
+    if vs_ref:
+        same_as_ref(res, ref["check"](scn, data), scn.get("name", "made-up run"))
+    return res
 
 
 def failed(res):
@@ -87,7 +113,73 @@ def test_expand():
     expect(plan["rep"] == ["rep 0 20833333 4 0 F8"], f"120 BPM clock: {plan['rep']}")
     expect("at 83334 0 FC" in lines, f"stop after the last tick: {lines}")
     expect([t for t, _ in plan["at"]] == sorted(t for t, _ in plan["at"]), "sorted")
-    expect(robot.scenario_end_us(robot.expand(scn)) == 100_000, "end is the last unplug")
+    expect(robot.scenario_end_us(scn) == 100_000, "end is the last unplug")
+
+
+def random_scenario(rng):
+    streams = []
+    for _ in range(rng.randint(1, 4)):
+        st = {"robot": rng.choice("ab"), "cable": rng.randint(0, 1), "start_ms": rng.choice([0, 1, 2.5, 10])}
+        every = rng.choice([1, 2.5, 5, 10, 12.5])
+        if rng.random() < 0.7:
+            # gate can be longer than every: offs land after the next ons
+            st["notes"] = {"count": rng.randint(1, 60), "every_ms": every, "channel": rng.randint(1, 16),
+                           "notes": rng.sample(range(30, 90), rng.randint(1, 5)),
+                           "gate_ms": rng.choice([0.5, every / 2, every, every * 3])}
+        if rng.random() < 0.5:
+            st["cc"] = {"count": rng.randint(1, 40), "every_ms": rng.choice([every, 7, 20]), "cc": rng.randint(0, 119)}
+        if rng.random() < 0.3:
+            st["clock"] = {"bpm": rng.choice([90, 120, 133]), "ticks": rng.randint(3, 100)}
+        if rng.random() < 0.3:
+            st["unplug"] = {"every_ms": rng.choice([50, 100]), "down_ms": 20, "count": rng.randint(1, 4)}
+        if rng.random() < 0.3:
+            st["messages"] = [[rng.choice([0, 5, 5, 30]), rng.choice(["FE", "B07B00", "903C40"])] for _ in range(4)]
+        streams.append(st)
+    return {"robots": ["a", "b"], "streams": streams}
+
+
+def test_plan_is_night0s_order():
+    """plan() is lazy, but makes exactly the lines night 0's expand() did, in its order."""
+    import random
+    rng = random.Random(7)
+    scns = [json.loads(f.read_text()) for f in sorted(SCENARIOS.glob("*.json"))]
+    scns += [random_scenario(rng) for _ in range(300)]
+    for i, scn in enumerate(scns):
+        old, new = ref["expand"](scn), robot.expand(scn)
+        expect(old == new, f"scenario {i} ({scn.get('name')}): plan differs from night 0")
+        end = max(ref["scenario_end_us"](old), robot.ms_us(scn.get("duration_ms", 0)))
+        expect(robot.scenario_end_us(scn) == end, f"scenario {i}: end {robot.scenario_end_us(scn)} vs {end}")
+        for r in new.values():
+            ts = [t for t, _ in r["at"]]
+            expect(ts == sorted(ts), f"scenario {i}: times go back (the robot says err order)")
+
+
+def test_plan_lazy_and_repeat():
+    huge = {"robots": ["a"], "streams": [{"robot": "a", "notes": {"count": 10 ** 9, "every_ms": 10}}]}
+    it = robot.plan(huge)["a"]["at"]
+    first = [next(it) for _ in range(4)]
+    expect([t for t, _ in first] == [0, 5000, 10000, 15000], f"a billion notes, lazily: {first}")
+    expect(robot.scenario_end_us(huge) == (10 ** 9 - 1) * 10_000 + 5000, "end without expanding")
+    scn = {"robots": ["a"], "repeat": 3, "period_ms": 1000, "streams": [
+        {"robot": "a", "notes": {"count": 2, "every_ms": 100, "gate_ms": 50}},
+        {"robot": "a", "clock": {"bpm": 120, "ticks": 4}}]}
+    p = robot.expand(scn)["a"]
+    ons = [t for t, l in p["at"] if l.split()[2] == "0" and l.split()[3].startswith("90")]
+    expect(ons == [0, 100_000, 1_000_000, 1_100_000, 2_000_000, 2_100_000], f"three passes: {ons}")
+    expect(p["rep"] == ["rep 0 20833333 101 0 F8"], f"one clock over all passes: {p['rep']}")
+    expect(sum(1 for _, l in p["at"] if l.endswith(" FA")) == 1, "one clock start")
+    expect(robot.scenario_end_us(scn) == max(t for t, _ in p["at"]), "end of the last pass")
+    try:
+        robot.plan(dict(scn, period_ms=100))
+        expect(False, "a period shorter than a pass is refused")
+    except robot.RobotError:
+        pass
+    long = robot.with_duration(json.loads((SCENARIOS / "controller-to-synth.json").read_text()), 8 * 3600)
+    expect(robot.scenario_end_us(long) >= 8 * 3600e6, f"8 h: {robot.scenario_end_us(long) / 3.6e9:.2f} h")
+    clock = robot.with_duration(json.loads((SCENARIOS / "clock-out.json").read_text()), 3600)
+    expect(robot.scenario_end_us(clock) >= 3600e6, "the clock scenario stretched to an hour")
+    expect(robot.duration_s("8h") == 28800 and robot.duration_s("90m") == 5400 and robot.duration_s("15") == 15,
+           "durations")
 
 
 def test_clean_run_passes():
@@ -256,7 +348,142 @@ def test_sim_runs():
         code = robot.main(["run", str(SCENARIOS / "loopback.json"), "--sim", "--sim-opt=--drop-every=20",
                            "--runs", str(runs)])
         expect(code == 1, "a failing run exits 1")
-        expect(robot.main(["run", str(SCENARIOS / "merge.json"), "--sim"]) == 2, "--sim refuses two robots")
+        expect(robot.main(["run", str(SCENARIOS / "merge.json"), "--sim", "--runs", str(runs)]) == 0,
+               "--sim runs two robots")
+
+
+def sim_two(name_or_scn, *opts, streaming=False, **kw):
+    """A scenario (any number of robots) on robot_sim, routed as its routes say.
+    streaming: through run_checked() (periodic syncs, the windowed checker as
+    the logs drain), else run(keep=True) and check()."""
+    scn = name_or_scn if isinstance(name_or_scn, dict) else json.loads((SCENARIOS / name_or_scn).read_text())
+    robots = robot.sim_robots(scn, list(opts))
+    if streaming:
+        return robot.run_checked(scn, robots, log=lambda *_: None, poll_s=robot.SIM_POLL_S, **kw)
+    try:
+        data = robot.run(scn, robots, log=lambda *_: None, poll_s=robot.SIM_POLL_S)
+    finally:
+        for rb in robots.values():
+            rb.link.close()
+    return robot.check(scn, data), data
+
+
+def test_sim_options():
+    scn = json.loads((SCENARIOS / "split.json").read_text())
+    o = robot.sim_options(scn)
+    expect(o[:2] == ["--robots", "2"] and "0.0:1.0,notes=0-59,mapch=2" in o and "0.0:1.1,notes=60-127,mapch=3,tr=12" in o,
+           f"split's routes for the sim: {o}")
+    o = robot.sim_options(json.loads((SCENARIOS / "clock-out.json").read_text()))
+    expect(o.count("--p4-clock-to") == 2 and "0.1:1.1" in o, f"clock-out for the sim: {o}")
+
+
+def test_sim_two_robot_scenarios():
+    """Every use-case scenario passes on a clean pretend P4, and each fault fails its check."""
+    if not robot.SIM.exists():
+        return
+    for f in sorted(SCENARIOS.glob("*.json")):
+        res, _ = sim_two(f.name, "--jitter-us", "200")
+        expect(res["ok"], f"{f.name} on the sim: {failed(res)} {res['numbers']}")
+    for name, opt, val, want in (("merge.json", "--drop-every", "50", "loss"), ("merge.json", "--dup-every", "100", "extra"),
+                                 ("merge.json", "--latency-us", "7000", "latency"), ("merge.json", "--jitter-us", "3000", "jitter"),
+                                 ("split.json", "--drop-every", "40", "loss"),
+                                 ("controller-to-synth.json", "--swap-every", "97", "order"),  # with latency 3 ms below
+                                 ("clock-out.json", "--p4-clock-jitter-us", "1500", "clock_jitter"),
+                                 ("clock-out.json", "--drop-every", "100", "loss"),
+                                 ("hotplug-song.json", "--reenum-ms", "2500", "remounted")):
+        # A swap needs two deliveries in flight at once: 3 ms latency against 2 ms spacing.
+        extra = ("--latency-us", "3000") if opt == "--swap-every" else ()
+        res, _ = sim_two(name, opt, val, *extra)
+        expect(want in failed(res), f"{name} with {opt} {val} fails {want}: {failed(res)}")
+    # The P4 releases a departed controller's notes: released, not extra. Without
+    # it the note is held for the whole outage (reenum 247 ms: the replug lands
+    # between notes, so no note-off for the key comes soon after).
+    res, _ = sim_two("hotplug-song.json", "--reenum-ms", "247")
+    expect(res["ok"] and res["numbers"]["released"] == 20 and res["numbers"]["reconnects"] == 50,
+           f"hotplug-song releases: {failed(res)} {res['numbers']}")
+    res, _ = sim_two("hotplug-song.json", "--reenum-ms", "247", "--no-release")
+    expect(failed(res) == ["note_hold"] and res["numbers"]["note_hold_ms_max"] > 500, f"no release: {failed(res)} {res['numbers']}")
+    # Robot b's clock 7 s ahead and 80 ppm fast: the clock model still gives 1 ms.
+    res, _ = sim_two("controller-to-synth.json", "--offset-us", "1:7000000", "--drift-ppm", "1:80")
+    expect(res["ok"] and abs(res["numbers"]["latency_ms_p50"] - 1.0) <= 0.002, f"offset clocks: {res['numbers']}")
+
+
+def test_windowed_equals_in_memory():
+    """The same run (same seed) checked as it drains, with a sync every second,
+    and checked whole afterwards: the same verdicts and numbers."""
+    if not robot.SIM.exists():
+        return
+    for name, opts in (("merge.json", ("--jitter-us", "300", "--drop-every", "300", "--offset-us", "1:3000000",
+                                       "--drift-ppm", "1:-40")),
+                       ("hotplug-song.json", ("--reenum-ms", "247", "--jitter-us", "150")),
+                       ("clock-out.json", ("--p4-clock-jitter-us", "400", "--dup-every", "500")),
+                       ("split.json", ("--swap-every", "61",))):
+        batch, _ = sim_two(name, *opts)
+        stream, _ = sim_two(name, *opts, streaming=True, sync_s=1.0)
+        same_as_ref(stream, batch, f"{name} windowed vs whole")
+        expect(failed(stream) == failed(batch), f"{name}: {failed(stream)} vs {failed(batch)}")
+
+
+def test_windowed_memory_is_flat():
+    """A 4-minute soak keeps a few seconds of records, not the run: the
+    checker's buffers stay the same size from the first minute to the last."""
+    if not robot.SIM.exists():
+        return
+    scn = robot.with_duration(json.loads((SCENARIOS / "hotplug-song.json").read_text()), 240)
+    robots = robot.sim_robots(scn, ["--jitter-us", "200"])
+    sizes = []
+    checker_box = {}
+    orig = robot.Checker
+
+    class Spy(orig):
+        def __init__(self, *a):
+            super().__init__(*a)
+            checker_box["c"] = self
+
+        def advance(self):
+            r = super().advance()
+            sizes.append(self.snapshot()["buffered"] + len(self.missing) + len(self.held_on))
+            return r
+    robot.Checker = Spy
+    try:
+        res, _ = robot.run_checked(scn, robots, log=lambda *_: None, poll_s=robot.SIM_POLL_S)
+    finally:
+        robot.Checker = orig
+    expect(res["ok"] and res["numbers"]["matched"] > 25_000, f"4-min soak: {failed(res)} {res['numbers']}")
+    q = len(sizes) // 4
+    early, late = max(sizes[q:2 * q]), max(sizes[3 * q:])
+    expect(late <= 2 * early + 50 and late < 5000, f"held records stay flat: early {early}, late {late}")
+
+
+def test_saved_run_rechecks():
+    if not robot.SIM.exists():
+        return
+    with tempfile.TemporaryDirectory() as d:
+        save, prog = pathlib.Path(d) / "run.jsonl", pathlib.Path(d) / "progress.jsonl"
+        res, _ = sim_two("merge.json", "--drop-every", "200", streaming=True, save=str(save), progress=str(prog),
+                         progress_s=2.0)
+        scn, again = robot.check_saved(str(save))
+        expect(scn["name"] == "merge" and again["checks"] == res["checks"], f"saved run re-checks: {failed(again)}")
+        lines = [json.loads(l) for l in prog.read_text().splitlines()]
+        expect(len(lines) >= 4 and lines[-1]["done"] and "matched" in lines[1], f"progress lines: {len(lines)}")
+        # night 0's one-object format still reads
+        rb = robot.Robot("a", robot.SimLink([]))
+        scn1 = json.loads((SCENARIOS / "loopback.json").read_text())
+        try:
+            data = robot.run(scn1, {"a": rb}, log=lambda *_: None)
+        finally:
+            rb.link.close()
+        old = pathlib.Path(d) / "old.json"
+        old.write_text(json.dumps({"scenario": scn1, "data": {
+            n: dict(x, records=[(k_, t, p.hex()) for k_, t, p in x["records"]]) for n, x in data.items()}}))
+        expect(robot.check_saved(str(old))[1]["ok"], "a night-0 saved run re-checks")
+        part = pathlib.Path(d) / "part.jsonl"
+        part.write_text("\n".join(save.read_text().splitlines()[:5]) + "\n")
+        try:
+            robot.check_saved(str(part))
+            expect(False, "an unfinished save is refused")
+        except robot.RobotError:
+            pass
 
 
 def test_scenarios_parse():
