@@ -2,6 +2,7 @@
 // and test_graph_check proves the checker fails it on that rule. Built with
 // the counting allocator (-Dmalloc=gr_count_malloc -Dfree=gr_count_free).
 #include <math.h>
+#include <signal.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -89,10 +90,7 @@ static void crashes(void *self, const gr_block *b, gr_io *io) {
   (void)b;
   bad *n = (bad *)self;
   copy_in(io);
-  if (++n->n == 5000) {
-    volatile int *p = (volatile int *)(uintptr_t)8;
-    *p = 1;
-  }
+  if (++n->n == 5000) raise(SIGSEGV);  // as a wild pointer would (portable: gcc rejects a literal one)
 }
 // Slow: spins far past a 64-frame block's budget.
 static void slow(void *self, const gr_block *b, gr_io *io) {
