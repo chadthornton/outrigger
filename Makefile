@@ -124,7 +124,7 @@ FM1_TESTS := build/test_fm1_package build/test_fm1_library build/test_fm1_instal
 	build/test_fm1_softkey build/test_fm1_posix build/test_fm1_locked build/test_fm1_library_posix \
 	build/test_fm1_receive
 
-test: build/check_package build/test_fm1_interop build/test_touch_map build/test_panel build/test_board_blob build/test_profile_link test-board-configs build/test_midi_core build/test_graph build/test_graph_schwung build/test_graph_hub build/test_status build/test_boot_mode build/test_broker build/test_describe build/test_web_core build/test_store_json build/test_loader_messages build/test_bench_writer build/test_ota $(FM1_TESTS) build/receive_pipe fixtures $(TOOLS_PY)
+test: build/check_package build/test_fm1_interop build/test_touch_map build/test_panel build/test_board_blob build/test_profile_link test-board-configs build/test_midi_core build/test_graph build/test_graph_schwung build/test_graph_hub build/test_graph_flows build/test_status build/test_boot_mode build/test_broker build/test_describe build/test_web_core build/test_store_json build/test_loader_messages build/test_bench_writer build/test_ota $(FM1_TESTS) build/receive_pipe fixtures $(TOOLS_PY)
 	./build/test_touch_map
 	./build/test_panel
 	./build/test_board_blob tests/boards/blobs.tsv
@@ -133,6 +133,7 @@ test: build/check_package build/test_fm1_interop build/test_touch_map build/test
 	./build/test_graph
 	./build/test_graph_schwung tests/golden/graph
 	./build/test_graph_hub
+	./build/test_graph_flows
 	./build/test_status
 	./build/test_boot_mode
 	./build/test_ota
@@ -280,19 +281,49 @@ build/graph/gr_alloc_count.o: tests/support/gr_alloc_count.c
 SHIM_O := build/graph/gr_schwung.o build/graph/eucalypso.o build/graph/superarp.o build/graph/gr_alloc_count.o
 build/test_graph: tests/test_graph.cpp $(GRAPH_O) $(GRAPH_H)
 	$(TEST_CXX) -std=c++17 -O2 -Wall -Wextra -Werror -pthread -Ilib/graph/src -o $@ $< $(GRAPH_O)
+# The two-flow checks: every graph source built with GR_CHECK_FLOWS.
+build/test_graph_flows: tests/test_graph_flows.cpp $(GRAPH_C) $(GRAPH_H)
+	mkdir -p build/graph-flows
+	cd build/graph-flows && $(TEST_CC) -std=c11 -O2 -Wall -Wextra -Werror -DGR_CHECK_FLOWS -I$(CURDIR)/lib/graph/src -c $(addprefix $(CURDIR)/,$(GRAPH_C))
+	$(TEST_CXX) -std=c++17 -O2 -Wall -Wextra -Werror -pthread -DGR_CHECK_FLOWS -Ilib/graph/src -o $@ $< $(patsubst lib/graph/src/%.c,build/graph-flows/%.o,$(GRAPH_C))
+build/graph/gr_rt_bad.o: tests/support/gr_rt_bad.c
+	mkdir -p build/graph
+	$(TEST_CC) -std=c11 -O0 -c -o $@ $<
+# ThreadSanitizer over the threaded tests (Mac clang), plus a positive
+# control: the ring's handover weakened to relaxed must fail, by a TSan report
+# or by torn messages from the CPU's own reordering, in at least 1 of 5 runs.
+# symbolize=0: the Mac's symbolizer can hang in a sandbox; resolve a report's
+# addresses with `atos -o build/tsan/<test> -arch arm64 -l 0x100000000 <addr>`.
+TSAN := -fsanitize=thread -g -O1
+graph-tsan:
+	mkdir -p build/tsan/flows build/tsan/plain build/tsan/relaxed
+	cd build/tsan/flows && $(TEST_CC) -std=c11 $(TSAN) -DGR_CHECK_FLOWS -I$(CURDIR)/lib/graph/src -c $(addprefix $(CURDIR)/,$(GRAPH_C))
+	cd build/tsan/plain && $(TEST_CC) -std=c11 $(TSAN) -I$(CURDIR)/lib/graph/src -c $(addprefix $(CURDIR)/,$(GRAPH_C))
+	cd build/tsan/relaxed && $(TEST_CC) -std=c11 $(TSAN) -DGR_CHECK_FLOWS -DGR_SPSC_TEST_RELAXED -I$(CURDIR)/lib/graph/src -c $(addprefix $(CURDIR)/,$(GRAPH_C))
+	$(TEST_CXX) -std=c++17 $(TSAN) -DGR_CHECK_FLOWS -Ilib/graph/src -o build/tsan/test_graph_flows tests/test_graph_flows.cpp build/tsan/flows/*.o
+	$(TEST_CXX) -std=c++17 $(TSAN) -Ilib/graph/src -o build/tsan/test_graph_hub tests/test_graph_hub.cpp build/tsan/plain/*.o
+	$(TEST_CXX) -std=c++17 $(TSAN) -DGR_CHECK_FLOWS -Ilib/graph/src -o build/tsan/test_graph_flows_relaxed tests/test_graph_flows.cpp build/tsan/relaxed/*.o
+	TSAN_OPTIONS=halt_on_error=1:symbolize=0 ./build/tsan/test_graph_flows
+	TSAN_OPTIONS=halt_on_error=1:symbolize=0 ./build/tsan/test_graph_hub --threads
+	@for i in 1 2 3 4 5; do \
+		if ! TSAN_OPTIONS=halt_on_error=1:symbolize=0 ./build/tsan/test_graph_flows_relaxed > build/tsan/relaxed.log 2>&1; then \
+			echo "graph-tsan: the relaxed control is caught on run $$i: $$(grep -m1 -E 'WARNING: ThreadSanitizer|FAIL' build/tsan/relaxed.log)"; exit 0; fi; \
+	done; echo "graph-tsan: 5 runs of the relaxed control passed: nothing caught it"; exit 1
 build/test_graph_hub: tests/test_graph_hub.cpp $(GRAPH_O) $(GRAPH_H)
 	$(TEST_CXX) -std=c++17 -O2 -Wall -Wextra -Werror -pthread -Ilib/graph/src -o $@ $< $(GRAPH_O)
 build/test_graph_schwung: tests/test_graph_schwung.cpp $(GRAPH_O) $(SHIM_O) $(GRAPH_H)
 	$(TEST_CXX) -std=c++17 -O2 -Wall -Wextra -Werror $(SCHWUNG_INC) -o $@ $< $(GRAPH_O) $(SHIM_O)
 build/bench_graph: tests/bench_graph.cpp $(GRAPH_O) $(SHIM_O) $(GRAPH_H)
 	$(TEST_CXX) -std=c++17 -O2 -Wall -Wextra -Werror $(SCHWUNG_INC) -o $@ $< $(GRAPH_O) $(SHIM_O)
-.PHONY: test-graph graph-bench graph-esp graph-p4
-test-graph: build/test_graph build/test_graph_schwung build/test_graph_hub
+.PHONY: test-graph graph-bench graph-esp graph-p4 graph-tsan
+test-graph: build/test_graph build/test_graph_schwung build/test_graph_hub build/test_graph_flows build/graph/gr_rt_bad.o
 	./build/test_graph
 	./build/test_graph_schwung tests/golden/graph
 	./build/test_graph_hub
+	./build/test_graph_flows
 	@# No allocator anywhere in the core or the routing nodes.
-	@if nm -u $(GRAPH_O) build/graph/gr_schwung.o | grep -E '(^|[ _])(malloc|calloc|realloc|free)$$|_Znw|_Zna'; then echo "lib/graph references an allocator"; exit 1; else echo "lib/graph: no allocator symbols"; fi
+	tools/graph_rt_symbols.sh $(GRAPH_O) build/graph/gr_schwung.o
+	@if tools/graph_rt_symbols.sh build/graph/gr_rt_bad.o >/dev/null; then echo "graph_rt_symbols.sh passed a node that logs, locks and allocates"; exit 1; else echo "audio flow: the bad control object is caught"; fi
 graph-bench: build/bench_graph
 	./build/bench_graph
 # Cross-compile the core for the ESP32 targets (sizes only; nothing is flashed).

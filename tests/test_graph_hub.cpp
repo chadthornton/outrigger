@@ -299,7 +299,13 @@ static void test_threads() {
   printf("hub threads: %d of %d through three threads, in order\n", got.load(), N);
 }
 
-int main() {
+int main(int argc, char **argv) {
+  setvbuf(stdout, NULL, _IOLBF, 0);  // progress shows even when piped (graph-tsan)
+  if (argc > 1 && strcmp(argv[1], "--threads") == 0) {  // graph-tsan: only the threaded part
+    test_threads();
+    printf("test_graph_hub --threads: %d checks, %d failures\n", checks, failures);
+    return failures ? 1 : 0;
+  }
   test_thru(1000, "from 0");
   test_thru(0xFFFFFFFFu - 2000000u, "across the us wrap");
   test_merge();

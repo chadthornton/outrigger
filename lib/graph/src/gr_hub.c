@@ -225,12 +225,12 @@ static void publish(gr_hub *h) {
   s.ev_dropped = h->g.ev_dropped_total;
   s.resyncs = h->clk.resyncs;
   for (int i = 0; i < h->n_in; ++i) {
-    s.in_dropped += h->in_q[i].dropped;  // producer-owned: may lag a little, never tears (32-bit)
+    s.in_dropped += gr_spsc_dropped(&h->in_q[i]);  // core 0 writes it: read it atomically
     s.late += h->src[i].late;
     s.in_events += h->src[i].taken;
   }
   for (int i = 0; i < h->n_out; ++i) {
-    s.out_dropped += h->out_q[i].dropped;
+    s.out_dropped += gr_spsc_dropped(&h->out_q[i]);
     s.out_events += h->snk[i].sent;
   }
   s.n_nodes = h->g.n_nodes < GR_HUB_STATS_NODES ? h->g.n_nodes : GR_HUB_STATS_NODES;

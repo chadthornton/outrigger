@@ -27,12 +27,15 @@ static gr_hub hub;  // ~129 KB: static, never on a stack
 
 static uint32_t now_us() { return (uint32_t)esp_timer_get_time(); }
 
-// Latency seen by the stand-in USB task (core 0 only).
-static volatile uint32_t lat_min = UINT32_MAX, lat_max = 0, lat_n = 0, early = 0;
-static uint64_t lat_sum = 0;
+// Latency seen by the stand-in USB task: it alone writes these (core 0), as
+// 32-bit atomic values; loop() only reads them (CONTRACT.md rule 1).
+static uint32_t lat_min = UINT32_MAX, lat_max = 0, lat_n = 0, lat_mean = 0;
+static uint64_t lat_sum = 0;  // the USB task's own
+static void put(uint32_t *v, uint32_t x) { __atomic_store_n(v, x, __ATOMIC_RELAXED); }
+static uint32_t get(const uint32_t *v) { return __atomic_load_n(v, __ATOMIC_RELAXED); }
 // loop() asks for a reset with a counter it alone writes; the USB task does
 // the reset and remembers the last request it handled (CONTRACT.md rule 1).
-static volatile uint32_t reset_req = 0;
+static uint32_t reset_req = 0;  // loop() writes, atomically
 static uint32_t reset_done = 0;
 static uint32_t sent_us[256];  // send time by sequence number (the CC value + MSB in the note)
 
@@ -49,9 +52,10 @@ static void usb_standin_task(void *) {
   uint32_t next = now_us(), seq = 0;
   for (;;) {
     uint32_t t = now_us();
-    if (reset_req != reset_done) {
-      reset_done = reset_req;
-      lat_min = UINT32_MAX, lat_max = 0, lat_n = 0, lat_sum = 0;
+    if (get(&reset_req) != reset_done) {
+      reset_done = get(&reset_req);
+      put(&lat_min, UINT32_MAX), put(&lat_max, 0), put(&lat_n, 0), put(&lat_mean, 0);
+      lat_sum = 0;
     }
     while (gr_us_reached(t, next)) {
       uint8_t m[3] = {(uint8_t)(0xB0 | (seq >> 7 & 1)), 20, (uint8_t)(seq & 0x7F)};
@@ -67,10 +71,11 @@ static void usb_standin_task(void *) {
         if ((m[0] & 0xF0) != 0xB0) continue;  // the clock app's clocks
         uint32_t s = ((m[0] & 1u) << 7) | m[2];
         uint32_t lat = t - sent_us[s];
-        if (lat < lat_min) lat_min = lat;
-        if (lat > lat_max) lat_max = lat;
+        if (lat < get(&lat_min)) put(&lat_min, lat);
+        if (lat > get(&lat_max)) put(&lat_max, lat);
         lat_sum += lat;
-        lat_n++;
+        put(&lat_n, get(&lat_n) + 1);
+        put(&lat_mean, (uint32_t)(lat_sum / get(&lat_n)));
       }
     }
     vTaskDelay(1);
@@ -90,8 +95,8 @@ static void print_stats() {
                 (unsigned long)s.in_events, (unsigned long)s.out_events, (unsigned long)s.late,
                 (unsigned long)s.in_dropped, (unsigned long)s.out_dropped, (unsigned long)s.ev_dropped,
                 (unsigned long)s.resyncs, s.block_max_ticks / (double)tpu,
-                (unsigned long)(lat_n ? lat_min : 0), (unsigned long)(lat_n ? (uint32_t)(lat_sum / lat_n) : 0),
-                (unsigned long)lat_max, (unsigned long)lat_n);
+                (unsigned long)(get(&lat_n) ? get(&lat_min) : 0), (unsigned long)get(&lat_mean),
+                (unsigned long)get(&lat_max), (unsigned long)get(&lat_n));
   for (int n = 0; n < s.n_nodes; ++n)
     Serial.printf("NODE %d %s mean_us=%.3f max_us=%.3f last_us=%.3f\n", n, s.node[n].name,
                   s.node[n].mean_ticks / (double)tpu, s.node[n].max_ticks / (double)tpu,
@@ -118,7 +123,7 @@ void loop() {
   while (Serial.available()) {
     int ch = Serial.read();
     if (ch == 's') print_stats();
-    if (ch == 'r') reset_req = reset_req + 1;
+    if (ch == 'r') put(&reset_req, get(&reset_req) + 1);
   }
   if (millis() - last >= 1000) {
     last = millis();
