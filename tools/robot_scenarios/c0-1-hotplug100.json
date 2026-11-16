@@ -1,0 +1,20 @@
+{
+  "name": "c0-1-hotplug100",
+  "about": "C0-1: 100 software unplug/replug cycles per robot, both robots at once, while each plays on both cables through the P4's echo. Each robot drops off the bus for 300 ms every 3 s (robot b offset by 1.5 s, so the hub sees one change at a time). remounted counts replugs the P4 mounted again within reenum_ms_max; reconnect_ms is plug to the host's mount on the robot's clock. Messages around an unplug count as lost_unplugged, not loss.",
+  "robots": ["a", "b"],
+  "streams": [
+    {"robot": "a", "cable": 0, "notes": {"count": 6100, "every_ms": 50, "channel": 1, "notes": [60, 62, 64, 65, 67], "gate_ms": 20}},
+    {"robot": "a", "cable": 1, "start_ms": 7, "notes": {"count": 6100, "every_ms": 50, "channel": 2, "notes": [48, 50, 52], "gate_ms": 20}},
+    {"robot": "b", "cable": 0, "start_ms": 13, "notes": {"count": 6100, "every_ms": 50, "channel": 3, "notes": [72, 74, 76, 77], "gate_ms": 20}},
+    {"robot": "b", "cable": 1, "start_ms": 19, "notes": {"count": 6100, "every_ms": 50, "channel": 4, "notes": [36, 38, 42], "gate_ms": 20}},
+    {"robot": "a", "start_ms": 2000, "unplug": {"every_ms": 3000, "down_ms": 300, "count": 100}},
+    {"robot": "b", "start_ms": 3500, "unplug": {"every_ms": 3000, "down_ms": 300, "count": 100}}
+  ],
+  "routes": [
+    {"from": {"robot": "a", "cable": 0}, "to": {"robot": "a", "cable": 0}},
+    {"from": {"robot": "a", "cable": 1}, "to": {"robot": "a", "cable": 1}},
+    {"from": {"robot": "b", "cable": 0}, "to": {"robot": "b", "cable": 0}},
+    {"from": {"robot": "b", "cable": 1}, "to": {"robot": "b", "cable": 1}}
+  ],
+  "checks": {"loss_max": 0, "extra_max": 0, "order": true, "latency_ms_max": 10, "stuck_notes_max": 0, "reenum_ms_max": 2500}
+}

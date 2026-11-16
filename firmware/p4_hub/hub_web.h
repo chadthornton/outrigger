@@ -5,7 +5,7 @@
 // GET  /status       JSON: build, uptime, heap, Wi-Fi, USB summary, screen
 // GET  /log?since=N  JSON: numbered log lines (ours and ESP-IDF's)
 // GET  /crash        JSON: reset reason, the last crash's record (NVS), core dump summary
-// GET  /coredump     the raw core dump partition, for esp-coredump
+// GET  /coredump     the stored core dump (header + ELF): esp_coredump info_corefile -t raw
 // GET  /graph        JSON: the graph's state (hub_graph.h; a stub until HW2)
 // GET  /screen.bmp   the screen, from the frame buffer the panel was sent
 // GET  /usb          JSON: devices, cables, channels, per-cable counts, remount times

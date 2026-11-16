@@ -1,0 +1,18 @@
+{
+  "name": "c0-1-cables",
+  "about": "C0-1: both robots, both MIDI cables, both directions. Each robot plays on cable 0 and cable 1 (different channels and notes); the P4 hub firmware's echo (firmware/p4_hub, on by default) sends every packet back to the device and cable it came from. Proves enumeration of two cables per robot, the cable nibble kept host-side in and out, and no loss through the hub.",
+  "robots": ["a", "b"],
+  "streams": [
+    {"robot": "a", "cable": 0, "notes": {"count": 400, "every_ms": 10, "channel": 1, "notes": [60, 62, 64, 65, 67], "gate_ms": 5}},
+    {"robot": "a", "cable": 1, "start_ms": 3, "notes": {"count": 400, "every_ms": 10, "channel": 2, "notes": [48, 50, 52], "gate_ms": 5}},
+    {"robot": "b", "cable": 0, "start_ms": 5, "notes": {"count": 400, "every_ms": 10, "channel": 3, "notes": [72, 74, 76, 77], "gate_ms": 5}},
+    {"robot": "b", "cable": 1, "start_ms": 7, "notes": {"count": 400, "every_ms": 10, "channel": 4, "notes": [36, 38, 42], "gate_ms": 5}}
+  ],
+  "routes": [
+    {"from": {"robot": "a", "cable": 0}, "to": {"robot": "a", "cable": 0}},
+    {"from": {"robot": "a", "cable": 1}, "to": {"robot": "a", "cable": 1}},
+    {"from": {"robot": "b", "cable": 0}, "to": {"robot": "b", "cable": 0}},
+    {"from": {"robot": "b", "cable": 1}, "to": {"robot": "b", "cable": 1}}
+  ],
+  "checks": {"loss_max": 0, "extra_max": 0, "order": true, "latency_ms_max": 10, "stuck_notes_max": 0}
+}

@@ -133,7 +133,7 @@ esp_err_t on_coredump(httpd_req_t *req) {
   if (esp_core_dump_image_get(&addr, &size) != ESP_OK || !size)
     return httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "no core dump stored");
   httpd_resp_set_type(req, "application/octet-stream");
-  httpd_resp_set_hdr(req, "Content-Disposition", "attachment; filename=\"coredump.elf\"");
+  httpd_resp_set_hdr(req, "Content-Disposition", "attachment; filename=\"coredump.bin\"");
   const size_t off0 = addr - p->address;
   for (size_t off = 0; off < size; off += 4096) {
     const size_t n = size - off < 4096 ? size - off : 4096;
