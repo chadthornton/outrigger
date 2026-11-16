@@ -333,6 +333,37 @@ build/ui_decl_shots: tests/ui_decl/ui_decl_shots.cpp $(UI_DECL_SRC) $(UI_DECL_HD
 	@$(TEST_CXX) -std=c++17 -O1 -Wall -Wextra -Werror -Wno-deprecated-declarations $(UI_FLAGS) \
 		-o $@ tests/ui_decl/ui_decl_shots.cpp $(UI_DECL_SRC) $(LVGL_OBJ) -lz
 
+# The browser build: the same LVGL (same lv_conf.h) and ui_decl, compiled with
+# Emscripten (brew install emscripten). ui-decl-compare renders the
+# knob-labels screen both ways and diffs the frames; ui-decl-serve is the
+# designer's preview (edit lib/ui_decl/screens/*.json, the page redraws).
+EMCC ?= emcc
+EMXX ?= em++
+UI_DECL_WEB := build/ui-decl-web
+LVGL_WASM_OBJ := $(patsubst $(LVGL_DIR)/src/%.c,$(CACHE_ROOT)/lvgl-wasm-obj/%.o,$(shell find $(LVGL_DIR)/src -name '*.c' 2>/dev/null))
+$(CACHE_ROOT)/lvgl-wasm-obj/%.o: $(LVGL_DIR)/src/%.c firmware/config/lv_conf.h
+	@mkdir -p $(dir $@)
+	@$(EMCC) -O1 $(UI_FLAGS) -c $< -o $@
+$(UI_DECL_WEB)/ui_decl.js: lib/ui_decl/web/ui_decl_web.cpp $(UI_DECL_SRC) $(UI_DECL_HDR) tests/ui_shots/png.h $(LVGL_WASM_OBJ)
+	@mkdir -p $(dir $@)
+	@echo "$(EMXX) ... -o $@"
+	@$(EMXX) -std=c++17 -O1 -Wall -Wextra -Werror -Wno-deprecated-declarations $(UI_FLAGS) -sUSE_ZLIB=1 \
+		-sMODULARIZE=1 -sEXPORT_NAME=UiDecl -sENVIRONMENT=web,node -sALLOW_MEMORY_GROWTH=1 -sFORCE_FILESYSTEM=1 \
+		-sEXPORTED_RUNTIME_METHODS=ccall,UTF8ToString,FS,HEAPU8 --no-entry \
+		-o $@ lib/ui_decl/web/ui_decl_web.cpp $(UI_DECL_SRC) $(LVGL_WASM_OBJ)
+ui-decl-web: $(UI_DECL_WEB)/ui_decl.js
+	cp lib/ui_decl/web/index.html $(UI_DECL_WEB)/index.html
+ui-decl-compare: build/ui_decl_shots ui-decl-web
+	./build/ui_decl_shots build/ui-decl-compare/host
+	node lib/ui_decl/web/shot.mjs $(UI_DECL_WEB)/ui_decl.js lib/ui_decl/screens knob_labels 480 320 build/ui-decl-compare/web
+	cmp build/ui-decl-compare/host/knob_labels_480x320.rgb565 build/ui-decl-compare/web/knob_labels_480x320.rgb565 && echo "rgb565 frames: identical"
+	magick compare -metric AE build/ui-decl-compare/host/knob_labels_480x320.png build/ui-decl-compare/web/knob_labels_480x320.png \
+		build/ui-decl-compare/diff.png; echo " pixels differ (PNG, AE)"
+UI_DECL_PORT ?= 8089
+ui-decl-serve: ui-decl-web
+	@echo "open http://localhost:$(UI_DECL_PORT)/$(UI_DECL_WEB)/index.html"
+	python3 -m http.server $(UI_DECL_PORT) --bind 127.0.0.1
+
 # Design mockups for the UI redesign (docs/ui-redesign.md), rendered with the
 # same LVGL and checks; nothing here ships.
 build/ui_mocks: tests/ui_mocks/ui_mocks.cpp tests/ui_shots/png.h $(LVGL_OBJ)

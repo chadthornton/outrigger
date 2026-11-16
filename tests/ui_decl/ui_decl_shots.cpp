@@ -50,9 +50,13 @@ static void expect_error(const char *what, const char *screen, const char *data,
 
 int main(int argc, char **argv) {
   const char *out = argc > 1 ? argv[1] : "build/ui-shots/decl";
-  mkdir("build", 0755);
-  mkdir("build/ui-shots", 0755);
-  mkdir(out, 0755);
+  // mkdir -p
+  for (std::string d = out, sofar;;) {
+    const size_t slash = d.find('/', sofar.size() + 1);
+    sofar = d.substr(0, slash);
+    mkdir(sofar.c_str(), 0755);
+    if (slash == std::string::npos) break;
+  }
 
   struct Shot {
     const char *screen;
