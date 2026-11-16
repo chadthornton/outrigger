@@ -748,7 +748,26 @@ def flash_wifi(port, mac, build, boot_app0, backups, allow_no_wifi=False, log=pr
         image = backups / f"{tag}-{time.strftime('%Y%m%d-%H%M%S')}.bin"
         part = image.with_suffix(".part")
         log(f"backing up {size.group(1)} MB to {image} (a few minutes)")
-        esptool(port, "read-flash", "0", str(int(size.group(1)) << 20), str(part), after="no-reset", timeout=1800)
+        # 1 MB at a time, each retried, so one dropped transfer costs a megabyte.
+        chunk = part.with_suffix(".chunk")
+        with open(part, "wb") as out:
+            for mb in range(int(size.group(1))):
+                for attempt in range(3):
+                    try:
+                        # The ROM's own reader (--no-stub): the stub's reads over
+                        # USB-Serial-JTAG stop at the same address every time on
+                        # some images (Big-S3 at 0x14c000, 2026-11-16).
+                        esptool(port, "--no-stub", "read-flash", str(mb << 20), str(1 << 20), str(chunk),
+                                after="no-reset", timeout=180)
+                        break
+                    except RobotError:
+                        if attempt == 2:
+                            raise
+                data = chunk.read_bytes()
+                if len(data) != 1 << 20:
+                    raise RobotError(f"{port}: MB {mb} read {len(data)} bytes")
+                out.write(data)
+        chunk.unlink()
         os.replace(part, image)
     with open(image, "rb") as f:
         f.seek(NVS[0])
