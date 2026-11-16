@@ -198,7 +198,27 @@ int gr_hub_in_ump(gr_hub *h, int in, uint32_t t_us, const uint32_t *ump) {
   e.t_us = t_us;
   int n = gr_ump_words(ump[0]);
   for (int k = 0; k < 4; ++k) e.ump[k] = k < n ? ump[k] : 0;
-  return gr_spsc_push(&h->in_q[in], &e);
+  if (!gr_spsc_push(&h->in_q[in], &e)) return 0;
+  if (gr_ump_is_cv(ump[0])) {  // remember held notes (core 0's own state)
+    uint32_t ch = gr_ump_channel(ump[0]), nt = gr_ump_index(ump[0]) & 127;
+    if (gr_ump_is_note_on(ump)) h->in_on[in][ch][nt >> 5] |= 1u << (nt & 31);
+    else if (gr_ump_is_note_off(ump)) h->in_on[in][ch][nt >> 5] &= ~(1u << (nt & 31));
+  }
+  return 1;
+}
+
+int gr_hub_in_release(gr_hub *h, int in, uint32_t t_us) {
+  if (in < 0 || in >= h->n_in) return 0;
+  int sent = 0;
+  for (int ch = 0; ch < 16; ++ch)
+    for (int k = 0; k < 4; ++k)
+      while (h->in_on[in][ch][k]) {
+        int b = __builtin_ctz(h->in_on[in][ch][k]);
+        uint32_t w[4] = {gr_ump_m1(0, (uint8_t)(0x80 | ch), (uint8_t)(k * 32 + b), 0), 0, 0, 0};
+        if (!gr_hub_in_ump(h, in, t_us, w)) return sent;  // full: the rest stay held
+        ++sent;
+      }
+  return sent;
 }
 
 int gr_hub_in_midi1(gr_hub *h, int in, uint32_t t_us, const uint8_t *msg, int len) {

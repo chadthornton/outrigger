@@ -246,6 +246,43 @@ static void test_stall_and_full() {
   EXPECT(s.blocks > 0);
 }
 
+// Unplugged mid-chord: gr_hub_in_release ends every held note on every
+// output, through split (by side) and layer (transposed).
+static int sounding_after(gr_hub_app app) {
+  start(app, 2000);
+  for (int k = 0; k < 6; ++k) {
+    uint8_t on[3] = {0x90, (uint8_t)(50 + k * 4), 100};  // across the split at 60
+    gr_hub_in_midi1(&hub, 0, sim.now, on, 3);
+  }
+  uint8_t done[3] = {0x80, 54, 0};  // one key released before the unplug
+  gr_hub_in_midi1(&hub, 0, sim.now + 100, done, 3);
+  run_until(sim.now + 5000, 400);
+  int released = gr_hub_in_release(&hub, 0, sim.now);
+  EXPECT_EQ(released, 5);
+  EXPECT_EQ(gr_hub_in_release(&hub, 0, sim.now), 0);  // nothing left held
+  run_until(sim.now + 10000, 400);
+  int sounding = 0;
+  static int8_t on[2][16][128];
+  memset(on, 0, sizeof(on));
+  for (int o = 0; o < 2; ++o)
+    for (int i = 0; i < sim.n_out[o]; ++i) {
+      const Got &g = sim.out[o][i];
+      int ch = g.msg[0] & 15, st = g.msg[0] & 0xF0;
+      if (st == 0x90 && g.msg[2]) on[o][ch][g.msg[1]]++;
+      if (st == 0x80 || (st == 0x90 && !g.msg[2])) on[o][ch][g.msg[1]]--;
+    }
+  for (int o = 0; o < 2; ++o)
+    for (int ch = 0; ch < 16; ++ch)
+      for (int n = 0; n < 128; ++n) sounding += on[o][ch][n] > 0;
+  return sounding;
+}
+static void test_unplug() {
+  EXPECT_EQ(sounding_after(GR_HUB_APP_SPLIT), 0);
+  EXPECT_EQ(sounding_after(GR_HUB_APP_LAYER), 0);
+  EXPECT_EQ(sounding_after(GR_HUB_APP_THRU), 0);
+  printf("hub unplug: 5 held notes released through split, layer and thru, 0 sounding\n");
+}
+
 // Three real threads, as on the board: core 0's producer, core 1's graph and
 // core 0's drain, on the host's microsecond clock. Run under TSan by
 // `make graph-tsan`.
@@ -312,6 +349,7 @@ int main(int argc, char **argv) {
   test_split_layer();
   test_clock();
   test_stall_and_full();
+  test_unplug();
   test_threads();
   printf("test_graph_hub: %d checks, %d failures; sizeof(gr_hub) = %zu bytes\n", checks, failures,
          sizeof(gr_hub));

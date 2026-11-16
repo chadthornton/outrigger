@@ -13,7 +13,7 @@ Spike, night 1, track S2. This is what HW2 needs to run track D's graph inside H
 
 ```c
 #include "gr_hub.h"
-static gr_hub hub;                       // ~139 KB. Static, never on a stack.
+static gr_hub hub;                       // ~140 KB. Static, never on a stack.
 
 // setup(), before either task starts:
 gr_hub_config c;
@@ -29,7 +29,10 @@ for (;;) {
 }
 
 // Core 0, the USB host task, for each MIDI message from endpoint `in`:
-gr_hub_in_midi1(&hub, in, (uint32_t)esp_timer_get_time(), bytes, len);   // len 1..3; 0 = dropped (counted)
+gr_hub_in_midi1(&hub, in, (uint32_t)esp_timer_get_time(), bytes, len);   // len 1..3; 0 = ring full (counted) or SysEx (refused, not counted)
+
+// Core 0, when the device behind in-endpoint `in` is unplugged or resets:
+gr_hub_in_release(&hub, in, (uint32_t)esp_timer_get_time());   // a note off for every note it held
 
 // Core 0, the USB host task, as often as it runs:
 uint8_t m[3]; int len;
@@ -62,6 +65,12 @@ Notes remember their routing from note on to note off, so a note never sticks wh
 - **Nothing on core 1 logs, allocates, locks or blocks.** The graph task's only wait is `vTaskDelay(1)`, between blocks.
 - **Change apps or parameters only by re-initialising, and only while core 1 is stopped.** Live parameter changes from core 0 would go through a ring. That isn't built tonight.
 
+## Unplug and replug
+
+- **An in-endpoint's device goes away:** call `gr_hub_in_release(&hub, in, now)`. It pushes a note off for every note that endpoint still holds. The hub tracks them on core 0's side, as each `gr_hub_in_*` call goes by. The routing nodes send each off where its note on went, so split, layer and thru outputs end with nothing sounding. That is tested in `test_graph_hub`, unplugged mid-chord. If the ring is full, it returns early; call it again on a later pass.
+- **An out-endpoint's device goes away:** keep popping its ring with `gr_hub_out_*` and throw the events away. That way a replugged synth doesn't get a burst of stale events. When it comes back, nothing is sounding on it, because its offs were discarded along with its ons.
+- **Clock:** a clock-synced device whose clock source disappears without a Stop freezes mid-note. The hub can't know. Sending the Stop is the clock app's or the user's job. This is still open.
+
 ## Timing
 
 - An input stamped `t_us` plays on the frame for `t_us + latency_frames`, which defaults to one block: 48 frames, 1 ms. This leaves room for core 1 to be mid-block when it arrives.
@@ -82,7 +91,7 @@ Notes remember their routing from note on to note off, so a note never sticks wh
 ## Sizes (measured 2026-11-16)
 
 - `make graph-esp`, ESP32-P4, -Os, text bytes: gr_graph 1,686, gr_hub 3,482, gr_nodes 3,133, gr_spsc 344, gr_swap 140, gr_ump 986. Core plus hub: 9,771 B. No data or bss of their own.
-- `make graph-p4` (`firmware/graph_hub_p4`, Arduino core 3.3.12): 335,076 B flash (10%). Global RAM is 160,384 B (48% of 327,680), most of it `gr_hub`: 138,688 B. That is 4 endpoints × 2 rings × 256 events × 20 B, plus the routing nodes' per-key state. Two ways to shrink it if HW1's firmware is tight: `-DGR_HUB_RING=64`, or put the hub in PSRAM with `EXT_RAM_BSS_ATTR` (untested).
+- `make graph-p4` (`firmware/graph_hub_p4`, Arduino core 3.3.12): 335,248 B flash (10%). Global RAM is 161,408 B (49% of 327,680), most of it `gr_hub`: 139,712 B. That is 4 endpoints × 2 rings × 256 events × 20 B, plus the routing nodes' per-key state. Two ways to shrink it if HW1's firmware is tight: `-DGR_HUB_RING=64`, or put the hub in PSRAM with `EXT_RAM_BSS_ATTR` (untested).
 - Arduino's `loop()` runs on core 1 on the ESP32. The graph task sits above it in priority, so `loop()` gets core 1 only between blocks. Keep USB on core 0.
 
 ## Not supported tonight

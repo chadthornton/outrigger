@@ -154,6 +154,7 @@ typedef struct gr_hub {
   uint8_t n_in, n_out;
   gr_hub_app_nodes app;  // the app's routing nodes
   uint32_t block_max_ticks;
+  uint32_t in_on[GR_HUB_ENDPOINTS][16][4];  // core 0 only: notes each in-endpoint holds (for unplug)
   uint32_t stats_every;  // blocks between snapshots
   uint32_t stats_count;
   gr_spsc stats_q;
@@ -163,9 +164,17 @@ typedef struct gr_hub {
 // Core 0, before core 1 starts. GR_OK or an error (gr_graph.h).
 int gr_hub_init(gr_hub *h, const gr_hub_config *cfg);
 
-// Core 0 (one producer per endpoint). 1 if queued, 0 if dropped (counted).
+// Core 0 (one producer per endpoint). 1 if queued; 0 if the ring was full
+// (counted in in_dropped) or, for midi1, the message has no single-UMP form
+// (SysEx; not counted).
 int gr_hub_in_ump(gr_hub *h, int in, uint32_t t_us, const uint32_t *ump);
 int gr_hub_in_midi1(gr_hub *h, int in, uint32_t t_us, const uint8_t *msg, int len);
+
+// Core 0, when in-endpoint `in` is unplugged (or its device resets): pushes a
+// note off for every note it still holds, so nothing sticks downstream (the
+// routing nodes send each off where its note on went). Returns the offs
+// queued. If the ring fills, the rest stay held: call it again later (never wait).
+int gr_hub_in_release(gr_hub *h, int in, uint32_t t_us);
 
 // Core 1. The frames the block clock is behind the microsecond clock: run a
 // block of that many and the block clock follows real time exactly. 0 when

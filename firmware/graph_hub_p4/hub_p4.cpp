@@ -110,8 +110,9 @@ void setup() {
   gr_hub_config_default(&c, (gr_hub_app)GRAPH_HUB_APP);
   c.cpu_mhz = getCpuFrequencyMhz();
   int r = gr_hub_init(&hub, &c);
-  Serial.printf("HUB ready app=%d rc=%d cpu=%lu MHz sizeof(gr_hub)=%u in=%d out=%d latency=%lu frames + %lu us\n",
-                (int)c.app, r, (unsigned long)c.cpu_mhz, (unsigned)sizeof(gr_hub), hub.n_in, hub.n_out,
+  // The 1 ms block and the 2 ms out delay both assume a 1 kHz FreeRTOS tick.
+  Serial.printf("HUB ready app=%d rc=%d cpu=%lu MHz tick=%u Hz sizeof(gr_hub)=%u in=%d out=%d latency=%lu frames + %lu us\n",
+                (int)c.app, r, (unsigned long)c.cpu_mhz, (unsigned)configTICK_RATE_HZ, (unsigned)sizeof(gr_hub), hub.n_in, hub.n_out,
                 (unsigned long)hub.clk.latency_frames, (unsigned long)hub.clk.out_delay_us);
   if (r != GR_OK) return;
   xTaskCreatePinnedToCore(graph_task, "graph", 4096, nullptr, configMAX_PRIORITIES - 2, nullptr, 1);

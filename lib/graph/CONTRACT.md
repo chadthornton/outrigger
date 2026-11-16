@@ -47,7 +47,7 @@ Checked by:
 | 2 | `test_graph_flows`: 500,000 messages, 0 torn. `make graph-tsan` runs it and the hub's three-thread test under ThreadSanitizer. Its positive control weakens the ring's handover to relaxed, and the M4's own reordering then tears messages (4 of 5 runs tried) and fails the test. Also `GR_CHECK_FLOWS` builds: each ring records its first producer and its first consumer, and counts any other caller (`producer_violations`, `consumer_violations`). `test_graph_flows` proves a second writer is caught. |
 | 3 | `test_graph_flows`' swap test: 20,000 tables, 0 torn, never backwards. |
 | 4, static | `tools/graph_rt_symbols.sh`, run by `make test-graph` over the core, the hub and the shim. It fails any object that references an allocator, stdio, a lock, a wait, a sleep, file I/O, FreeRTOS waits or `esp_log`. Its positive control is `tests/support/gr_rt_bad.c`, which must be caught. |
-| 4, runtime | `build/graph_check` counts allocations during `process` (section 4). |
+| 4, runtime | `build/graph_check` counts allocations during `process`, but only in code built with the counting allocator: the Schwung modules and the broken test nodes. The core and the routing nodes have no allocator symbols at all, which is what `graph_rt_symbols.sh` proves. |
 | 5 | `test_graph_flows` and `test_graph_hub`: full rings refuse and count. Review: no wait loop on core 0 in `gr_hub`. |
 | 6 | review. `build/graph_check`'s stuck-note run changes parameters between blocks and checks every note gets its off. |
 

@@ -468,7 +468,7 @@ static void checks(const gr_ck_subject *s, const gr_ck_options *o, gr_ck_report 
       add(r, "Partition", -1, "differs at %s(declared block-dependent)", differ);
     else
       add(r, "Partition", 0, "output differs from 64-frame blocks at: %s(state kept per block, not per frame?)", differ);
-    add(r, "Realtime", allocs == 0, allocs ? "%u allocator calls inside process()" : "no allocator calls inside process() (code built with the counting allocator)", allocs);
+    add(r, "Realtime", allocs == 0, allocs ? "%u allocator calls inside process()" : "no allocator calls counted inside process() (counts code built with the counting allocator: the Schwung modules, the broken nodes; the core's proof is graph_rt_symbols.sh)", allocs);
   }
   // Notes: balanced input, parameters changed between blocks, a second of quiet at the end.
   if (s->flags & GR_CK_NOTES) {
