@@ -1,0 +1,68 @@
+# The Mac build of the VIBE bench host: WAMR (classic or fast interpreter, plus AOT) and the native Vibes.
+#   cmake -S mac -B build/mac-fast -DVIBE_SDK=... -DWAMR_ROOT=... [-DVH_FAST_INTERP=0] [-DVH_FAUST=1]
+cmake_minimum_required(VERSION 3.14)
+project(vibe_run C ASM)
+set(CMAKE_BUILD_TYPE Release)
+option(VH_FAST_INTERP "WAMR fast interpreter (else classic)" ON)
+option(VH_AOT "WAMR AOT loader" ON)
+option(VH_FAUST "link the native Faust Vibe" OFF)
+if (NOT VIBE_SDK OR NOT WAMR_ROOT)
+  message(FATAL_ERROR "set -DVIBE_SDK=<vibe-fm-sdk clone> -DWAMR_ROOT=<wasm-micro-runtime clone>")
+endif ()
+
+set(WAMR_BUILD_PLATFORM "darwin")
+set(WAMR_BUILD_TARGET "AARCH64")
+set(WAMR_BUILD_INTERP 1)
+if (VH_FAST_INTERP)
+  set(WAMR_BUILD_FAST_INTERP 1)
+else ()
+  set(WAMR_BUILD_FAST_INTERP 0)
+endif ()
+if (VH_AOT)
+  set(WAMR_BUILD_AOT 1)
+else ()
+  set(WAMR_BUILD_AOT 0)
+endif ()
+set(WAMR_BUILD_JIT 0)
+set(WAMR_BUILD_FAST_JIT 0)
+set(WAMR_BUILD_LIBC_BUILTIN 0)
+set(WAMR_BUILD_LIBC_WASI 0)
+set(WAMR_BUILD_SHARED_MEMORY 1)   # the SDK links --shared-memory with atomics
+set(WAMR_BUILD_BULK_MEMORY 1)
+set(WAMR_BUILD_SIMD 0)
+set(WAMR_BUILD_REF_TYPES 1)   # LLVM 19+ (zig 0.15) emits the reference-types table encoding by default
+set(WAMR_BUILD_MULTI_MODULE 0)
+set(WAMR_BUILD_LIB_PTHREAD 0)
+set(WAMR_BUILD_MINI_LOADER 0)
+include(${WAMR_ROOT}/build-scripts/runtime_lib.cmake)
+add_library(vmlib STATIC ${WAMR_RUNTIME_LIB_SOURCE})
+
+set(H ${CMAKE_CURRENT_SOURCE_DIR}/../host)
+set(G ${CMAKE_CURRENT_SOURCE_DIR}/../gen)
+set(VIBE_CFLAGS -O2 -ffast-math -fno-builtin-memset -Wno-unused-function -w)
+
+# example-synth, natively, its globals renamed vs_*
+add_library(vibe_synth_native STATIC
+  ${VIBE_SDK}/examples/example-synth/synth.c ${VIBE_SDK}/sdk/src/vibe_sdk.c ${VIBE_SDK}/sdk/src/vibe_font.c ${H}/vh_native.c)
+target_include_directories(vibe_synth_native PRIVATE ${VIBE_SDK}/sdk/include ${VIBE_SDK}/sdk/src ${H})
+target_compile_options(vibe_synth_native PRIVATE ${VIBE_CFLAGS} -include ${G}/prefix_vs.h)
+target_compile_definitions(vibe_synth_native PRIVATE VH_NATIVE_ENTRY=vh_native_vibe_synth VH_NATIVE_NAME="native-synth")
+
+set(EXTRA_LIBS vibe_synth_native)
+if (VH_FAUST)
+  set(FS ${CMAKE_CURRENT_SOURCE_DIR}/../faust-synth)
+  add_library(vibe_faust_native STATIC
+    ${FS}/faust_synth.c ${FS}/fm_math.c ${VIBE_SDK}/sdk/src/vibe_sdk.c ${VIBE_SDK}/sdk/src/vibe_font.c ${H}/vh_native.c)
+  target_include_directories(vibe_faust_native PRIVATE ${VIBE_SDK}/sdk/include ${VIBE_SDK}/sdk/src ${H} ${FS} ${G})
+  target_compile_options(vibe_faust_native PRIVATE ${VIBE_CFLAGS} -include ${G}/prefix_fs.h)
+  target_compile_definitions(vibe_faust_native PRIVATE VH_NATIVE_ENTRY=vh_native_faust_synth VH_NATIVE_NAME="native-faust")
+  list(APPEND EXTRA_LIBS vibe_faust_native)
+else ()
+  set(NOFAUST ${CMAKE_CURRENT_BINARY_DIR}/nofaust.c)
+  file(WRITE ${NOFAUST} "#include \"vh.h\"\n#include <stdio.h>\n#include <stdlib.h>\nvoid vh_native_faust_synth(vh_backend *b){(void)b;fprintf(stderr,\"built without -DVH_FAUST=1\\n\");exit(1);}\n")
+  list(APPEND EXTRA_SRC ${NOFAUST})
+endif ()
+
+add_executable(vibe_run main.c ${H}/vh_scenario.c ${H}/vh_wamr.c ${H}/vh_native_host.c ${EXTRA_SRC})
+target_include_directories(vibe_run PRIVATE ${H} ${WAMR_ROOT}/core/iwasm/include)
+target_link_libraries(vibe_run ${EXTRA_LIBS} vmlib -lm -ldl -lpthread)
