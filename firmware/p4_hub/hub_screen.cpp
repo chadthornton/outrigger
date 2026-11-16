@@ -9,7 +9,9 @@ namespace {
 
 constexpr int kMosi = 20, kSclk = 21, kCs = 23, kDc = 26, kRst = 27, kBacklight = 28;
 
-Arduino_HWSPI bus(kDc, kCs, kSclk, kMosi, GFX_NOT_DEFINED, &SPI, false);
+// Arduino_HWSPI (the Arduino SPI class) measured 2.49 s per full flush here;
+// Arduino_ESP32SPI drives ESP-IDF's SPI master directly.
+Arduino_ESP32SPI bus(kDc, kCs, kSclk, kMosi, GFX_NOT_DEFINED, FSPI, false);
 // Rotation 4 mirrors X without swapping axes, as Waveshare's board layer does.
 Arduino_ST7796 panel(&bus, kRst, 4, true, kScreenW, kScreenH);
 Arduino_Canvas canvas(kScreenW, kScreenH, &panel);
