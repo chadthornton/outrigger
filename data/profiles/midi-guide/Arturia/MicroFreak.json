@@ -1,0 +1,530 @@
+{
+ "schema": "outrigger.profile/0",
+ "id": "arturia/microfreak",
+ "manufacturer": "Arturia",
+ "device": "MicroFreak",
+ "usb": [],
+ "sections": [
+  {
+   "name": "General",
+   "parameters": [
+    {
+     "name": "Glide",
+     "description": "",
+     "cc": {
+      "msb": 5,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "orientation": "0-based",
+     "notes": "",
+     "usage": [],
+     "usage_units": null
+    }
+   ]
+  },
+  {
+   "name": "Oscillator",
+   "parameters": [
+    {
+     "name": "Type",
+     "description": "",
+     "cc": {
+      "msb": 9,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "orientation": "0-based",
+     "notes": "",
+     "usage": [
+      {
+       "from": 0,
+       "to": 11,
+       "kind": "switch",
+       "label": "Basic Waves"
+      },
+      {
+       "from": 12,
+       "to": 16,
+       "kind": "switch",
+       "label": "SuperWave"
+      },
+      {
+       "from": 17,
+       "to": 22,
+       "kind": "switch",
+       "label": "Wavetable"
+      },
+      {
+       "from": 23,
+       "to": 27,
+       "kind": "switch",
+       "label": "Harmo"
+      },
+      {
+       "from": 28,
+       "to": 33,
+       "kind": "switch",
+       "label": "Karplus St"
+      },
+      {
+       "from": 34,
+       "to": 38,
+       "kind": "switch",
+       "label": "V. Analog"
+      },
+      {
+       "from": 39,
+       "to": 44,
+       "kind": "switch",
+       "label": "Waveshaper"
+      },
+      {
+       "from": 45,
+       "to": 49,
+       "kind": "switch",
+       "label": "Two Op FM"
+      },
+      {
+       "from": 50,
+       "to": 55,
+       "kind": "switch",
+       "label": "Formant"
+      },
+      {
+       "from": 56,
+       "to": 60,
+       "kind": "switch",
+       "label": "Chords"
+      },
+      {
+       "from": 61,
+       "to": 66,
+       "kind": "switch",
+       "label": "Speech"
+      },
+      {
+       "from": 67,
+       "to": 71,
+       "kind": "switch",
+       "label": "Modal"
+      },
+      {
+       "from": 72,
+       "to": 77,
+       "kind": "switch",
+       "label": "Noise"
+      },
+      {
+       "from": 78,
+       "to": 82,
+       "kind": "switch",
+       "label": "Bass"
+      },
+      {
+       "from": 83,
+       "to": 88,
+       "kind": "switch",
+       "label": "SawX"
+      },
+      {
+       "from": 89,
+       "to": 93,
+       "kind": "switch",
+       "label": "Harm"
+      },
+      {
+       "from": 94,
+       "to": 99,
+       "kind": "switch",
+       "label": "WaveUser"
+      },
+      {
+       "from": 100,
+       "to": 104,
+       "kind": "switch",
+       "label": "Sample"
+      },
+      {
+       "from": 105,
+       "to": 110,
+       "kind": "switch",
+       "label": "ScanGrains"
+      },
+      {
+       "from": 111,
+       "to": 115,
+       "kind": "switch",
+       "label": "CloudGrains"
+      },
+      {
+       "from": 116,
+       "to": 121,
+       "kind": "switch",
+       "label": "HitGrains"
+      },
+      {
+       "from": 122,
+       "to": 127,
+       "kind": "switch",
+       "label": "Vocoder"
+      }
+     ],
+     "usage_units": "cc"
+    },
+    {
+     "name": "Wave",
+     "description": "",
+     "cc": {
+      "msb": 10,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "orientation": "0-based",
+     "notes": "",
+     "usage": [],
+     "usage_units": null
+    },
+    {
+     "name": "Timbre",
+     "description": "",
+     "cc": {
+      "msb": 12,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "orientation": "0-based",
+     "notes": "",
+     "usage": [],
+     "usage_units": null
+    },
+    {
+     "name": "Shape",
+     "description": "",
+     "cc": {
+      "msb": 13,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "orientation": "0-based",
+     "notes": "",
+     "usage": [],
+     "usage_units": null
+    }
+   ]
+  },
+  {
+   "name": "Filter",
+   "parameters": [
+    {
+     "name": "Cutoff",
+     "description": "",
+     "cc": {
+      "msb": 23,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "orientation": "0-based",
+     "notes": "",
+     "usage": [],
+     "usage_units": null
+    },
+    {
+     "name": "Resonance",
+     "description": "",
+     "cc": {
+      "msb": 83,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "orientation": "0-based",
+     "notes": "",
+     "usage": [],
+     "usage_units": null
+    }
+   ]
+  },
+  {
+   "name": "Cycling envelope",
+   "parameters": [
+    {
+     "name": "Cycling env rise",
+     "description": "",
+     "cc": {
+      "msb": 102,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "orientation": "0-based",
+     "notes": "",
+     "usage": [],
+     "usage_units": null
+    },
+    {
+     "name": "Cycling env fall",
+     "description": "",
+     "cc": {
+      "msb": 103,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "orientation": "0-based",
+     "notes": "",
+     "usage": [],
+     "usage_units": null
+    },
+    {
+     "name": "Cycling env hold",
+     "description": "",
+     "cc": {
+      "msb": 28,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "orientation": "0-based",
+     "notes": "",
+     "usage": [],
+     "usage_units": null
+    },
+    {
+     "name": "Cycling env amount",
+     "description": "",
+     "cc": {
+      "msb": 24,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "orientation": "0-based",
+     "notes": "",
+     "usage": [],
+     "usage_units": null
+    }
+   ]
+  },
+  {
+   "name": "Arpeggiator/sequencer",
+   "parameters": [
+    {
+     "name": "ARP/SEQ rate (free)",
+     "description": "",
+     "cc": {
+      "msb": 91,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "orientation": "0-based",
+     "notes": "",
+     "usage": [],
+     "usage_units": null
+    },
+    {
+     "name": "ARP/SEQ rate (sync)",
+     "description": "",
+     "cc": {
+      "msb": 92,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "orientation": "0-based",
+     "notes": "",
+     "usage": [],
+     "usage_units": null
+    }
+   ]
+  },
+  {
+   "name": "LFO",
+   "parameters": [
+    {
+     "name": "LFO rate (free)",
+     "description": "",
+     "cc": {
+      "msb": 93,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "orientation": "0-based",
+     "notes": "",
+     "usage": [],
+     "usage_units": null
+    },
+    {
+     "name": "LFO rate (sync)",
+     "description": "",
+     "cc": {
+      "msb": 94,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "orientation": "0-based",
+     "notes": "",
+     "usage": [],
+     "usage_units": null
+    }
+   ]
+  },
+  {
+   "name": "Envelope",
+   "parameters": [
+    {
+     "name": "Envelope attack",
+     "description": "",
+     "cc": {
+      "msb": 105,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "orientation": "0-based",
+     "notes": "",
+     "usage": [],
+     "usage_units": null
+    },
+    {
+     "name": "Envelope decay",
+     "description": "",
+     "cc": {
+      "msb": 106,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "orientation": "0-based",
+     "notes": "",
+     "usage": [],
+     "usage_units": null
+    },
+    {
+     "name": "Envelope sustain",
+     "description": "",
+     "cc": {
+      "msb": 29,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "orientation": "0-based",
+     "notes": "",
+     "usage": [],
+     "usage_units": null
+    },
+    {
+     "name": "Filter amount",
+     "description": "",
+     "cc": {
+      "msb": 26,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "orientation": "0-based",
+     "notes": "",
+     "usage": [],
+     "usage_units": null
+    }
+   ]
+  },
+  {
+   "name": "Keyboard",
+   "parameters": [
+    {
+     "name": "Keyboard hold button (toggle)",
+     "description": "",
+     "cc": {
+      "msb": 64,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "orientation": "0-based",
+     "notes": "",
+     "usage": [],
+     "usage_units": null
+    },
+    {
+     "name": "Keyboard spice",
+     "description": "",
+     "cc": {
+      "msb": 2,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "orientation": "0-based",
+     "notes": "",
+     "usage": [],
+     "usage_units": null
+    }
+   ]
+  }
+ ],
+ "triggers": [],
+ "attribution": {
+  "licence": "CC-BY-SA-4.0",
+  "licence_url": "https://creativecommons.org/licenses/by-sa/4.0/",
+  "credit": "MIDI Guide (https://midi.guide), maintained by Pencil Research, and its contributors",
+  "source": "https://github.com/pencilresearch/midi",
+  "source_files": [
+   "Arturia/MicroFreak.csv"
+  ],
+  "source_commit": "215c64e8d3b33e0b248f62f75531b409a002ea2f",
+  "changes": "Converted from CSV to Outrigger's profile JSON by tools/profiles/midiguide.py; usage parsed into value ranges."
+ }
+}

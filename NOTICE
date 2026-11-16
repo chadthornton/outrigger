@@ -48,6 +48,13 @@ Geist Mono, site/fonts/geist-mono-500-latin.woff2 (the installer page)
   SIL Open Font License 1.1:
   https://openfontlicense.org/open-font-license-official-text/
 
+Device profiles from MIDI Guide, data/profiles/midi-guide/ (spike data; not in the firmware)
+  MIDI Guide (https://midi.guide, https://github.com/pencilresearch/midi), maintained
+  by Pencil Research, and its contributors. Creative Commons Attribution-ShareAlike
+  4.0 International: https://creativecommons.org/licenses/by-sa/4.0/
+  Changed: converted from CSV to JSON by tools/profiles/midiguide.py. The profiles
+  stay CC-BY-SA 4.0, and each one names its source files and commit.
+
 
 Ported into this repository
 ---------------------------
