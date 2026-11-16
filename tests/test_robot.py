@@ -2,7 +2,9 @@
 splits, merges, clocks, unplugs), and whole runs against build/robot_sim, with
 faults injected to show each check can fail. Run by make test (after
 build/robot_sim)."""
+import contextlib
 import importlib.util
+import io
 import json
 import pathlib
 import sys
@@ -233,7 +235,9 @@ def test_sim_runs():
         "routes": ONE["routes"], "checks": {"loss_max": 0}}
     res, data = sim_run(big)
     expect(res["ok"] and res["numbers"]["matched"] == 6000, f"streamed schedule: {failed(res)} {res['numbers']}")
-    with tempfile.TemporaryDirectory() as d:
+    # main() prints its PASS/FAIL report; keep the deliberate failures out of make test's output.
+    with tempfile.TemporaryDirectory() as d, contextlib.redirect_stdout(io.StringIO()), \
+            contextlib.redirect_stderr(io.StringIO()):
         runs = pathlib.Path(d) / "runs.jsonl"
         code = robot.main(["run", str(SCENARIOS / "loopback.json"), "--sim", "--runs", str(runs),
                            "--save", str(pathlib.Path(d) / "run.json")])
@@ -242,7 +246,7 @@ def test_sim_runs():
         code = robot.main(["run", str(SCENARIOS / "loopback.json"), "--sim", "--sim-opt=--drop-every=20",
                            "--runs", str(runs)])
         expect(code == 1, "a failing run exits 1")
-    expect(robot.main(["run", str(SCENARIOS / "merge.json"), "--sim"]) == 2, "--sim refuses two robots")
+        expect(robot.main(["run", str(SCENARIOS / "merge.json"), "--sim"]) == 2, "--sim refuses two robots")
 
 
 def test_scenarios_parse():
