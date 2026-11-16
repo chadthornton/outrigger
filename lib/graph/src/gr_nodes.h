@@ -101,6 +101,24 @@ typedef struct gr_impulse {
 } gr_impulse;
 extern const gr_node_desc gr_impulse_desc;
 
+// MIDI clock: 0 in, 1 event out. 24 clocks per quarter note at `bpm`, each on
+// its exact frame (the interval is kept to 1/2^32 frame, so it never drifts),
+// whatever the block sizes. Sends a Start (0xFA) on the first clock after
+// gr_clockgen_start, and a Stop (0xFC) at the next block after _stop.
+typedef struct gr_clockgen {
+  uint64_t next_fp;      // absolute frame of the next clock, 32.32 fixed point
+  uint64_t interval_fp;  // frames per clock, 32.32
+  uint32_t sample_rate;
+  uint32_t mbpm;         // tempo in thousandths of a bpm
+  uint8_t running, send_start, send_stop, synced;
+  uint32_t clocks;
+} gr_clockgen;
+void gr_clockgen_init(gr_clockgen *n, uint32_t mbpm);  // stopped
+void gr_clockgen_set_tempo(gr_clockgen *n, uint32_t mbpm);  // between blocks
+void gr_clockgen_start(gr_clockgen *n);
+void gr_clockgen_stop(gr_clockgen *n);
+extern const gr_node_desc gr_clockgen_desc;
+
 // Null: 1 event in, 1 event out, copies. Measures the graph's own overhead.
 extern const gr_node_desc gr_pass_desc;
 

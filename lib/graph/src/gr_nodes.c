@@ -283,3 +283,67 @@ static void pass_process(void *self, const gr_block *b, gr_io *io) {
 }
 
 const gr_node_desc gr_pass_desc = {"pass", 1, 1, {GR_PORT_EVENTS}, {GR_PORT_EVENTS}, pass_process};
+
+// ---- MIDI clock ----
+
+static void clockgen_interval(gr_clockgen *n, uint32_t sample_rate) {
+  // frames per clock = sample_rate * 60 / (bpm * 24), as 32.32 fixed point.
+  uint64_t num = (uint64_t)sample_rate * 60000u, den = (uint64_t)n->mbpm * 24u;
+  if (!den) den = 1;
+  n->interval_fp = ((num / den) << 32) | (((num % den) << 32) / den);
+  n->sample_rate = sample_rate;
+}
+
+void gr_clockgen_init(gr_clockgen *n, uint32_t mbpm) {
+  memset(n, 0, sizeof(*n));
+  n->mbpm = mbpm ? mbpm : 120000;
+}
+
+void gr_clockgen_set_tempo(gr_clockgen *n, uint32_t mbpm) {
+  if (!mbpm) return;
+  n->mbpm = mbpm;
+  if (n->sample_rate) clockgen_interval(n, n->sample_rate);
+}
+
+void gr_clockgen_start(gr_clockgen *n) {
+  n->running = 1;
+  n->send_start = 1;
+  n->synced = 0;  // the first clock lands on the next block's frame 0
+}
+
+void gr_clockgen_stop(gr_clockgen *n) {
+  if (n->running) n->send_stop = 1;
+  n->running = 0;
+}
+
+static void clockgen_process(void *self, const gr_block *b, gr_io *io) {
+  gr_clockgen *n = (gr_clockgen *)self;
+  gr_events *out = io->ev_out[0];
+  if (n->sample_rate != b->sample_rate) clockgen_interval(n, b->sample_rate);
+  if (n->send_stop) {
+    uint32_t w[4] = {gr_ump_system(0, 0xFC, 0, 0), 0, 0, 0};
+    gr_events_push(out, 0, w);
+    n->send_stop = 0;
+  }
+  if (!n->running) return;
+  if (!n->synced) {
+    n->next_fp = b->frame_pos << 32;
+    n->synced = 1;
+  }
+  const uint64_t end = b->frame_pos + b->frames;
+  while ((n->next_fp >> 32) < end) {
+    uint64_t at = n->next_fp >> 32;
+    uint32_t frame = at >= b->frame_pos ? (uint32_t)(at - b->frame_pos) : 0;
+    if (n->send_start) {
+      uint32_t w[4] = {gr_ump_system(0, 0xFA, 0, 0), 0, 0, 0};
+      gr_events_push(out, frame, w);
+      n->send_start = 0;
+    }
+    uint32_t w[4] = {gr_ump_system(0, 0xF8, 0, 0), 0, 0, 0};
+    gr_events_push(out, frame, w);
+    n->clocks++;
+    n->next_fp += n->interval_fp;
+  }
+}
+
+const gr_node_desc gr_clockgen_desc = {"clockgen", 0, 1, {0}, {GR_PORT_EVENTS}, clockgen_process};
