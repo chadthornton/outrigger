@@ -62,7 +62,7 @@ int main(int argc, char **argv) {
     const char *screen;
     int w, h;
   };
-  static const Shot kShots[] = {{"knob_labels", 480, 320}};
+  static const Shot kShots[] = {{"knob_labels", 480, 320}, {"patch_list", 480, 320}};
 
   const std::string theme = slurp("lib/ui_decl/screens/theme.json");
   std::string report;

@@ -1,0 +1,5 @@
+// Sample data, made up for the preview.
+{
+  "synth": { "name": "MicroFreak" },
+  "patches": ["Glass Bells", "Low Drone", "Sync Lead", "Wobble Bass", "Pluck Pad"]
+}

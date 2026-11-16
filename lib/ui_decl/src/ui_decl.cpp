@@ -564,9 +564,14 @@ struct Builder {
           fail("items is an array, or a binding to one");
           return nullptr;
         }
+        // Each row is a button LVGL makes; the theme styles them with
+        // defaults.list_item.
+        const Value *defs = theme.get("defaults");
+        const Value *row_style = defs ? defs->get("list_item") : nullptr;
         for (const auto &it : items->items) {
           if (!text(&it, s)) return nullptr;
-          lv_list_add_button(o, nullptr, s.c_str());
+          lv_obj_t *row = lv_list_add_button(o, nullptr, s.c_str());
+          if (row_style && !style(row, row_style)) return nullptr;
         }
       }
     } else {

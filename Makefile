@@ -340,6 +340,7 @@ build/ui_decl_shots: tests/ui_decl/ui_decl_shots.cpp $(UI_DECL_SRC) $(UI_DECL_HD
 EMCC ?= emcc
 EMXX ?= em++
 UI_DECL_WEB := build/ui-decl-web
+UI_DECL_SCREENS := knob_labels patch_list
 LVGL_WASM_OBJ := $(patsubst $(LVGL_DIR)/src/%.c,$(CACHE_ROOT)/lvgl-wasm-obj/%.o,$(shell find $(LVGL_DIR)/src -name '*.c' 2>/dev/null))
 $(CACHE_ROOT)/lvgl-wasm-obj/%.o: $(LVGL_DIR)/src/%.c firmware/config/lv_conf.h
 	@mkdir -p $(dir $@)
@@ -355,10 +356,13 @@ ui-decl-web: $(UI_DECL_WEB)/ui_decl.js
 	cp lib/ui_decl/web/index.html $(UI_DECL_WEB)/index.html
 ui-decl-compare: build/ui_decl_shots ui-decl-web
 	./build/ui_decl_shots build/ui-decl-compare/host
-	node lib/ui_decl/web/shot.mjs $(UI_DECL_WEB)/ui_decl.js lib/ui_decl/screens knob_labels 480 320 build/ui-decl-compare/web
-	cmp build/ui-decl-compare/host/knob_labels_480x320.rgb565 build/ui-decl-compare/web/knob_labels_480x320.rgb565 && echo "rgb565 frames: identical"
-	magick compare -metric AE build/ui-decl-compare/host/knob_labels_480x320.png build/ui-decl-compare/web/knob_labels_480x320.png \
-		build/ui-decl-compare/diff.png; echo " pixels differ (PNG, AE)"
+	for s in $(UI_DECL_SCREENS); do \
+		node lib/ui_decl/web/shot.mjs $(UI_DECL_WEB)/ui_decl.js lib/ui_decl/screens $$s 480 320 build/ui-decl-compare/web || exit 1; \
+		cmp build/ui-decl-compare/host/$${s}_480x320.rgb565 build/ui-decl-compare/web/$${s}_480x320.rgb565 || exit 1; \
+		echo "$$s: rgb565 frames identical"; \
+		magick compare -metric AE build/ui-decl-compare/host/$${s}_480x320.png build/ui-decl-compare/web/$${s}_480x320.png \
+			build/ui-decl-compare/$${s}_diff.png; echo " pixels differ in the PNGs (AE)"; \
+	done
 UI_DECL_PORT ?= 8089
 ui-decl-serve: ui-decl-web
 	@echo "open http://localhost:$(UI_DECL_PORT)/$(UI_DECL_WEB)/index.html"

@@ -20,7 +20,13 @@
   "defaults": {
     "label": { "text": "$color.text", "font": "$type.body" },
     "bar":   { "track": "$color.track", "accent": "$color.accent", "radius": "$radius.sm" },
-    "knob":  { "track": "$color.track", "accent": "$color.accent", "arc_width": 5 }
+    "knob":  { "track": "$color.track", "accent": "$color.accent", "arc_width": 5 },
+    "button": { "bg": "$color.raised", "text": "$color.text", "font": "$type.label", "radius": "$radius.md",
+                "pad_x": "$space.lg", "pad_y": "$space.sm" },
+    "list":  { "bg": "$color.surface", "radius": "$radius.md", "border": 0, "pad": "$space.xs" },
+    // The rows LVGL makes inside a list.
+    "list_item": { "bg": "$color.surface", "text": "$color.text", "font": "$type.body", "border": 0,
+                   "pad_x": "$space.md", "pad_y": "$space.sm" }
   },
 
   // Named styles a screen can use ("style": "card").
@@ -29,6 +35,7 @@
     "card":    { "bg": "$color.surface", "radius": "$radius.md", "pad": "$space.sm" },
     "knob_on": { "bg": "$color.raised", "border": 2, "border_color": "$color.accent" },
     "muted":   { "text": "$color.muted", "font": "$type.label" },
-    "display": { "font": "$type.display" }
+    "display": { "font": "$type.display" },
+    "primary": { "bg": "$color.accent", "text": "$color.bg" }
   }
 }
