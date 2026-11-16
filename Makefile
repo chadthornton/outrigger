@@ -286,7 +286,7 @@ build/test_graph_schwung: tests/test_graph_schwung.cpp $(GRAPH_O) $(SHIM_O) $(GR
 	$(TEST_CXX) -std=c++17 -O2 -Wall -Wextra -Werror $(SCHWUNG_INC) -o $@ $< $(GRAPH_O) $(SHIM_O)
 build/bench_graph: tests/bench_graph.cpp $(GRAPH_O) $(SHIM_O) $(GRAPH_H)
 	$(TEST_CXX) -std=c++17 -O2 -Wall -Wextra -Werror $(SCHWUNG_INC) -o $@ $< $(GRAPH_O) $(SHIM_O)
-.PHONY: test-graph graph-bench graph-esp
+.PHONY: test-graph graph-bench graph-esp graph-p4
 test-graph: build/test_graph build/test_graph_schwung build/test_graph_hub
 	./build/test_graph
 	./build/test_graph_schwung tests/golden/graph
@@ -299,6 +299,9 @@ graph-bench: build/bench_graph
 ESP_TOOLS ?= $(HOME)/Library/Arduino15/packages/esp32/tools
 graph-esp:
 	tools/graph_esp_sizes.sh $(ESP_TOOLS)
+# The hub on Big-P4 (firmware/graph_hub_p4), compile only. Flash it from spike/platform-p4-hw.
+graph-p4:
+	tools/graph_p4_build.sh
 
 build/test_status: tests/test_status.cpp lib/midi_core/src/status.cpp lib/midi_core/src/status.h lib/midi_core/src/midi_core.h
 	mkdir -p build
