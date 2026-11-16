@@ -1,6 +1,7 @@
-// The bench robot on an ESP32-S3 DevKitC-1 (docs/bench-robot.md): the native
-// USB port is a two-cable USB MIDI device for the P4's hub, the UART port
-// (Serial, through the board's USB-UART bridge) is the Mac's control line.
+// The bench robot (docs/bench-robot.md): the native USB port is a two-cable
+// USB MIDI device for the P4's hub. The Mac's control line is the UART port
+// (Serial, through a DevKitC's USB-UART bridge), or, in ROBOT_WIFI builds for
+// boards with one USB port (Big-S3, Small-V2), TCP over Wi-Fi (robot_net.cpp).
 // The protocol and the schedule are robot_core.cpp; this file is the board.
 #include <Arduino.h>
 
@@ -9,6 +10,7 @@
 #include "esp_mac.h"
 #include "esp_timer.h"
 #include "robot_core.h"
+#include "robot_net.h"
 
 #if ARDUINO_USB_MODE
 #error "bench_robot needs USBMode=default (USB-OTG, TinyUSB) on the native port: make bench-robot sets it"
@@ -20,13 +22,22 @@
 #ifndef ROBOT_FW
 #define ROBOT_FW 0
 #endif
+#ifndef ROBOT_WIFI
+#define ROBOT_WIFI 0
+#endif
 
 namespace {
 
 constexpr uint32_t kBaud = 921600;
 // Internal RAM only (no PSRAM build option needed): about 176 KB. robot.py
 // drains the log while a long run goes, so these are buffers, not run limits.
+#if ROBOT_WIFI
+// Wi-Fi and lwIP need about 60 KB of internal RAM at run time, so the logs are
+// half the UART build's; robot.py drains them as a run goes, over a faster line.
+constexpr size_t kSchedCap = 2048, kTxCap = 2048, kRxCap = 2048;
+#else
 constexpr size_t kSchedCap = 2048, kTxCap = 4096, kRxCap = 4096;
+#endif
 robot::Event sched[kSchedCap];
 robot::Record tx_log[kTxCap], rx_log[kRxCap];
 
@@ -43,7 +54,13 @@ class UsbPort : public robot::Port {
     else tud_disconnect();
   }
   void describe(char *out, size_t n) override {
-    snprintf(out, n, "mac=%s fw=%07x", mac_str, (unsigned)ROBOT_FW);
+#if ROBOT_WIFI
+    char net[80];
+    robot_net::describe(net, sizeof net);
+    snprintf(out, n, "mac=%s fw=%07x link=wifi %s", mac_str, (unsigned)ROBOT_FW, net);
+#else
+    snprintf(out, n, "mac=%s fw=%07x link=uart", mac_str, (unsigned)ROBOT_FW);
+#endif
   }
 
  private:
@@ -53,7 +70,24 @@ class UsbPort : public robot::Port {
 UsbPort port;
 robot::Core core(port, sched, kSchedCap, tx_log, kTxCap, rx_log, kRxCap);
 
-class SerialOut : public robot::Out {
+#if ROBOT_WIFI
+class LineOut : public robot::Out {
+ public:
+  void line(const char *s) override {
+    size_t n = strlen(s);
+    robot_net::write(s, n);
+    robot_net::write("\n", 1);
+  }
+  // Lines are under 32 bytes; with no client the network task drops them.
+  bool can_write() override { return robot_net::tx_free() > 64; }
+};
+// Control bytes in, without waiting: -1 when there are none.
+int read_control() {
+  char c;
+  return robot_net::read(&c, 1) ? (unsigned char)c : -1;
+}
+#else
+class LineOut : public robot::Out {
  public:
   void line(const char *s) override {
     Serial.write(s);
@@ -64,7 +98,9 @@ class SerialOut : public robot::Out {
   // absent: uartAvailableForWrite, esp32-hal-uart.c), so 64 works in both.
   bool can_write() override { return Serial.availableForWrite() > 64; }
 };
-SerialOut out;
+int read_control() { return Serial.available() ? Serial.read() : -1; }
+#endif
+LineOut out;
 
 // Two cables, each with an embedded and an external IN and OUT jack
 // (TinyUSB's TUD_MIDI_DESCRIPTOR is the one-cable case of this).
@@ -99,21 +135,25 @@ void on_usb_event(void *, esp_event_base_t base, int32_t id, void *) {
   else if (id == ARDUINO_USB_STOPPED_EVENT) core.mount_changed(false, esp_timer_get_time());
 }
 
-// The protocol task: UART in, sends on time, the log out. It sleeps a tick
+// The protocol task: control lines in, sends on time, the log out. It sleeps a tick
 // when nothing is due for 2 ms, and spins (yielding) closer than that, so a
 // send leaves within a few microseconds of its time. TinyUSB's task runs at
 // the top priority, so received packets are stamped even while this spins.
 void protocol_task(void *) {
   for (;;) {
     int64_t now = esp_timer_get_time();
-    while (Serial.available()) core.feed((char)Serial.read(), now, out);
+    bool got = false;
+    for (int c; (c = read_control()) >= 0;) {
+      core.feed((char)c, now, out);
+      got = true;
+    }
     core.poll(esp_timer_get_time(), out);
     int64_t due = core.next_due();
     now = esp_timer_get_time();
-    // A drain waiting on a full UART buffer sleeps too: spinning through it
+    // A drain waiting on a full output buffer sleeps too: spinning through it
     // would starve this core's idle task for seconds.
     bool soon = due == INT64_MIN ? out.can_write() : due - now <= 2000;
-    if (soon || Serial.available()) taskYIELD();
+    if (soon || got) taskYIELD();
     else vTaskDelay(1);
   }
 }
@@ -129,9 +169,11 @@ extern "C" void tud_midi_rx_cb(uint8_t itf) {
 }
 
 void setup() {
+#if !ROBOT_WIFI
   Serial.setRxBufferSize(4096);
   Serial.setTxBufferSize(16384);
   Serial.begin(kBaud);
+#endif
   uint8_t mac[6];
   esp_read_mac(mac, ESP_MAC_WIFI_STA);
   snprintf(mac_str, sizeof mac_str, "%02x:%02x:%02x:%02x:%02x:%02x", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
@@ -142,7 +184,13 @@ void setup() {
   USB.manufacturerName("Outrigger bench");
   USB.serialNumber(serial_str);
   USB.begin();
+#if ROBOT_WIFI
+  char host[16];
+  snprintf(host, sizeof host, "robot-%02x%02x", mac[4], mac[5]);  // robot-a555.local
+  robot_net::begin(host);
+#else
   Serial.printf("# bench_robot fw=%07x mac=%s baud=%u\n", (unsigned)ROBOT_FW, mac_str, (unsigned)kBaud);
+#endif
   xTaskCreatePinnedToCore(protocol_task, "robot", 8192, nullptr, configMAX_PRIORITIES - 2, nullptr, 1);
 }
 

@@ -1,0 +1,13 @@
+# The bench robot's flash layout. nvs and otadata sit exactly where Outrigger's
+# (firmware/waveshare_169/partitions.csv) and Arduino's default tables put them,
+# and flashing writes only the bootloader, this table, otadata and app0, so a
+# board that ran Outrigger keeps NVS: its saved Wi-Fi network (namespace wifi).
+# Two app slots for ArduinoOTA, ending at 0x3D0000, where Outrigger's store
+# begins: the robot never writes the store (FM-1 backups, saves), so putting
+# Outrigger's app back later finds it intact. No coredump partition for the
+# same reason (Outrigger's sits at 0xFF0000, past a 4 MB chip). Fits 4 MB.
+# Name,   Type, SubType,  Offset,   Size,     Flags
+nvs,      data, nvs,      0x9000,   0x5000,
+otadata,  data, ota,      0xe000,   0x2000,
+app0,     app,  ota_0,    0x10000,  0x1E0000,
+app1,     app,  ota_1,    0x1F0000, 0x1E0000,

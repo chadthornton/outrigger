@@ -11,6 +11,13 @@ usage:
   robot.py check LOG.json             re-check a saved run (--save writes one)
   robot.py cmd --port P LINE...       send protocol lines, print the replies (status, log, unplug 500 ...)
   robot.py check-mac PORT MAC         exit 0 only if PORT is an ESP32-S3 with that MAC (make flash-bench-robot)
+                                      (or, for a Wi-Fi robot's host, if its id reply has that MAC)
+  robot.py flash-wifi PORT MAC BUILD BOOT_APP0   a Wi-Fi robot's first flash by cable: backs up the
+                                      whole flash, checks NVS knows a network, never touches NVS
+  robot.py ota HOST MAC IMAGE [--expect-fw HEX]   reflash a Wi-Fi robot over the network
+
+A Wi-Fi robot (ROBOT_WIFI builds: Big-S3, Small-V2) is named by host instead of a port anywhere a
+port goes: --robot a=robot-a555.local, cmd --port robot-a555.local.
   [--runs build/robot/runs.jsonl] [--baud 921600] [--save run.json]
 
 A scenario says what each robot plays (streams), what the P4 is meant to do
@@ -41,8 +48,10 @@ import bisect
 import collections
 import glob
 import json
+import os
 import pathlib
 import re
+import socket
 import statistics
 import subprocess
 import sys
@@ -97,6 +106,65 @@ class SerialLink:
 
     def close(self):
         self.s.close()
+
+
+class TcpLink:
+    """A Wi-Fi robot's control line (ROBOT_WIFI builds): the same protocol on TCP port 7000.
+    Times are stamped on the robot, so Wi-Fi latency only widens the time-sync basis."""
+
+    def __init__(self, host, port=7000, timeout=5.0):
+        self.where = f"{host}:{port}"
+        try:
+            self.s = socket.create_connection((host, port), timeout=timeout)
+        except OSError as e:
+            raise RobotError(f"can't reach robot at {self.where}: {e}") from e
+        self.s.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        self.buf = b""
+        # A previous client may have left output in the robot's queue: drop it,
+        # or a stale "ok" would answer this client's first command.
+        self.s.settimeout(0.3)
+        try:
+            while self.s.recv(65536):
+                pass
+        except (socket.timeout, BlockingIOError):
+            pass
+
+    def write(self, text):
+        self.s.sendall(text.encode())
+
+    def readline(self, timeout):
+        end = time.monotonic() + timeout
+        while b"\n" not in self.buf:
+            left = end - time.monotonic()
+            if left <= 0:
+                raise RobotError(f"no reply from {self.where} in {timeout} s")
+            self.s.settimeout(left)
+            try:
+                chunk = self.s.recv(65536)
+            except socket.timeout:
+                continue
+            if not chunk:
+                raise RobotError(f"{self.where} closed the connection")
+            self.buf += chunk
+        line, self.buf = self.buf.split(b"\n", 1)
+        return line.decode(errors="replace").strip()
+
+    def now_us(self):
+        return time.monotonic_ns() // 1000
+
+    def sleep(self, s):
+        time.sleep(s)
+
+    def close(self):
+        self.s.close()
+
+
+def open_link(spec, baud=BAUD):
+    """/dev/... is a UART robot; anything else is a Wi-Fi robot, host or host:port."""
+    if spec.startswith("/dev/"):
+        return SerialLink(spec, baud)
+    host, _, port = spec.rpartition(":") if spec.count(":") == 1 else (spec, "", "")
+    return TcpLink(host, int(port) if port else 7000)
 
 
 class SimLink:
@@ -618,17 +686,118 @@ def report(name, result, log=print):
 
 # --- check-mac (make flash-bench-robot) --------------------------------------
 
-def check_mac(port, want):
+def esptool(port, *args, after="hard-reset", timeout=60):
     tools = sorted(glob.glob(str(pathlib.Path.home() / "Library/Arduino15/packages/esp32/tools/esptool_py/*/esptool")))
     if not tools:
         raise RobotError("no esptool under ~/Library/Arduino15")
-    out = subprocess.run([tools[-1], "--chip", "esp32s3", "--port", port, "--after", "hard-reset", "read-mac"],
-                         capture_output=True, text=True, timeout=60)
-    m = re.search(r"MAC:\s+([0-9a-fA-F:]{17})", out.stdout)
-    if not m:
-        raise RobotError(f"{port}: not an ESP32-S3 in reach ({(out.stdout + out.stderr).strip().splitlines()[-1:]})")
-    if m.group(1).lower() != want.lower():
-        raise RobotError(f"{port} has MAC {m.group(1)}, not {want}: not flashing")
+    out = subprocess.run([tools[-1], "--chip", "esp32s3", "--port", port, "--after", after, *args],
+                         capture_output=True, text=True, timeout=timeout)
+    if out.returncode:
+        raise RobotError(f"{port}: esptool {args[0]} failed ({(out.stdout + out.stderr).strip().splitlines()[-1:]})")
+    return out.stdout
+
+
+def check_mac(port, want, after="hard-reset"):
+    """A UART or download-mode port: esptool reads the chip's MAC (a P4 fails the
+    chip check, another S3 the MAC). A Wi-Fi robot: its own id reply."""
+    if not port.startswith("/dev/"):
+        rb = Robot("robot", open_link(port))
+        try:
+            got = rb.ident().get("mac", "")
+        finally:
+            rb.link.close()
+    else:
+        try:
+            m = re.search(r"MAC:\s+([0-9a-fA-F:]{17})", esptool(port, "read-mac", after=after))
+        except RobotError as e:
+            raise RobotError(f"{port}: not an ESP32-S3 in reach ({e})") from e
+        got = m.group(1) if m else ""
+    if got.lower() != want.lower():
+        raise RobotError(f"{port} has MAC {got or '?'}, not {want}: not flashing")
+
+
+# --- Wi-Fi robots: the first flash by cable, then OTA ------------------------
+
+NVS = (0x9000, 0x5000)  # Outrigger's and Arduino's default tables both put NVS here
+
+
+def nvs_has_wifi(nvs):
+    """True when an NVS dump holds Outrigger's saved network (namespace wifi, key
+    ssid). Only names are looked at: the values never leave this function."""
+    return b"wifi\x00" in nvs and b"ssid\x00" in nvs
+
+
+def flash_wifi(port, mac, build, boot_app0, backups, allow_no_wifi=False, log=print):
+    """Backs up the board's whole flash (once per MAC: the first backup is the one
+    that restores Outrigger), checks it knows a Wi-Fi network, then writes the
+    bootloader, partition table, otadata and app at their own offsets. Never a
+    merged image at 0x0: its padding would erase NVS, and the robot could never
+    join Wi-Fi to be reached. The board must be in download or Computer mode."""
+    check_mac(port, mac, after="no-reset")
+    backups = pathlib.Path(backups)
+    backups.mkdir(parents=True, exist_ok=True)
+    tag = mac.replace(":", "").lower()
+    done = sorted(backups.glob(f"{tag}-*.bin"))
+    if done:
+        image = done[0]
+        log(f"backup already taken: {image}")
+    else:
+        size = re.search(r"Detected flash size:\s*(\d+)MB", esptool(port, "flash-id", after="no-reset"))
+        if not size:
+            raise RobotError(f"{port}: flash size not reported")
+        image = backups / f"{tag}-{time.strftime('%Y%m%d-%H%M%S')}.bin"
+        part = image.with_suffix(".part")
+        log(f"backing up {size.group(1)} MB to {image} (a few minutes)")
+        esptool(port, "read-flash", "0", str(int(size.group(1)) << 20), str(part), after="no-reset", timeout=1800)
+        os.replace(part, image)
+    with open(image, "rb") as f:
+        f.seek(NVS[0])
+        nvs = f.read(NVS[1])
+    if not nvs_has_wifi(nvs) and not allow_no_wifi:
+        raise RobotError(f"{image}: NVS has no saved Wi-Fi network (namespace wifi, key ssid). The robot would "
+                         "never be reachable: join Wi-Fi from Outrigger first, or pass --allow-no-wifi")
+    build = pathlib.Path(build)
+    parts = [("0x0", build / "bench_robot.ino.bootloader.bin"), ("0x8000", build / "bench_robot.ino.partitions.bin"),
+             ("0xe000", pathlib.Path(boot_app0)), ("0x10000", build / "bench_robot.ino.bin")]
+    for _, f in parts:
+        if not f.exists():
+            raise RobotError(f"{f} is missing: make bench-robot-wifi")
+    args = [x for off, f in parts for x in (off, str(f))]
+    esptool(port, "write-flash", *args, after="hard-reset", timeout=300)
+    log(f"{port}: flashed {mac}; it joins Wi-Fi as robot-{tag[-4:]}.local")
+
+
+def ota(host, mac, image, expect_fw=None, log=print):
+    """Pushes an app image to a Wi-Fi robot with ArduinoOTA (espota.py, port 3232),
+    after its id proves it's the robot meant, then waits for it to come back and
+    checks the new build is running."""
+    check_mac(host, mac)
+    espota = sorted(glob.glob(str(pathlib.Path.home() / "Library/Arduino15/packages/esp32/hardware/esp32/*/tools/espota.py")))
+    if not espota:
+        raise RobotError("no espota.py under ~/Library/Arduino15")
+    ip = socket.gethostbyname(host.split(":")[0])
+    out = subprocess.run([sys.executable, "-I", espota[-1], "-i", ip, "-p", "3232", "-f", str(image)],
+                         capture_output=True, text=True, timeout=300)
+    if out.returncode:
+        raise RobotError(f"{host}: OTA failed ({(out.stdout + out.stderr).strip().splitlines()[-1:]})")
+    end = time.monotonic() + 90
+    while True:
+        time.sleep(3)
+        try:
+            rb = Robot("robot", open_link(host))
+            try:
+                ident = rb.ident()
+            finally:
+                rb.link.close()
+            break
+        except (RobotError, OSError):
+            if time.monotonic() > end:
+                raise RobotError(f"{host} didn't come back within 90 s of the OTA") from None
+    if ident.get("mac", "").lower() != mac.lower():
+        raise RobotError(f"{host} came back as {ident.get('mac')}, not {mac}")
+    if expect_fw is not None and int(ident.get("fw", "-1"), 16) != expect_fw:
+        raise RobotError(f"{host} runs fw={ident.get('fw')} after the OTA, not {expect_fw:07x}")
+    log(f"{host}: running fw={ident.get('fw')} ({ident.get('ip')})")
 
 
 # --- main --------------------------------------------------------------------
@@ -648,7 +817,8 @@ def main(argv=None):
     sub = ap.add_subparsers(dest="what", required=True)
     r = sub.add_parser("run")
     r.add_argument("scenario")
-    r.add_argument("--robot", action="append", help="name=/dev/cu.... (one per robot in the scenario)")
+    r.add_argument("--robot", action="append",
+                   help="name=/dev/cu.... or name=robot-xxxx.local (one per robot in the scenario)")
     r.add_argument("--mac", action="append", help="name=aa:bb:cc:dd:ee:ff: refuse a robot with another MAC")
     r.add_argument("--sim", action="store_true", help="run against build/robot_sim instead")
     r.add_argument("--sim-opt", action="append", default=[], help="an option for robot_sim, e.g. --sim-opt=--drop-every=10")
@@ -664,14 +834,32 @@ def main(argv=None):
     k = sub.add_parser("check-mac")
     k.add_argument("port")
     k.add_argument("mac")
+    fw = sub.add_parser("flash-wifi", help="first flash of a Wi-Fi robot by cable (backs up the whole flash first)")
+    fw.add_argument("port")
+    fw.add_argument("mac")
+    fw.add_argument("build")
+    fw.add_argument("boot_app0")
+    fw.add_argument("--backups", default=str(ROOT / "build" / "robot-backups"))
+    fw.add_argument("--allow-no-wifi", action="store_true")
+    o = sub.add_parser("ota", help="reflash a Wi-Fi robot over the network")
+    o.add_argument("host")
+    o.add_argument("mac")
+    o.add_argument("image")
+    o.add_argument("--expect-fw", type=lambda v: int(v, 16))
     a = ap.parse_args(argv)
     try:
+        if a.what == "flash-wifi":
+            flash_wifi(a.port, a.mac, a.build, a.boot_app0, a.backups, a.allow_no_wifi)
+            return 0
+        if a.what == "ota":
+            ota(a.host, a.mac, a.image, a.expect_fw)
+            return 0
         if a.what == "check-mac":
             check_mac(a.port, a.mac)
             print(f"{a.port}: ESP32-S3 {a.mac}")
             return 0
         if a.what == "cmd":
-            rb = Robot("robot", SerialLink(a.port, a.baud))
+            rb = Robot("robot", open_link(a.port, a.baud))
             for line in a.lines:
                 data, reply = rb.cmd(line, timeout=10)
                 for d in data:
@@ -696,7 +884,7 @@ def main(argv=None):
             missing = [n for n in scn["robots"] if n not in ports]
             if missing:
                 raise RobotError(f"no --robot for {', '.join(missing)}")
-            robots = {n: Robot(n, SerialLink(ports[n], a.baud)) for n in scn["robots"]}
+            robots = {n: Robot(n, open_link(ports[n], a.baud)) for n in scn["robots"]}
         try:
             data = run(scn, robots, expect_macs=kv(a.mac))
         finally:

@@ -134,23 +134,47 @@ edge would give sub-microsecond ties; that isn't built.
 5. Long soaks: `robot.py` keeps a whole run in memory and expands streams up front. That's fine for minutes. An
    8-hour run (C1-1) needs a windowed checker and lazy stream expansion.
 
-## Big-S3 as a robot
+## Wi-Fi robots (Big-S3, Small-V2)
 
-Big-S3 (Waveshare ESP32-S3-Touch-LCD-3.5) has one USB port, the native one, and no USB-UART bridge. With that port on
-the P4's hub:
+Big-S3 (`44:bd:8d:61:2b:28`, Waveshare 3.5") and Small-V2 (`a0:85:e3:f0:a2:3c`, Waveshare 1.69") each have one
+USB port, the native one, and no USB-UART bridge. On the P4's hub that port is the robot's MIDI device, so the
+`ROBOT_WIFI` build moves everything else to Wi-Fi:
 
-- **Control moves to Wi-Fi.** The core is transport-agnostic, taking lines in and sending lines out, so a TCP socket
-  carrying the same protocol is a small `robot_main` variant. Big-S3 is already on the lab Wi-Fi (`big-s3.local`).
-  Wi-Fi timing doesn't matter for the checks, because every time is stamped on the robot. The cost: clock ties through
-  `time` over Wi-Fi are coarser than over the UART (milliseconds rather than tens of microseconds), so cross-robot
-  latency gets a wider `latency_basis_us`. Jitter, loss and order are unaffected, as is latency within one robot.
-- **Alternatively, an external USB-UART adapter** on two free GPIOs keeps the UART protocol unchanged.
-- **Reflashing needs recabling** (the one port, to the Mac) or OTA (`lib/ota`, as the lab boards already do).
-- **No `CDCOnBoot`:** with USBMode=default the native port is entirely the MIDI device. A composite CDC-plus-MIDI
-  device would put the serial port on the P4's side, out of the Mac's reach.
-- **The unplug works the same way** (`tud_disconnect` on the same USB controller).
-- **The screen could show the counters,** using the board drivers in `lib/board` and its pin map from
-  `firmware/boards.json`. That's extra work, not needed for the checks.
-- **Its RAM has room to spare:** 8 MB of octal PSRAM (`firmware/boards.json`), so the logs could be much larger.
+- **Control:** the same line protocol on TCP port 7000 (`firmware/bench_robot/robot_net.cpp`). A task on core 0 owns
+  the socket; the protocol task on core 1 only touches two stream buffers, so the network never delays a send. Every
+  time is still stamped on the robot, so Wi-Fi only widens the time-sync basis between robots (milliseconds rather
+  than tens of microseconds over a UART). Jitter, loss, order and one robot's latency are unaffected.
+- **Name:** `robot-<last two MAC bytes>.local` (`robot-2b28.local`, `robot-a23c.local`). `id` adds
+  `link=wifi ip=... rssi=... host=...`. Anywhere `robot.py` takes a port, it takes a host instead:
+  `--robot a=robot-2b28.local`, `cmd --port robot-2b28.local id`.
+- **Network:** the one Outrigger saved in NVS namespace `wifi` (`ssid`, `pass`), read-only. Flashing never writes
+  NVS, so a board that ran Outrigger already knows the network.
+- **Reflashing:** ArduinoOTA on port 3232. `make ota-bench-robot ROBOT_HOST=robot-2b28.local
+  ROBOT_MAC=44:bd:8d:61:2b:28` checks the robot's `id` MAC, pushes the image, waits for it to come back and checks it
+  runs the new build. No password: the lab network only.
+- **Smaller logs:** 2,048 sent and 2,048 received records (the UART build has 4,096 each), since Wi-Fi needs about
+  60 KB of internal RAM. `robot.py` drains during a run; a full log counts `log_lost_*` in `status`.
 
-So Big-S3 is a fine second robot once there's a Wi-Fi transport. A DevKitC needs no changes.
+### The first flash (by cable, once per board)
+
+With the board's port on the Mac and the board in Computer mode (or download mode: hold BOOT, tap RST):
+
+```
+make flash-bench-robot-wifi ROBOT_PORT=/dev/cu.usbmodemX ROBOT_MAC=44:bd:8d:61:2b:28
+```
+
+1. Checks the MAC, staying in download mode.
+2. Backs up the whole flash to `build/robot-backups/<mac>-<time>.bin`, once per board. The first backup is the
+   Outrigger image, the way back.
+3. Refuses if that backup's NVS has no saved Wi-Fi network (the robot could never be reached).
+4. Writes the bootloader (0x0), the partition table (0x8000), otadata (0xe000) and the app (0x10000), each at its own
+   offset. Never the merged image at 0x0: its padding would erase NVS at 0x9000.
+
+The robot's table (`firmware/bench_robot/partitions.csv`) keeps `nvs` and `otadata` where Outrigger has them and ends
+at 0x3D0000, where Outrigger's store starts, so FM-1 backups and saves in the store survive. Prove an OTA while the
+board is still on the Mac's cable, then move it to the P4's hub.
+
+### Back to Outrigger
+
+Write the backup back: `esptool --chip esp32s3 --port <port> write-flash 0x0 build/robot-backups/<mac>-<time>.bin`,
+with the board in download mode (the robot holds the native port as a MIDI device, so the BOOT button is the way in).

@@ -283,11 +283,11 @@ void Core::command(const char *text, int64_t now, Out &out) {
   if (n == 0) return;
   if (n > 8) return out.line("err args");
   const char *cmd = tok[0];
-  char b[96];
+  char b[192];  // id's reply carries the board's description (ip, host on Wi-Fi)
   if (!strcmp(cmd, "ping")) {
     out.line("ok pong");
   } else if (!strcmp(cmd, "id")) {
-    char d[64];
+    char d[144];
     port_.describe(d, sizeof d);
     snprintf(b, sizeof b, "ok id %s cables=%d", d, kCables);
     out.line(b);

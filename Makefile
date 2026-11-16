@@ -116,7 +116,7 @@ VERSION_DIR := $(CACHE_ROOT)/version
 # screens ui-shots renders. Rewritten only when they change, like fw_version.h.
 BOARD_GEN := $(CACHE_ROOT)/boards
 
-.PHONY: check test ui-shots ui-mocks build build-all flash recovery flash-recovery probe synth-bench flash-synth-bench bench-robot flash-bench-robot site serve clean fixtures golden store-image flash-store store-add check-latest deploy-site rollback-site deploy-email
+.PHONY: check test ui-shots ui-mocks build build-all flash recovery flash-recovery probe synth-bench flash-synth-bench bench-robot flash-bench-robot bench-robot-wifi flash-bench-robot-wifi ota-bench-robot site serve clean fixtures golden store-image flash-store store-add check-latest deploy-site rollback-site deploy-email
 
 FM1_SRC := $(wildcard lib/fm1_loader/src/*.cpp)
 FM1_HDR := $(wildcard lib/fm1_loader/src/*.h) $(wildcard tests/support/*.h)
@@ -431,6 +431,29 @@ flash-bench-robot: bench-robot
 	$(if $(ROBOT_MAC),,$(error flash-bench-robot needs ROBOT_MAC=aa:bb:cc:dd:ee:ff (the robot's MAC)))
 	python3 -I tools/robot.py check-mac $(ROBOT_PORT) $(ROBOT_MAC)
 	arduino-cli upload --fqbn $(BENCH_ROBOT_FQBN) --input-dir $(BENCH_ROBOT_BUILD) --port $(ROBOT_PORT) firmware/bench_robot
+
+# Wi-Fi robots (ROBOT_WIFI): boards with one USB port, Big-S3 and Small-V2, whose
+# native port is the MIDI device on the P4's hub. Control is TCP port 7000, and
+# reflashing is ArduinoOTA, so the Mac never needs the port again
+# (docs/bench-robot.md, "Wi-Fi robots"). The first flash is by cable, with the
+# board in Computer mode or download mode; it backs up the whole flash to
+# build/robot-backups/ (the way back to Outrigger) and never writes NVS, where
+# the board's saved Wi-Fi network is.
+#   make flash-bench-robot-wifi ROBOT_PORT=/dev/cu.usbmodemX ROBOT_MAC=aa:bb:...
+#   make ota-bench-robot ROBOT_HOST=robot-xxxx.local ROBOT_MAC=aa:bb:...
+BENCH_ROBOT_WIFI_BUILD := build/bench-robot-wifi
+bench-robot-wifi:
+	arduino-cli compile --fqbn $(BENCH_ROBOT_FQBN) --build-property "tools.ctags.path=$(CTAGS_DIR)" \
+		--build-property "compiler.cpp.extra_flags=-DROBOT_FW=$(FW_VERSION) -DROBOT_WIFI=1" \
+		--build-path $(CACHE_ROOT)/bench-robot-wifi --output-dir $(BENCH_ROBOT_WIFI_BUILD) firmware/bench_robot
+flash-bench-robot-wifi: bench-robot-wifi $(TOOLS_PY)
+	$(if $(ROBOT_PORT),,$(error flash-bench-robot-wifi needs ROBOT_PORT=/dev/cu.... (the board's USB port, in Computer or download mode)))
+	$(if $(ROBOT_MAC),,$(error flash-bench-robot-wifi needs ROBOT_MAC=aa:bb:cc:dd:ee:ff (the board's MAC)))
+	$(TOOLS_PY) -I tools/robot.py flash-wifi $(ROBOT_PORT) $(ROBOT_MAC) $(BENCH_ROBOT_WIFI_BUILD) $(ESP32_CORE)/tools/partitions/boot_app0.bin
+ota-bench-robot: bench-robot-wifi
+	$(if $(ROBOT_HOST),,$(error ota-bench-robot needs ROBOT_HOST=robot-xxxx.local))
+	$(if $(ROBOT_MAC),,$(error ota-bench-robot needs ROBOT_MAC=aa:bb:cc:dd:ee:ff))
+	python3 -I tools/robot.py ota $(ROBOT_HOST) $(ROBOT_MAC) $(BENCH_ROBOT_WIFI_BUILD)/bench_robot.ino.bin --expect-fw $(FW_VERSION)
 
 # The store partition's first setup: a LittleFS image holding JieLi's loader
 # (from tests/fixtures). JieLi's code, so it stays in build/ and is never staged

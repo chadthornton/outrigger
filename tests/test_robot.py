@@ -268,6 +268,73 @@ def test_scenarios_parse():
             expect(rt["from"]["robot"] in scn["robots"] and rt["to"]["robot"] in scn["robots"], f"{f.name}: route robots")
 
 
+def fake_wifi_robot(stale=b""):
+    """A TCP server speaking the robot's id/ping replies, with stale output left
+    queued by an earlier client. Returns (host, port, thread)."""
+    import socket
+    import threading
+    srv = socket.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(1)
+
+    def serve():
+        c, _ = srv.accept()
+        if stale:
+            c.sendall(stale)
+        buf = b""
+        while True:
+            chunk = c.recv(4096)
+            if not chunk:
+                break
+            buf += chunk
+            while b"\n" in buf:
+                line, buf = buf.split(b"\n", 1)
+                if line == b"id":
+                    c.sendall(b"ok id mac=aa:bb:cc:dd:a5:55 fw=00000c2 link=wifi ip=10.0.0.9 rssi=-50 "
+                              b"host=robot-a555.local cables=2\n")
+                elif line == b"ping":
+                    c.sendall(b"# a comment line\nok pong\n")
+        c.close()
+        srv.close()
+
+    t = threading.Thread(target=serve, daemon=True)
+    t.start()
+    return "127.0.0.1", srv.getsockname()[1], t
+
+
+def test_wifi_link():
+    host, port, t = fake_wifi_robot(stale=b"ok log more=0\nok status t=5\n")
+    rb = robot.Robot("a", robot.open_link(f"{host}:{port}"))
+    ident = rb.ident()  # the stale "ok" lines must not answer this
+    expect(ident.get("mac") == "aa:bb:cc:dd:a5:55", f"tcp id mac: {ident}")
+    expect(ident.get("host") == "robot-a555.local" and ident.get("fw") == "00000c2", f"tcp id fields: {ident}")
+    _, r = rb.cmd("ping")
+    expect(r == "ok pong", f"tcp ping: {r}")
+    rb.link.close()
+    t.join(2)
+
+
+def test_wifi_check_mac():
+    host, port, t = fake_wifi_robot()
+    robot.check_mac(f"{host}:{port}", "AA:BB:CC:DD:A5:55")  # case doesn't matter
+    t.join(2)
+    host, port, t = fake_wifi_robot()
+    try:
+        robot.check_mac(f"{host}:{port}", "aa:bb:cc:dd:00:01")
+        expect(False, "tcp check-mac accepted the wrong MAC")
+    except robot.RobotError:
+        pass
+    t.join(2)
+
+
+def test_nvs_wifi_check():
+    # Entry keys in NVS are 16-byte fields, null-padded: names are findable, values aren't read.
+    nvs = b"\xff" * 64 + b"wifi" + b"\x00" * 12 + b"\xff" * 16 + b"ssid" + b"\x00" * 12 + b"\xff" * 32
+    expect(robot.nvs_has_wifi(nvs), "nvs with wifi/ssid")
+    expect(not robot.nvs_has_wifi(b"\xff" * 0x5000), "erased nvs")
+    expect(not robot.nvs_has_wifi(b"boot\x00computer\x00" + b"\xff" * 100), "nvs without wifi")
+
+
 def main():
     for name, fn in list(globals().items()):
         if name.startswith("test_") and callable(fn):
