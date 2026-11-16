@@ -1,3 +1,8 @@
+// clock_gettime under strict -std=c11 on glibc (CI builds on Linux).
+#if !defined(ESP_PLATFORM) && !defined(__APPLE__) && !defined(_POSIX_C_SOURCE)
+#define _POSIX_C_SOURCE 199309L
+#endif
+
 #include "gr_graph.h"
 
 #include <string.h>

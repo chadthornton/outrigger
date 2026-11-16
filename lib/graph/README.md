@@ -34,7 +34,8 @@ and the ESP32-S3 (`make graph-esp`).
 ## Commands
 
 - `make test-graph`: the host tests, plus an `nm` check that the core and
-  shim reference no allocator. Also part of `make test`.
+  shim reference no allocator. `make test` runs the two test binaries
+  (not the `nm` check).
 - `make graph-bench`: per-node time per block on the host.
 - `make graph-esp`: cross-compiles for P4 and S3 and prints sizes.
 - `./build/test_graph_schwung tests/golden/graph --record`: rewrites the
