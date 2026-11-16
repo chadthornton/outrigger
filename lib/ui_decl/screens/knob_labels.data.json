@@ -1,0 +1,19 @@
+// Sample data, made up for the preview: a MicroFreak-style first page. The
+// real names and value names will come from the midi.guide profiles (track C).
+{
+  "synth": { "name": "MicroFreak" },
+  "page": {
+    "name": "Oscillator", "index": 1, "count": 4,
+    "knobs": [
+      { "name": "Type",      "value": 0,   "col": 0, "row": 0, "active": false },
+      { "name": "Wave",      "value": 64,  "col": 1, "row": 0, "active": false },
+      { "name": "Timbre",    "value": 40,  "col": 2, "row": 0, "active": false },
+      { "name": "Shape",     "value": 90,  "col": 3, "row": 0, "active": false },
+      { "name": "Cutoff",    "value": 87,  "col": 0, "row": 1, "active": true },
+      { "name": "Resonance", "value": 30,  "col": 1, "row": 1, "active": false },
+      { "name": "Env Amt",   "value": 100, "col": 2, "row": 1, "active": false },
+      { "name": "Glide",     "value": 12,  "col": 3, "row": 1, "active": false }
+    ]
+  },
+  "param": { "name": "Cutoff", "value": 87, "min": 0, "max": 127, "value_text": "87" }
+}

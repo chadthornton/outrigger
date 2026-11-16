@@ -116,7 +116,7 @@ VERSION_DIR := $(CACHE_ROOT)/version
 # screens ui-shots renders. Rewritten only when they change, like fw_version.h.
 BOARD_GEN := $(CACHE_ROOT)/boards
 
-.PHONY: check test ui-shots ui-mocks build build-all flash recovery flash-recovery probe synth-bench flash-synth-bench site serve clean fixtures golden store-image flash-store store-add check-latest deploy-site rollback-site deploy-email
+.PHONY: check test ui-shots ui-mocks ui-decl-web ui-decl-serve ui-decl-compare build build-all flash recovery flash-recovery probe synth-bench flash-synth-bench site serve clean fixtures golden store-image flash-store store-add check-latest deploy-site rollback-site deploy-email
 
 FM1_SRC := $(wildcard lib/fm1_loader/src/*.cpp)
 FM1_HDR := $(wildcard lib/fm1_loader/src/*.h) $(wildcard tests/support/*.h)
@@ -294,7 +294,7 @@ build/test_loader_messages: tests/test_loader_messages.cpp firmware/waveshare_16
 # the same pinned tag into build/lvgl and sets LVGL_DIR.
 LVGL_VERSION := 9.6.0
 LVGL_DIR ?= $(HOME)/Documents/Arduino/libraries/lvgl
-ifneq ($(filter ui-shots build/ui_shots ui-mocks build/ui_mocks,$(MAKECMDGOALS)),)
+ifneq ($(filter ui-shots build/ui_shots ui-mocks build/ui_mocks build/ui_decl_shots ui-decl-web ui-decl-compare,$(MAKECMDGOALS)),)
 ifeq ($(shell grep -qx 'version=$(LVGL_VERSION)' $(LVGL_DIR)/library.properties 2>/dev/null && echo ok),)
 $(error ui-shots needs LVGL $(LVGL_VERSION) in LVGL_DIR=$(LVGL_DIR): git clone --depth 1 --branch v$(LVGL_VERSION) https://github.com/lvgl/lvgl build/lvgl, then add LVGL_DIR=build/lvgl)
 endif
@@ -318,9 +318,20 @@ build/ui_shots: $(UI_SHOTS_SRC) $(wildcard tests/ui_shots/*.h tests/ui_shots/stu
 	@$(TEST_CXX) -std=c++17 -O1 -Wall -Wextra -Werror -Wno-deprecated-declarations $(UI_FLAGS) -DAPP_LOADER=1 -I$(BOARD_GEN) \
 		-Ilib/host_ui/src -Ilib/midi_core/src -Ilib/fm1_loader/src -Ilib/platform/src -Ifirmware/waveshare_169 \
 		-o $@ $(UI_SHOTS_SRC) $(LVGL_OBJ) -lz
-ui-shots: build/ui_shots
+ui-shots: build/ui_shots build/ui_decl_shots
 	rm -rf build/ui-shots
 	./build/ui_shots build/ui-shots
+	./build/ui_decl_shots build/ui-shots/decl
+
+# The declarative UI layer (lib/ui_decl, lib/ui_decl/AUTHORING.md): screens
+# described as JSON, built into LVGL objects. ui-shots renders them at the P4's
+# 480x320; ui-decl-web builds the same renderer and LVGL to WebAssembly.
+UI_DECL_SRC := lib/ui_decl/src/ui_decl.cpp lib/ui_decl/src/ui_json.cpp lib/ui_decl/preview/preview.cpp
+UI_DECL_HDR := $(wildcard lib/ui_decl/src/*.h lib/ui_decl/preview/*.h)
+build/ui_decl_shots: tests/ui_decl/ui_decl_shots.cpp $(UI_DECL_SRC) $(UI_DECL_HDR) tests/ui_shots/png.h $(LVGL_OBJ)
+	@echo "$(TEST_CXX) ... -o $@"
+	@$(TEST_CXX) -std=c++17 -O1 -Wall -Wextra -Werror -Wno-deprecated-declarations $(UI_FLAGS) \
+		-o $@ tests/ui_decl/ui_decl_shots.cpp $(UI_DECL_SRC) $(LVGL_OBJ) -lz
 
 # Design mockups for the UI redesign (docs/ui-redesign.md), rendered with the
 # same LVGL and checks; nothing here ships.
