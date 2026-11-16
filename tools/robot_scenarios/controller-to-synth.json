@@ -1,0 +1,13 @@
+{
+  "name": "controller-to-synth",
+  "about": "The original Outrigger job, no computer: robot a plays the controller on its cable 0, robot b listens as the synth on its cable 0. P4 config: a cable 1 -> b cable 1. Latency is across two robot clocks (see latency_basis_us); jitter doesn't depend on the offset.",
+  "robots": ["a", "b"],
+  "streams": [
+    {"robot": "a", "cable": 0, "notes": {"count": 1000, "every_ms": 10, "channel": 1, "notes": [36, 43, 48, 55, 60, 67, 72], "velocity": 100, "gate_ms": 5}},
+    {"robot": "a", "cable": 0, "start_ms": 3, "cc": {"count": 500, "every_ms": 20, "channel": 1, "cc": 74}}
+  ],
+  "routes": [
+    {"from": {"robot": "a", "cable": 0}, "to": {"robot": "b", "cable": 0}}
+  ],
+  "checks": {"loss_max": 0, "extra_max": 0, "order": true, "latency_ms_max": 5, "jitter_ms_max": 1, "stuck_notes_max": 0}
+}

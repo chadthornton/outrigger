@@ -1,0 +1,14 @@
+{
+  "name": "clock-out",
+  "about": "The box keeps time: the P4 sends its own MIDI clock at 120 BPM to robot a cable 0 and robot b cable 0 for 60 s; the robots only listen. Start the P4's clock before the run; ticks_min allows for the lead-in.",
+  "robots": ["a", "b"],
+  "streams": [
+    {"robot": "a", "cable": 0, "messages": [[60000, "FE"]]}
+  ],
+  "routes": [],
+  "listen": [
+    {"robot": "a", "cable": 0, "clock": {"bpm": 120, "ticks_min": 2800}},
+    {"robot": "b", "cable": 0, "clock": {"bpm": 120, "ticks_min": 2800}}
+  ],
+  "checks": {"clock_jitter_ms_max": 1}
+}

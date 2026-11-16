@@ -1,0 +1,16 @@
+{
+  "name": "split",
+  "about": "One keyboard, two synths: robot a plays across the keyboard on channel 1; below middle C goes to robot b cable 0 on channel 2, middle C and up to robot b cable 1 on channel 3, an octave up. CCs go to both. P4 config: the split at 60, those channel maps, +12 on the upper half.",
+  "robots": ["a", "b"],
+  "streams": [
+    {"robot": "a", "cable": 0, "notes": {"count": 960, "every_ms": 10, "channel": 1, "notes": [36, 41, 48, 55, 59, 60, 64, 71, 79, 84], "gate_ms": 5}},
+    {"robot": "a", "cable": 0, "start_ms": 3, "cc": {"count": 240, "every_ms": 40, "channel": 1, "cc": 1}}
+  ],
+  "routes": [
+    {"from": {"robot": "a", "cable": 0}, "to": {"robot": "b", "cable": 0},
+     "filter": {"notes": [0, 59]}, "map": {"channel": 2}},
+    {"from": {"robot": "a", "cable": 0}, "to": {"robot": "b", "cable": 1},
+     "filter": {"notes": [60, 127]}, "map": {"channel": 3, "transpose": 12}}
+  ],
+  "checks": {"loss_max": 0, "extra_max": 0, "order": true, "latency_ms_max": 5, "jitter_ms_max": 1, "stuck_notes_max": 0}
+}

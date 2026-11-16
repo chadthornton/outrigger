@@ -1,0 +1,13 @@
+{
+  "name": "hotplug",
+  "about": "Plugged and unplugged mid-song, one robot: it plays notes on cable 0 (routed back to its cable 1) and unplugs itself every 2 s for 300 ms. Messages around an unplug are counted as lost_unplugged, not loss; reconnect_ms is unplug-end to the host's mount. stuck_notes catches a note-on whose note-off was lost to the unplug (the P4 should release them).",
+  "robots": ["a"],
+  "streams": [
+    {"robot": "a", "cable": 0, "notes": {"count": 1000, "every_ms": 10, "channel": 1, "notes": [60, 62, 64, 65, 67], "gate_ms": 5}},
+    {"robot": "a", "start_ms": 1000, "unplug": {"every_ms": 2000, "down_ms": 300, "count": 4}}
+  ],
+  "routes": [
+    {"from": {"robot": "a", "cable": 0}, "to": {"robot": "a", "cable": 1}}
+  ],
+  "checks": {"loss_max": 0, "extra_max": 0, "order": true, "latency_ms_max": 5, "stuck_notes_max": 0}
+}
