@@ -116,7 +116,7 @@ VERSION_DIR := $(CACHE_ROOT)/version
 # screens ui-shots renders. Rewritten only when they change, like fw_version.h.
 BOARD_GEN := $(CACHE_ROOT)/boards
 
-.PHONY: check test ui-shots ui-mocks build build-all flash recovery flash-recovery probe synth-bench flash-synth-bench site serve clean fixtures golden store-image flash-store store-add check-latest deploy-site rollback-site deploy-email
+.PHONY: check test ui-shots ui-mocks build build-all flash recovery flash-recovery probe synth-bench flash-synth-bench bench-robot flash-bench-robot site serve clean fixtures golden store-image flash-store store-add check-latest deploy-site rollback-site deploy-email
 
 FM1_SRC := $(wildcard lib/fm1_loader/src/*.cpp)
 FM1_HDR := $(wildcard lib/fm1_loader/src/*.h) $(wildcard tests/support/*.h)
@@ -400,6 +400,22 @@ synth-bench:
 		--library lib/board --library lib/synth --build-path $(CACHE_ROOT)/$(SYNTH_BOARD)/synth-bench --output-dir $(SYNTH_BENCH_BUILD) firmware/synth_bench
 flash-synth-bench: synth-bench
 	arduino-cli upload --fqbn $(SYNTH_BENCH_FQBN) --input-dir $(SYNTH_BENCH_BUILD) --port $(PORT) firmware/synth_bench
+
+# The bench robot (firmware/bench_robot, docs/bench-robot.md) for an ESP32-S3
+# DevKitC-1: the native USB port a two-cable USB MIDI device (USB-OTG, TinyUSB),
+# Serial the UART port for tools/robot.py. Not a board profile and never staged.
+# `make bench-robot` builds. `make flash-bench-robot ROBOT_PORT=/dev/cu.usbserial-...`
+# uploads through the UART port: it never falls back to PORT (Big-P4's port).
+BENCH_ROBOT_FQBN := esp32:esp32:esp32s3:USBMode=default,CDCOnBoot=default
+BENCH_ROBOT_BUILD := build/bench-robot
+bench-robot:
+	arduino-cli compile --fqbn $(BENCH_ROBOT_FQBN) --build-property "tools.ctags.path=$(CTAGS_DIR)" \
+		--build-property "compiler.cpp.extra_flags=-DROBOT_FW=$(FW_VERSION)" \
+		--build-path $(CACHE_ROOT)/bench-robot --output-dir $(BENCH_ROBOT_BUILD) firmware/bench_robot
+flash-bench-robot: bench-robot
+	$(if $(ROBOT_PORT),,$(error flash-bench-robot needs ROBOT_PORT=/dev/cu.usbserial-... (the robot's UART port)))
+	$(if $(filter $(ROBOT_PORT),$(wildcard /dev/cu.usbmodem*)),$(error ROBOT_PORT=$(ROBOT_PORT) is a native USB port: the robot flashes through its UART port))
+	arduino-cli upload --fqbn $(BENCH_ROBOT_FQBN) --input-dir $(BENCH_ROBOT_BUILD) --port $(ROBOT_PORT) firmware/bench_robot
 
 # The store partition's first setup: a LittleFS image holding JieLi's loader
 # (from tests/fixtures). JieLi's code, so it stays in build/ and is never staged
