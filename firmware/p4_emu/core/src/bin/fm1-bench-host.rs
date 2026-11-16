@@ -3,6 +3,7 @@
 use std::time::Instant;
 
 fn main() {
+    if std::env::var_os("FM1_SIZES").is_some() { sizes(); }
     let a: Vec<String> = std::env::args().collect();
     let Some(path) = a.get(1) else {
         eprintln!("usage: fm1-bench-host PKG.fwsc [EMU_MS (10000)] [--jit]");
@@ -47,4 +48,9 @@ fn main() {
         b.ms(), fm1_bench::MHZ, wall, b.ms() as f64 / 1000.0 / wall, b.insns as f64 / wall / 1e6,
         100.0 * b.skipped() as f64 / b.cycles().max(1) as f64
     );
+}
+
+#[allow(dead_code)]
+fn sizes() {
+    println!("sizes: Line {} Option<LineX> {}", std::mem::size_of::<fm1_core::Line>(), std::mem::size_of::<Option<fm1_core::LineX>>());
 }

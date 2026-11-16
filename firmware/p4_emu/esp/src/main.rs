@@ -102,8 +102,12 @@ fn run(name: String, pkg: Vec<u8>) {
 
 fn main() {
     sys::link_patches();
-    // SAFETY: a read of the clock the bootloader set
-    let mhz = unsafe { sys::esp_clk_cpu_freq() } / 1_000_000;
+    extern "C" {
+        // esp_private/esp_clk.h: the CPU clock in Hz (not in esp-idf-sys's bindings)
+        fn esp_clk_cpu_freq() -> i32;
+    }
+    // SAFETY: a read of the clock the startup code set
+    let mhz = unsafe { esp_clk_cpu_freq() } / 1_000_000;
     println!("FM1EMU start: ESP32-P4 at {mhz} MHz, emulated FM-1 at {} MHz, fm1-emu 60645a58", fm1_bench::MHZ);
     let (name, pkg) = match read_package() {
         Ok(v) => v,

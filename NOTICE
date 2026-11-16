@@ -95,9 +95,11 @@ ESP-IDF, https://github.com/espressif/esp-idf (in the firmware, through the Ardu
 
 fm1-emu 0.5.1 (rev 60645a58), https://github.com/joakimeriksson/fm1-emu
 (firmware/p4_emu/, a spike; not in the installer's firmware)
-  Copyright (c) 2026 Joakim Eriksson. MIT License (text below). Its fm1-isa,
-  fm1-core and fm1-soc crates are a Cargo git dependency, not vendored.
-  esp-idf-sys (MIT OR Apache-2.0) builds it for the ESP32-P4.
+  Copyright (c) 2026 Joakim Eriksson. MIT License (text below). fm1-core is
+  vendored in firmware/p4_emu/third_party/fm1-core/ (its LICENSE beside it),
+  patched for a smaller instruction cache; fm1-isa and fm1-soc are a Cargo git
+  dependency at the same rev. esp-idf-sys (MIT OR Apache-2.0) builds it for
+  the ESP32-P4.
 
 
 MIT License (EspUsbHost, MvaveFM1Unbricker, jl-uboot-tool, LVGL, fm1-emu)

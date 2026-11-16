@@ -10,8 +10,8 @@ CONFIG_SPIRAM_SPEED_200M=y
 # Console on the native USB Serial/JTAG port (/dev/cu.usbmodem101 on the Mac)
 CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
 CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
-CONFIG_PARTITION_TABLE_CUSTOM=y
-CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+# The partition table is partitions.csv, built and flashed by build.sh / A2's esptool line (a custom table
+# here would need a path the IDF build resolves inside target/; the app finds fwpkg by label at run time)
 CONFIG_COMPILER_OPTIMIZATION_PERF=y
 # The emulator thread runs flat out on core 1: no task watchdog on it
 CONFIG_ESP_TASK_WDT_EN=n

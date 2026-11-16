@@ -28,3 +28,7 @@ debug = true
 
 [package.metadata.esp-idf-sys]
 esp_idf_sdkconfig_defaults = ["sdkconfig.defaults"]
+
+# fm1-core with the Outrigger patch (third_party/fm1-core), for fm1-soc too
+[patch."https://github.com/joakimeriksson/fm1-emu"]
+fm1-core = { path = "../third_party/fm1-core" }
