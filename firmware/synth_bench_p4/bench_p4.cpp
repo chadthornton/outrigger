@@ -139,6 +139,10 @@ void render_task(void *) {
     if (us > stats.render_us_max) stats.render_us_max = us;
     if (us > kBudgetUs) stats.over_budget++;
     portEXIT_CRITICAL(&stats_lock);
+    // A block over budget never lets the ring fill, so this task would never
+    // sleep and loop() (core 1, priority 1) would starve. That block already
+    // failed, so a tick's pause changes no passing measurement.
+    if (us > kBudgetUs) vTaskDelay(1);
   }
 }
 
