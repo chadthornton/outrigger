@@ -534,12 +534,12 @@ flash-synth-bench-p4: synth-bench-p4
 # The build cache stays in this worktree so other tracks' P4 builds can't collide.
 P4_HUB_FQBN := $(P4_FQBN),DebugLevel=info
 P4_HUB_BUILD ?= build/big_p4/p4-hub
-P4_HUB_SHA := $(shell git rev-parse --short HEAD 2>/dev/null)$(shell git diff --quiet HEAD -- firmware/p4_hub 2>/dev/null || echo _dirty)
+P4_HUB_SHA := $(shell git rev-parse --short HEAD 2>/dev/null)$(shell git diff --quiet HEAD -- firmware/p4_hub lib/graph 2>/dev/null || echo _dirty)
 P4_HUB_FLAGS ?=
 p4-hub:
 	arduino-cli compile --fqbn $(P4_HUB_FQBN) --build-property "tools.ctags.path=$(CTAGS_DIR)" \
 		--build-property "compiler.cpp.extra_flags=-DHUB_GIT_SHA_RAW=$(P4_HUB_SHA) $(P4_HUB_FLAGS)" \
-		--library lib/EspUsbHost --build-path $(CURDIR)/build/cache/p4-hub --output-dir $(P4_HUB_BUILD) firmware/p4_hub
+		--library lib/EspUsbHost --library lib/graph --build-path $(CURDIR)/build/cache/p4-hub --output-dir $(P4_HUB_BUILD) firmware/p4_hub
 flash-p4-hub: p4-hub
 	tools/p4_flash.sh $(P4_HUB_BUILD) p4_hub
 .PHONY: p4-hub flash-p4-hub

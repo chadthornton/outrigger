@@ -31,6 +31,13 @@ typedef void (*HubMidiIn)(uint8_t address, const uint8_t pkt[4], uint32_t ms);
 void hub_usb_on_midi(HubMidiIn fn);
 // Queues one packet to a device's MIDI OUT. False when the queue is full.
 bool hub_usb_send(uint8_t address, const uint8_t pkt[4]);
+// Submits one packet to a device's MIDI OUT now, from the caller's task (HW2's
+// graph out task; core 0). False if the device has no MIDI OUT or the submit failed.
+bool hub_usb_send_now(uint8_t address, const uint8_t pkt[4]);
+// HW2: called on EspUsbHost's client task (the same task as the MIDI callback)
+// when a device connects or disconnects. serial is the one seen at connect.
+typedef void (*HubDeviceFn)(uint8_t address, const char *serial, bool connected);
+void hub_usb_on_device(HubDeviceFn fn);
 void hub_usb_set_echo(bool on);
 bool hub_usb_echo();
 // Bench: a software replug of the whole bus (end, 1 s, begin), as the probe's `p`.

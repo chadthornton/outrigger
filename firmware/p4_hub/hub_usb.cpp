@@ -63,6 +63,9 @@ struct Echo {
 QueueHandle_t echoes;
 volatile bool echo_on = false;
 volatile HubMidiIn midi_in = nullptr;
+volatile HubDeviceFn device_fn = nullptr;
+// address -> serial at connect, client task only (a gone device's strings may be empty).
+char serial_at[128][24];
 volatile bool replug_wanted = false;
 uint32_t echo_dropped = 0, midi_unknown_dev = 0, hub_connects = 0, replugs = 0;
 uint32_t topology_dirty_ms = 0;
@@ -103,6 +106,9 @@ void on_connected(const EspUsbHostDeviceInfo &d) {
   copy_ident(e.id, d);
   e.ms = millis();
   xQueueSend(events, &e, 0);
+  if (d.address < 128) strlcpy(serial_at[d.address], e.id.serial, sizeof serial_at[0]);
+  const HubDeviceFn fn = device_fn;
+  if (fn && !d.isHub) fn(d.address, e.id.serial, true);
 }
 
 void on_disconnected(const EspUsbHostDeviceInfo &d) {
@@ -115,6 +121,8 @@ void on_disconnected(const EspUsbHostDeviceInfo &d) {
   copy_ident(e.id, d);
   e.ms = millis();
   xQueueSend(events, &e, 0);
+  const HubDeviceFn fn = device_fn;
+  if (fn && !d.isHub && d.address < 128) fn(d.address, serial_at[d.address], false);
 }
 
 void on_midi(const EspUsbHostMidiMessage &m) {
@@ -285,6 +293,8 @@ bool hub_usb_send(uint8_t address, const uint8_t pkt[4]) {
   return xQueueSend(echoes, &e, 0) == pdTRUE;
 }
 bool hub_usb_echo() { return echo_on; }
+bool hub_usb_send_now(uint8_t address, const uint8_t pkt[4]) { return usb.midiSend(pkt, 4, address); }
+void hub_usb_on_device(HubDeviceFn fn) { device_fn = fn; }
 void hub_usb_request_replug() { replug_wanted = true; }
 
 int hub_usb_port_status(uint8_t port, uint16_t &status, uint16_t &change) {

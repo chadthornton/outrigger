@@ -119,6 +119,14 @@ esp_err_t on_graph(httpd_req_t *req) {
   return send_json(req, jbuf, graph_state_json(jbuf, kJson));
 }
 
+// POST /bench/graph?app=...: hub_graph.h.
+esp_err_t on_bench_graph(httpd_req_t *req) {
+  ++requests;
+  char q[256] = "";
+  httpd_req_get_url_query_str(req, q, sizeof q);
+  return send_json(req, jbuf, graph_configure(q, jbuf, kJson));
+}
+
 esp_err_t on_usb(httpd_req_t *req) {
   ++requests;
   return send_json(req, jbuf, hub_usb_json(jbuf, kJson));
@@ -267,6 +275,7 @@ void start_server() {
       {"/bench/replug", HTTP_POST, on_bench_replug}, {"/bench/echo", HTTP_POST, on_bench_echo},
       {"/bench/reset", HTTP_POST, on_bench_reset},   {"/bench/hubport", HTTP_GET, on_bench_hubport},
       {"/bench/hubport", HTTP_POST, on_bench_hubport}, {"/bench/crash", HTTP_POST, on_bench_crash},
+      {"/bench/graph", HTTP_POST, on_bench_graph},
   };
   for (const R &r : routes) {
     httpd_uri_t u{};
