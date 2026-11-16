@@ -1,0 +1,14 @@
+{
+  "name": "merge",
+  "about": "Two controllers, one synth: robot a's cable 0 (keys) and robot b's cable 0 (pads) both play; robot b's cable 1 is the synth. P4 config: a cable 1 and b cable 1 -> b cable 2. Loss and order are checked per source in the merged stream.",
+  "robots": ["a", "b"],
+  "streams": [
+    {"robot": "a", "cable": 0, "notes": {"count": 1000, "every_ms": 10, "channel": 1, "notes": [60, 62, 64, 65, 67], "gate_ms": 5}},
+    {"robot": "b", "cable": 0, "start_ms": 1, "notes": {"count": 800, "every_ms": 12.5, "channel": 10, "notes": [36, 38, 42], "gate_ms": 4}}
+  ],
+  "routes": [
+    {"from": {"robot": "a", "cable": 0}, "to": {"robot": "b", "cable": 1}},
+    {"from": {"robot": "b", "cable": 0}, "to": {"robot": "b", "cable": 1}}
+  ],
+  "checks": {"loss_max": 0, "extra_max": 0, "order": true, "latency_ms_max": 5, "jitter_ms_max": 1, "stuck_notes_max": 0}
+}

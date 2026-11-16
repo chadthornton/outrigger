@@ -1,0 +1,14 @@
+{
+  "name": "loopback",
+  "about": "One robot plays on cable 0; the P4 routes it straight back to the robot's cable 1. One clock at both ends, so latency is exact. The P4's config: robot cable 1 in -> robot cable 2 out.",
+  "robots": ["a"],
+  "streams": [
+    {"robot": "a", "cable": 0, "notes": {"count": 400, "every_ms": 10, "channel": 1, "notes": [48, 55, 60, 64, 67, 72], "velocity": 100, "gate_ms": 5}},
+    {"robot": "a", "cable": 0, "start_ms": 2, "cc": {"count": 200, "every_ms": 20, "channel": 1, "cc": 74, "from": 0, "to": 127}},
+    {"robot": "a", "cable": 0, "clock": {"bpm": 120, "ticks": 192}}
+  ],
+  "routes": [
+    {"from": {"robot": "a", "cable": 0}, "to": {"robot": "a", "cable": 1}}
+  ],
+  "checks": {"loss_max": 0, "extra_max": 0, "order": true, "latency_ms_max": 5, "jitter_ms_max": 1, "clock_jitter_ms_max": 1, "stuck_notes_max": 0}
+}

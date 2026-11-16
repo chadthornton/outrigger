@@ -1,0 +1,17 @@
+{
+  "name": "clock-out",
+  "about": "The box keeps time, both directions. Out: the P4 sends its own MIDI clock at 120 BPM to robot a cable 0 and robot b cable 0, which only listen; each interval is checked against 120 BPM. In: robot a sends a 120 BPM clock on its cable 1, and the P4 passes it to robot b cable 1, checked against a's own grid. P4 config: its clock out to a cable 1 and b cable 1 (USB jacks), started before the run; a cable 2 -> b cable 2. ticks_min allows for the lead-in. For hours: --duration 8h.",
+  "robots": ["a", "b"],
+  "duration_ms": 60000,
+  "streams": [
+    {"robot": "a", "cable": 1, "clock": {"bpm": 120, "ticks": 2880}}
+  ],
+  "routes": [
+    {"from": {"robot": "a", "cable": 1}, "to": {"robot": "b", "cable": 1}}
+  ],
+  "listen": [
+    {"robot": "a", "cable": 0, "clock": {"bpm": 120, "ticks_min": 2800}},
+    {"robot": "b", "cable": 0, "clock": {"bpm": 120, "ticks_min": 2800}}
+  ],
+  "checks": {"loss_max": 0, "extra_max": 0, "order": true, "jitter_ms_max": 1, "clock_jitter_ms_max": 1, "stuck_notes_max": 0}
+}
