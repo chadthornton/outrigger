@@ -1,0 +1,1039 @@
+{
+ "schema": "outrigger.profile/1",
+ "id": "m-vave/fm1-community",
+ "manufacturer": "M-VAVE",
+ "device": "FM1 Community",
+ "usb": [
+  {
+   "name": "FM1 Community",
+   "vid": "3654",
+   "pid": "7756",
+   "source": "docs/beta/07-known-issues.md, tests/test_broker.cpp (M-VAVE Open firmware)"
+  }
+ ],
+ "sections": [
+  {
+   "name": "All engines",
+   "parameters": [
+    {
+     "name": "Track volume",
+     "description": "",
+     "cc": {
+      "msb": 7,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "orientation": "0-based",
+     "notes": "Channels 1-7 address tracks 1-7 and channel 10 addresses track 8 by default. Input channels can be changed per track on SEQ page 8/8 (Track role). Saved with the project",
+     "usage": [
+      {
+       "from": 0,
+       "to": 127,
+       "kind": "continuous",
+       "label": "Volume"
+      }
+     ],
+     "usage_units": "cc"
+    },
+    {
+     "name": "Pan",
+     "description": "",
+     "cc": {
+      "msb": 10,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "orientation": "centered",
+     "notes": "Not saved with the project",
+     "usage": [
+      {
+       "from": 0,
+       "to": 127,
+       "kind": "continuous",
+       "label": "Left to right"
+      }
+     ],
+     "usage_units": "cc"
+    },
+    {
+     "name": "Expression",
+     "description": "",
+     "cc": {
+      "msb": 11,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "orientation": "0-based",
+     "notes": "0 is silent and 127 is the original volume. Not saved with the project",
+     "usage": [
+      {
+       "from": 0,
+       "to": 127,
+       "kind": "continuous",
+       "label": "Expression"
+      }
+     ],
+     "usage_units": "cc"
+    },
+    {
+     "name": "Reverb send",
+     "description": "",
+     "cc": {
+      "msb": 91,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "orientation": "0-based",
+     "notes": "Saved with the project",
+     "usage": [
+      {
+       "from": 0,
+       "to": 127,
+       "kind": "continuous",
+       "label": "Send amount"
+      }
+     ],
+     "usage_units": "cc"
+    },
+    {
+     "name": "All sound off",
+     "description": "Stops all sound on the track",
+     "cc": {
+      "msb": 120,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "orientation": "0-based",
+     "notes": "",
+     "usage": [],
+     "usage_units": null
+    },
+    {
+     "name": "Reset all controllers",
+     "description": "Resets pitch bend, expression, pan, modulation and sustain",
+     "cc": {
+      "msb": 121,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "orientation": "0-based",
+     "notes": "Does not change patch parameters or undo a 303 env mod edit",
+     "usage": [],
+     "usage_units": null
+    },
+    {
+     "name": "All notes off",
+     "description": "Releases notes received from external MIDI on the track",
+     "cc": {
+      "msb": 123,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "orientation": "0-based",
+     "notes": "A held sustain pedal still applies",
+     "usage": [],
+     "usage_units": null
+    }
+   ]
+  },
+  {
+   "name": "FM engine",
+   "parameters": [
+    {
+     "name": "Vibrato",
+     "description": "Pitch vibrato (mod wheel)",
+     "cc": {
+      "msb": 1,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "orientation": "0-based",
+     "notes": "Responds even when the patch's PMS is 0",
+     "usage": [
+      {
+       "from": 0,
+       "to": 127,
+       "kind": "continuous",
+       "label": "Vibrato depth"
+      }
+     ],
+     "usage_units": "cc"
+    },
+    {
+     "name": "Breath amplitude",
+     "description": "Amplitude control",
+     "cc": {
+      "msb": 2,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "orientation": "0-based",
+     "notes": "Effect depends on the patch's amplitude sensitivity",
+     "usage": [
+      {
+       "from": 0,
+       "to": 127,
+       "kind": "continuous",
+       "label": "Amount"
+      }
+     ],
+     "usage_units": "cc"
+    },
+    {
+     "name": "Foot amplitude",
+     "description": "Amplitude control",
+     "cc": {
+      "msb": 4,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "orientation": "0-based",
+     "notes": "Effect depends on the patch's amplitude sensitivity",
+     "usage": [
+      {
+       "from": 0,
+       "to": 127,
+       "kind": "continuous",
+       "label": "Amount"
+      }
+     ],
+     "usage_units": "cc"
+    },
+    {
+     "name": "Sustain pedal",
+     "description": "",
+     "cc": {
+      "msb": 64,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "orientation": "0-based",
+     "notes": "",
+     "usage": [
+      {
+       "from": 0,
+       "to": 63,
+       "kind": "switch",
+       "label": "Off"
+      },
+      {
+       "from": 64,
+       "to": 127,
+       "kind": "switch",
+       "label": "On"
+      }
+     ],
+     "usage_units": "cc"
+    }
+   ]
+  },
+  {
+   "name": "303 engine",
+   "parameters": [
+    {
+     "name": "Env mod",
+     "description": "Filter envelope modulation (mod wheel)",
+     "cc": {
+      "msb": 1,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "orientation": "0-based",
+     "notes": "Edits the patch and is saved with the project",
+     "usage": [
+      {
+       "from": 0,
+       "to": 127,
+       "kind": "continuous",
+       "label": "Amount"
+      }
+     ],
+     "usage_units": "cc"
+    },
+    {
+     "name": "Slide time",
+     "description": "",
+     "cc": {
+      "msb": 5,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "orientation": "0-based",
+     "notes": "",
+     "usage": [
+      {
+       "from": 0,
+       "to": 127,
+       "kind": "continuous",
+       "label": "Time"
+      }
+     ],
+     "usage_units": "cc"
+    },
+    {
+     "name": "Resonance",
+     "description": "",
+     "cc": {
+      "msb": 71,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "orientation": "0-based",
+     "notes": "",
+     "usage": [
+      {
+       "from": 0,
+       "to": 127,
+       "kind": "continuous",
+       "label": "Amount"
+      }
+     ],
+     "usage_units": "cc"
+    },
+    {
+     "name": "Cutoff",
+     "description": "",
+     "cc": {
+      "msb": 74,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "orientation": "0-based",
+     "notes": "",
+     "usage": [
+      {
+       "from": 0,
+       "to": 127,
+       "kind": "continuous",
+       "label": "Frequency"
+      }
+     ],
+     "usage_units": "cc"
+    },
+    {
+     "name": "Decay",
+     "description": "",
+     "cc": {
+      "msb": 75,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "orientation": "0-based",
+     "notes": "",
+     "usage": [
+      {
+       "from": 0,
+       "to": 127,
+       "kind": "continuous",
+       "label": "Time"
+      }
+     ],
+     "usage_units": "cc"
+    },
+    {
+     "name": "Sustain pedal",
+     "description": "",
+     "cc": {
+      "msb": 64,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "orientation": "0-based",
+     "notes": "",
+     "usage": [
+      {
+       "from": 0,
+       "to": 63,
+       "kind": "switch",
+       "label": "Off"
+      },
+      {
+       "from": 64,
+       "to": 127,
+       "kind": "switch",
+       "label": "On"
+      }
+     ],
+     "usage_units": "cc"
+    }
+   ]
+  },
+  {
+   "name": "PSG engine",
+   "parameters": [
+    {
+     "name": "LFO depth",
+     "description": "Track LFO depth (mod wheel)",
+     "cc": {
+      "msb": 1,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "orientation": "0-based",
+     "notes": "Acts as a volume swell when no LFO is set",
+     "usage": [
+      {
+       "from": 0,
+       "to": 127,
+       "kind": "continuous",
+       "label": "Depth"
+      }
+     ],
+     "usage_units": "cc"
+    },
+    {
+     "name": "Release",
+     "description": "",
+     "cc": {
+      "msb": 72,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "orientation": "0-based",
+     "notes": "",
+     "usage": [
+      {
+       "from": 0,
+       "to": 127,
+       "kind": "continuous",
+       "label": "Time"
+      }
+     ],
+     "usage_units": "cc"
+    },
+    {
+     "name": "Noise",
+     "description": "",
+     "cc": {
+      "msb": 74,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "orientation": "0-based",
+     "notes": "",
+     "usage": [
+      {
+       "from": 0,
+       "to": 127,
+       "kind": "continuous",
+       "label": "Amount"
+      }
+     ],
+     "usage_units": "cc"
+    },
+    {
+     "name": "Sustain pedal",
+     "description": "",
+     "cc": {
+      "msb": 64,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "orientation": "0-based",
+     "notes": "",
+     "usage": [
+      {
+       "from": 0,
+       "to": 63,
+       "kind": "switch",
+       "label": "Off"
+      },
+      {
+       "from": 64,
+       "to": 127,
+       "kind": "switch",
+       "label": "On"
+      }
+     ],
+     "usage_units": "cc"
+    }
+   ]
+  },
+  {
+   "name": "Pluck engine",
+   "parameters": [
+    {
+     "name": "LFO depth",
+     "description": "Track LFO depth (mod wheel)",
+     "cc": {
+      "msb": 1,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "orientation": "0-based",
+     "notes": "Acts as a volume swell when no LFO is set",
+     "usage": [
+      {
+       "from": 0,
+       "to": 127,
+       "kind": "continuous",
+       "label": "Depth"
+      }
+     ],
+     "usage_units": "cc"
+    },
+    {
+     "name": "Release",
+     "description": "",
+     "cc": {
+      "msb": 72,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "orientation": "0-based",
+     "notes": "",
+     "usage": [
+      {
+       "from": 0,
+       "to": 127,
+       "kind": "continuous",
+       "label": "Time"
+      }
+     ],
+     "usage_units": "cc"
+    },
+    {
+     "name": "Brightness",
+     "description": "",
+     "cc": {
+      "msb": 74,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "orientation": "0-based",
+     "notes": "",
+     "usage": [
+      {
+       "from": 0,
+       "to": 127,
+       "kind": "continuous",
+       "label": "Amount"
+      }
+     ],
+     "usage_units": "cc"
+    },
+    {
+     "name": "Decay",
+     "description": "",
+     "cc": {
+      "msb": 75,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "orientation": "0-based",
+     "notes": "",
+     "usage": [
+      {
+       "from": 0,
+       "to": 127,
+       "kind": "continuous",
+       "label": "Time"
+      }
+     ],
+     "usage_units": "cc"
+    },
+    {
+     "name": "Sustain pedal",
+     "description": "",
+     "cc": {
+      "msb": 64,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "orientation": "0-based",
+     "notes": "",
+     "usage": [
+      {
+       "from": 0,
+       "to": 63,
+       "kind": "switch",
+       "label": "Off"
+      },
+      {
+       "from": 64,
+       "to": 127,
+       "kind": "switch",
+       "label": "On"
+      }
+     ],
+     "usage_units": "cc"
+    }
+   ]
+  },
+  {
+   "name": "808 engine",
+   "parameters": [
+    {
+     "name": "LFO depth",
+     "description": "Track LFO depth (mod wheel)",
+     "cc": {
+      "msb": 1,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "orientation": "0-based",
+     "notes": "Acts as a volume swell when no LFO is set",
+     "usage": [
+      {
+       "from": 0,
+       "to": 127,
+       "kind": "continuous",
+       "label": "Depth"
+      }
+     ],
+     "usage_units": "cc"
+    }
+   ]
+  },
+  {
+   "name": "Sampler engine",
+   "parameters": [
+    {
+     "name": "LFO depth",
+     "description": "Track LFO depth (mod wheel)",
+     "cc": {
+      "msb": 1,
+      "lsb": null,
+      "min": 0,
+      "max": 127,
+      "default": null
+     },
+     "nrpn": null,
+     "orientation": "0-based",
+     "notes": "Acts as a volume swell when no LFO is set",
+     "usage": [
+      {
+       "from": 0,
+       "to": 127,
+       "kind": "continuous",
+       "label": "Depth"
+      }
+     ],
+     "usage_units": "cc"
+    }
+   ]
+  }
+ ],
+ "triggers": [
+  {
+   "name": "808 engine",
+   "notes": [
+    {
+     "name": "Kick",
+     "description": "",
+     "channel": 10,
+     "note": {
+      "min": 36,
+      "max": 36,
+      "default": 36
+     },
+     "comments": "Channel 10 addresses track 8 by default. Any track set to the 808 engine responds on its own input channel",
+     "velocity": []
+    },
+    {
+     "name": "Rim",
+     "description": "",
+     "channel": 10,
+     "note": {
+      "min": 37,
+      "max": 37,
+      "default": 37
+     },
+     "comments": "Channel 10 addresses track 8 by default. Any track set to the 808 engine responds on its own input channel",
+     "velocity": []
+    },
+    {
+     "name": "Snare",
+     "description": "",
+     "channel": 10,
+     "note": {
+      "min": 38,
+      "max": 38,
+      "default": 38
+     },
+     "comments": "Channel 10 addresses track 8 by default. Any track set to the 808 engine responds on its own input channel",
+     "velocity": []
+    },
+    {
+     "name": "Clap",
+     "description": "",
+     "channel": 10,
+     "note": {
+      "min": 39,
+      "max": 39,
+      "default": 39
+     },
+     "comments": "Channel 10 addresses track 8 by default. Any track set to the 808 engine responds on its own input channel",
+     "velocity": []
+    },
+    {
+     "name": "Low tom",
+     "description": "",
+     "channel": 10,
+     "note": {
+      "min": 41,
+      "max": 41,
+      "default": 41
+     },
+     "comments": "Channel 10 addresses track 8 by default. Any track set to the 808 engine responds on its own input channel",
+     "velocity": []
+    },
+    {
+     "name": "Closed hat",
+     "description": "",
+     "channel": 10,
+     "note": {
+      "min": 42,
+      "max": 42,
+      "default": 42
+     },
+     "comments": "Channel 10 addresses track 8 by default. Any track set to the 808 engine responds on its own input channel",
+     "velocity": []
+    },
+    {
+     "name": "Mid tom",
+     "description": "",
+     "channel": 10,
+     "note": {
+      "min": 45,
+      "max": 45,
+      "default": 45
+     },
+     "comments": "Channel 10 addresses track 8 by default. Any track set to the 808 engine responds on its own input channel",
+     "velocity": []
+    },
+    {
+     "name": "Open hat",
+     "description": "",
+     "channel": 10,
+     "note": {
+      "min": 46,
+      "max": 46,
+      "default": 46
+     },
+     "comments": "Channel 10 addresses track 8 by default. Any track set to the 808 engine responds on its own input channel",
+     "velocity": []
+    },
+    {
+     "name": "High tom",
+     "description": "",
+     "channel": 10,
+     "note": {
+      "min": 48,
+      "max": 48,
+      "default": 48
+     },
+     "comments": "Channel 10 addresses track 8 by default. Any track set to the 808 engine responds on its own input channel",
+     "velocity": []
+    },
+    {
+     "name": "Cymbal",
+     "description": "",
+     "channel": 10,
+     "note": {
+      "min": 49,
+      "max": 49,
+      "default": 49
+     },
+     "comments": "Channel 10 addresses track 8 by default. Any track set to the 808 engine responds on its own input channel",
+     "velocity": []
+    },
+    {
+     "name": "Cowbell",
+     "description": "",
+     "channel": 10,
+     "note": {
+      "min": 56,
+      "max": 56,
+      "default": 56
+     },
+     "comments": "Channel 10 addresses track 8 by default. Any track set to the 808 engine responds on its own input channel",
+     "velocity": []
+    }
+   ]
+  },
+  {
+   "name": "808 engine: alternate notes",
+   "notes": [
+    {
+     "name": "Kick",
+     "description": "",
+     "channel": 10,
+     "note": {
+      "min": 35,
+      "max": 35,
+      "default": 35
+     },
+     "comments": "Alias of note 36",
+     "velocity": []
+    },
+    {
+     "name": "Snare",
+     "description": "",
+     "channel": 10,
+     "note": {
+      "min": 40,
+      "max": 40,
+      "default": 40
+     },
+     "comments": "Alias of note 38",
+     "velocity": []
+    },
+    {
+     "name": "Low tom",
+     "description": "",
+     "channel": 10,
+     "note": {
+      "min": 43,
+      "max": 43,
+      "default": 43
+     },
+     "comments": "Alias of note 41",
+     "velocity": []
+    },
+    {
+     "name": "Closed hat",
+     "description": "",
+     "channel": 10,
+     "note": {
+      "min": 44,
+      "max": 44,
+      "default": 44
+     },
+     "comments": "Alias of note 42",
+     "velocity": []
+    },
+    {
+     "name": "Mid tom",
+     "description": "",
+     "channel": 10,
+     "note": {
+      "min": 47,
+      "max": 47,
+      "default": 47
+     },
+     "comments": "Alias of note 45",
+     "velocity": []
+    },
+    {
+     "name": "High tom",
+     "description": "",
+     "channel": 10,
+     "note": {
+      "min": 50,
+      "max": 50,
+      "default": 50
+     },
+     "comments": "Alias of note 48",
+     "velocity": []
+    },
+    {
+     "name": "Cymbal",
+     "description": "",
+     "channel": 10,
+     "note": {
+      "min": 51,
+      "max": 51,
+      "default": 51
+     },
+     "comments": "Alias of note 49",
+     "velocity": []
+    }
+   ]
+  },
+  {
+   "name": "Sampler engine",
+   "notes": [
+    {
+     "name": "Pad 1",
+     "description": "Plays the sample in slot 1",
+     "channel": 10,
+     "note": {
+      "min": 36,
+      "max": 36,
+      "default": 36
+     },
+     "comments": "Also triggered by note 35. Responds on the input channel of the track set to the sampler engine. 10 shown assumes track 8",
+     "velocity": []
+    },
+    {
+     "name": "Pad 2",
+     "description": "Plays the sample in slot 2",
+     "channel": 10,
+     "note": {
+      "min": 38,
+      "max": 38,
+      "default": 38
+     },
+     "comments": "Responds on the input channel of the track set to the sampler engine. 10 shown assumes track 8",
+     "velocity": []
+    },
+    {
+     "name": "Pad 3",
+     "description": "Plays the sample in slot 3",
+     "channel": 10,
+     "note": {
+      "min": 37,
+      "max": 37,
+      "default": 37
+     },
+     "comments": "Responds on the input channel of the track set to the sampler engine. 10 shown assumes track 8",
+     "velocity": []
+    },
+    {
+     "name": "Pad 4",
+     "description": "Plays the sample in slot 4",
+     "channel": 10,
+     "note": {
+      "min": 41,
+      "max": 41,
+      "default": 41
+     },
+     "comments": "Also triggered by note 43. Responds on the input channel of the track set to the sampler engine. 10 shown assumes track 8",
+     "velocity": []
+    },
+    {
+     "name": "Pad 5",
+     "description": "Plays the sample in slot 5",
+     "channel": 10,
+     "note": {
+      "min": 47,
+      "max": 47,
+      "default": 47
+     },
+     "comments": "Also triggered by note 45. Responds on the input channel of the track set to the sampler engine. 10 shown assumes track 8",
+     "velocity": []
+    },
+    {
+     "name": "Pad 6",
+     "description": "Plays the sample in slot 6",
+     "channel": 10,
+     "note": {
+      "min": 48,
+      "max": 48,
+      "default": 48
+     },
+     "comments": "Responds on the input channel of the track set to the sampler engine. 10 shown assumes track 8",
+     "velocity": []
+    },
+    {
+     "name": "Pad 7",
+     "description": "Plays the sample in slot 7",
+     "channel": 10,
+     "note": {
+      "min": 42,
+      "max": 42,
+      "default": 42
+     },
+     "comments": "Responds on the input channel of the track set to the sampler engine. 10 shown assumes track 8",
+     "velocity": []
+    },
+    {
+     "name": "Pad 8",
+     "description": "Plays the sample in slot 8",
+     "channel": 10,
+     "note": {
+      "min": 46,
+      "max": 46,
+      "default": 46
+     },
+     "comments": "Responds on the input channel of the track set to the sampler engine. 10 shown assumes track 8",
+     "velocity": []
+    }
+   ]
+  }
+ ],
+ "attribution": {
+  "licence": "CC-BY-SA-4.0",
+  "licence_url": "https://creativecommons.org/licenses/by-sa/4.0/",
+  "credit": "MIDI Guide (https://midi.guide), maintained by Pencil Research, and its contributors",
+  "source": "https://github.com/pencilresearch/midi",
+  "source_files": [
+   "M-VAVE/FM1 Community.csv",
+   "M-VAVE/FM1 Community.triggers.csv"
+  ],
+  "source_commit": "215c64e8d3b33e0b248f62f75531b409a002ea2f",
+  "changes": "Converted from CSV to Outrigger's profile JSON by tools/profiles/midiguide.py; usage parsed into value ranges."
+ }
+}

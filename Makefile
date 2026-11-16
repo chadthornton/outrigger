@@ -116,7 +116,7 @@ VERSION_DIR := $(CACHE_ROOT)/version
 # screens ui-shots renders. Rewritten only when they change, like fw_version.h.
 BOARD_GEN := $(CACHE_ROOT)/boards
 
-.PHONY: check test ui-shots ui-mocks build build-all flash recovery flash-recovery probe synth-bench flash-synth-bench site serve clean fixtures golden store-image flash-store store-add check-latest deploy-site rollback-site deploy-email
+.PHONY: profiles check test ui-shots ui-mocks build build-all flash recovery flash-recovery probe synth-bench flash-synth-bench site serve clean fixtures golden store-image flash-store store-add check-latest deploy-site rollback-site deploy-email
 
 FM1_SRC := $(wildcard lib/fm1_loader/src/*.cpp)
 FM1_HDR := $(wildcard lib/fm1_loader/src/*.h) $(wildcard tests/support/*.h)
@@ -158,6 +158,8 @@ test: build/check_package build/test_fm1_interop build/test_touch_map build/test
 	python3 -I tests/test_reports.py
 	python3 -I tests/test_installs.py
 	python3 -I tests/test_check.py
+	python3 -I tests/test_profiles_midiguide.py
+	python3 -I tests/test_profiles_format.py
 	python3 -I tests/test_ecosystem_check.py
 	python3 -I tests/test_gen_families.py
 	python3 -I tests/test_bench.py
@@ -192,6 +194,14 @@ build/receive_pipe: tests/receive_pipe.cpp $(FM1_TEST_SRC) $(FM1_HDR)
 
 # Packages and the loader blob for the fm1_loader tests, pinned by SHA-256 and
 # kept out of git (tests/fixtures/).
+# Device profiles from a checkout of midi.guide (pencilresearch/midi, CC-BY-SA 4.0) into
+# build/profiles/midi-guide/, with report.json accounting for every CSV. MIDIGUIDE=path/to/checkout.
+MIDIGUIDE ?= ../pencilresearch-midi
+profiles:
+	python3 -I tools/profiles/midiguide.py $(MIDIGUIDE) build/profiles/midi-guide
+	python3 -I tools/profiles/felucca.py --check
+	python3 -I tools/profiles/schema.py build/profiles/midi-guide data/profiles/midi-guide data/profiles/felucca
+
 fixtures:
 	python3 -I tools/fetch_fixtures.py tests/fixtures
 

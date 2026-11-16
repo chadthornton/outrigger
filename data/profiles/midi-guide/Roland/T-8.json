@@ -1,0 +1,115 @@
+{
+ "schema": "outrigger.profile/1",
+ "id": "roland/t-8",
+ "manufacturer": "Roland",
+ "device": "T-8",
+ "usb": [],
+ "sections": [],
+ "triggers": [
+  {
+   "name": "Bass",
+   "notes": [
+    {
+     "name": "Bass",
+     "description": "Monophonic chromatic bass voice",
+     "channel": 2,
+     "note": {
+      "min": 12,
+      "max": 96,
+      "default": null
+     },
+     "comments": "",
+     "velocity": []
+    }
+   ]
+  },
+  {
+   "name": "Rhythm",
+   "notes": [
+    {
+     "name": "Bass drum",
+     "description": "",
+     "channel": 10,
+     "note": {
+      "min": 36,
+      "max": 36,
+      "default": 36
+     },
+     "comments": "",
+     "velocity": []
+    },
+    {
+     "name": "Snare drum",
+     "description": "",
+     "channel": 10,
+     "note": {
+      "min": 38,
+      "max": 38,
+      "default": 38
+     },
+     "comments": "",
+     "velocity": []
+    },
+    {
+     "name": "Hand clap",
+     "description": "",
+     "channel": 10,
+     "note": {
+      "min": 50,
+      "max": 50,
+      "default": 50
+     },
+     "comments": "",
+     "velocity": []
+    },
+    {
+     "name": "Tom",
+     "description": "",
+     "channel": 10,
+     "note": {
+      "min": 47,
+      "max": 47,
+      "default": 47
+     },
+     "comments": "",
+     "velocity": []
+    },
+    {
+     "name": "Closed hihat",
+     "description": "",
+     "channel": 10,
+     "note": {
+      "min": 42,
+      "max": 42,
+      "default": 42
+     },
+     "comments": "",
+     "velocity": []
+    },
+    {
+     "name": "Open hihat",
+     "description": "",
+     "channel": 10,
+     "note": {
+      "min": 46,
+      "max": 46,
+      "default": 46
+     },
+     "comments": "",
+     "velocity": []
+    }
+   ]
+  }
+ ],
+ "attribution": {
+  "licence": "CC-BY-SA-4.0",
+  "licence_url": "https://creativecommons.org/licenses/by-sa/4.0/",
+  "credit": "MIDI Guide (https://midi.guide), maintained by Pencil Research, and its contributors",
+  "source": "https://github.com/pencilresearch/midi",
+  "source_files": [
+   "Roland/T-8.triggers.csv"
+  ],
+  "source_commit": "215c64e8d3b33e0b248f62f75531b409a002ea2f",
+  "changes": "Converted from CSV to Outrigger's profile JSON by tools/profiles/midiguide.py; usage parsed into value ranges."
+ }
+}

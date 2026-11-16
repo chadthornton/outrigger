@@ -1,0 +1,6 @@
+{
+ "_comment": "Profile id -> how the device shows up on USB: [{name, vid, pid, source}], hex IDs. midi.guide has no USB data; entries here are ours (not CC-BY-SA). A device absent here gets usb: [].",
+ "m-vave/fm1-community": [
+  {"name": "FM1 Community", "vid": "3654", "pid": "7756", "source": "docs/beta/07-known-issues.md, tests/test_broker.cpp (M-VAVE Open firmware)"}
+ ]
+}

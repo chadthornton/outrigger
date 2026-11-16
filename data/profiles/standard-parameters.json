@@ -1,0 +1,733 @@
+{
+ "_about": "Draft standard parameter names (night 0, track C). A later step maps each device profile's parameters onto these ids. midi_cc is given only where the MIDI 1.0 spec, RP-021 or GM 2 sound-controller defaults (CC70-79) assign one. Names were chosen from a frequency count of parameter names across midi.guide's 457 device files (commit 215c64e8), plus the MIDI-standard controllers.",
+ "schema": "outrigger.standard-parameters/0",
+ "count": 116,
+ "parameters": [
+  {
+   "id": "mod_wheel",
+   "name": "Mod wheel",
+   "group": "performance",
+   "definition": "The modulation wheel; its destination is set on the device.",
+   "midi_cc": 1
+  },
+  {
+   "id": "breath",
+   "name": "Breath",
+   "group": "performance",
+   "definition": "A breath controller's pressure.",
+   "midi_cc": 2
+  },
+  {
+   "id": "foot_controller",
+   "name": "Foot controller",
+   "group": "performance",
+   "definition": "A continuous foot pedal.",
+   "midi_cc": 4
+  },
+  {
+   "id": "expression",
+   "name": "Expression",
+   "group": "performance",
+   "definition": "A volume scaling within the channel volume, usually a pedal.",
+   "midi_cc": 11
+  },
+  {
+   "id": "sustain_pedal",
+   "name": "Sustain pedal",
+   "group": "performance",
+   "definition": "Holds released notes until the pedal lifts (damper).",
+   "midi_cc": 64
+  },
+  {
+   "id": "sostenuto",
+   "name": "Sostenuto",
+   "group": "performance",
+   "definition": "Holds only the notes down when the pedal went down.",
+   "midi_cc": 66
+  },
+  {
+   "id": "soft_pedal",
+   "name": "Soft pedal",
+   "group": "performance",
+   "definition": "Softens notes played while it is down.",
+   "midi_cc": 67
+  },
+  {
+   "id": "legato_footswitch",
+   "name": "Legato footswitch",
+   "group": "performance",
+   "definition": "Plays notes legato while it is down.",
+   "midi_cc": 68
+  },
+  {
+   "id": "pitch_bend_range",
+   "name": "Pitch bend range",
+   "group": "performance",
+   "definition": "How far the pitch wheel bends, in semitones (RPN 0)."
+  },
+  {
+   "id": "aftertouch_amount",
+   "name": "Aftertouch amount",
+   "group": "performance",
+   "definition": "How much key pressure modulates its destination."
+  },
+  {
+   "id": "velocity_sensitivity",
+   "name": "Velocity sensitivity",
+   "group": "performance",
+   "definition": "How much note velocity changes level or tone."
+  },
+  {
+   "id": "volume",
+   "name": "Volume",
+   "group": "channel",
+   "definition": "The channel or part volume.",
+   "midi_cc": 7
+  },
+  {
+   "id": "pan",
+   "name": "Pan",
+   "group": "channel",
+   "definition": "Stereo position, left to right.",
+   "midi_cc": 10
+  },
+  {
+   "id": "balance",
+   "name": "Balance",
+   "group": "channel",
+   "definition": "Left/right balance of a stereo source.",
+   "midi_cc": 8
+  },
+  {
+   "id": "bank_select_msb",
+   "name": "Bank select MSB",
+   "group": "channel",
+   "definition": "The coarse bank number for the next program change.",
+   "midi_cc": 0
+  },
+  {
+   "id": "bank_select_lsb",
+   "name": "Bank select LSB",
+   "group": "channel",
+   "definition": "The fine bank number for the next program change.",
+   "midi_cc": 32
+  },
+  {
+   "id": "data_entry",
+   "name": "Data entry",
+   "group": "channel",
+   "definition": "Sets the value of the selected RPN or NRPN.",
+   "midi_cc": 6
+  },
+  {
+   "id": "all_sound_off",
+   "name": "All sound off",
+   "group": "channel",
+   "definition": "Silences the channel at once, releases included.",
+   "midi_cc": 120
+  },
+  {
+   "id": "reset_all_controllers",
+   "name": "Reset all controllers",
+   "group": "channel",
+   "definition": "Returns the channel's controllers to their defaults.",
+   "midi_cc": 121
+  },
+  {
+   "id": "local_control",
+   "name": "Local control",
+   "group": "channel",
+   "definition": "Connects or disconnects the device's own keys from its sound.",
+   "midi_cc": 122
+  },
+  {
+   "id": "all_notes_off",
+   "name": "All notes off",
+   "group": "channel",
+   "definition": "Releases every note on the channel.",
+   "midi_cc": 123
+  },
+  {
+   "id": "mono_poly_mode",
+   "name": "Mono/poly mode",
+   "group": "channel",
+   "definition": "Mono or poly reception (CC126 / CC127)."
+  },
+  {
+   "id": "master_volume",
+   "name": "Master volume",
+   "group": "master",
+   "definition": "The device's overall output level."
+  },
+  {
+   "id": "master_tune",
+   "name": "Master tune",
+   "group": "master",
+   "definition": "Fine tuning of the whole device."
+  },
+  {
+   "id": "transpose",
+   "name": "Transpose",
+   "group": "master",
+   "definition": "Shifts all notes by semitones."
+  },
+  {
+   "id": "octave",
+   "name": "Octave",
+   "group": "master",
+   "definition": "Shifts the keyboard or a part by octaves."
+  },
+  {
+   "id": "tempo",
+   "name": "Tempo",
+   "group": "master",
+   "definition": "The internal clock's tempo, in BPM."
+  },
+  {
+   "id": "swing",
+   "name": "Swing",
+   "group": "master",
+   "definition": "Delays every other step for a shuffled feel."
+  },
+  {
+   "id": "tap_tempo",
+   "name": "Tap tempo",
+   "group": "master",
+   "definition": "Sets the tempo from taps."
+  },
+  {
+   "id": "bypass",
+   "name": "Bypass",
+   "group": "master",
+   "definition": "Passes the input through unprocessed."
+  },
+  {
+   "id": "osc_waveform",
+   "name": "Oscillator waveform",
+   "group": "oscillator",
+   "definition": "The oscillator's wave shape or wave selection."
+  },
+  {
+   "id": "osc_shape",
+   "name": "Oscillator shape",
+   "group": "oscillator",
+   "definition": "Continuous morph of the waveform (wave, timbre, shape)."
+  },
+  {
+   "id": "osc_pitch",
+   "name": "Oscillator pitch",
+   "group": "oscillator",
+   "definition": "The oscillator's coarse pitch, in semitones or octaves."
+  },
+  {
+   "id": "osc_fine_tune",
+   "name": "Oscillator fine tune",
+   "group": "oscillator",
+   "definition": "The oscillator's fine pitch, in cents."
+  },
+  {
+   "id": "osc_level",
+   "name": "Oscillator level",
+   "group": "oscillator",
+   "definition": "The oscillator's level into the mixer."
+  },
+  {
+   "id": "pulse_width",
+   "name": "Pulse width",
+   "group": "oscillator",
+   "definition": "The duty cycle of a pulse or square wave."
+  },
+  {
+   "id": "pwm_amount",
+   "name": "PWM amount",
+   "group": "oscillator",
+   "definition": "How much a modulator varies the pulse width."
+  },
+  {
+   "id": "osc_sync",
+   "name": "Oscillator sync",
+   "group": "oscillator",
+   "definition": "Hard-syncs one oscillator to another."
+  },
+  {
+   "id": "fm_amount",
+   "name": "FM amount",
+   "group": "oscillator",
+   "definition": "Frequency modulation depth between oscillators or operators."
+  },
+  {
+   "id": "ring_mod",
+   "name": "Ring modulation",
+   "group": "oscillator",
+   "definition": "The level of the ring-modulated product of two oscillators."
+  },
+  {
+   "id": "sub_osc_level",
+   "name": "Sub oscillator level",
+   "group": "oscillator",
+   "definition": "The level of an oscillator an octave or two below."
+  },
+  {
+   "id": "noise_level",
+   "name": "Noise level",
+   "group": "oscillator",
+   "definition": "The level of the noise source."
+  },
+  {
+   "id": "osc_mix",
+   "name": "Oscillator mix",
+   "group": "oscillator",
+   "definition": "The balance between two oscillators."
+  },
+  {
+   "id": "detune",
+   "name": "Detune",
+   "group": "oscillator",
+   "definition": "Pitch spread between oscillators or voices."
+  },
+  {
+   "id": "engine_type",
+   "name": "Engine type",
+   "group": "oscillator",
+   "definition": "Selects the synthesis engine or oscillator model."
+  },
+  {
+   "id": "wavetable_position",
+   "name": "Wavetable position",
+   "group": "oscillator",
+   "definition": "The position within a wavetable."
+  },
+  {
+   "id": "filter_cutoff",
+   "name": "Filter cutoff",
+   "group": "filter",
+   "definition": "The filter's cutoff frequency (brightness).",
+   "midi_cc": 74
+  },
+  {
+   "id": "filter_resonance",
+   "name": "Filter resonance",
+   "group": "filter",
+   "definition": "Emphasis at the cutoff frequency (Q).",
+   "midi_cc": 71
+  },
+  {
+   "id": "filter_type",
+   "name": "Filter type",
+   "group": "filter",
+   "definition": "Low-pass, high-pass, band-pass, and so on, or the filter model."
+  },
+  {
+   "id": "filter_slope",
+   "name": "Filter slope",
+   "group": "filter",
+   "definition": "The filter's steepness, in dB per octave or poles."
+  },
+  {
+   "id": "filter_drive",
+   "name": "Filter drive",
+   "group": "filter",
+   "definition": "Overdrive into the filter."
+  },
+  {
+   "id": "filter_env_amount",
+   "name": "Filter envelope amount",
+   "group": "filter",
+   "definition": "How much the filter envelope moves the cutoff."
+  },
+  {
+   "id": "filter_key_tracking",
+   "name": "Filter key tracking",
+   "group": "filter",
+   "definition": "How much the cutoff follows the played note."
+  },
+  {
+   "id": "filter_velocity",
+   "name": "Filter velocity",
+   "group": "filter",
+   "definition": "How much velocity moves the cutoff."
+  },
+  {
+   "id": "filter_lfo_amount",
+   "name": "Filter LFO amount",
+   "group": "filter",
+   "definition": "How much an LFO moves the cutoff."
+  },
+  {
+   "id": "hpf_cutoff",
+   "name": "High-pass cutoff",
+   "group": "filter",
+   "definition": "A separate high-pass filter's cutoff."
+  },
+  {
+   "id": "amp_attack",
+   "name": "Amp attack",
+   "group": "amp_envelope",
+   "definition": "Time for the level to rise to full after a note starts.",
+   "midi_cc": 73
+  },
+  {
+   "id": "amp_decay",
+   "name": "Amp decay",
+   "group": "amp_envelope",
+   "definition": "Time for the level to fall from full to the sustain level.",
+   "midi_cc": 75
+  },
+  {
+   "id": "amp_sustain",
+   "name": "Amp sustain",
+   "group": "amp_envelope",
+   "definition": "The level held while the note is held."
+  },
+  {
+   "id": "amp_release",
+   "name": "Amp release",
+   "group": "amp_envelope",
+   "definition": "Time for the level to fade after the note ends.",
+   "midi_cc": 72
+  },
+  {
+   "id": "amp_env_amount",
+   "name": "Amp envelope amount",
+   "group": "amp_envelope",
+   "definition": "How much the envelope shapes the level (vs. a gate)."
+  },
+  {
+   "id": "amp_velocity",
+   "name": "Amp velocity",
+   "group": "amp_envelope",
+   "definition": "How much velocity sets the level."
+  },
+  {
+   "id": "filter_attack",
+   "name": "Filter envelope attack",
+   "group": "filter_envelope",
+   "definition": "The filter envelope's attack time."
+  },
+  {
+   "id": "filter_decay",
+   "name": "Filter envelope decay",
+   "group": "filter_envelope",
+   "definition": "The filter envelope's decay time."
+  },
+  {
+   "id": "filter_sustain",
+   "name": "Filter envelope sustain",
+   "group": "filter_envelope",
+   "definition": "The filter envelope's sustain level."
+  },
+  {
+   "id": "filter_release",
+   "name": "Filter envelope release",
+   "group": "filter_envelope",
+   "definition": "The filter envelope's release time."
+  },
+  {
+   "id": "mod_env_attack",
+   "name": "Mod envelope attack",
+   "group": "mod_envelope",
+   "definition": "Attack time of an assignable envelope."
+  },
+  {
+   "id": "mod_env_decay",
+   "name": "Mod envelope decay",
+   "group": "mod_envelope",
+   "definition": "Decay time of an assignable envelope."
+  },
+  {
+   "id": "mod_env_sustain",
+   "name": "Mod envelope sustain",
+   "group": "mod_envelope",
+   "definition": "Sustain level of an assignable envelope."
+  },
+  {
+   "id": "mod_env_release",
+   "name": "Mod envelope release",
+   "group": "mod_envelope",
+   "definition": "Release time of an assignable envelope."
+  },
+  {
+   "id": "mod_env_amount",
+   "name": "Mod envelope amount",
+   "group": "mod_envelope",
+   "definition": "Depth of an assignable envelope at its destination."
+  },
+  {
+   "id": "lfo_rate",
+   "name": "LFO rate",
+   "group": "lfo",
+   "definition": "The LFO's speed, free or synced."
+  },
+  {
+   "id": "lfo_shape",
+   "name": "LFO shape",
+   "group": "lfo",
+   "definition": "The LFO's waveform."
+  },
+  {
+   "id": "lfo_depth",
+   "name": "LFO depth",
+   "group": "lfo",
+   "definition": "How much the LFO moves its destination."
+  },
+  {
+   "id": "lfo_destination",
+   "name": "LFO destination",
+   "group": "lfo",
+   "definition": "What the LFO modulates."
+  },
+  {
+   "id": "lfo_sync",
+   "name": "LFO sync",
+   "group": "lfo",
+   "definition": "Locks the LFO to the tempo."
+  },
+  {
+   "id": "lfo_delay",
+   "name": "LFO delay",
+   "group": "lfo",
+   "definition": "Time before the LFO fades in after a note."
+  },
+  {
+   "id": "lfo_key_trigger",
+   "name": "LFO key trigger",
+   "group": "lfo",
+   "definition": "Restarts the LFO with each note."
+  },
+  {
+   "id": "vibrato_rate",
+   "name": "Vibrato rate",
+   "group": "lfo",
+   "definition": "The pitch vibrato's speed.",
+   "midi_cc": 76
+  },
+  {
+   "id": "vibrato_depth",
+   "name": "Vibrato depth",
+   "group": "lfo",
+   "definition": "The pitch vibrato's depth.",
+   "midi_cc": 77
+  },
+  {
+   "id": "vibrato_delay",
+   "name": "Vibrato delay",
+   "group": "lfo",
+   "definition": "Time before vibrato starts.",
+   "midi_cc": 78
+  },
+  {
+   "id": "glide_time",
+   "name": "Glide time",
+   "group": "voice",
+   "definition": "Portamento time between notes.",
+   "midi_cc": 5
+  },
+  {
+   "id": "glide_on",
+   "name": "Glide on/off",
+   "group": "voice",
+   "definition": "Turns portamento on or off.",
+   "midi_cc": 65
+  },
+  {
+   "id": "glide_mode",
+   "name": "Glide mode",
+   "group": "voice",
+   "definition": "When glide applies (always, legato, fixed rate or time)."
+  },
+  {
+   "id": "voice_mode",
+   "name": "Voice mode",
+   "group": "voice",
+   "definition": "Poly, mono, unison, paraphonic, and so on."
+  },
+  {
+   "id": "unison_voices",
+   "name": "Unison voices",
+   "group": "voice",
+   "definition": "How many voices stack per note."
+  },
+  {
+   "id": "unison_detune",
+   "name": "Unison detune",
+   "group": "voice",
+   "definition": "Pitch spread of stacked unison voices."
+  },
+  {
+   "id": "stereo_spread",
+   "name": "Stereo spread",
+   "group": "voice",
+   "definition": "How widely voices pan across the stereo field."
+  },
+  {
+   "id": "legato",
+   "name": "Legato",
+   "group": "voice",
+   "definition": "Mono notes played overlapping do not retrigger envelopes."
+  },
+  {
+   "id": "note_priority",
+   "name": "Note priority",
+   "group": "voice",
+   "definition": "Which held note a mono voice plays (last, low, high)."
+  },
+  {
+   "id": "polyphony",
+   "name": "Polyphony",
+   "group": "voice",
+   "definition": "The number of voices available."
+  },
+  {
+   "id": "reverb_send",
+   "name": "Reverb send",
+   "group": "effects",
+   "definition": "How much signal goes to the reverb.",
+   "midi_cc": 91
+  },
+  {
+   "id": "reverb_time",
+   "name": "Reverb time",
+   "group": "effects",
+   "definition": "The reverb's decay length or size."
+  },
+  {
+   "id": "reverb_type",
+   "name": "Reverb type",
+   "group": "effects",
+   "definition": "The reverb's algorithm."
+  },
+  {
+   "id": "chorus_send",
+   "name": "Chorus send",
+   "group": "effects",
+   "definition": "How much signal goes to the chorus.",
+   "midi_cc": 93
+  },
+  {
+   "id": "chorus_rate",
+   "name": "Chorus rate",
+   "group": "effects",
+   "definition": "The chorus's modulation speed."
+  },
+  {
+   "id": "chorus_depth",
+   "name": "Chorus depth",
+   "group": "effects",
+   "definition": "The chorus's modulation depth."
+  },
+  {
+   "id": "delay_send",
+   "name": "Delay send",
+   "group": "effects",
+   "definition": "How much signal goes to the delay (CC94 on Felucca; not a MIDI standard)."
+  },
+  {
+   "id": "delay_time",
+   "name": "Delay time",
+   "group": "effects",
+   "definition": "The delay's time, free or synced."
+  },
+  {
+   "id": "delay_feedback",
+   "name": "Delay feedback",
+   "group": "effects",
+   "definition": "How much of the delay's output repeats."
+  },
+  {
+   "id": "effect_mix",
+   "name": "Effect mix",
+   "group": "effects",
+   "definition": "The wet/dry balance of an effect."
+  },
+  {
+   "id": "distortion",
+   "name": "Distortion",
+   "group": "effects",
+   "definition": "Drive, overdrive or bit-crush amount."
+  },
+  {
+   "id": "effect_type",
+   "name": "Effect type",
+   "group": "effects",
+   "definition": "Selects the effect algorithm."
+  },
+  {
+   "id": "eq_low",
+   "name": "EQ low",
+   "group": "effects",
+   "definition": "Bass shelf gain."
+  },
+  {
+   "id": "eq_mid",
+   "name": "EQ mid",
+   "group": "effects",
+   "definition": "Mid band gain."
+  },
+  {
+   "id": "eq_high",
+   "name": "EQ high",
+   "group": "effects",
+   "definition": "Treble shelf gain."
+  },
+  {
+   "id": "arp_on",
+   "name": "Arpeggiator on/off",
+   "group": "sequencer",
+   "definition": "Turns the arpeggiator on or off."
+  },
+  {
+   "id": "arp_mode",
+   "name": "Arpeggiator mode",
+   "group": "sequencer",
+   "definition": "The note order: up, down, up/down, random, and so on."
+  },
+  {
+   "id": "arp_range",
+   "name": "Arpeggiator range",
+   "group": "sequencer",
+   "definition": "How many octaves the arpeggio spans."
+  },
+  {
+   "id": "arp_rate",
+   "name": "Arpeggiator rate",
+   "group": "sequencer",
+   "definition": "The arpeggio's step length against the tempo."
+  },
+  {
+   "id": "arp_gate",
+   "name": "Arpeggiator gate",
+   "group": "sequencer",
+   "definition": "Each arpeggio note's length."
+  },
+  {
+   "id": "arp_latch",
+   "name": "Latch",
+   "group": "sequencer",
+   "definition": "Keeps the arpeggio or chord playing after keys lift."
+  },
+  {
+   "id": "seq_play_stop",
+   "name": "Play/stop",
+   "group": "sequencer",
+   "definition": "Starts or stops the sequencer."
+  },
+  {
+   "id": "seq_length",
+   "name": "Sequence length",
+   "group": "sequencer",
+   "definition": "The number of steps in a pattern."
+  },
+  {
+   "id": "track_mute",
+   "name": "Track mute",
+   "group": "sequencer",
+   "definition": "Silences a track or part."
+  },
+  {
+   "id": "track_level",
+   "name": "Track level",
+   "group": "sequencer",
+   "definition": "A track or part's level within the device."
+  }
+ ]
+}
