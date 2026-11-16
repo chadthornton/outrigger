@@ -396,6 +396,10 @@ const BOPS_MAX: usize = 1 << 22;
 const BOPS_MAX: usize = 1 << 17;
 const ICACHE_LINES: usize = (1 << ICACHE_BITS) + (1 << ICACHE_RAM_BITS);
 
+// (Outrigger patch, A2 diagnostics: blocks built and block-store resets, all cores together)
+pub static BLOCKS_BUILT: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+pub static BSTORE_RESETS: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+
 #[inline(always)]
 fn icache_slot(pc: u32) -> usize {
     if pc < 0x0200_0000 {
@@ -1341,7 +1345,9 @@ impl Cpu {
             #[cfg(any(target_arch = "riscv32", feature = "small_icache"))]
             self.bops.reserve_exact(BOPS_MAX + 4096);
         }
+        BLOCKS_BUILT.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
         if self.bops.len() > BOPS_MAX {
+            BSTORE_RESETS.fetch_add(1, core::sync::atomic::Ordering::Relaxed);
             // (cannot happen for one image, but never grow without bound)
             self.bops.clear();
             self.swaps.clear();
@@ -3693,7 +3699,10 @@ fn decode_any(win: u64, pc: u32) -> Result<fm1_isa::Instruction, fm1_isa::Decode
         None if let Some(entry) = sreg_move_raw(win) => Ok(fm1_isa::Instruction { addr: pc, raw: win & 0xffff_ffff, entry }),
         // the DSP forms (see pre_table_raw), before the table too
         None if let Some(entry) = pre_table_raw(win & 0xffff_ffff) => Ok(fm1_isa::Instruction { addr: pc, raw: win & 0xffff_ffff, entry }),
+        #[cfg(not(any(target_arch = "riscv32", feature = "isa_index")))]
         None => fm1_isa::decode_win_cached(win, pc),
+        #[cfg(any(target_arch = "riscv32", feature = "isa_index"))]
+        None => isa_index::decode_win_cached(win, pc),
     };
     let raw = |entry| Ok(fm1_isa::Instruction { addr: pc, raw: win & 0xffff_ffff, entry });
     match decoded {
@@ -7936,3 +7945,59 @@ pub fn describe(win: u64, pc: u32) -> Option<String> {
 
 }
 
+
+/// (Outrigger patch, A2: `fm1_isa::decode_win_cached` with the class scan over a RAM copy of the
+/// table's masks. `decode_win` walks all 2,916 `fm1_isa::ISA` entries (~300 KB); on the ESP32-P4
+/// that table sits in SPI flash, so every uncached decode streamed it through the 128 KB cache and
+/// took ~13 ms. Here each entry's (mask, match) pair is copied once into a 47 KB array and only a
+/// hit reads the entry itself. Same entries, same order, same sample tiebreak: same result.)
+#[cfg(any(target_arch = "riscv32", feature = "isa_index"))]
+mod isa_index {
+    use fm1_isa::{DecodeError, Instruction, IsaEntry, FALLBACK, FPU, ISA};
+    use std::cell::RefCell;
+    use std::collections::HashMap;
+
+    thread_local! {
+        static INDEX: Vec<(u64, u64)> = ISA.iter().map(|e| (e.mask, e.match_)).collect();
+        static CACHE: RefCell<HashMap<u64, Option<&'static IsaEntry>>> = RefCell::new(HashMap::new());
+    }
+
+    fn class(win: u64) -> Option<&'static IsaEntry> {
+        if let Some(e) = FPU.iter().find(|e| (win & e.mask) == e.match_) {
+            return Some(e);
+        }
+        let best = INDEX.with(|idx| {
+            let mut best: Option<&'static IsaEntry> = None;
+            for (i, &(mask, m)) in idx.iter().enumerate() {
+                if (win & mask) == m {
+                    let e = &ISA[i];
+                    let len_mask = (1u64 << (e.len as u32 * 8)) - 1;
+                    if e.samples.contains(&(win & len_mask)) {
+                        return Some(e);
+                    }
+                    if best.is_none() {
+                        best = Some(e);
+                    }
+                }
+            }
+            best
+        });
+        best.or_else(|| FALLBACK.iter().find(|e| (win & e.mask) == e.match_))
+    }
+
+    pub(super) fn decode_win_cached(win: u64, addr: u32) -> Result<Instruction, DecodeError> {
+        let hit = CACHE.with(|c| c.borrow().get(&win).copied());
+        let entry = match hit {
+            Some(e) => e,
+            None => {
+                let e = class(win);
+                CACHE.with(|c| c.borrow_mut().insert(win, e));
+                e
+            }
+        };
+        match entry {
+            Some(entry) => Ok(Instruction { addr, raw: win, entry }),
+            None => Err(DecodeError::UnknownInstruction { raw: win, addr }),
+        }
+    }
+}

@@ -13,3 +13,5 @@ fm1-isa = { git = "https://github.com/joakimeriksson/fm1-emu", rev = "60645a58d6
 [features]
 # the small instruction cache on any host (on for riscv32 by itself), to measure it on a Mac
 small_icache = []
+# the RAM index for the ISA class scan (on for riscv32 by itself), to check it on a Mac
+isa_index = []

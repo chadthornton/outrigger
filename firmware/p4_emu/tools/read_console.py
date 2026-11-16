@@ -40,7 +40,7 @@ def main():
         s.rts = True
         time.sleep(0.1)
         s.rts = False
-    end, buf, reports = time.time() + secs, b"", []
+    end, buf, reports, boots = time.time() + secs, b"", [], 0
     sent_at = time.time() + 1.0
     while time.time() < end:
         if send is not None and time.time() >= sent_at:
@@ -54,11 +54,11 @@ def main():
             if log:
                 log.write(text + "\n")
             if text.startswith("ESP-ROM"):
-                boots = locals().get("boots", 0) + 1
+                boots += 1
             if text.startswith("FM1EMU fw="):
                 reports.append(dict(kv.split("=", 1) for kv in text.split()[1:] if "=" in kv))
     s.close()
-    boots = locals().get("boots", 0)
+    boots = max(0, boots - 1) if reset else boots  # the first boot is the one --reset asked for
     if not reports:
         print("SUMMARY no FM1EMU reports in %.0f s boots=%d" % (secs, boots))
         return

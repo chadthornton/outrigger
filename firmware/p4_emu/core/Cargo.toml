@@ -16,6 +16,7 @@ lto = true
 
 [features]
 small_icache = ["fm1-core/small_icache"]
+isa_index = ["fm1-core/isa_index"]
 
 # fm1-core carries one patch (third_party/fm1-core, a smaller instruction cache); fm1-soc's own
 # fm1-core dependency resolves to it too

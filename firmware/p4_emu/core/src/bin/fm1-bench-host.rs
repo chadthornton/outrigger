@@ -11,6 +11,8 @@ fn main() {
     };
     let ms: u64 = a.get(2).and_then(|s| s.parse().ok()).unwrap_or(10_000);
     let jit = a.iter().any(|s| s == "--jit");
+    // FM1_STEP_MS: emulated ms between lines (2000 by default)
+    let step_ms: u64 = std::env::var("FM1_STEP_MS").ok().and_then(|s| s.parse().ok()).unwrap_or(2000);
     let pkg = std::fs::read(path).expect("read package");
     let mut b = fm1_bench::Bench::new(&pkg, jit).expect("boot package");
     println!("fm1-bench-host: {path} board {} jit {jit}, {} MHz", b.board, fm1_bench::MHZ);
@@ -26,15 +28,17 @@ fn main() {
         if steady.is_none() && b.ms() >= 1000 {
             steady = Some((Instant::now(), b.ms()));
         }
-        if b.ms() >= lms + 2000 {
+        if b.ms() >= lms + step_ms {
             audio += b.take_audio_len();
             let now = Instant::now();
             let dt = (now - lt).as_secs_f64();
             let c1 = b.cpu1_insns().unwrap_or(0);
+            let (dec, built, resets) = b.diag();
             println!(
-                "emu {:6} ms  wall {:7.2} s  {:.3}x real time  {:.1} M emu cycles/s  {:.1} M insn/s cpu0  {:.1} M insn/s cpu1",
+                "emu {:6} ms  wall {:7.2} s  {:.3}x real time  {:.1} M emu cycles/s  {:.1} M insn/s cpu0  {:.1} M insn/s cpu1  decodes {} built {} resets {}",
                 b.ms(), (now - t0).as_secs_f64(), (b.ms() - lms) as f64 / 1000.0 / dt,
-                (b.cycles() - lcyc) as f64 / dt / 1e6, (b.insns - lins) as f64 / dt / 1e6, (c1 - lc1) as f64 / dt / 1e6
+                (b.cycles() - lcyc) as f64 / dt / 1e6, (b.insns - lins) as f64 / dt / 1e6, (c1 - lc1) as f64 / dt / 1e6,
+                dec, built, resets
             );
             (lt, lms, lcyc, lins, lc1) = (now, b.ms(), b.cycles(), b.insns, c1);
         }

@@ -77,6 +77,16 @@ impl Bench {
         self.soc.periph.skipped
     }
 
+    /// Diagnostics (A2): instruction decodes (both cores), blocks built and block-store resets.
+    pub fn diag(&self) -> (u64, u32, u32) {
+        use std::sync::atomic::Ordering::Relaxed;
+        (
+            self.cpu.decodes + self.cpu1.as_ref().map_or(0, |c| c.decodes),
+            fm1_core::BLOCKS_BUILT.load(Relaxed),
+            fm1_core::BSTORE_RESETS.load(Relaxed),
+        )
+    }
+
     /// Core 1's instructions, if the firmware started it.
     pub fn cpu1_insns(&self) -> Option<u64> {
         self.cpu1.as_ref().map(|c| c.insn_count)

@@ -79,9 +79,10 @@ fn run(name: String, pkg: Vec<u8>) {
             let dt = (now - lt).as_secs_f64();
             let c1 = b.cpu1_insns().unwrap_or(0);
             let skipped = 100.0 * b.skipped() as f64 / b.cycles().max(1) as f64;
+            let (dec, built, resets) = b.diag();
             // one line per report, key=value, for a script to parse
             println!(
-                "FM1EMU fw={name} emu_ms={} wall_s={:.1} ratio={:.4} ratio_total={:.4} emu_mcyc_s={:.2} cpu0_minsn_s={:.2} cpu1_minsn_s={:.2} cpu1={} audio_frames={} skipped_pct={:.0} free_int={} free_psram={}",
+                "FM1EMU fw={name} emu_ms={} wall_s={:.1} ratio={:.4} ratio_total={:.4} emu_mcyc_s={:.2} cpu0_minsn_s={:.2} cpu1_minsn_s={:.2} cpu1={} audio_frames={} skipped_pct={:.0} free_int={} free_psram={} decodes={dec} built={built} resets={resets} min_free_psram={}",
                 b.ms(),
                 (now - t0).as_secs_f64(),
                 (b.ms() - lms) as f64 / 1000.0 / dt,
@@ -94,6 +95,8 @@ fn run(name: String, pkg: Vec<u8>) {
                 skipped,
                 free(sys::MALLOC_CAP_INTERNAL),
                 free(sys::MALLOC_CAP_SPIRAM),
+                // SAFETY: a read-only heap query
+                unsafe { sys::heap_caps_get_minimum_free_size(sys::MALLOC_CAP_SPIRAM) },
             );
             (lt, lms, lcyc, lins, lc1) = (now, b.ms(), b.cycles(), b.insns, c1);
         }
